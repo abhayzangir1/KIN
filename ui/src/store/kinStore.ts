@@ -1,6 +1,6 @@
 // ============================================================================
 // KIN DESKTOP UI — ZUSTAND STATE STORE
-// Manages workspace, channels, active agents, and pending approvals.
+// Genuinely wired to KIN Core Server, SQLite persistence, and SSE events.
 // ============================================================================
 
 import { create } from 'zustand';
@@ -51,109 +51,219 @@ interface KinState {
   messages: MessageItem[];
   agents: AgentDisplay[];
   pendingApprovals: ApprovalItem[];
+  isConnected: boolean;
   
-  setActiveChannel: (channelId: string) => void;
-  setAutonomyMode: (mode: 'AUTO' | 'ALWAYS_ASK' | 'FULL_ACCESS') => void;
-  sendMessage: (content: string) => void;
-  updateAgentModel: (agentId: string, modelId: string) => void;
-  resolveApproval: (approvalId: string, approved: boolean) => void;
+  fetchState: () => Promise<void>;
+  initSSE: () => void;
+  setActiveChannel: (channelId: string) => Promise<void>;
+  setAutonomyMode: (mode: 'AUTO' | 'ALWAYS_ASK' | 'FULL_ACCESS') => Promise<void>;
+  sendMessage: (content: string) => Promise<void>;
+  updateAgentModel: (agentId: string, modelId: string) => Promise<void>;
+  resolveApproval: (approvalId: string, approved: boolean) => Promise<void>;
 }
+
+let eventSourceInstance: EventSource | null = null;
 
 export const useKinStore = create<KinState>((set, get) => ({
   activeChannelId: 'chan-architecture',
   autonomyMode: 'AUTO',
-  channels: [
-    { id: 'chan-architecture', name: 'architecture', topic: 'System schema contracts & API architecture', unreadCount: 0 },
-    { id: 'chan-engineering', name: 'engineering', topic: 'Frontend, backend & database execution', unreadCount: 0 },
-    { id: 'chan-approvals', name: 'approvals', topic: 'Consequential action approval gate', unreadCount: 1 },
-  ],
-  agents: [
-    {
-      id: 'agent-orch',
-      name: 'Default Orchestrator',
-      displayName: '@Orchestrator',
-      role: 'Workspace Coordinator',
-      activeModelId: 'anthropic/claude-3-5-sonnet',
-      status: 'idle',
-      isOrchestrator: true,
-    },
-    {
-      id: 'agent-backend',
-      name: 'Backend Lead',
-      displayName: '@BackendLead',
-      role: 'Backend Architect',
-      activeModelId: 'openai/gpt-4o',
-      status: 'idle',
-      isOrchestrator: false,
-    },
-    {
-      id: 'agent-frontend',
-      name: 'Frontend Lead',
-      displayName: '@FrontendLead',
-      role: 'UI Architect',
-      activeModelId: 'deepseek/deepseek-chat',
-      status: 'idle',
-      isOrchestrator: false,
-    },
-    {
-      id: 'agent-db',
-      name: 'Database Worker',
-      displayName: '@DatabaseWorker',
-      role: 'Database Engineer',
-      activeModelId: 'ollama/qwen2.5-coder',
-      status: 'idle',
-      isOrchestrator: false,
-    },
-  ],
-  messages: [
-    {
-      id: 'msg-001',
-      channelId: 'chan-architecture',
-      senderId: 'agent-orch',
-      senderName: '@Orchestrator',
-      senderType: 'agent',
-      content: 'KIN Workforce initialized. Workspace default autonomy mode is set to AUTO. Agents are assigned to their user-configured models.',
-      createdAt: Date.now() - 3600000,
-      productivityScore: 100,
-    },
-  ],
-  pendingApprovals: [
-    {
-      id: 'appr-001',
-      runId: 'run-902',
-      agentName: '@DatabaseWorker',
-      toolName: 'executeShell',
-      actionSummary: 'rm -rf .kin/worktrees/task-102/cache/db',
-      riskLevel: 'HIGH',
-      createdAt: Date.now() - 60000,
-    },
-  ],
+  channels: [],
+  messages: [],
+  agents: [],
+  pendingApprovals: [],
+  isConnected: false,
 
-  setActiveChannel: (channelId: string) => set({ activeChannelId: channelId }),
-  setAutonomyMode: (mode: 'AUTO' | 'ALWAYS_ASK' | 'FULL_ACCESS') => set({ autonomyMode: mode }),
+  fetchState: async () => {
+    try {
+      const res = await fetch('/api/state');
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      const data = await res.json();
 
-  sendMessage: (content: string) => {
-    const newMessage: MessageItem = {
-      id: `msg-${Date.now()}`,
-      channelId: get().activeChannelId,
-      senderId: 'user-operator',
-      senderName: 'You (Human Operator)',
-      senderType: 'human',
-      content,
-      createdAt: Date.now(),
-    };
-    set((state) => ({ messages: [...state.messages, newMessage] }));
+      set({
+        autonomyMode: data.autonomyMode || 'AUTO',
+        activeChannelId: data.activeChannelId || 'chan-architecture',
+        channels: data.channels || [],
+        agents: data.agents || [],
+        messages: data.messages || [],
+        pendingApprovals: data.pendingApprovals || [],
+        isConnected: true,
+      });
+    } catch (err) {
+      console.warn('[KIN UI] Could not connect to Core IPC server, retrying...', err);
+      set({ isConnected: false });
+    }
   },
 
-  updateAgentModel: (agentId: string, modelId: string) => {
+  initSSE: () => {
+    if (eventSourceInstance) {
+      eventSourceInstance.close();
+    }
+
+    try {
+      const sse = new EventSource('/api/events');
+      eventSourceInstance = sse;
+
+      sse.addEventListener('message:created', (e) => {
+        try {
+          const msg: MessageItem = JSON.parse(e.data);
+          set((state) => {
+            // Avoid duplicate message appending
+            if (state.messages.some((m) => m.id === msg.id)) return state;
+            return { messages: [...state.messages, msg] };
+          });
+        } catch (err) {
+          console.error('[KIN UI] Failed to parse message:created event', err);
+        }
+      });
+
+      sse.addEventListener('agent:state', (e) => {
+        try {
+          const { agentId, status } = JSON.parse(e.data);
+          set((state) => ({
+            agents: state.agents.map((a) => (a.id === agentId ? { ...a, status } : a)),
+          }));
+        } catch (err) {
+          console.error('[KIN UI] Failed to parse agent:state event', err);
+        }
+      });
+
+      sse.addEventListener('agent:updated', (e) => {
+        try {
+          const { agentId, activeModelId } = JSON.parse(e.data);
+          set((state) => ({
+            agents: state.agents.map((a) => (a.id === agentId ? { ...a, activeModelId } : a)),
+          }));
+        } catch (err) {
+          console.error('[KIN UI] Failed to parse agent:updated event', err);
+        }
+      });
+
+      sse.addEventListener('autonomy:updated', (e) => {
+        try {
+          const { autonomyMode } = JSON.parse(e.data);
+          set({ autonomyMode });
+        } catch (err) {
+          console.error('[KIN UI] Failed to parse autonomy:updated event', err);
+        }
+      });
+
+      sse.addEventListener('approval:resolved', (e) => {
+        try {
+          const { approvalId } = JSON.parse(e.data);
+          set((state) => ({
+            pendingApprovals: state.pendingApprovals.filter((a) => a.id !== approvalId),
+          }));
+        } catch (err) {
+          console.error('[KIN UI] Failed to parse approval:resolved event', err);
+        }
+      });
+
+      sse.onopen = () => {
+        set({ isConnected: true });
+      };
+
+      sse.onerror = () => {
+        // SSE will automatically attempt reconnection
+        set({ isConnected: false });
+      };
+    } catch (err) {
+      console.error('[KIN UI] SSE connection error:', err);
+    }
+  },
+
+  setActiveChannel: async (channelId: string) => {
+    set({ activeChannelId: channelId });
+    try {
+      const res = await fetch(`/api/channels/${channelId}/messages`);
+      if (res.ok) {
+        const data = await res.json();
+        set({ messages: data.messages || [] });
+      }
+    } catch (err) {
+      console.error(`[KIN UI] Failed to load messages for channel ${channelId}:`, err);
+    }
+  },
+
+  setAutonomyMode: async (mode: 'AUTO' | 'ALWAYS_ASK' | 'FULL_ACCESS') => {
+    // Optimistic UI update
+    set({ autonomyMode: mode });
+    try {
+      const res = await fetch('/api/workspace/autonomy', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autonomyMode: mode }),
+      });
+      if (!res.ok) {
+        get().fetchState(); // Rollback on failure
+      }
+    } catch (err) {
+      console.error('[KIN UI] Failed to update autonomy mode:', err);
+      get().fetchState();
+    }
+  },
+
+  sendMessage: async (content: string) => {
+    const channelId = get().activeChannelId;
+    try {
+      const res = await fetch(`/api/channels/${channelId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
+      const data = await res.json();
+      if (data.message) {
+        set((state) => {
+          if (state.messages.some((m) => m.id === data.message.id)) return state;
+          return { messages: [...state.messages, data.message] };
+        });
+      }
+    } catch (err) {
+      console.error('[KIN UI] Failed to send message:', err);
+    }
+  },
+
+  updateAgentModel: async (agentId: string, modelId: string) => {
+    // Optimistic UI update
     set((state) => ({
       agents: state.agents.map((a) => (a.id === agentId ? { ...a, activeModelId: modelId } : a)),
     }));
+
+    try {
+      const res = await fetch(`/api/agents/${agentId}/model`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeModelId: modelId }),
+      });
+      if (!res.ok) {
+        get().fetchState(); // Rollback on error
+      }
+    } catch (err) {
+      console.error(`[KIN UI] Failed to update model for agent ${agentId}:`, err);
+      get().fetchState();
+    }
   },
 
-  resolveApproval: (approvalId: string, _approved: boolean) => {
+  resolveApproval: async (approvalId: string, approved: boolean) => {
+    // Optimistic UI update
     set((state) => ({
       pendingApprovals: state.pendingApprovals.filter((a) => a.id !== approvalId),
     }));
+
+    try {
+      const res = await fetch(`/api/approvals/${approvalId}/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approved }),
+      });
+      if (!res.ok) {
+        get().fetchState();
+      }
+    } catch (err) {
+      console.error(`[KIN UI] Failed to resolve approval ${approvalId}:`, err);
+      get().fetchState();
+    }
   },
 }));

@@ -45,10 +45,14 @@ export class MigrationRunner {
   public runMigrations(): MigrationReport {
     // Determine path to schema.sql
     const currentDir = path.dirname(fileURLToPath(import.meta.url));
-    const schemaPath = path.join(currentDir, 'schema.sql');
-
+    let schemaPath = path.join(currentDir, 'schema.sql');
     if (!fs.existsSync(schemaPath)) {
-      throw new Error(`Migration schema file not found at: ${schemaPath}`);
+      const srcPath = path.resolve(currentDir, '../../src/storage/schema.sql');
+      if (fs.existsSync(srcPath)) {
+        schemaPath = srcPath;
+      } else {
+        throw new Error(`Migration schema file not found at: ${schemaPath} or ${srcPath}`);
+      }
     }
 
     const schemaSql = fs.readFileSync(schemaPath, 'utf-8');

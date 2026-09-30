@@ -14,3 +14,5 @@ export * from './execution/worktree_manager.js';
 export * from './execution/tool_gateway.js';
 export * from './kernel/agent_kernel.js';
 export * from './policy/policy_engine.js';
+export * from './execution/model_gateway.js';
+export * from './server/core_server.js';

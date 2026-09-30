@@ -3,7 +3,7 @@ import { useKinStore } from '../store/kinStore.js';
 import { Hash, ShieldAlert, Cpu, CheckCircle2 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
-  const { channels, activeChannelId, setActiveChannel, autonomyMode, setAutonomyMode, pendingApprovals } = useKinStore();
+  const { channels, activeChannelId, setActiveChannel, autonomyMode, setAutonomyMode, pendingApprovals, isConnected } = useKinStore();
 
   return (
     <aside className="w-64 bg-kin-surface border-r border-kin-border flex flex-col h-screen">
@@ -81,10 +81,10 @@ export const Sidebar: React.FC = () => {
       {/* System Status Footer */}
       <div className="p-3 border-t border-kin-border bg-kin-card/30 flex items-center justify-between text-xs text-kin-muted">
         <div className="flex items-center space-x-1.5">
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-          <span>Core Monolith Online</span>
+          <CheckCircle2 className={`w-3.5 h-3.5 ${isConnected ? 'text-emerald-400' : 'text-amber-400 animate-pulse'}`} />
+          <span>{isConnected ? 'Core Monolith Online' : 'Connecting to Core...'}</span>
         </div>
-        <Cpu className="w-3.5 h-3.5 text-blue-400" />
+        <Cpu className={`w-3.5 h-3.5 ${isConnected ? 'text-blue-400' : 'text-kin-muted'}`} />
       </div>
     </aside>
   );

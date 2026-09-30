@@ -3,11 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "description": "KIN Core — Local-first Agent Kernel & Workforce Engine",
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node -e \"import('node:fs').then(fs => { fs.mkdirSync('dist/storage', {recursive:true}); fs.copyFileSync('src/storage/schema.sql', 'dist/storage/schema.sql'); })\"",
     "dev": "tsc -w",
+    "daemon": "node dist/start_daemon.js",
     "test": "vitest run",
     "test:foundation": "vitest run test/foundation.test.ts"
   },
