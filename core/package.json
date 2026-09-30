@@ -1,0 +1,25 @@
+{
+  "name": "@kin/core",
+  "version": "1.0.0",
+  "private": true,
+  "description": "KIN Core — Local-first Agent Kernel & Workforce Engine",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc -w",
+    "test": "vitest run",
+    "test:foundation": "vitest run test/foundation.test.ts"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "uuid": "^11.1.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/uuid": "^10.0.0",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.7"
+  }
+}

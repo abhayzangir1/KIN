@@ -1,0 +1,22 @@
+{
+  "name": "kin-workforce-os",
+  "version": "1.0.0",
+  "private": true,
+  "description": "KIN — Local-first AI Workforce & Agent Operating System",
+  "workspaces": [
+    "core",
+    "ui"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspace=core",
+    "test:foundation": "npm run test:foundation --workspace=core",
+    "core:dev": "npm run dev --workspace=core",
+    "ui:dev": "npm run dev --workspace=ui",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2"
+  }
+}

@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+target/
+
+# Build outputs
+dist/
+build/
+*.exe
+*.dll
+
+# KIN Runtime Data & Local Jails
+.kin/worktrees/
+.kin/spill/
+.kin/logs/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Environment & Credentials
+.env
+.env.*
+*.pem
+*.key
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
