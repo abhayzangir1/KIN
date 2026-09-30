@@ -81,6 +81,32 @@ export class WorkspaceRepository {
     };
   }
 
+  public listProjects(workspaceId: string): Project[] {
+    const rows = this.db.query<{
+      id: string;
+      workspace_id: string;
+      name: string;
+      repo_path: string;
+      settings_json: string;
+      created_at: number;
+      updated_at: number;
+    }>('SELECT * FROM projects WHERE workspace_id = ? ORDER BY created_at ASC', workspaceId);
+
+    return rows.map((r) => ({
+      id: r.id,
+      workspaceId: r.workspace_id,
+      name: r.name,
+      repoPath: r.repo_path,
+      settings: JSON.parse(r.settings_json),
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    }));
+  }
+
+  public deleteProject(projectId: string): void {
+    this.db.execute('DELETE FROM projects WHERE id = ?', projectId);
+  }
+
   public createChannel(channel: Channel): void {
     this.db.execute(
       `INSERT INTO channels (id, project_id, name, topic, is_private, created_at)

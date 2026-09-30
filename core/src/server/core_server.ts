@@ -5,7 +5,7 @@
 // ============================================================================
 
 import * as http from 'node:http';
-import * as url from 'node:url';
+import * as childProcess from 'node:child_process';
 import { KinDatabase } from '../storage/db.js';
 import { MigrationRunner } from '../storage/migration_runner.js';
 import { WorkspaceRepository } from '../domain/workspace_repository.js';
@@ -36,6 +36,7 @@ export class CoreServer {
   private modelGateway: ModelGateway;
   private contextCompiler: ContextCompiler;
   private sseClients: Set<http.ServerResponse> = new Set();
+  private activeProjectId: string = 'proj-kin';
 
   constructor(options: CoreServerOptions = {}) {
     this.port = options.port ?? 54321;
@@ -58,13 +59,12 @@ export class CoreServer {
   }
 
   /**
-   * Seeds default workspace, project, channels, and agents if fresh DB.
+   * Seeds default workspace, project, channels, and single default agent @Boss.
    */
   private seedDefaultStateIfEmpty(): void {
-    const existingWs = this.workspaceRepo.getWorkspace('ws-default');
-    if (!existingWs) {
-      const now = Date.now();
-      // 1. Workspace
+    const now = Date.now();
+    let ws = this.workspaceRepo.getWorkspace('ws-default');
+    if (!ws) {
       this.workspaceRepo.createWorkspace({
         id: 'ws-default',
         name: 'KIN Core Workspace',
@@ -73,147 +73,127 @@ export class CoreServer {
         createdAt: now,
         updatedAt: now,
       });
+    }
 
-      // 2. Project
+    let defaultProject = this.workspaceRepo.getProject('proj-kin');
+    if (!defaultProject) {
       this.workspaceRepo.createProject({
         id: 'proj-kin',
         workspaceId: 'ws-default',
-        name: 'KIN System',
+        name: 'KIN',
         repoPath: process.cwd(),
         settings: { defaultBranch: 'master' },
         createdAt: now,
         updatedAt: now,
       });
+    }
 
-      // 3. Channels
+    // Ensure #general channel exists
+    const channels = this.workspaceRepo.listChannels('proj-kin');
+    if (channels.length === 0) {
       this.workspaceRepo.createChannel({
-        id: 'chan-architecture',
+        id: 'chan-general',
         projectId: 'proj-kin',
-        name: 'architecture',
-        topic: 'System schema contracts & API architecture',
+        name: 'general',
+        topic: 'Workspace Sovereign Discussion',
         isPrivate: false,
         createdAt: now,
       });
+    }
 
-      this.workspaceRepo.createChannel({
-        id: 'chan-engineering',
-        projectId: 'proj-kin',
-        name: 'engineering',
-        topic: 'Frontend, backend & database execution',
-        isPrivate: false,
+    // Ensure strictly ONE default agent: @Boss (Orchestrator)
+    const bossIdentity = this.agentRepo.getIdentity('agent-boss');
+    if (!bossIdentity) {
+      // Clean up any legacy test agents to enforce the single-agent requirement
+      this.db.execute("DELETE FROM messages WHERE sender_id IN ('agent-orch', 'agent-backend', 'agent-frontend', 'agent-db')");
+      this.db.execute("DELETE FROM approvals WHERE agent_id IN ('agent-orch', 'agent-backend', 'agent-frontend', 'agent-db')");
+      this.db.execute("DELETE FROM agent_runs WHERE agent_id IN ('agent-orch', 'agent-backend', 'agent-frontend', 'agent-db')");
+      this.db.execute("DELETE FROM agent_identities WHERE id IN ('agent-orch', 'agent-backend', 'agent-frontend', 'agent-db')");
+      this.db.execute("DELETE FROM agent_definitions WHERE id IN ('def-orch', 'def-backend', 'def-frontend', 'def-db')");
+
+      // Create @Boss definition
+      this.agentRepo.createDefinition({
+        id: 'def-boss',
+        name: 'Boss',
+        role: 'Lead Sovereign Orchestrator',
+        systemPrompt: 'You are @Boss, the Lead Sovereign Orchestrator of KIN OS. You direct the workforce, execute project plans, manage worktrees, coordinate tools, and verify all technical deliverables. Workspace boundaries are strictly enforced.',
+        defaultModelId: 'ollama/qwen2.5-coder:3b',
+        domainAuthority: ['Architecture', 'Orchestration', 'Engineering', 'Operations'],
+        capabilities: ['read', 'write', 'shell', 'worktree', 'delegate'],
         createdAt: now,
       });
 
-      this.workspaceRepo.createChannel({
-        id: 'chan-approvals',
-        projectId: 'proj-kin',
-        name: 'approvals',
-        topic: 'Consequential action approval gate',
-        isPrivate: false,
+      // Create @Boss identity
+      this.agentRepo.createIdentity({
+        id: 'agent-boss',
+        workspaceId: 'ws-default',
+        definitionId: 'def-boss',
+        displayName: '@Boss',
+        activeModelId: 'ollama/qwen2.5-coder:3b',
+        isOrchestrator: true,
+        isEphemeral: false,
         createdAt: now,
+        updatedAt: now,
       });
 
-      // 4. Agent Definitions & Identities
-      const agents = [
-        {
-          defId: 'def-orch',
-          id: 'agent-orch',
-          name: 'Default Orchestrator',
-          displayName: '@Orchestrator',
-          role: 'Workspace Coordinator',
-          modelId: 'anthropic/claude-3-5-sonnet',
-          isOrch: true,
-        },
-        {
-          defId: 'def-backend',
-          id: 'agent-backend',
-          name: 'Backend Lead',
-          displayName: '@BackendLead',
-          role: 'Backend Architect',
-          modelId: 'openai/gpt-4o',
-          isOrch: false,
-        },
-        {
-          defId: 'def-frontend',
-          id: 'agent-frontend',
-          name: 'Frontend Lead',
-          displayName: '@FrontendLead',
-          role: 'UI Architect',
-          modelId: 'deepseek/deepseek-chat',
-          isOrch: false,
-        },
-        {
-          defId: 'def-db',
-          id: 'agent-db',
-          name: 'Database Worker',
-          displayName: '@DatabaseWorker',
-          role: 'Database Engineer',
-          modelId: 'ollama/qwen2.5-coder',
-          isOrch: false,
-        },
-      ];
-
-      for (const a of agents) {
-        this.agentRepo.createDefinition({
-          id: a.defId,
-          name: a.name,
-          role: a.role,
-          systemPrompt: `You are ${a.displayName}, the ${a.role} of KIN. Maintain strict domain boundaries and verify all solutions.`,
-          defaultModelId: a.modelId,
-          domainAuthority: [a.role],
-          capabilities: ['read', 'write'],
-          createdAt: now,
-        });
-
-        this.agentRepo.createIdentity({
-          id: a.id,
-          workspaceId: 'ws-default',
-          definitionId: a.defId,
-          displayName: a.displayName,
-          activeModelId: a.modelId,
-          isOrchestrator: a.isOrch,
-          isEphemeral: false,
-          createdAt: now,
-          updatedAt: now,
-        });
-      }
-
-      // 5. Initial Welcome Message
+      // Seed initial welcome message from @Boss in #general
       this.channelService.sendMessage({
-        channelId: 'chan-architecture',
-        senderId: 'agent-orch',
+        channelId: 'chan-general',
+        senderId: 'agent-boss',
         senderType: 'agent',
-        content: 'KIN Workforce initialized. Workspace default autonomy mode is set to AUTO. Agents are assigned to their user-configured models.',
+        content: 'KIN OS initialized. I am @Boss, your Lead Sovereign Orchestrator. Workspace boundaries are strictly enforced.',
         productivityScore: 100,
       });
-
-      // 6. Create a seed run for initial approval demo
-      const seedRun = this.kernel.spawnRun({
-        agentId: 'agent-db',
-        projectId: 'proj-kin',
-        allocatedTokens: 50000,
-      });
-
-      // 7. Seed pending approval
-      this.db.execute(
-        `INSERT INTO approvals (id, run_id, agent_id, tool_name, action_payload_json, risk_level, status, expires_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        'appr-001',
-        seedRun.id,
-        'agent-db',
-        'executeShell',
-        JSON.stringify({ command: 'rm -rf .kin/worktrees/task-102/cache/db' }),
-        'HIGH',
-        'pending',
-        now + 3600000,
-        now
-      );
     }
   }
 
   /**
-   * Starts HTTP and SSE server.
+   * Queries Ollama for currently installed models and online status.
    */
+  public async getLocalOllamaModels(): Promise<{ online: boolean; models: string[] }> {
+    try {
+      const res = await fetch('http://127.0.0.1:11434/api/tags', { signal: AbortSignal.timeout(1500) });
+      if (!res.ok) return { online: false, models: [] };
+      const data: any = await res.json();
+      const models = Array.isArray(data?.models) ? data.models.map((m: any) => m.name) : [];
+      return { online: true, models };
+    } catch {
+      return { online: false, models: [] };
+    }
+  }
+
+  /**
+   * Starts local Ollama server process if offline.
+   */
+  public async startOllamaServer(): Promise<{ success: boolean; online: boolean; models: string[] }> {
+    const initial = await this.getLocalOllamaModels();
+    if (initial.online) {
+      return { success: true, ...initial };
+    }
+
+    try {
+      const child = childProcess.spawn('ollama', ['serve'], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      child.unref();
+
+      // Poll for up to 6 seconds
+      const start = Date.now();
+      while (Date.now() - start < 6000) {
+        await new Promise((r) => setTimeout(r, 600));
+        const check = await this.getLocalOllamaModels();
+        if (check.online) {
+          return { success: true, ...check };
+        }
+      }
+      return { success: false, online: false, models: [] };
+    } catch (err) {
+      return { success: false, online: false, models: [] };
+    }
+  }
+
   public start(): Promise<number> {
     return new Promise((resolve) => {
       this.server = http.createServer((req, res) => this.handleRequest(req, res));
@@ -259,7 +239,7 @@ export class CoreServer {
 
   private handleCors(res: http.ServerResponse): void {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   }
 
@@ -275,7 +255,7 @@ export class CoreServer {
       req.on('data', (chunk) => (body += chunk));
       req.on('end', () => {
         try {
-          resolve(body ? JSON.parse(body) : {});
+          resolve(body ? JSON.parse(body) : ({} as T));
         } catch (e) {
           reject(new Error('Invalid JSON payload'));
         }
@@ -314,13 +294,154 @@ export class CoreServer {
         return;
       }
 
-      // 2. GET /api/state — Full authoritative snapshot from SQLite
+      // 2. GET /api/system/models — Check installed local models
+      if (req.method === 'GET' && pathname === '/api/system/models') {
+        const ollamaInfo = await this.getLocalOllamaModels();
+        return this.sendJson(res, 200, ollamaInfo);
+      }
+
+      // 3. POST /api/system/ollama/start — Start local Ollama daemon
+      if (req.method === 'POST' && pathname === '/api/system/ollama/start') {
+        const result = await this.startOllamaServer();
+        this.broadcastEvent('ollama:status', result);
+        return this.sendJson(res, result.success ? 200 : 500, result);
+      }
+
+      // 4. POST /api/system/terminal — Execute shell command in project directory
+      if (req.method === 'POST' && pathname === '/api/system/terminal') {
+        const body = await this.parseJsonBody<{ command: string; cwd?: string }>(req);
+        if (!body.command) {
+          return this.sendJson(res, 400, { error: 'Command is required' });
+        }
+
+        const project = this.workspaceRepo.getProject(this.activeProjectId);
+        const workingDir = body.cwd || project?.repoPath || process.cwd();
+
+        childProcess.exec(
+          body.command,
+          { cwd: workingDir, timeout: 30000, maxBuffer: 1024 * 1024 * 2 },
+          (error, stdout, stderr) => {
+            return this.sendJson(res, 200, {
+              command: body.command,
+              cwd: workingDir,
+              stdout: stdout || '',
+              stderr: stderr || (error ? error.message : ''),
+              exitCode: error ? (error.code ?? 1) : 0,
+            });
+          }
+        );
+        return;
+      }
+
+      // 5. GET /api/projects — List all projects
+      if (req.method === 'GET' && pathname === '/api/projects') {
+        const projects = this.workspaceRepo.listProjects('ws-default');
+        return this.sendJson(res, 200, { projects, activeProjectId: this.activeProjectId });
+      }
+
+      // 6. POST /api/projects — Create a new independent workspace project
+      if (req.method === 'POST' && pathname === '/api/projects') {
+        const body = await this.parseJsonBody<{ name: string; repoPath?: string }>(req);
+        if (!body.name || !body.name.trim()) {
+          return this.sendJson(res, 400, { error: 'Project name is required' });
+        }
+
+        const id = `proj-${Date.now()}`;
+        const now = Date.now();
+        const project = {
+          id,
+          workspaceId: 'ws-default',
+          name: body.name.trim(),
+          repoPath: body.repoPath?.trim() || `D:\\${body.name.trim()}`,
+          settings: { defaultBranch: 'master' },
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        this.workspaceRepo.createProject(project);
+
+        // Create default #general channel for this project
+        const channelId = `chan-${Date.now()}`;
+        this.workspaceRepo.createChannel({
+          id: channelId,
+          projectId: id,
+          name: 'general',
+          topic: `${project.name} Sovereign Discussion`,
+          isPrivate: false,
+          createdAt: now,
+        });
+
+        // Set as active project
+        this.activeProjectId = id;
+
+        this.broadcastEvent('project:created', project);
+        return this.sendJson(res, 201, { project, channelId });
+      }
+
+      // 7. DELETE /api/projects/:id — Remove project
+      const projectDeleteMatch = pathname.match(/^\/api\/projects\/([^/]+)$/);
+      if (req.method === 'DELETE' && projectDeleteMatch) {
+        const projectId = projectDeleteMatch[1];
+        if (projectId === 'proj-kin') {
+          return this.sendJson(res, 400, { error: 'Cannot delete primary root project' });
+        }
+
+        this.workspaceRepo.deleteProject(projectId);
+        if (this.activeProjectId === projectId) {
+          this.activeProjectId = 'proj-kin';
+        }
+
+        this.broadcastEvent('project:deleted', { projectId });
+        return this.sendJson(res, 200, { success: true, activeProjectId: this.activeProjectId });
+      }
+
+      // 8. GET /api/state — Full authoritative snapshot from SQLite
       if (req.method === 'GET' && pathname === '/api/state') {
+        const requestedProjId = parsedUrl.searchParams.get('projectId');
+        if (requestedProjId) {
+          const targetProj = this.workspaceRepo.getProject(requestedProjId);
+          if (targetProj) {
+            this.activeProjectId = requestedProjId;
+          }
+        }
+
         const ws = this.workspaceRepo.getWorkspace('ws-default');
-        const channels = this.workspaceRepo.listChannels('proj-kin');
-        const agents = this.agentRepo.listIdentities('ws-default');
-        const activeChannelId = channels[0]?.id || 'chan-architecture';
+        const projects = this.workspaceRepo.listProjects('ws-default');
+        const activeProject = this.workspaceRepo.getProject(this.activeProjectId) || projects[0];
+        
+        let channels = this.workspaceRepo.listChannels(activeProject?.id || 'proj-kin');
+        if (channels.length === 0 && activeProject) {
+          // Fallback create general channel
+          this.workspaceRepo.createChannel({
+            id: `chan-${activeProject.id}-gen`,
+            projectId: activeProject.id,
+            name: 'general',
+            topic: 'General Discussion',
+            isPrivate: false,
+            createdAt: Date.now(),
+          });
+          channels = this.workspaceRepo.listChannels(activeProject.id);
+        }
+
+        const activeChannelId = channels[0]?.id || 'chan-general';
         const messages = this.channelService.getMessages(activeChannelId, 100);
+
+        // Fetch agents in workspace (Single agent: @Boss)
+        const agents = this.agentRepo.listIdentities('ws-default');
+        const agentDisplays = agents.map((a) => {
+          const def = this.agentRepo.getDefinition(a.definitionId);
+          return {
+            id: a.id,
+            name: def?.name ?? a.displayName,
+            role: def?.role ?? 'Lead Sovereign Orchestrator',
+            displayName: a.displayName,
+            activeModelId: a.activeModelId,
+            fallbackModelId: a.fallbackModelId,
+            systemPrompt: def?.systemPrompt,
+            status: 'idle',
+            isOrchestrator: a.isOrchestrator,
+          };
+        });
 
         // Fetch pending approvals
         const rawApprovals = this.db.query<{
@@ -339,7 +460,7 @@ export class CoreServer {
           return {
             id: a.id,
             runId: a.run_id,
-            agentName: agent?.displayName ?? '@UnknownAgent',
+            agentName: agent?.displayName ?? '@Boss',
             toolName: a.tool_name,
             actionSummary: payload?.command || JSON.stringify(payload),
             riskLevel: a.risk_level,
@@ -347,23 +468,13 @@ export class CoreServer {
           };
         });
 
-        // Enrich agents with runtime role & definition
-        const agentDisplays = agents.map((a) => {
-          const def = this.agentRepo.getDefinition(a.definitionId);
-          return {
-            id: a.id,
-            name: def?.name ?? a.displayName,
-            role: def?.role ?? 'Agent',
-            displayName: a.displayName,
-            activeModelId: a.activeModelId,
-            fallbackModelId: a.fallbackModelId,
-            status: 'idle',
-            isOrchestrator: a.isOrchestrator,
-          };
-        });
+        // Check Ollama status
+        const ollamaInfo = await this.getLocalOllamaModels();
 
         return this.sendJson(res, 200, {
           workspace: ws,
+          activeProject,
+          projects,
           autonomyMode: ws?.defaultAutonomyMode ?? 'AUTO',
           activeChannelId,
           channels: channels.map((c) => ({
@@ -379,7 +490,7 @@ export class CoreServer {
               id: m.id,
               channelId: m.channelId,
               senderId: m.senderId,
-              senderName: m.senderType === 'human' ? 'You (Human Operator)' : agent?.displayName ?? m.senderId,
+              senderName: m.senderType === 'human' ? 'Human' : agent?.displayName ?? m.senderId,
               senderType: m.senderType,
               content: m.content,
               createdAt: m.createdAt,
@@ -387,10 +498,11 @@ export class CoreServer {
             };
           }),
           pendingApprovals,
+          ollamaStatus: ollamaInfo,
         });
       }
 
-      // 3. GET /api/channels/:channelId/messages
+      // 9. GET /api/channels/:channelId/messages
       const channelMessagesMatch = pathname.match(/^\/api\/channels\/([^/]+)\/messages$/);
       if (req.method === 'GET' && channelMessagesMatch) {
         const channelId = channelMessagesMatch[1];
@@ -404,7 +516,7 @@ export class CoreServer {
               id: m.id,
               channelId: m.channelId,
               senderId: m.senderId,
-              senderName: m.senderType === 'human' ? 'You (Human Operator)' : agent?.displayName ?? m.senderId,
+              senderName: m.senderType === 'human' ? 'Human' : agent?.displayName ?? m.senderId,
               senderType: m.senderType,
               content: m.content,
               createdAt: m.createdAt,
@@ -414,7 +526,7 @@ export class CoreServer {
         });
       }
 
-      // 4. POST /api/channels/:channelId/messages
+      // 10. POST /api/channels/:channelId/messages
       if (req.method === 'POST' && channelMessagesMatch) {
         const channelId = channelMessagesMatch[1];
         const body = await this.parseJsonBody<{ content: string; senderId?: string }>(req);
@@ -435,7 +547,7 @@ export class CoreServer {
           id: userMsg.id,
           channelId: userMsg.channelId,
           senderId: userMsg.senderId,
-          senderName: 'You (Human Operator)',
+          senderName: 'Human',
           senderType: 'human',
           content: userMsg.content,
           createdAt: userMsg.createdAt,
@@ -443,27 +555,21 @@ export class CoreServer {
 
         this.broadcastEvent('message:created', formattedUserMsg);
 
-        // Run activation engine to see which agents need to react
+        // In a single-orchestrator environment, @Boss activates on all channel messages
         const activeAgents = this.agentRepo.listIdentities('ws-default');
-        const triggeredAgents = activeAgents.filter((agent) => {
-          const decision = this.activationEngine.evaluateActivation(agent, {
-            type: 'message',
-            message: userMsg,
-          });
-          return decision.shouldActivate;
-        });
+        const boss = activeAgents.find((a) => a.isOrchestrator) || activeAgents[0];
 
-        // Respond immediately to the HTTP request with the created user message
-        this.sendJson(res, 201, { message: formattedUserMsg, triggeredCount: triggeredAgents.length });
+        // Respond immediately with created user message
+        this.sendJson(res, 201, { message: formattedUserMsg, triggeredCount: boss ? 1 : 0 });
 
-        // Trigger agent runs asynchronously for each activated agent
-        for (const agent of triggeredAgents) {
-          this.executeAgentResponse(agent, channelId, userMsg);
+        // Trigger @Boss response asynchronously
+        if (boss) {
+          this.executeAgentResponse(boss, channelId, userMsg);
         }
         return;
       }
 
-      // 5. PATCH /api/agents/:agentId/model — Explicit per-agent model update
+      // 11. PATCH /api/agents/:agentId/model — Explicit per-agent model update
       const agentModelMatch = pathname.match(/^\/api\/agents\/([^/]+)\/model$/);
       if (req.method === 'PATCH' && agentModelMatch) {
         const agentId = agentModelMatch[1];
@@ -478,7 +584,38 @@ export class CoreServer {
         return this.sendJson(res, 200, { success: true, agentId, activeModelId: body.activeModelId });
       }
 
-      // 6. PATCH /api/workspace/autonomy — Update autonomy mode
+      // 12. PATCH /api/agents/:agentId/contract — Update agent role title and instructions
+      const agentContractMatch = pathname.match(/^\/api\/agents\/([^/]+)\/contract$/);
+      if (req.method === 'PATCH' && agentContractMatch) {
+        const agentId = agentContractMatch[1];
+        const body = await this.parseJsonBody<{ roleTitle?: string; systemPrompt?: string; activeModelId?: string }>(req);
+
+        const identity = this.agentRepo.getIdentity(agentId);
+        if (!identity) {
+          return this.sendJson(res, 404, { error: 'Agent not found' });
+        }
+
+        if (body.roleTitle || body.systemPrompt) {
+          const def = this.agentRepo.getDefinition(identity.definitionId);
+          if (def) {
+            this.db.execute(
+              `UPDATE agent_definitions SET role = ?, system_prompt = ? WHERE id = ?`,
+              body.roleTitle || def.role,
+              body.systemPrompt || def.systemPrompt,
+              identity.definitionId
+            );
+          }
+        }
+
+        if (body.activeModelId) {
+          this.agentRepo.updateAgentModelConfig(agentId, body.activeModelId);
+        }
+
+        this.broadcastEvent('agent:updated', { agentId, ...body });
+        return this.sendJson(res, 200, { success: true });
+      }
+
+      // 13. PATCH /api/workspace/autonomy — Update autonomy mode
       if (req.method === 'PATCH' && pathname === '/api/workspace/autonomy') {
         const body = await this.parseJsonBody<{ autonomyMode: 'AUTO' | 'ALWAYS_ASK' | 'FULL_ACCESS' }>(req);
         if (!body.autonomyMode) {
@@ -495,7 +632,7 @@ export class CoreServer {
         return this.sendJson(res, 200, { success: true, autonomyMode: body.autonomyMode });
       }
 
-      // 7. POST /api/approvals/:approvalId/resolve — Resolve approval gate
+      // 14. POST /api/approvals/:approvalId/resolve — Resolve approval gate
       const approvalMatch = pathname.match(/^\/api\/approvals\/([^/]+)\/resolve$/);
       if (req.method === 'POST' && approvalMatch) {
         const approvalId = approvalMatch[1];
@@ -534,7 +671,7 @@ export class CoreServer {
       // 1. Spawn run in AgentKernel
       const run = this.kernel.spawnRun({
         agentId: agent.id,
-        projectId: 'proj-kin',
+        projectId: this.activeProjectId,
         allocatedTokens: 50000,
       });
 
@@ -543,8 +680,8 @@ export class CoreServer {
         agentDefinition: def ?? {
           id: agent.definitionId,
           name: agent.displayName,
-          role: 'Agent',
-          systemPrompt: 'You are an agent in the KIN workforce.',
+          role: 'Lead Sovereign Orchestrator',
+          systemPrompt: 'You are @Boss, the Lead Sovereign Orchestrator in KIN OS.',
           defaultModelId: agent.activeModelId,
           domainAuthority: [],
           capabilities: [],
@@ -582,7 +719,7 @@ export class CoreServer {
         id: agentReply.id,
         channelId: agentReply.channelId,
         senderId: agentReply.senderId,
-        senderName: agent.displayName,
+        senderName: agent.displayName.replace(/^@/, ''),
         senderType: 'agent',
         content: agentReply.content,
         createdAt: agentReply.createdAt,
