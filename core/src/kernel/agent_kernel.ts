@@ -14,6 +14,8 @@ export interface SpawnRunParams {
   parentRunId?: string;
   taskId?: string;
   allocatedTokens?: number;
+  channelId?: string;
+  triggerMessageId?: string;
 }
 
 export interface DelegationParams {
@@ -72,6 +74,8 @@ export class AgentKernel {
       projectId: params.projectId,
       parentRunId: params.parentRunId,
       taskId: params.taskId,
+      channelId: params.channelId,
+      triggerMessageId: params.triggerMessageId,
       state: 'running',
       heartbeatAt: now,
       allocatedTokens: params.allocatedTokens ?? 100000,
@@ -80,13 +84,15 @@ export class AgentKernel {
     };
 
     this.db.execute(
-      `INSERT INTO agent_runs (id, agent_id, project_id, parent_run_id, task_id, state, heartbeat_at, allocated_tokens, used_tokens, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO agent_runs (id, agent_id, project_id, parent_run_id, task_id, channel_id, trigger_message_id, state, heartbeat_at, allocated_tokens, used_tokens, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       run.id,
       run.agentId,
       run.projectId ?? null,
       run.parentRunId ?? null,
       run.taskId ?? null,
+      run.channelId ?? null,
+      run.triggerMessageId ?? null,
       run.state,
       run.heartbeatAt,
       run.allocatedTokens,
@@ -106,11 +112,15 @@ export class AgentKernel {
       project_id: string | null;
       parent_run_id: string | null;
       task_id: string | null;
+      channel_id: string | null;
+      trigger_message_id: string | null;
       state: string;
       worktree_path: string | null;
       heartbeat_at: number;
       allocated_tokens: number;
       used_tokens: number;
+      quota_resets_at?: number | null;
+      interrupted_turn?: number | null;
       created_at: number;
       completed_at: number | null;
     }>('SELECT * FROM agent_runs WHERE id = ?', id);
@@ -123,14 +133,58 @@ export class AgentKernel {
       projectId: row.project_id ?? undefined,
       parentRunId: row.parent_run_id ?? undefined,
       taskId: row.task_id ?? undefined,
+      channelId: row.channel_id ?? undefined,
+      triggerMessageId: row.trigger_message_id ?? undefined,
       state: row.state as RunState,
       worktreePath: row.worktree_path ?? undefined,
       heartbeatAt: row.heartbeat_at,
       allocatedTokens: row.allocated_tokens,
       usedTokens: row.used_tokens,
+      quotaResetsAt: row.quota_resets_at ?? undefined,
+      interruptedTurn: row.interrupted_turn ?? undefined,
       createdAt: row.created_at,
       completedAt: row.completed_at ?? undefined,
     };
+  }
+
+  /**
+   * Transitions a run into quota_paused state with backoff reset timestamp.
+   */
+  public pauseForQuota(runId: string, resetWindowMs: number = 900000): void {
+    const now = Date.now();
+    const quotaResetsAt = now + resetWindowMs;
+
+    this.db.execute(
+      `UPDATE agent_runs
+       SET state = 'quota_paused',
+           quota_resets_at = ?,
+           heartbeat_at = ?
+       WHERE id = ?`,
+      quotaResetsAt,
+      now,
+      runId
+    );
+
+    this.recordEvent('agent.run.quota_paused', 'agent_run', runId, { quotaResetsAt });
+  }
+
+  /**
+   * Resumes an execution run from paused or quota_paused state.
+   */
+  public resumeRun(runId: string): void {
+    const now = Date.now();
+
+    this.db.execute(
+      `UPDATE agent_runs
+       SET state = 'running',
+           quota_resets_at = NULL,
+           heartbeat_at = ?
+       WHERE id = ?`,
+      now,
+      runId
+    );
+
+    this.recordEvent('agent.run.resumed', 'agent_run', runId, { resumedAt: now });
   }
 
   /**
@@ -170,18 +224,62 @@ export class AgentKernel {
   }
 
   /**
-   * Stale lease recovery on application restart.
-   * Finds runs that were 'running' when the app terminated and transitions them to 'recovering'.
+   * Persists a turn checkpoint snapshot into the checkpoints table.
    */
-  public recoverStaleRuns(staleThresholdMs: number = 45000): string[] {
+  public saveCheckpoint(runId: string, snapshot: any, worktreeCommitSha?: string): string {
+    const id = `chk-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    this.db.execute(
+      `INSERT INTO checkpoints (id, run_id, snapshot_json, worktree_commit_sha, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      id,
+      runId,
+      typeof snapshot === 'string' ? snapshot : JSON.stringify(snapshot),
+      worktreeCommitSha || null,
+      Date.now()
+    );
+    return id;
+  }
+
+  /**
+   * Stale lease recovery on application restart or watchdog inspection.
+   * Finds runs that were 'running' when the app terminated or crashed and transitions them to 'recovering'.
+   * Retrieves the latest turn checkpoint snapshot if available.
+   */
+  public recoverStaleRunsDetailed(staleThresholdMs: number = 45000): Array<{
+    id: string;
+    agentId: string;
+    projectId?: string;
+    taskId?: string;
+    interruptedTurn?: number;
+    checkpoint?: {
+      snapshotJson: string;
+      createdAt: number;
+    };
+  }> {
     const cutoff = Date.now() - staleThresholdMs;
 
-    const staleRuns = this.db.query<{ id: string }>(
-      `SELECT id FROM agent_runs WHERE state = 'running' AND heartbeat_at < ?`,
+    const staleRuns = this.db.query<{
+      id: string;
+      agent_id: string;
+      project_id: string | null;
+      task_id: string | null;
+      interrupted_turn: number | null;
+    }>(
+      `SELECT id, agent_id, project_id, task_id, interrupted_turn FROM agent_runs WHERE state IN ('running', 'waiting_for_tool', 'waiting_for_agent', 'waiting_for_model') AND heartbeat_at < ?`,
       cutoff
     );
 
-    const recoveredIds: string[] = [];
+    const recovered: Array<{
+      id: string;
+      agentId: string;
+      projectId?: string;
+      taskId?: string;
+      interruptedTurn?: number;
+      checkpoint?: {
+        snapshotJson: string;
+        createdAt: number;
+      };
+    }> = [];
 
     for (const row of staleRuns) {
       this.db.execute(
@@ -190,15 +288,39 @@ export class AgentKernel {
         row.id
       );
       this.recordEvent('agent.run.recovering', 'agent_run', row.id, { reason: 'stale_heartbeat_lease_detected' });
-      recoveredIds.push(row.id);
+
+      const latestCp = this.db.queryOne<{ snapshot_json: string; created_at: number }>(
+        `SELECT snapshot_json, created_at FROM checkpoints WHERE run_id = ? ORDER BY created_at DESC LIMIT 1`,
+        row.id
+      );
+
+      recovered.push({
+        id: row.id,
+        agentId: row.agent_id,
+        projectId: row.project_id || undefined,
+        taskId: row.task_id || undefined,
+        interruptedTurn: row.interrupted_turn ?? undefined,
+        checkpoint: latestCp ? {
+          snapshotJson: latestCp.snapshot_json,
+          createdAt: latestCp.created_at,
+        } : undefined,
+      });
     }
 
-    return recoveredIds;
+    return recovered;
+  }
+
+  public recoverStaleRuns(staleThresholdMs: number = 45000): string[] {
+    return this.recoverStaleRunsDetailed(staleThresholdMs).map((r) => r.id);
   }
 
   public getActiveRunCount(): number {
+    const freshCutoff = Date.now() - 60000;
     const row = this.db.queryOne<{ count: number }>(
-      `SELECT COUNT(*) as count FROM agent_runs WHERE state IN ('running', 'waiting_for_tool', 'waiting_for_approval', 'waiting_for_agent', 'waiting_for_model')`
+      `SELECT COUNT(*) as count FROM agent_runs 
+       WHERE state IN ('running', 'waiting_for_tool', 'waiting_for_agent', 'waiting_for_model') 
+         AND heartbeat_at >= ?`,
+      freshCutoff
     );
     return row?.count ?? 0;
   }

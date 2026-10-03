@@ -73,7 +73,15 @@ export class PolicyEngine {
     // 3. Autonomy Mode Evaluation
     switch (request.autonomyMode) {
       case 'FULL_ACCESS':
-        // Full access bypasses interactive approval prompts for permitted capabilities
+        // Zero-trust boundary: CRITICAL risk actions (financial payments, destructive commands)
+        // require explicit interactive human approval even under FULL_ACCESS mode
+        if (request.riskLevel === 'CRITICAL') {
+          return {
+            allowed: true,
+            requiresInteractiveApproval: true,
+            reason: `Zero-trust boundary: CRITICAL operation (${request.toolName}) requires interactive human approval even under FULL_ACCESS mode.`,
+          };
+        }
         return {
           allowed: true,
           requiresInteractiveApproval: false,

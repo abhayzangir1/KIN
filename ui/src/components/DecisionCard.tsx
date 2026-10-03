@@ -6,10 +6,11 @@ export interface DecisionCardProps {
   topic: string;
   optionA: { label: string; pros: string; cons: string };
   optionB: { label: string; pros: string; cons: string };
+  recommendation?: string;
   onSelect: (option: 'A' | 'B' | 'compromise') => void;
 }
 
-export const DecisionCard: React.FC<DecisionCardProps> = ({ title, topic, optionA, optionB, onSelect }) => {
+export const DecisionCard: React.FC<DecisionCardProps> = ({ title, topic, optionA, optionB, recommendation, onSelect }) => {
   return (
     <div className="my-4 p-4 rounded-xl bg-kin-card border border-amber-500/30 shadow-lg space-y-3">
       <div className="flex items-center space-x-2 text-amber-400">
@@ -58,7 +59,7 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ title, topic, option
       <div className="pt-1 flex items-center justify-between border-t border-kin-border/50 text-xs">
         <div className="flex items-center space-x-1.5 text-kin-muted text-[11px]">
           <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
-          <span>Orchestrator Recommendation: Normalized payload with client selector</span>
+          <span>Orchestrator Recommendation: {recommendation || 'Normalized payload with client selector'}</span>
         </div>
         <button
           onClick={() => onSelect('compromise')}

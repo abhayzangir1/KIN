@@ -1,5 +1,5 @@
 import { KinDatabase } from '../storage/db.js';
-import { Goal, Task, TaskStatus } from './types.js';
+import { Goal, Task, TaskStatus, Decision, DecisionStatus } from './types.js';
 
 export class TaskRepository {
   private db: KinDatabase;
@@ -37,12 +37,19 @@ export class TaskRepository {
 
     if (!row) return undefined;
 
+    let acceptanceCriteria: string[] = [];
+    try {
+      acceptanceCriteria = JSON.parse(row.acceptance_criteria_json || '[]');
+    } catch {
+      acceptanceCriteria = [];
+    }
+
     return {
       id: row.id,
       projectId: row.project_id,
       title: row.title,
       description: row.description,
-      acceptanceCriteria: JSON.parse(row.acceptance_criteria_json),
+      acceptanceCriteria,
       status: row.status as Goal['status'],
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -52,16 +59,19 @@ export class TaskRepository {
   public createTask(task: Task, dependsOnTaskIds: string[] = []): void {
     this.db.transactionSync(() => {
       this.db.execute(
-        `INSERT INTO tasks (id, goal_id, title, description, assigned_agent_id, status, verification_spec_json, evidence_bundle_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, goal_id, title, description, assigned_agent_id, status, verification_spec_json, evidence_bundle_id, claimed_by_run_id, lease_expires_at, retry_count, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         task.id,
         task.goalId,
         task.title,
         task.description,
         task.assignedAgentId ?? null,
         task.status,
-        JSON.stringify(task.verificationSpec),
+        task.verificationSpec ? JSON.stringify(task.verificationSpec) : '{}',
         task.evidenceBundleId ?? null,
+        task.claimedByRunId ?? null,
+        task.leaseExpiresAt ?? null,
+        task.retryCount ?? 0,
         task.createdAt,
         task.updatedAt
       );
@@ -86,11 +96,21 @@ export class TaskRepository {
       status: string;
       verification_spec_json: string;
       evidence_bundle_id: string | null;
+      claimed_by_run_id: string | null;
+      lease_expires_at: number | null;
+      retry_count: number | null;
       created_at: number;
       updated_at: number;
     }>('SELECT * FROM tasks WHERE id = ?', id);
 
     if (!row) return undefined;
+
+    let verificationSpec: Record<string, unknown> = {};
+    try {
+      verificationSpec = JSON.parse(row.verification_spec_json || '{}');
+    } catch {
+      verificationSpec = {};
+    }
 
     return {
       id: row.id,
@@ -99,8 +119,11 @@ export class TaskRepository {
       description: row.description,
       assignedAgentId: row.assigned_agent_id ?? undefined,
       status: row.status as TaskStatus,
-      verificationSpec: JSON.parse(row.verification_spec_json),
+      verificationSpec,
       evidenceBundleId: row.evidence_bundle_id ?? undefined,
+      claimedByRunId: row.claimed_by_run_id ?? undefined,
+      leaseExpiresAt: row.lease_expires_at ?? undefined,
+      retryCount: row.retry_count ?? 0,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -123,6 +146,112 @@ export class TaskRepository {
     return Number(result.changes) > 0;
   }
 
+  /**
+   * Atomic task lease claim.
+   * Guarantees that only one agent run claims a task with a timed lease.
+   * Allows reclaiming expired leases from stalled/crashed runs.
+   */
+  public claimTaskWithLease(taskId: string, agentId: string, runId: string, leaseDurationMs: number = 300000): boolean {
+    const now = Date.now();
+    const leaseExpiresAt = now + leaseDurationMs;
+
+    const result = this.db.execute(
+      `UPDATE tasks
+       SET status = 'running',
+           assigned_agent_id = ?,
+           claimed_by_run_id = ?,
+           lease_expires_at = ?,
+           updated_at = ?
+       WHERE id = ?
+         AND (status IN ('ready', 'backlog') OR (status = 'running' AND (lease_expires_at IS NULL OR lease_expires_at < ?)))`,
+      agentId,
+      runId,
+      leaseExpiresAt,
+      now,
+      taskId,
+      now
+    );
+
+    return Number(result.changes) > 0;
+  }
+
+  /**
+   * Renews the active lease for a running task.
+   */
+  public renewTaskLease(taskId: string, runId: string, extensionMs: number = 300000): boolean {
+    const now = Date.now();
+    const leaseExpiresAt = now + extensionMs;
+
+    const result = this.db.execute(
+      `UPDATE tasks
+       SET lease_expires_at = ?,
+           updated_at = ?
+       WHERE id = ? AND claimed_by_run_id = ? AND status = 'running'`,
+      leaseExpiresAt,
+      now,
+      taskId,
+      runId
+    );
+
+    return Number(result.changes) > 0;
+  }
+
+  /**
+   * Releases an active lease on task completion or failure.
+   */
+  public releaseTaskLease(taskId: string, runId: string, markFailed: boolean = false): void {
+    const now = Date.now();
+    const newStatus: TaskStatus = markFailed ? 'failed' : 'ready';
+
+    this.db.execute(
+      `UPDATE tasks
+       SET status = ?,
+           claimed_by_run_id = NULL,
+           lease_expires_at = NULL,
+           retry_count = retry_count + ?,
+           updated_at = ?
+       WHERE id = ? AND claimed_by_run_id = ?`,
+      newStatus,
+      markFailed ? 1 : 0,
+      now,
+      taskId,
+      runId
+    );
+  }
+
+  /**
+   * Scans for tasks with expired leases and safely resets them to 'ready' for other agents.
+   */
+  public reclaimExpiredTaskLeases(): string[] {
+    const now = Date.now();
+    const expired = this.db.query<{ id: string }>(
+      `SELECT id FROM tasks WHERE status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at < ?`,
+      now
+    );
+
+    if (expired.length === 0) return [];
+
+    const reclaimedIds: string[] = [];
+    this.db.transactionSync(() => {
+      for (const row of expired) {
+        this.db.execute(
+          `UPDATE tasks
+           SET status = 'ready',
+               claimed_by_run_id = NULL,
+               lease_expires_at = NULL,
+               retry_count = retry_count + 1,
+               updated_at = ?
+           WHERE id = ?`,
+          now,
+          row.id
+        );
+        reclaimedIds.push(row.id);
+      }
+    });
+
+    return reclaimedIds;
+  }
+
   public updateTaskStatus(taskId: string, status: TaskStatus): void {
     this.db.execute(
       `UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`,
@@ -139,7 +268,7 @@ export class TaskRepository {
   public completeTask(taskId: string, evidenceBundleId: string): void {
     const result = this.db.execute(
       `UPDATE tasks
-       SET status = 'completed', evidence_bundle_id = ?, updated_at = ?
+       SET status = 'completed', evidence_bundle_id = ?, claimed_by_run_id = NULL, lease_expires_at = NULL, updated_at = ?
        WHERE id = ? AND status IN ('running', 'review')`,
       evidenceBundleId,
       Date.now(),
@@ -151,14 +280,16 @@ export class TaskRepository {
     }
 
     // Check if dependent tasks can now transition from 'backlog' to 'ready'
-    this.checkAndPromoteReadyTasks(taskId);
+    this.promoteDependentTasks(taskId);
   }
 
-  private checkAndPromoteReadyTasks(completedTaskId: string): void {
+  public promoteDependentTasks(completedTaskId: string): string[] {
     const dependentTaskIds = this.db.query<{ task_id: string }>(
       `SELECT task_id FROM task_dependencies WHERE depends_on_task_id = ?`,
       completedTaskId
     ).map((r) => r.task_id);
+
+    const promotedTaskIds: string[] = [];
 
     for (const depTaskId of dependentTaskIds) {
       // Check if all dependencies of depTaskId are completed
@@ -170,12 +301,243 @@ export class TaskRepository {
       );
 
       if (incompleteDeps[0]?.count === 0) {
-        this.db.execute(
+        const res = this.db.execute(
           `UPDATE tasks SET status = 'ready', updated_at = ? WHERE id = ? AND status = 'backlog'`,
           Date.now(),
           depTaskId
         );
+        if (Number(res.changes) > 0) {
+          promotedTaskIds.push(depTaskId);
+        }
       }
     }
+
+    return promotedTaskIds;
+  }
+
+  public listGoals(projectId: string): Goal[] {
+    const rows = this.db.query<{
+      id: string;
+      project_id: string;
+      title: string;
+      description: string;
+      acceptance_criteria_json: string;
+      status: string;
+      created_at: number;
+      updated_at: number;
+    }>('SELECT * FROM goals WHERE project_id = ? ORDER BY created_at DESC', projectId);
+
+    return rows.map((r) => ({
+      id: r.id,
+      projectId: r.project_id,
+      title: r.title,
+      description: r.description,
+      acceptanceCriteria: JSON.parse(r.acceptance_criteria_json || '[]'),
+      status: r.status as Goal['status'],
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    }));
+  }
+
+  public listTasksByGoal(goalId: string): Task[] {
+    const rows = this.db.query<{
+      id: string;
+      goal_id: string;
+      title: string;
+      description: string;
+      assigned_agent_id: string | null;
+      status: string;
+      verification_spec_json: string;
+      evidence_bundle_id: string | null;
+      claimed_by_run_id: string | null;
+      lease_expires_at: number | null;
+      retry_count: number | null;
+      created_at: number;
+      updated_at: number;
+    }>('SELECT * FROM tasks WHERE goal_id = ? ORDER BY created_at ASC', goalId);
+
+    return rows.map((r) => ({
+      id: r.id,
+      goalId: r.goal_id,
+      title: r.title,
+      description: r.description,
+      assignedAgentId: r.assigned_agent_id ?? undefined,
+      status: r.status as TaskStatus,
+      verificationSpec: JSON.parse(r.verification_spec_json || '{}'),
+      evidenceBundleId: r.evidence_bundle_id ?? undefined,
+      claimedByRunId: r.claimed_by_run_id ?? undefined,
+      leaseExpiresAt: r.lease_expires_at ?? undefined,
+      retryCount: r.retry_count ?? 0,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    }));
+  }
+
+  public listTasksByProject(projectId: string): Task[] {
+    const rows = this.db.query<{
+      id: string;
+      goal_id: string;
+      title: string;
+      description: string;
+      assigned_agent_id: string | null;
+      status: string;
+      verification_spec_json: string;
+      evidence_bundle_id: string | null;
+      claimed_by_run_id: string | null;
+      lease_expires_at: number | null;
+      retry_count: number | null;
+      created_at: number;
+      updated_at: number;
+    }>(
+      `SELECT t.* FROM tasks t
+       JOIN goals g ON t.goal_id = g.id
+       WHERE g.project_id = ?
+       ORDER BY t.created_at ASC`,
+      projectId
+    );
+
+    return rows.map((r) => ({
+      id: r.id,
+      goalId: r.goal_id,
+      title: r.title,
+      description: r.description,
+      assignedAgentId: r.assigned_agent_id ?? undefined,
+      status: r.status as TaskStatus,
+      verificationSpec: JSON.parse(r.verification_spec_json || '{}'),
+      evidenceBundleId: r.evidence_bundle_id ?? undefined,
+      claimedByRunId: r.claimed_by_run_id ?? undefined,
+      leaseExpiresAt: r.lease_expires_at ?? undefined,
+      retryCount: r.retry_count ?? 0,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    }));
+  }
+
+  public updateGoal(goal: Goal): void {
+    this.db.execute(
+      `UPDATE goals SET title = ?, description = ?, acceptance_criteria_json = ?, status = ?, updated_at = ? WHERE id = ?`,
+      goal.title,
+      goal.description,
+      JSON.stringify(goal.acceptanceCriteria),
+      goal.status,
+      goal.updatedAt,
+      goal.id
+    );
+  }
+
+  public deleteTasksByGoal(goalId: string): void {
+    this.db.execute('DELETE FROM tasks WHERE goal_id = ?', goalId);
+  }
+
+  public deleteGoal(id: string): void {
+    this.db.transactionSync(() => {
+      this.db.execute('DELETE FROM tasks WHERE goal_id = ?', id);
+      this.db.execute('DELETE FROM goals WHERE id = ?', id);
+    });
+  }
+
+  public createDecision(decision: Decision): void {
+    this.db.execute(
+      `INSERT INTO decisions (id, project_id, task_id, decided_by_id, title, rationale, alternatives_considered_json, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      decision.id,
+      decision.projectId,
+      decision.taskId ?? null,
+      decision.decidedById,
+      decision.title,
+      decision.rationale,
+      JSON.stringify(decision.alternativesConsidered || []),
+      decision.status,
+      decision.createdAt
+    );
+  }
+
+  public getDecision(id: string): Decision | undefined {
+    const row = this.db.queryOne<{
+      id: string;
+      project_id: string;
+      task_id: string | null;
+      decided_by_id: string;
+      title: string;
+      rationale: string;
+      alternatives_considered_json: string;
+      status: string;
+      created_at: number;
+    }>('SELECT * FROM decisions WHERE id = ?', id);
+
+    if (!row) return undefined;
+
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      taskId: row.task_id ?? undefined,
+      decidedById: row.decided_by_id,
+      title: row.title,
+      rationale: row.rationale,
+      alternativesConsidered: JSON.parse(row.alternatives_considered_json || '[]'),
+      status: row.status as DecisionStatus,
+      createdAt: row.created_at,
+    };
+  }
+
+  public listDecisionsByProject(projectId: string): Decision[] {
+    const rows = this.db.query<{
+      id: string;
+      project_id: string;
+      task_id: string | null;
+      decided_by_id: string;
+      title: string;
+      rationale: string;
+      alternatives_considered_json: string;
+      status: string;
+      created_at: number;
+    }>('SELECT * FROM decisions WHERE project_id = ? ORDER BY created_at DESC', projectId);
+
+    return rows.map((r) => ({
+      id: r.id,
+      projectId: r.project_id,
+      taskId: r.task_id ?? undefined,
+      decidedById: r.decided_by_id,
+      title: r.title,
+      rationale: r.rationale,
+      alternativesConsidered: JSON.parse(r.alternatives_considered_json || '[]'),
+      status: r.status as DecisionStatus,
+      createdAt: r.created_at,
+    }));
+  }
+
+  public listAllDecisions(): Decision[] {
+    const rows = this.db.query<{
+      id: string;
+      project_id: string;
+      task_id: string | null;
+      decided_by_id: string;
+      title: string;
+      rationale: string;
+      alternatives_considered_json: string;
+      status: string;
+      created_at: number;
+    }>('SELECT * FROM decisions ORDER BY created_at DESC');
+
+    return rows.map((r) => ({
+      id: r.id,
+      projectId: r.project_id,
+      taskId: r.task_id ?? undefined,
+      decidedById: r.decided_by_id,
+      title: r.title,
+      rationale: r.rationale,
+      alternativesConsidered: JSON.parse(r.alternatives_considered_json || '[]'),
+      status: r.status as DecisionStatus,
+      createdAt: r.created_at,
+    }));
+  }
+
+  public updateDecisionStatus(id: string, status: DecisionStatus): void {
+    this.db.execute('UPDATE decisions SET status = ? WHERE id = ?', status, id);
+  }
+
+  public deleteDecision(id: string): void {
+    this.db.execute('DELETE FROM decisions WHERE id = ?', id);
   }
 }
+

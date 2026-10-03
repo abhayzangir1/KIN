@@ -115,9 +115,13 @@ export class ModelGateway {
     startTime: number
   ): Promise<ModelInvocationResult> {
     const endpoint = `${this.ollamaHost}/api/chat`;
+    const timeoutMs = process.env.KIN_OLLAMA_TIMEOUT_MS
+      ? parseInt(process.env.KIN_OLLAMA_TIMEOUT_MS, 10)
+      : 180000; // 3 minutes default to allow cold-loading large model weights into VRAM
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(timeoutMs),
       body: JSON.stringify({
         model: modelName,
         messages: params.messages,

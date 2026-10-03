@@ -17,6 +17,7 @@
     "tauri:build": "tauri build"
   },
   "devDependencies": {
+    "puppeteer-core": "^25.12.0",
     "typescript": "^5.8.2"
   }
 }

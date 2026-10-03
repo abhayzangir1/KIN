@@ -6,15 +6,28 @@ export const NewProjectModal: React.FC = () => {
   const { isNewProjectModalOpen, setNewProjectModalOpen, createProject } = useKinStore();
   const [name, setName] = useState('');
   const [repoPath, setRepoPath] = useState('');
+  const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isNewProjectModalOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
-    await createProject(name.trim(), repoPath.trim() || undefined);
-    setName('');
-    setRepoPath('');
+    if (!name.trim()) {
+      setError('Project name is required');
+      return;
+    }
+    try {
+      setIsSubmitting(true);
+      setError('');
+      await createProject(name.trim(), repoPath.trim() || undefined);
+      setName('');
+      setRepoPath('');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to create project');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -36,6 +49,12 @@ export const NewProjectModal: React.FC = () => {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-3 text-xs">
+          {error && (
+            <div className="p-2 rounded bg-red-950/40 border border-red-500/30 text-red-300 text-xs">
+              {error}
+            </div>
+          )}
+
           <div>
             <label className="block text-[#94a3b8] font-medium mb-1">Project Name</label>
             <input
@@ -74,10 +93,10 @@ export const NewProjectModal: React.FC = () => {
             </button>
             <button
               type="submit"
-              disabled={!name.trim()}
+              disabled={isSubmitting || !name.trim()}
               className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-medium transition"
             >
-              Create Project
+              {isSubmitting ? 'Creating...' : 'Create Project'}
             </button>
           </div>
         </form>

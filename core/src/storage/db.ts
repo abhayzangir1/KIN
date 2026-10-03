@@ -17,6 +17,7 @@ export class KinDatabase {
   private readonly dbPath: string;
   private isClosed: boolean = false;
   private writeLock: Promise<void> = Promise.resolve();
+  private isTransactionActive: boolean = false;
 
   constructor(config: DatabaseConfig = {}) {
     const rawPath = config.dbPath || ':memory:';
@@ -47,6 +48,20 @@ export class KinDatabase {
     this.db.exec('PRAGMA foreign_keys = ON;');
   }
 
+  private sleepSync(ms: number): void {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      // Short spin wait for synchronous lock backoff
+    }
+  }
+
+  private isBusyError(err: unknown): boolean {
+    if (!err || typeof err !== 'object') return false;
+    const msg = (err as any).message || '';
+    const code = (err as any).code || '';
+    return msg.includes('locked') || msg.includes('busy') || code === 'SQLITE_BUSY';
+  }
+
   public getRawDb(): DatabaseSync {
     if (this.isClosed) {
       throw new Error('Database connection is closed.');
@@ -56,7 +71,22 @@ export class KinDatabase {
 
   public exec(sql: string): void {
     if (this.isClosed) throw new Error('Database connection is closed.');
-    this.db.exec(sql);
+    const maxRetries = 10;
+    let delay = 10;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        this.db.exec(sql);
+        return;
+      } catch (err: unknown) {
+        if (this.isBusyError(err) && attempt < maxRetries) {
+          const jitter = Math.floor(Math.random() * 15);
+          this.sleepSync(delay + jitter);
+          delay = Math.min(delay * 2, 200);
+          continue;
+        }
+        throw err;
+      }
+    }
   }
 
   public prepare(sql: string): StatementSync {
@@ -80,8 +110,23 @@ export class KinDatabase {
 
   public execute(sql: string, ...params: (string | number | bigint | Buffer | null)[]): RunResult {
     if (this.isClosed) throw new Error('Database connection is closed.');
-    const stmt = this.db.prepare(sql);
-    return stmt.run(...params);
+    const maxRetries = 10;
+    let delay = 10;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const stmt = this.db.prepare(sql);
+        return stmt.run(...params);
+      } catch (err: unknown) {
+        if (this.isBusyError(err) && attempt < maxRetries) {
+          const jitter = Math.floor(Math.random() * 15);
+          this.sleepSync(delay + jitter);
+          delay = Math.min(delay * 2, 200);
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error('Database execute failed after busy retries.');
   }
 
   /**
@@ -92,6 +137,27 @@ export class KinDatabase {
   public async transactionAsync<T>(fn: () => T | Promise<T>): Promise<T> {
     if (this.isClosed) throw new Error('Database connection is closed.');
 
+    if (this.isTransactionActive) {
+      // Nested transaction inside an active transaction.
+      // Use SQLite SAVEPOINT to provide nested transactional isolation without deadlock
+      // or attempting an illegal nested BEGIN TRANSACTION.
+      const savepointName = `sp_async_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      this.db.exec(`SAVEPOINT ${savepointName};`);
+      try {
+        const result = await fn();
+        this.db.exec(`RELEASE ${savepointName};`);
+        return result;
+      } catch (error) {
+        try {
+          this.db.exec(`ROLLBACK TO ${savepointName};`);
+          this.db.exec(`RELEASE ${savepointName};`);
+        } catch {
+          // Ignore rollback error
+        }
+        throw error;
+      }
+    }
+
     // Chain onto the write lock promise
     let releaseLock: () => void = () => {};
     const nextLock = new Promise<void>((resolve) => {
@@ -101,10 +167,26 @@ export class KinDatabase {
     const previousLock = this.writeLock;
     this.writeLock = nextLock;
 
-    await previousLock;
+    // Always await previous lock safely, even if previous transaction failed
+    await previousLock.catch(() => {});
+
+    this.isTransactionActive = true;
 
     try {
-      this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
+      let delay = 10;
+      for (let attempt = 1; attempt <= 10; attempt++) {
+        try {
+          this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
+          break;
+        } catch (err) {
+          if (this.isBusyError(err) && attempt < 10) {
+            await new Promise((r) => setTimeout(r, delay + Math.floor(Math.random() * 15)));
+            delay = Math.min(delay * 2, 200);
+            continue;
+          }
+          throw err;
+        }
+      }
       const result = await fn();
       this.db.exec('COMMIT;');
       return result;
@@ -116,27 +198,71 @@ export class KinDatabase {
       }
       throw error;
     } finally {
+      this.isTransactionActive = false;
       releaseLock();
     }
   }
 
   /**
    * Synchronous transaction for immediate synchronous batches.
+   * Uses SAVEPOINT if an outer transaction is already active to prevent illegal nested BEGIN
+   * or single-threaded event loop deadlocks.
    */
   public transactionSync<T>(fn: () => T): T {
     if (this.isClosed) throw new Error('Database connection is closed.');
-    this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
-    try {
-      const result = fn();
-      this.db.exec('COMMIT;');
-      return result;
-    } catch (error) {
+
+    if (this.isTransactionActive) {
+      // An outer transaction (either async or sync) is already active on this connection.
+      // Use SQLite SAVEPOINT to provide nested transactional isolation without deadlock
+      // or attempting an illegal nested BEGIN TRANSACTION.
+      const savepointName = `sp_sync_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      this.db.exec(`SAVEPOINT ${savepointName};`);
       try {
-        this.db.exec('ROLLBACK;');
-      } catch {
-        // Rollback error ignored
+        const result = fn();
+        this.db.exec(`RELEASE ${savepointName};`);
+        return result;
+      } catch (error) {
+        try {
+          this.db.exec(`ROLLBACK TO ${savepointName};`);
+          this.db.exec(`RELEASE ${savepointName};`);
+        } catch {
+          // Ignore rollback error
+        }
+        throw error;
       }
-      throw error;
+    }
+
+    this.isTransactionActive = true;
+
+    try {
+      let delay = 10;
+      for (let attempt = 1; attempt <= 10; attempt++) {
+        try {
+          this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
+          break;
+        } catch (err) {
+          if (this.isBusyError(err) && attempt < 10) {
+            this.sleepSync(delay + Math.floor(Math.random() * 10));
+            delay = Math.min(delay * 2, 200);
+            continue;
+          }
+          throw err;
+        }
+      }
+      try {
+        const result = fn();
+        this.db.exec('COMMIT;');
+        return result;
+      } catch (error) {
+        try {
+          this.db.exec('ROLLBACK;');
+        } catch {
+          // Rollback error ignored
+        }
+        throw error;
+      }
+    } finally {
+      this.isTransactionActive = false;
     }
   }
 
@@ -145,5 +271,9 @@ export class KinDatabase {
       this.isClosed = true;
       this.db.close();
     }
+  }
+
+  public get closed(): boolean {
+    return this.isClosed;
   }
 }

@@ -81,7 +81,9 @@ export class ChannelService {
       productivity_score: number;
       created_at: number;
     }>(
-      `SELECT * FROM messages WHERE channel_id = ? ORDER BY created_at ASC LIMIT ?`,
+      `SELECT * FROM (
+        SELECT * FROM messages WHERE channel_id = ? ORDER BY created_at DESC LIMIT ?
+      ) sub ORDER BY created_at ASC`,
       channelId,
       limit
     );

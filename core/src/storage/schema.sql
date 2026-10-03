@@ -39,15 +39,17 @@ CREATE TABLE IF NOT EXISTS agent_definitions (
 CREATE TABLE IF NOT EXISTS agent_identities (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
     definition_id TEXT NOT NULL REFERENCES agent_definitions(id),
-    display_name TEXT NOT NULL,
+    display_name TEXT NOT NULL COLLATE NOCASE,
     avatar_url TEXT,
     active_model_id TEXT NOT NULL,
     fallback_model_id TEXT,
     is_orchestrator BOOLEAN NOT NULL DEFAULT 0,
     is_ephemeral BOOLEAN NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
+    updated_at INTEGER NOT NULL,
+    UNIQUE(project_id, display_name COLLATE NOCASE)
 );
 
 -- Agent Runs & Execution Lifecycle
@@ -57,11 +59,15 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
     parent_run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL,
     task_id TEXT,
-    state TEXT NOT NULL CHECK (state IN ('created', 'queued', 'running', 'waiting_for_tool', 'waiting_for_approval', 'waiting_for_agent', 'waiting_for_model', 'recovering', 'paused', 'completed', 'failed', 'cancelled')),
+    channel_id TEXT REFERENCES channels(id) ON DELETE SET NULL,
+    trigger_message_id TEXT,
+    state TEXT NOT NULL CHECK (state IN ('created', 'queued', 'running', 'waiting_for_tool', 'waiting_for_approval', 'waiting_for_agent', 'waiting_for_model', 'quota_paused', 'resuming', 'recovering', 'paused', 'completed', 'failed', 'cancelled')),
     worktree_path TEXT,
     heartbeat_at INTEGER NOT NULL,
     allocated_tokens INTEGER NOT NULL DEFAULT 0,
     used_tokens INTEGER NOT NULL DEFAULT 0,
+    quota_resets_at INTEGER,
+    interrupted_turn INTEGER DEFAULT 0,
     created_at INTEGER NOT NULL,
     completed_at INTEGER
 );
@@ -116,6 +122,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     status TEXT NOT NULL CHECK (status IN ('backlog', 'ready', 'assigned', 'running', 'blocked', 'review', 'completed', 'failed', 'cancelled')),
     verification_spec_json TEXT NOT NULL DEFAULT '{}',
     evidence_bundle_id TEXT,
+    claimed_by_run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL,
+    lease_expires_at INTEGER,
+    retry_count INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
@@ -173,7 +182,7 @@ CREATE TABLE IF NOT EXISTS memory_versions (
     created_at INTEGER NOT NULL
 );
 
--- Skills & Experience Records
+-- Skills, Versions & Experience Records (Evidence-Driven Continuous Improvement)
 CREATE TABLE IF NOT EXISTS skills (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -184,18 +193,38 @@ CREATE TABLE IF NOT EXISTS skills (
     trigger_patterns_json TEXT NOT NULL DEFAULT '[]',
     is_built_in BOOLEAN NOT NULL DEFAULT 0,
     status TEXT NOT NULL CHECK (status IN ('candidate', 'active', 'deprecated', 'disabled')),
+    evidence_count INTEGER NOT NULL DEFAULT 0,
+    success_count INTEGER NOT NULL DEFAULT 0,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    last_validated_at INTEGER,
+    validator_ref TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS skill_versions (
+    id TEXT PRIMARY KEY,
+    skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+    version TEXT NOT NULL,
+    description TEXT NOT NULL,
+    instructions TEXT NOT NULL,
+    trigger_patterns_json TEXT NOT NULL DEFAULT '[]',
+    promoted_by TEXT NOT NULL,
+    change_summary TEXT,
+    created_at INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS skill_experiences (
     id TEXT PRIMARY KEY,
     skill_id TEXT REFERENCES skills(id) ON DELETE SET NULL,
     run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+    tool_name TEXT,
     objective TEXT NOT NULL,
     outcome TEXT NOT NULL CHECK (outcome IN ('success', 'failure')),
     failure_reason TEXT,
     repair_strategy TEXT,
+    lessons_learned TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
     created_at INTEGER NOT NULL
 );
 
@@ -254,11 +283,103 @@ CREATE TABLE IF NOT EXISTS checkpoints (
     created_at INTEGER NOT NULL
 );
 
+-- In-App Scheduler & Timed Autonomy (One-shot timers and recurring cron)
+CREATE TABLE IF NOT EXISTS schedules (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    target_agent_id TEXT REFERENCES agent_identities(id) ON DELETE SET NULL,
+    type TEXT NOT NULL CHECK (type IN ('one_shot', 'cron')),
+    prompt TEXT NOT NULL,
+    duration_seconds INTEGER,
+    cron_expression TEXT,
+    timer_condition TEXT DEFAULT 'never',
+    max_iterations INTEGER,
+    current_iterations INTEGER DEFAULT 0,
+    status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'cancelled', 'expired')),
+    next_run_at INTEGER NOT NULL,
+    last_run_at INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+-- Tool Execution Auditing & Action Records
+CREATE TABLE IF NOT EXISTS action_records (
+    id TEXT PRIMARY KEY,
+    run_id TEXT,
+    agent_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    params_json TEXT NOT NULL,
+    output_snippet TEXT,
+    status TEXT NOT NULL CHECK (status IN ('success', 'failure', 'requires_approval', 'aborted')),
+    duration_ms INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+-- Optimistic Concurrency Control (OCC) File Revision Tracking
+CREATE TABLE IF NOT EXISTS file_revisions (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    file_path TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    mtime INTEGER NOT NULL,
+    last_modified_by TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE(project_id, file_path)
+);
+
 -- High-performance indexes for fast lookups & constraint enforcement
 CREATE INDEX IF NOT EXISTS idx_runs_heartbeat ON agent_runs(heartbeat_at) WHERE state = 'running';
+CREATE INDEX IF NOT EXISTS idx_agent_runs_channel ON agent_runs(channel_id);
+CREATE INDEX IF NOT EXISTS idx_action_records_run ON action_records(run_id);
+CREATE INDEX IF NOT EXISTS idx_action_records_agent ON action_records(agent_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_action_records_tool ON action_records(tool_name);
+CREATE INDEX IF NOT EXISTS idx_file_revisions_project_path ON file_revisions(project_id, file_path);
 CREATE INDEX IF NOT EXISTS idx_messages_channel_time ON messages(channel_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_tasks_goal_status ON tasks(goal_id, status);
 CREATE INDEX IF NOT EXISTS idx_memories_scope_key ON memories(scope, scope_id, key);
 CREATE INDEX IF NOT EXISTS idx_approvals_pending ON approvals(status) WHERE status = 'pending';
 CREATE INDEX IF NOT EXISTS idx_events_type_time ON event_journal(event_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_decisions_project ON decisions(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_schedules_next_run ON schedules(next_run_at, status) WHERE status = 'active';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_project_name ON agent_identities(project_id, display_name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_agent_time ON agent_runs(agent_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_channels_project ON channels(project_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_assigned_agent ON tasks(assigned_agent_id);
+CREATE INDEX IF NOT EXISTS idx_task_deps_reverse ON task_dependencies(depends_on_task_id);
+CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_schedules_project ON schedules(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_skills_status ON skills(status);
+CREATE INDEX IF NOT EXISTS idx_skill_versions_skill ON skill_versions(skill_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_skill_exp_tool ON skill_experiences(tool_name);
+
+-- Formal Agent Evaluation Benchmarking System
+CREATE TABLE IF NOT EXISTS agent_evaluations (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL REFERENCES agent_identities(id) ON DELETE CASCADE,
+    test_suite_name TEXT NOT NULL,
+    score INTEGER NOT NULL,
+    passed BOOLEAN NOT NULL DEFAULT 0,
+    rubric_metrics_json TEXT NOT NULL DEFAULT '{}',
+    evaluator_notes TEXT,
+    created_at INTEGER NOT NULL
+);
+
+-- Managed Credentials Vault (BYOK)
+CREATE TABLE IF NOT EXISTS managed_credentials (
+    id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    key_alias TEXT NOT NULL,
+    secret_hash TEXT NOT NULL,
+    scoped_grants_json TEXT NOT NULL DEFAULT '[]',
+    max_spend_tokens INTEGER,
+    current_spend_tokens INTEGER NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_claimed_run ON tasks(claimed_by_run_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_lease ON tasks(lease_expires_at) WHERE status = 'running';
+CREATE INDEX IF NOT EXISTS idx_agent_evals_agent ON agent_evaluations(agent_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_managed_creds_provider ON managed_credentials(provider, key_alias);

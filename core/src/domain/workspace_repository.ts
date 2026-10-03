@@ -120,7 +120,32 @@ export class WorkspaceRepository {
     );
   }
 
-  public listChannels(projectId: string): Channel[] {
+  public getChannel(id: string): Channel | undefined {
+    const row = this.db.queryOne<{
+      id: string;
+      project_id: string;
+      name: string;
+      topic: string | null;
+      is_private: number;
+      created_at: number;
+    }>('SELECT * FROM channels WHERE id = ?', id);
+
+    if (!row) return undefined;
+
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      name: row.name,
+      topic: row.topic ?? undefined,
+      isPrivate: row.is_private === 1,
+      createdAt: row.created_at,
+    };
+  }
+
+  public listChannels(projectId: string, includePrivate = false): Channel[] {
+    const query = includePrivate
+      ? 'SELECT * FROM channels WHERE project_id = ? ORDER BY created_at ASC'
+      : 'SELECT * FROM channels WHERE project_id = ? AND is_private = 0 ORDER BY created_at ASC';
     const rows = this.db.query<{
       id: string;
       project_id: string;
@@ -128,7 +153,7 @@ export class WorkspaceRepository {
       topic: string | null;
       is_private: number;
       created_at: number;
-    }>('SELECT * FROM channels WHERE project_id = ? ORDER BY created_at ASC', projectId);
+    }>(query, projectId);
 
     return rows.map((r) => ({
       id: r.id,
@@ -138,5 +163,39 @@ export class WorkspaceRepository {
       isPrivate: r.is_private === 1,
       createdAt: r.created_at,
     }));
+  }
+
+  public addChannelMember(channelId: string, agentId: string): void {
+    this.db.execute(
+      `INSERT OR IGNORE INTO channel_members (channel_id, agent_id, joined_at)
+       VALUES (?, ?, ?)`,
+      channelId,
+      agentId,
+      Date.now()
+    );
+  }
+
+  public removeChannelMember(channelId: string, agentId: string): void {
+    this.db.execute(
+      `DELETE FROM channel_members WHERE channel_id = ? AND agent_id = ?`,
+      channelId,
+      agentId
+    );
+  }
+
+  public listChannelMemberIds(channelId: string): string[] {
+    const rows = this.db.query<{ agent_id: string }>(
+      `SELECT agent_id FROM channel_members WHERE channel_id = ? ORDER BY joined_at ASC`,
+      channelId
+    );
+    return rows.map((r) => r.agent_id);
+  }
+
+  public listAgentChannelIds(agentId: string): string[] {
+    const rows = this.db.query<{ channel_id: string }>(
+      `SELECT channel_id FROM channel_members WHERE agent_id = ? ORDER BY joined_at ASC`,
+      agentId
+    );
+    return rows.map((r) => r.channel_id);
   }
 }

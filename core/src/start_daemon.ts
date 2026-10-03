@@ -6,10 +6,37 @@
 import { CoreServer } from './server/core_server.js';
 import * as path from 'node:path';
 
-const dbPath = path.resolve(process.cwd(), 'kin_storage.sqlite');
+import * as fs from 'node:fs';
+
+function resolveDbPath(): string {
+  if (process.env.KIN_DB_PATH) {
+    return path.resolve(process.env.KIN_DB_PATH);
+  }
+  const candidates = [
+    path.resolve(process.cwd(), 'kin_storage.sqlite'),
+    path.resolve(process.cwd(), '..', 'kin_storage.sqlite'),
+    path.resolve(process.cwd(), 'core', 'kin_storage.sqlite'),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) {
+      return c;
+    }
+  }
+  return path.resolve(process.cwd(), 'kin_storage.sqlite');
+}
+
+const dbPath = resolveDbPath();
 const port = parseInt(process.env.KIN_PORT || '54321', 10);
 
 const server = new CoreServer({ port, dbPath });
+
+process.on('uncaughtException', (err) => {
+  console.error('[KIN CORE UNCAUGHT EXCEPTION]', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[KIN CORE UNHANDLED REJECTION]', reason);
+});
 
 server.start().then((actualPort) => {
   console.log(`[KIN CORE] Workforce engine running on http://127.0.0.1:${actualPort}`);
@@ -30,3 +57,4 @@ process.on('SIGTERM', async () => {
   await server.stop();
   process.exit(0);
 });
+

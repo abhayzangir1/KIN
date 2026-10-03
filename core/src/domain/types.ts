@@ -13,6 +13,8 @@ export type RunState =
   | 'waiting_for_approval'
   | 'waiting_for_agent'
   | 'waiting_for_model'
+  | 'quota_paused'
+  | 'resuming'
   | 'recovering'
   | 'paused'
   | 'completed'
@@ -71,6 +73,7 @@ export interface AgentDefinition {
 export interface AgentIdentity {
   id: string;
   workspaceId: string;
+  projectId?: string;
   definitionId: string;
   displayName: string;
   avatarUrl?: string;
@@ -88,13 +91,39 @@ export interface AgentRun {
   projectId?: string;
   parentRunId?: string;
   taskId?: string;
+  channelId?: string;
+  triggerMessageId?: string;
   state: RunState;
   worktreePath?: string;
   heartbeatAt: number;
   allocatedTokens: number;
   usedTokens: number;
+  quotaResetsAt?: number;
+  interruptedTurn?: number;
   createdAt: number;
   completedAt?: number;
+}
+
+export interface ActionRecord {
+  id: string;
+  runId?: string;
+  agentId: string;
+  toolName: string;
+  paramsJson: string;
+  outputSnippet?: string;
+  status: 'success' | 'failure' | 'requires_approval' | 'aborted';
+  durationMs: number;
+  createdAt: number;
+}
+
+export interface FileRevision {
+  id: string;
+  projectId: string;
+  filePath: string;
+  contentHash: string;
+  mtime: number;
+  lastModifiedBy: string;
+  updatedAt: number;
 }
 
 export interface Channel {
@@ -144,6 +173,9 @@ export interface Task {
   status: TaskStatus;
   verificationSpec: VerificationSpec;
   evidenceBundleId?: string;
+  claimedByRunId?: string;
+  leaseExpiresAt?: number;
+  retryCount?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -206,3 +238,76 @@ export interface EventJournalEntry {
   payload: Record<string, unknown>;
   createdAt: number;
 }
+
+export interface AgentAnalytics {
+  messagesCount: number;
+  assignedTasksCount: number;
+  completedTasksCount: number;
+  taskSuccessRate: number;
+  agentRunsCount: number;
+  usedTokens: number;
+  allocatedTokens: number;
+  pendingApprovalsCount: number;
+  assignedChannelsCount: number;
+  avgProductivityScore: number;
+  lastActiveAt: number;
+}
+
+export interface ProjectAnalytics {
+  totalMessages: number;
+  humanMessages: number;
+  agentMessages: number;
+  totalTasks: number;
+  completedTasks: number;
+  taskCompletionRate: number;
+  pendingApprovalsCount: number;
+  databaseSizeBytes: number;
+}
+
+export type ScheduleType = 'one_shot' | 'cron';
+export type ScheduleStatus = 'active' | 'completed' | 'cancelled' | 'expired';
+
+export interface Schedule {
+  id: string;
+  projectId: string;
+  channelId: string;
+  targetAgentId?: string;
+  type: ScheduleType;
+  prompt: string;
+  durationSeconds?: number;
+  cronExpression?: string;
+  timerCondition?: string;
+  maxIterations?: number;
+  currentIterations?: number;
+  status: ScheduleStatus;
+  nextRunAt: number;
+  lastRunAt?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AgentEvaluation {
+  id: string;
+  agentId: string;
+  testSuiteName: string;
+  score: number;
+  passed: boolean;
+  rubricMetricsJson: string;
+  evaluatorNotes?: string;
+  createdAt: number;
+}
+
+export interface ManagedCredential {
+  id: string;
+  provider: string;
+  keyAlias: string;
+  secretHash: string;
+  scopedGrantsJson: string;
+  maxSpendTokens?: number;
+  currentSpendTokens: number;
+  isActive: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+

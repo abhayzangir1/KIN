@@ -237,4 +237,101 @@ describe('KIN Phase 5: Context Compiler, Spiller & Compactor Engine', () => {
     expect(turn1.toolSchemasBlock.indexOf('executeShell')).toBeLessThan(turn1.toolSchemasBlock.indexOf('readFile'));
     expect(turn1.toolSchemasBlock.indexOf('readFile')).toBeLessThan(turn1.toolSchemasBlock.indexOf('writeFile'));
   });
+
+  it('compiles cross-channel awareness and peer presence in Block 1', () => {
+    const def: AgentDefinition = {
+      id: 'def-res',
+      name: 'ResearchAgent',
+      role: 'Research Specialist',
+      systemPrompt: 'Conduct deep technical research.',
+      defaultModelId: 'qwen2.5-coder:3b',
+      domainAuthority: ['research'],
+      capabilities: ['read'],
+      createdAt: 100,
+    };
+
+    const identity: AgentIdentity = {
+      id: 'agent-res',
+      workspaceId: 'ws-1',
+      projectId: 'proj-kin',
+      definitionId: 'def-res',
+      displayName: '@ResearchAgent',
+      activeModelId: 'ollama/qwen2.5-coder:3b',
+      isOrchestrator: false,
+      isEphemeral: false,
+      createdAt: 100,
+      updatedAt: 100,
+    };
+
+    const compiled = compiler.compile({
+      agentDefinition: def,
+      agentIdentity: identity,
+      toolSchemas: [],
+      projectDecisions: [],
+      trajectoryMessages: [],
+      activeChannel: { id: 'chan-b', name: 'channel-b', topic: 'Testing' },
+      channelPeers: ['@Boss'],
+      assignedChannels: ['#channel-a', '#channel-b'],
+      projectAgents: ['@Boss', '@ResearchAgent'],
+    });
+
+    expect(compiled.systemPromptBlock).toContain('Current Channel / Context: #channel-b');
+    expect(compiled.systemPromptBlock).toContain('Peers in this channel: @Boss');
+    expect(compiled.systemPromptBlock).toContain('Channels you are assigned to: #channel-a, #channel-b');
+    expect(compiled.systemPromptBlock).toContain('All Agents in this project: @Boss, @ResearchAgent');
+  });
+
+  it('compiles cross-channel operational memory from prior assigned channels in Block 1', () => {
+    const def: AgentDefinition = {
+      id: 'def-res',
+      name: 'ResearchAgent',
+      role: 'Research Specialist',
+      systemPrompt: 'Conduct deep technical research.',
+      defaultModelId: 'qwen2.5-coder:3b',
+      domainAuthority: ['research'],
+      capabilities: ['read'],
+      createdAt: 100,
+    };
+
+    const identity: AgentIdentity = {
+      id: 'agent-res',
+      workspaceId: 'ws-1',
+      projectId: 'proj-kin',
+      definitionId: 'def-res',
+      displayName: '@ResearchAgent',
+      activeModelId: 'ollama/qwen2.5-coder:3b',
+      isOrchestrator: false,
+      isEphemeral: false,
+      createdAt: 100,
+      updatedAt: 100,
+    };
+
+    const compiled = compiler.compile({
+      agentDefinition: def,
+      agentIdentity: identity,
+      toolSchemas: [],
+      projectDecisions: [],
+      trajectoryMessages: [],
+      activeChannel: { id: 'chan-b', name: 'channel-b', topic: 'Testing' },
+      channelPeers: ['@Boss'],
+      assignedChannels: ['#channel-a', '#channel-b'],
+      projectAgents: ['@Boss', '@ResearchAgent'],
+      crossChannelSummaries: [
+        {
+          channelName: 'channel-a',
+          topic: 'Architecture Research',
+          recentMessages: [
+            { senderName: 'Human', content: 'What is the SQLite database design?' },
+            { senderName: '@ResearchAgent', content: 'Identified 22 tables with strict foreign keys.' },
+          ],
+        },
+      ],
+    });
+
+    expect(compiled.systemPromptBlock).toContain('Cross-Channel Operational Memory:');
+    expect(compiled.systemPromptBlock).toContain('- Channel #channel-a (Architecture Research):');
+    expect(compiled.systemPromptBlock).toContain('• [Human]: What is the SQLite database design?');
+    expect(compiled.systemPromptBlock).toContain('• [@ResearchAgent]: Identified 22 tables with strict foreign keys.');
+    expect(compiled.systemPromptBlock).toContain('Channel Scoping Rule:');
+  });
 });

@@ -10,11 +10,12 @@
     "build": "tsc && node -e \"import('node:fs').then(fs => { fs.mkdirSync('dist/storage', {recursive:true}); fs.copyFileSync('src/storage/schema.sql', 'dist/storage/schema.sql'); })\"",
     "dev": "tsc -w",
     "daemon": "node dist/start_daemon.js",
-    "test": "vitest run",
+    "test": "vitest run --fileParallelism=false",
     "test:foundation": "vitest run test/foundation.test.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
+    "puppeteer-core": "^25.12.0",
     "uuid": "^11.1.0",
     "zod": "^3.24.2"
   },
