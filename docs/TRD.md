@@ -133,16 +133,21 @@ All system state is persisted in an authoritative local SQLite database running 
 
 ## 4. Antigravity Slash Command Specification
 
-| Command | Syntax | Behavior | Task Creation |
+| Command | Syntax & Delimiters | Behavior | Task Creation |
 |---|---|---|---|
-| `/plan` | `/plan <objective> [\| step1 \| step2]` | Decomposes objective into milestone DAG tasks in SQLite and begins Phase 1 | Yes (DAG tasks) |
-| `/boost` | `/boost <target>` | Verifies git working tree, WAL stats, and engages maximum autonomy execution | Yes (Audit task) |
-| `/teamwork-preview` | `/teamwork-preview` | Discovers all project specialists, active models, channel assignments, and project pulse | No |
-| `/goal` | `/goal <title> [\| desc] [\| criteria]` | Creates persistent goal milestone and initializes first ready task | Yes (Initial task) |
-| `/btw` | `/btw <query>` | Ephemeral side-query; runs single-turn inference with `💡 [Side Query / BTW]` badge | No |
-| `/grill-me` | `/grill-me <topic>` | Interactive architectural interview; renders selectable questionnaire card saving to ADR decisions | Yes (ADR decision) |
-| `/schedule` | `/schedule <time>[s\|m\|h] <prompt>` | Non-blocking one-shot timer; wakes agent automatically without polling loop | Yes (Schedule item) |
-| `/routine` | `/routine <interval\|cron> <prompt>` | Proactive recurring cron or interval routine with automated awakening | Yes (Routine item) |
+| `/plan` | `/plan[:\n\s]<objective> [\| step1 \| step2]` | Decomposes objective into milestone DAG tasks in SQLite and begins Phase 1 | Yes (DAG tasks) |
+| `/boost` | `/boost[:\n\s]<target>` | Verifies git working tree, WAL stats, and engages maximum autonomy execution | Yes (Audit task) |
+| `/teamwork-preview` | `/teamwork-preview[:\n\s]` or `/teamwork` | Discovers all project specialists, active models, channel assignments, and project pulse | No |
+| `/goal` | `/goal[:\n\s]<title> [\| desc] [\| criteria]` | Creates persistent goal milestone and initializes first ready task | Yes (Initial task) |
+| `/btw` | `/btw[:\n\s]<query>` | Ephemeral side-query; runs single-turn inference with `💡 [Side Query / BTW]` badge | No |
+| `/grill-me` | `/grill-me[:\n\s]<topic>` | Interactive architectural interview; renders selectable questionnaire card saving to ADR decisions | Yes (ADR decision) |
+| `/schedule` | `/schedule[:\n\s]<time>[s\|m\|h] <prompt>` | Non-blocking one-shot timer; wakes agent automatically without polling loop | Yes (Schedule item) |
+| `/routine` | `/routine[:\n\s]<interval\|cron> <prompt>` | Proactive recurring cron or interval routine with automated awakening | Yes (Routine item) |
+
+> **Concurrency & Input Guarantees:**
+> - **Channel Queue Lock (`channelQueues`)**: `isAgentActiveInChannel` evaluates active executions AND queued channel promises, preventing incoming burst messages from stampeding duplicate execution loops before an active execution record is registered.
+> - **Flexible Delimiters**: All slash commands support whitespace (` `), colon (`:`), and newline (`\n`) as argument separators.
+> - **Keyboard Interaction**: In the UI composer, pressing `Tab` autocompletes the selected slash command into the input field so users can append parameters/directives; pressing `Enter` directly triggers execution or opens dedicated modals.
 
 ---
 

@@ -1691,28 +1691,31 @@ export const AgentInspector: React.FC = () => {
 
                   <div className="flex space-x-1 pt-1">
                     <button
+                      data-testid="teamwork-post-matrix"
                       onClick={() => sendMessage('/teamwork-preview')}
                       className="flex-1 flex items-center justify-center space-x-1 py-1.5 rounded bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/40 text-[10px] font-semibold transition shadow cursor-pointer truncate"
                       title="Send /teamwork-preview command to active channel"
                     >
                       <Network className="w-3 h-3 text-purple-400 shrink-0" />
-                      <span className="truncate">Matrix</span>
+                      <span className="truncate">Post Matrix</span>
                     </button>
                     <button
+                      data-testid="teamwork-run-pipeline"
                       onClick={() => sendMessage('/plan /boost /teamwork-preview')}
                       className="flex-1 flex items-center justify-center space-x-1 py-1.5 rounded bg-gradient-to-r from-emerald-500/20 via-blue-500/20 to-purple-500/20 hover:from-emerald-500/30 hover:via-blue-500/30 hover:to-purple-500/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-semibold transition shadow cursor-pointer truncate"
                       title="Run Full Compound Pipeline (/plan /boost /teamwork-preview)"
                     >
                       <Zap className="w-3 h-3 text-emerald-400 shrink-0" />
-                      <span className="truncate">Pipeline</span>
+                      <span className="truncate">Run Pipeline</span>
                     </button>
                     <button
+                      data-testid="teamwork-run-goal-pipeline"
                       onClick={() => sendMessage('/plan /boost /teamwork-preview /goal')}
                       className="flex-1 flex items-center justify-center space-x-1 py-1.5 rounded bg-gradient-to-r from-amber-500/20 via-emerald-500/20 to-cyan-500/20 hover:from-amber-500/30 hover:via-emerald-500/30 hover:to-cyan-500/30 text-amber-300 border border-amber-500/40 text-[10px] font-semibold transition shadow cursor-pointer truncate"
                       title="Run 4-Tier Compound Goal Pipeline (/plan /boost /teamwork-preview /goal)"
                     >
                       <Target className="w-3 h-3 text-amber-400 shrink-0" />
-                      <span className="truncate">+ Goal</span>
+                      <span className="truncate">+ Goal Pipeline</span>
                     </button>
                   </div>
                 </div>

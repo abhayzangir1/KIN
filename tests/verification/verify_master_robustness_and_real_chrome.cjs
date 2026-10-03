@@ -143,12 +143,23 @@ function getJson(endpoint) {
   assert([200, 201].includes(compoundRes.statusCode), 'Compound slash command returns HTTP 200 or 201');
   assert(compoundRes.body?.triggeredCount >= 1, 'Compound command dispatched execution directive');
 
-  await sleep(2000);
-  const msgsRes = await getJson('/api/channels/chan-general/messages');
-  const lastCompound = msgsRes.body?.messages
-    ?.slice()
-    ?.reverse()
-    ?.find((m) => m.senderId === 'agent-boss' && m.content.includes('Compound Pipeline Engaged'));
+  const t4Start = Date.now() - 500;
+  let lastCompound = null;
+  for (let i = 0; i < 60; i++) {
+    const msgsRes = await getJson('/api/channels/chan-general/messages');
+    lastCompound = msgsRes.body?.messages
+      ?.slice()
+      ?.reverse()
+      ?.find(
+        (m) =>
+          m.senderId === 'agent-boss' &&
+          m.createdAt >= t4Start &&
+          m.content.includes('Compound Pipeline Engaged') &&
+          m.content.includes('verify system robustness and zero flaws')
+      );
+    if (lastCompound) break;
+    await sleep(500);
+  }
   assert(!!lastCompound, 'Boss generated master compound response card');
   assert(
     lastCompound?.content.includes('**Target Objective**: **verify system robustness and zero flaws**'),
@@ -162,17 +173,26 @@ function getJson(endpoint) {
   const preBtwGoals = await getJson('/api/projects/proj-kin/goals');
   const initialTaskCount = preBtwGoals.body?.tasks?.length || 0;
 
+  const t5Start = Date.now() - 500;
   const btwRes = await postJson('/api/channels/chan-general/messages', {
     content: '/btw what is the current SQLite journal mode and RAM threshold?',
   });
   assert([200, 201].includes(btwRes.statusCode), 'POST /btw returns HTTP 200 or 201');
 
-  await sleep(1500);
-  const btwMsgsRes = await getJson('/api/channels/chan-general/messages');
-  const btwAnswer = btwMsgsRes.body?.messages
-    ?.slice()
-    ?.reverse()
-    ?.find((m) => m.content.includes('Side Query / BTW') || m.content.includes('WAL mode'));
+  let btwAnswer = null;
+  for (let i = 0; i < 60; i++) {
+    const btwMsgsRes = await getJson('/api/channels/chan-general/messages');
+    btwAnswer = btwMsgsRes.body?.messages
+      ?.slice()
+      ?.reverse()
+      ?.find(
+        (m) =>
+          m.createdAt >= t5Start &&
+          (m.content.includes('Side Query / BTW') || m.content.includes('WAL mode'))
+      );
+    if (btwAnswer) break;
+    await sleep(500);
+  }
   assert(!!btwAnswer, '/btw ephemeral response generated in channel');
 
   const postBtwGoals = await getJson('/api/projects/proj-kin/goals');

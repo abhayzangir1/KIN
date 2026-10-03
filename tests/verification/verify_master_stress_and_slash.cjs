@@ -316,7 +316,7 @@ async function runMasterVerification() {
         hasWorkforcePulse: text.includes('Workforce Pulse & Readiness'),
         hasOllamaStatus: text.includes('Ollama Online') || text.includes('Ollama Offline'),
         hasDagProgress: text.includes('DAG Execution Progress'),
-        hasPostMatrixBtn: text.includes('Post Full Matrix in Chat'),
+        hasPostMatrixBtn: text.includes('Post Full Matrix in Chat') || text.includes('Post Matrix'),
         hasTopologyHeader: text.toLowerCase().includes('topology & model readiness'),
         hasReadyBadge: text.includes('🟢 Ready') || text.includes('Ready'),
       };
@@ -336,11 +336,20 @@ async function runMasterVerification() {
     // -------------------------------------------------------------------------
     console.log('[TEST 7] Testing rapid channel switching and message cache isolation...');
     
-    // Switch to #testing-ground
-    await page.evaluate(() => {
-      const buttons = Array.from(document.querySelectorAll('aside button'));
-      const btn = buttons.find((b) => b.innerText.includes('testing-ground'));
-      if (btn) btn.click();
+    // Switch to a channel other than #general
+    const altChannelName = await page.evaluate(async () => {
+      const state = window.kinStore.getState();
+      let other = state.channels.find((c) => c.name !== 'general');
+      if (!other) {
+        await state.createChannel('testing-ground', 'Strict Channel Isolation Test');
+        const updatedState = window.kinStore.getState();
+        other = updatedState.channels.find((c) => c.name !== 'general');
+      }
+      if (other) {
+        await state.setActiveChannel(other.id);
+        return other.name;
+      }
+      return null;
     });
     await sleep(600);
 
@@ -355,18 +364,18 @@ async function runMasterVerification() {
     console.log(`[TEST 7] Posted isolated token into #general: "${token}"`);
     await sleep(500);
 
-    // Check if token leaked into current channel #testing-ground
-    const leakedIntoTestingGround = await page.evaluate((tok) => {
+    // Check if token leaked into current channel
+    const leakedIntoOtherChannel = await page.evaluate((tok) => {
       const main = document.querySelector('main');
       return main ? main.innerText.includes(tok) : false;
     }, token);
-    console.log(`[TEST 7] Did token leak into #testing-ground: ${leakedIntoTestingGround}`);
+    console.log(`[TEST 7] Did token leak into #${altChannelName}: ${leakedIntoOtherChannel}`);
 
     // Switch to #general and verify token IS present
-    await page.evaluate(() => {
-      const buttons = Array.from(document.querySelectorAll('aside button'));
-      const btn = buttons.find((b) => b.innerText.includes('general'));
-      if (btn) btn.click();
+    await page.evaluate(async () => {
+      const state = window.kinStore.getState();
+      const gen = state.channels.find((c) => c.name === 'general');
+      if (gen) await state.setActiveChannel(gen.id);
     });
     await sleep(800);
 
@@ -376,7 +385,7 @@ async function runMasterVerification() {
     }, token);
     console.log(`[TEST 7] Is token present in #general: ${presentInGeneral}`);
 
-    if (!leakedIntoTestingGround && presentInGeneral) {
+    if (!leakedIntoOtherChannel && presentInGeneral) {
       results.test7_rapidChannelSwitchingAndIsolation = true;
       console.log('✅ TEST 7 PASSED: Strict channel isolation and message cache verified.\n');
     } else {

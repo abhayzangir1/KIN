@@ -1416,7 +1416,15 @@ export const CenterView: React.FC = () => {
                   setSlashSelectedIndex((prev) => (prev - 1 + matchingSlashCommands.length) % matchingSlashCommands.length);
                   return;
                 }
-                if (e.key === 'Tab' || e.key === 'Enter') {
+                if (e.key === 'Tab') {
+                  e.preventDefault();
+                  const targetCmd = matchingSlashCommands[slashSelectedIndex]?.cmd || matchingSlashCommands[0].cmd;
+                  setInputText(`${targetCmd} `);
+                  setShowSlashMenu(false);
+                  inputRef.current?.focus();
+                  return;
+                }
+                if (e.key === 'Enter') {
                   e.preventDefault();
                   const targetCmd = matchingSlashCommands[slashSelectedIndex]?.cmd || matchingSlashCommands[0].cmd;
                   handleSlashCommand(targetCmd);

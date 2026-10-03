@@ -180,6 +180,9 @@ async function sleep(ms) {
         postMatrixBtn: !!postMatrixBtn,
       };
     });
+    if (!teamworkRendered.runPipelineBtn || !teamworkRendered.postMatrixBtn) {
+      throw new Error(`Teamwork view missing buttons: runPipeline=${teamworkRendered.runPipelineBtn}, postMatrix=${teamworkRendered.postMatrixBtn}`);
+    }
     console.log(`[PASS] Teamwork view verified: Run Pipeline button=${teamworkRendered.runPipelineBtn}, Post Matrix button=${teamworkRendered.postMatrixBtn}`);
 
     // Screenshot 4: Agent Inspector Teamwork Tab with Workforce Readiness

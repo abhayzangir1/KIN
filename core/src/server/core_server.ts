@@ -1825,7 +1825,7 @@ export class CoreServer {
         const activeExecutionsInChan = Array.from(this.activeAgentExecutions.values()).filter(
           (e) => e.channelId === channelId
         );
-        const isAgentActiveInChannel = activeExecutionsInChan.length > 0;
+        const isAgentActiveInChannel = activeExecutionsInChan.length > 0 || this.channelQueues.has(channelId);
         const activeAgentIds = activeExecutionsInChan.map((e) => e.agentId);
 
         // Check if message is addressing a DIFFERENT specialist in the project that is NOT currently running
@@ -1983,16 +1983,19 @@ export class CoreServer {
               customCriteria = segments[2].split(',').map((c) => c.trim()).filter(Boolean);
             }
           } else if (strippedTopic.includes('\n')) {
-            const lines = strippedTopic.split('\n').map((s) => s.trim().replace(/^[-*0-9.]+\s*/, '')).filter(Boolean);
+            const lines = strippedTopic
+              .split('\n')
+              .map((s) => s.trim().replace(/^[-*0-9.]+\s*/, '').replace(/^[,\s|:\-/]+/, ''))
+              .filter(Boolean);
             if (lines.length > 0) {
               const firstLine = lines[0];
-              objective = firstLine.length < 120 ? firstLine : firstLine.slice(0, 100);
+              objective = firstLine.length < 120 ? firstLine : (firstLine.split(/[.;]/)[0] || firstLine.slice(0, 100)).trim();
               if (lines.length > 1) {
                 planDesc = lines.slice(1).join('; ');
               }
             }
           } else if (strippedTopic.length > 0) {
-            objective = strippedTopic.length < 120 ? strippedTopic : strippedTopic.slice(0, 100);
+            objective = strippedTopic.length < 120 ? strippedTopic : (strippedTopic.split(/[.;]/)[0] || strippedTopic.slice(0, 100)).trim();
             planDesc = `Authoritative multi-phase execution plan for ${objective}`;
           }
 
@@ -2209,8 +2212,13 @@ export class CoreServer {
         }
 
         // 1. /goal <title> [| <description>] [| <acceptance criteria>]
-        if (contentLower === '/goal' || contentLower.startsWith('/goal ')) {
-          const rawParams = rawContent.replace(/^\/goal\s*/i, '').trim();
+        if (
+          contentLower === '/goal' ||
+          contentLower.startsWith('/goal ') ||
+          contentLower.startsWith('/goal:') ||
+          contentLower.startsWith('/goal\n')
+        ) {
+          const rawParams = rawContent.replace(/^\/goal[\s:\n]*/i, '').trim();
           if (!rawParams) {
             if (boss) {
               const helpMsg = this.channelService.sendMessage({
@@ -2321,8 +2329,12 @@ export class CoreServer {
         if (
           contentLower === '/teamwork-preview' ||
           contentLower.startsWith('/teamwork-preview ') ||
+          contentLower.startsWith('/teamwork-preview:') ||
+          contentLower.startsWith('/teamwork-preview\n') ||
           contentLower === '/teamwork' ||
-          contentLower.startsWith('/teamwork ')
+          contentLower.startsWith('/teamwork ') ||
+          contentLower.startsWith('/teamwork:') ||
+          contentLower.startsWith('/teamwork\n')
         ) {
           if (boss) {
             const projectAgents = this.agentRepo.listIdentitiesByProject(targetProjectId);
@@ -2382,9 +2394,14 @@ export class CoreServer {
         }
 
         // 3. /plan <topic> — Generates milestone breakdown & initializes DAG tasks
-        if (contentLower === '/plan' || contentLower.startsWith('/plan ')) {
+        if (
+          contentLower === '/plan' ||
+          contentLower.startsWith('/plan ') ||
+          contentLower.startsWith('/plan:') ||
+          contentLower.startsWith('/plan\n')
+        ) {
           if (boss) {
-            const rawTopic = rawContent.replace(/^\/plan\s*/i, '').trim();
+            const rawTopic = rawContent.replace(/^\/plan[\s:\n]*/i, '').trim();
             const now = Date.now();
             let objective = rawTopic || 'Core Engineering Roadmap';
 
@@ -2527,8 +2544,13 @@ export class CoreServer {
         }
 
         // 4. /boost <prompt> — Execute with High Autonomy & Verification Directive
-        if (contentLower === '/boost' || contentLower.startsWith('/boost ')) {
-          const boostTopic = rawContent.replace(/^\/boost\s*/i, '').trim();
+        if (
+          contentLower === '/boost' ||
+          contentLower.startsWith('/boost ') ||
+          contentLower.startsWith('/boost:') ||
+          contentLower.startsWith('/boost\n')
+        ) {
+          const boostTopic = rawContent.replace(/^\/boost[\s:\n]*/i, '').trim();
           const project = this.workspaceRepo.getProject(targetProjectId);
           const repoPath = project?.repoPath || process.cwd();
 
@@ -2600,8 +2622,17 @@ export class CoreServer {
         }
 
         // 5. /schedule or /timer <duration> [prompt] — Antigravity-Style Timed Autonomy & Sleep/Wakeup
-        if (contentLower === '/schedule' || contentLower.startsWith('/schedule ') || contentLower === '/timer' || contentLower.startsWith('/timer ')) {
-          const rawParams = rawContent.replace(/^\/(schedule|timer)\s*/i, '').trim();
+        if (
+          contentLower === '/schedule' ||
+          contentLower.startsWith('/schedule ') ||
+          contentLower.startsWith('/schedule:') ||
+          contentLower.startsWith('/schedule\n') ||
+          contentLower === '/timer' ||
+          contentLower.startsWith('/timer ') ||
+          contentLower.startsWith('/timer:') ||
+          contentLower.startsWith('/timer\n')
+        ) {
+          const rawParams = rawContent.replace(/^\/(schedule|timer)[\s:\n]*/i, '').trim();
           const matchOneShot = rawParams.match(/^(\d+)(s|m|h)?\s*(.*)$/i);
           if (matchOneShot) {
             const num = parseInt(matchOneShot[1], 10);
@@ -2733,7 +2764,16 @@ export class CoreServer {
         }
 
         // 5c. /skills or /skill — Capabilities & Specialized Extensions Catalog
-        if (contentLower === '/skills' || contentLower.startsWith('/skills ') || contentLower === '/skill' || contentLower.startsWith('/skill ')) {
+        if (
+          contentLower === '/skills' ||
+          contentLower.startsWith('/skills ') ||
+          contentLower.startsWith('/skills:') ||
+          contentLower.startsWith('/skills\n') ||
+          contentLower === '/skill' ||
+          contentLower.startsWith('/skill ') ||
+          contentLower.startsWith('/skill:') ||
+          contentLower.startsWith('/skill\n')
+        ) {
           if (boss) {
             const allSkills = this.skillEngine.listSkills();
             let skillsText = `🛠️ **Registered Agent Skills & Capabilities (${allSkills.length})**\n\n`;
@@ -2772,9 +2812,22 @@ export class CoreServer {
         }
 
         // 5d. /decisions or /decision or /adr — Architecture Decision Records (ADR)
-        if (contentLower === '/decisions' || contentLower.startsWith('/decisions ') || contentLower === '/decision' || contentLower.startsWith('/decision ') || contentLower === '/adr' || contentLower.startsWith('/adr ')) {
+        if (
+          contentLower === '/decisions' ||
+          contentLower.startsWith('/decisions ') ||
+          contentLower.startsWith('/decisions:') ||
+          contentLower.startsWith('/decisions\n') ||
+          contentLower === '/decision' ||
+          contentLower.startsWith('/decision ') ||
+          contentLower.startsWith('/decision:') ||
+          contentLower.startsWith('/decision\n') ||
+          contentLower === '/adr' ||
+          contentLower.startsWith('/adr ') ||
+          contentLower.startsWith('/adr:') ||
+          contentLower.startsWith('/adr\n')
+        ) {
           if (boss) {
-            const rawParams = rawContent.replace(/^\/(decisions|decision|adr)\s*/i, '').trim();
+            const rawParams = rawContent.replace(/^\/(decisions|decision|adr)[\s:\n]*/i, '').trim();
             if (rawParams.startsWith('propose ') || rawParams.startsWith('create ')) {
               const text = rawParams.replace(/^(propose|create)\s*/i, '').trim();
               const parts = text.split('|').map((s) => s.trim()).filter(Boolean);
@@ -2853,8 +2906,13 @@ export class CoreServer {
         }
 
         // 5e. /btw <query> — Ephemeral Side-Channel Inquiry (Zero DAG / Task Lease Mutation)
-        if (contentLower === '/btw' || contentLower.startsWith('/btw ')) {
-          const btwQuery = rawContent.replace(/^\/btw\s*/i, '').trim();
+        if (
+          contentLower === '/btw' ||
+          contentLower.startsWith('/btw ') ||
+          contentLower.startsWith('/btw:') ||
+          contentLower.startsWith('/btw\n')
+        ) {
+          const btwQuery = rawContent.replace(/^\/btw[\s:\n]*/i, '').trim();
           if (!btwQuery) {
             if (boss) {
               const helpMsg = this.channelService.sendMessage({
@@ -2923,8 +2981,13 @@ export class CoreServer {
         }
 
         // 5f. /grill-me [topic] — Adversarial Inquiry & Architecture Hardening
-        if (contentLower === '/grill-me' || contentLower.startsWith('/grill-me ')) {
-          const grillTopic = rawContent.replace(/^\/grill-me\s*/i, '').trim() || 'System Architecture, Scalability & Crash Resilience';
+        if (
+          contentLower === '/grill-me' ||
+          contentLower.startsWith('/grill-me ') ||
+          contentLower.startsWith('/grill-me:') ||
+          contentLower.startsWith('/grill-me\n')
+        ) {
+          const grillTopic = rawContent.replace(/^\/grill-me[\s:\n]*/i, '').trim() || 'System Architecture, Scalability & Crash Resilience';
           const grillingAgent = routing.targetAgents[0] || boss;
 
           if (grillingAgent) {
