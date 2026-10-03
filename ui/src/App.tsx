@@ -77,7 +77,7 @@ export const App: React.FC = () => {
   }, [isDraggingLeft, isDraggingRight, setSidebarWidth, setInspectorWidth]);
 
   return (
-    <ErrorBoundary name="KIN OS Root Workspace">
+    <ErrorBoundary name="KIN Root Workspace">
       <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0a0f1d] text-kin-text font-sans antialiased select-none">
         {/* Top Application Header Bar */}
         <HeaderBar />

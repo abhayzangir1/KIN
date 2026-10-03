@@ -24,7 +24,7 @@ core/v12_security_verified.txt
 *.pem
 *.key
 
-# OS & Editor Metadata
+# System & Editor Metadata
 .DS_Store
 Thumbs.db
 .vscode/

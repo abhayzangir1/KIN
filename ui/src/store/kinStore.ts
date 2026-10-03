@@ -733,7 +733,6 @@ interface KinState {
   fetchBrowserStatus: () => Promise<void>;
   closeBrowser: () => Promise<boolean>;
   navigateBrowser: (url: string) => Promise<boolean>;
-  draftSocialPosts: (platform?: 'linkedin' | 'x' | 'both') => Promise<{ success: boolean; message?: string; error?: string }>;
   captureDesktopScreenshot: () => Promise<any>;
   setDesktopControlModalOpen: (open: boolean) => void;
 
@@ -2940,22 +2939,6 @@ export const useKinStore = create<KinState>((set, get) => ({
     } catch (err) {
       console.error('[KIN UI] Failed to navigate browser:', err);
       return false;
-    }
-  },
-
-  draftSocialPosts: async (platform: 'linkedin' | 'x' | 'both' = 'both') => {
-    try {
-      const res = await fetch('/api/browser/draft-posts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ platform }),
-      });
-      const data = await res.json();
-      await get().fetchBrowserStatus();
-      return data;
-    } catch (err: any) {
-      console.error('[KIN UI] Failed to draft social posts:', err);
-      return { success: false, error: err?.message || String(err) };
     }
   },
 

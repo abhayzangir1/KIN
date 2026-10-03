@@ -1,10 +1,10 @@
 [package]
 name = "kin-desktop"
 version = "0.1.0"
-description = "KIN — Local-first AI Workforce Operating System"
+description = "KIN — Local-first Autonomous AI Workforce Platform"
 authors = ["KIN Team"]
 license = "Apache-2.0"
-repository = "https://github.com/kin/kin"
+repository = "https://github.com/abhayzangir1/KIN"
 edition = "2021"
 
 [lib]

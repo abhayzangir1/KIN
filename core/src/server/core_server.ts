@@ -485,7 +485,7 @@ export class CoreServer {
         id: 'def-boss',
         name: 'Boss',
         role: 'Lead Sovereign Orchestrator',
-        systemPrompt: 'You are @Boss, the Lead Sovereign Orchestrator of KIN OS. You direct the workforce, execute project plans, manage worktrees, coordinate tools, and verify all technical deliverables. Workspace boundaries are strictly enforced.',
+        systemPrompt: 'You are @Boss, the Lead Sovereign Orchestrator of KIN. You direct the workforce, execute project plans, manage worktrees, coordinate tools, and verify all technical deliverables. Workspace boundaries are strictly enforced.',
         defaultModelId: 'ollama/qwen2.5-coder:3b',
         domainAuthority: ['Architecture', 'Orchestration', 'Engineering', 'Operations'],
         capabilities: ['read', 'write', 'shell', 'worktree', 'delegate'],
@@ -511,7 +511,7 @@ export class CoreServer {
         channelId: 'chan-general',
         senderId: 'agent-boss',
         senderType: 'agent',
-        content: 'KIN OS initialized. I am @Boss, your Lead Sovereign Orchestrator. Workspace boundaries are strictly enforced.',
+        content: 'KIN Platform initialized. I am @Boss, your Lead Sovereign Orchestrator. Workspace boundaries are strictly enforced.',
         productivityScore: 100,
       });
     }
@@ -561,7 +561,7 @@ export class CoreServer {
       this.taskRepo.createGoal({
         id: goalId,
         projectId: 'proj-kin',
-        title: 'KIN OS Sovereign Workforce Bootstrap',
+        title: 'KIN Autonomous Workforce Bootstrap',
         description: 'Establish local-first agent runtime, SQLite state persistence, and tool execution boundaries.',
         acceptanceCriteria: [
           'SQLite WAL schema with relational integrity and unique agent names',
@@ -624,6 +624,68 @@ export class CoreServer {
     } catch {
       return { online: false, models: [] };
     }
+  }
+
+  /**
+   * Parses duration and prompt from schedule command parameters.
+   * Supports natural language phrases like "this for 3 hours 15 minutes then proceed with this message",
+   * standard short units like "10s", "5m", "1h", "3h15m", and multi-part "3 hours 15 minutes".
+   */
+  public parseScheduleDurationAndPrompt(rawParams: string): { durationSeconds: number; prompt: string; formattedDuration: string } | null {
+    const trimmed = rawParams.trim();
+    if (!trimmed) return null;
+
+    let working = trimmed.replace(/^(this\s+for|for|in)\s+/i, '').trim();
+
+    let totalSeconds = 0;
+    let matchedAny = false;
+    const durationParts: string[] = [];
+
+    const durationRegex = /^(\d+)\s*(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)(?=\s|\d|[.,;:!?-]|$)/i;
+
+    let current = working;
+    while (true) {
+      const m = current.match(durationRegex);
+      if (!m) break;
+      matchedAny = true;
+      const val = parseInt(m[1], 10);
+      const unit = m[2].toLowerCase();
+      if (unit.startsWith('h')) {
+        totalSeconds += val * 3600;
+        durationParts.push(`${val}h`);
+      } else if (unit.startsWith('m')) {
+        totalSeconds += val * 60;
+        durationParts.push(`${val}m`);
+      } else if (unit.startsWith('s')) {
+        totalSeconds += val;
+        durationParts.push(`${val}s`);
+      }
+      current = current.slice(m[0].length).trim();
+      current = current.replace(/^(and|,)\s+/i, '').trim();
+    }
+
+    if (!matchedAny) {
+      const singleMatch = working.match(/^(\d+)\s*(.*)$/);
+      if (singleMatch) {
+        matchedAny = true;
+        totalSeconds = parseInt(singleMatch[1], 10);
+        durationParts.push(`${totalSeconds}s`);
+        current = singleMatch[2].trim();
+      }
+    }
+
+    if (!matchedAny || totalSeconds <= 0) return null;
+
+    let prompt = current.replace(/^(then|to|:)\s+/i, '').trim();
+    if (!prompt) {
+      prompt = 'Perform scheduled periodic check';
+    }
+
+    return {
+      durationSeconds: totalSeconds,
+      prompt,
+      formattedDuration: durationParts.join(' '),
+    };
   }
 
   /**
@@ -1984,7 +2046,7 @@ export class CoreServer {
                     const orRes = await this.modelGateway.invoke({
                       modelId: 'openrouter/qwen/qwen3.8-27b:free',
                       messages: [
-                        { role: 'system', content: `You are ${answeringAgent.displayName}, an AI specialist in KIN OS. The human operator is asking a quick side-channel question (/btw). Provide a sharp, direct, concise answer without proposing tasks.` },
+                        { role: 'system', content: `You are ${answeringAgent.displayName}, an AI specialist in KIN. The human operator is asking a quick side-channel question (/btw). Provide a sharp, direct, concise answer without proposing tasks.` },
                         { role: 'user', content: btwQuery },
                       ],
                       maxTokens: 512,
@@ -1998,7 +2060,7 @@ export class CoreServer {
                     const res = await this.modelGateway.invoke({
                       modelId: answeringAgent.activeModelId,
                       messages: [
-                        { role: 'system', content: `You are ${answeringAgent.displayName}, an AI specialist in KIN OS. The human operator is asking a quick side-channel question (/btw). Provide a sharp, direct, concise answer without proposing tasks.` },
+                        { role: 'system', content: `You are ${answeringAgent.displayName}, an AI specialist in KIN. The human operator is asking a quick side-channel question (/btw). Provide a sharp, direct, concise answer without proposing tasks.` },
                         { role: 'user', content: btwQuery },
                       ],
                       maxTokens: 512,
@@ -2186,13 +2248,14 @@ export class CoreServer {
         // Trigger activated agent(s) asynchronously
         const boss = routing.fallbackOrchestrator || allProjectAgents.find((a) => a.isOrchestrator) || allProjectAgents[0] || this.agentRepo.getIdentity('agent-boss');
 
-        // 0. Compound Multi-Command Pipeline (/plan /boost /teamwork-preview /goal [optional topic/directive/pipes])
+        // 0. Compound Multi-Command Pipeline (/plan /boost /teamwork-preview /goal /schedule [optional topic/directive/pipes])
         const cleanForCompound = contentTrimmed.replace(/^task:\s*/i, '');
         const hasPlanCmd = /\/plan\b/i.test(cleanForCompound);
         const hasBoostCmd = /\/boost\b/i.test(cleanForCompound);
         const hasTeamworkCmd = /\/teamwork(-preview)?\b/i.test(cleanForCompound);
         const hasGoalCmd = /\/goal\b/i.test(cleanForCompound);
-        const compoundCount = (hasPlanCmd ? 1 : 0) + (hasBoostCmd ? 1 : 0) + (hasTeamworkCmd ? 1 : 0) + (hasGoalCmd ? 1 : 0);
+        const hasScheduleCmd = /\/(schedule|timer)\b/i.test(cleanForCompound);
+        const compoundCount = (hasPlanCmd ? 1 : 0) + (hasBoostCmd ? 1 : 0) + (hasTeamworkCmd ? 1 : 0) + (hasGoalCmd ? 1 : 0) + (hasScheduleCmd ? 1 : 0);
 
         if (compoundCount >= 2 && boss) {
           // Extract any user-specified topic, directive text, or pipe-separated params
@@ -2201,6 +2264,7 @@ export class CoreServer {
             .replace(/\/boost\b/gi, '')
             .replace(/\/teamwork(-preview)?\b/gi, '')
             .replace(/\/goal\b/gi, '')
+            .replace(/\/(schedule|timer)\b/gi, '')
             .replace(/^[,\s|:\-/]+/, '')
             .trim();
 
@@ -2386,18 +2450,37 @@ export class CoreServer {
 
           const engineSummary = `WAL (${dbSizeKb} KB) | Ollama: ${ollamaInfo.online ? `${ollamaInfo.models.length} model(s)` : 'offline'}`;
 
+          // If /schedule is part of compound command, parse and schedule timer
+          let scheduledTimerInfo: string | null = null;
+          if (hasScheduleCmd) {
+            const schedParse = this.parseScheduleDurationAndPrompt(strippedTopic);
+            if (schedParse) {
+              const sched = this.scheduler.createOneShotTimer({
+                projectId: targetProjectId,
+                channelId,
+                targetAgentId: boss?.id,
+                prompt: schedParse.prompt,
+                durationSeconds: schedParse.durationSeconds,
+              });
+              this.broadcastEvent('schedule:created', sched);
+              scheduledTimerInfo = `Will wake in ${schedParse.formattedDuration} (${schedParse.durationSeconds}s) for directive: "${schedParse.prompt}" [ID: \`${sched.id}\`]`;
+            }
+          }
+
           // Formulate Unified Master Compound Card with Dynamic Mode Badges
           const engagedModes: string[] = [];
           if (hasTeamworkCmd) engagedModes.push('Teamwork Preview');
           if (hasPlanCmd) engagedModes.push('Plan DAG');
           if (hasBoostCmd) engagedModes.push('Boost Autonomy');
           if (hasGoalCmd) engagedModes.push('Goal Milestone');
+          if (hasScheduleCmd) engagedModes.push('Scheduled Timer');
 
           const modesBadges = [
             hasTeamworkCmd ? '👥 `/teamwork-preview`' : null,
             hasPlanCmd ? '📋 `/plan`' : null,
             hasBoostCmd ? '🚀 `/boost`' : null,
             hasGoalCmd ? '🎯 `/goal`' : null,
+            hasScheduleCmd ? '⏱️ `/schedule`' : null,
           ].filter(Boolean).join(' | ');
 
           const compoundMsgContent =
@@ -2406,8 +2489,9 @@ export class CoreServer {
             `- **Project**: \`${targetProjectId}\`\n` +
             `- **Pipeline Modes**: ${modesBadges}\n` +
             `- **Repository Status**: ${gitSummaryText}\n` +
-            `- **Engine Status**: ${engineSummary}\n\n` +
-            `---\n\n` +
+            `- **Engine Status**: ${engineSummary}\n` +
+            (scheduledTimerInfo ? `- **Scheduled Timer**: ${scheduledTimerInfo}\n` : '') +
+            `\n---\n\n` +
             `${matrix}\n\n` +
             `---\n\n` +
             `📋 **Milestone Breakdown DAG**:\n${breakdownText}\n` +
@@ -2871,13 +2955,9 @@ export class CoreServer {
           contentLower.startsWith('/timer\n')
         ) {
           const rawParams = rawContent.replace(/^\/(schedule|timer)[\s:\n]*/i, '').trim();
-          const matchOneShot = rawParams.match(/^(\d+)(s|m|h)?\s*(.*)$/i);
-          if (matchOneShot) {
-            const num = parseInt(matchOneShot[1], 10);
-            const unit = (matchOneShot[2] || 's').toLowerCase();
-            const multiplier = unit === 'h' ? 3600 : unit === 'm' ? 60 : 1;
-            const durationSeconds = num * multiplier;
-            const prompt = matchOneShot[3] || 'Perform scheduled periodic check';
+          const parsedSchedule = this.parseScheduleDurationAndPrompt(rawParams);
+          if (parsedSchedule) {
+            const { durationSeconds, prompt, formattedDuration } = parsedSchedule;
 
             const sched = this.scheduler.createOneShotTimer({
               projectId: targetProjectId,
@@ -2891,7 +2971,7 @@ export class CoreServer {
               channelId,
               senderId: boss?.id || 'agent-boss',
               senderType: 'agent',
-              content: `⏱️ **Timer Initialized**: Will wake in **${durationSeconds}s**\n- **Directive**: "${prompt}"\n- **Schedule ID**: \`${sched.id}\`\n\nAgent is now sleeping (zero busy-polling). Wakeup event will dispatch automatically.`,
+              content: `⏱️ **Timer Initialized**: Will wake in **${formattedDuration}** (${durationSeconds}s)\n- **Directive**: "${prompt}"\n- **Schedule ID**: \`${sched.id}\`\n\nAgent is now sleeping (zero busy-polling). Wakeup event will dispatch automatically.`,
               productivityScore: 100,
             });
             this.broadcastEvent('message:created', {
@@ -2912,7 +2992,7 @@ export class CoreServer {
                 channelId,
                 senderId: boss.id,
                 senderType: 'agent',
-                content: `ℹ️ **Usage**: \`/schedule <duration>[s|m|h] [directive]\`\n\nExamples:\n- \`/schedule 10s check test results\`\n- \`/schedule 5m perform repository audit\`\n- \`/schedule 1h periodic health check\``,
+                content: `ℹ️ **Usage**: \`/schedule <duration> [directive]\`\n\nExamples:\n- \`/schedule 10s check test results\`\n- \`/schedule 5m perform repository audit\`\n- \`/schedule 3 hours 15 minutes proceed with task\`\n- \`/schedule this for 3 hours 15 minutes then proceed with this message\``,
                 productivityScore: 100,
               });
               this.broadcastEvent('message:created', {
@@ -3016,7 +3096,7 @@ export class CoreServer {
             const allSkills = this.skillEngine.listSkills();
             let skillsText = `🛠️ **Registered Agent Skills & Capabilities (${allSkills.length})**\n\n`;
             if (allSkills.length === 0) {
-              skillsText += `_No external skills registered. Default OS primitives (bash, git, editor, computer) active._\n`;
+              skillsText += `_No external skills registered. Default platform primitives (bash, git, editor, computer) active._\n`;
             } else {
               for (const sk of allSkills) {
                 skillsText += `• **${sk.name}** \`v${sk.version || '1.0.0'}\`${sk.isBuiltIn ? ' *(Built-in)*' : ''}\n`;
@@ -4407,7 +4487,7 @@ export class CoreServer {
         }
 
         const truncatedDiff = targetDiff.slice(0, 8000);
-        const reviewPrompt = `You are @Boss, Lead Sovereign Orchestrator of KIN OS. Review the following git diff for ${targetLabel}.\n\n` +
+        const reviewPrompt = `You are @Boss, Lead Sovereign Orchestrator of KIN. Review the following git diff for ${targetLabel}.\n\n` +
           `Provide a concise architectural and code quality review covering:\n` +
           `1. Summary of Changes\n` +
           `2. Potential Bugs, Edge Cases & Regressions\n` +
@@ -4975,111 +5055,7 @@ export class CoreServer {
         return this.sendJson(res, 200, { success: true });
       }
 
-      // 48b. POST /api/browser/draft-posts — Visibly drafts social launch posts in browser
-      if (req.method === 'POST' && pathname === '/api/browser/draft-posts') {
-        const body = await this.parseJsonBody<{ platform?: 'linkedin' | 'x' | 'both' }>(req);
-        const LINKEDIN_POST_TEXT = `Excited to unveil KIN — an autonomous, local-first operating system designed to orchestrate collaborative multi-agent software engineering teams directly on your physical workstation. 🚀\n\nMost AI agent systems today are brittle cloud wrappers: they lose all state when a process terminates, burn tokens on runaway loops, fail catastrophically on network blips, and offer zero hardware-level governance.\n\nWe built KIN from first principles to bring enterprise-grade resilience, determinism, and privacy to local multi-agent software development.\n\nKey Architecture Highlights:\n🛡️ Turn-by-Turn Crash Resilience & State Recovery with 1-click [Resume All]\n⏳ HTTP 429 Quota Guard with countdown & 1-click fallback to local Ollama models\n🎯 Antigravity Slash Command Suite (/plan, /boost, /btw, /grill-me, /teamwork-preview)\n🖥️ Dynamic Hardware Governors & Governed Desktop Control (Win32 DesktopLock mutex)\n🔒 Atomic Distributed Task Leases & Optimistic Concurrency Control (OCC)\n📊 Formal Agent Evaluations & BYOK Vault (OpenRouter, Anthropic, OpenAI)\n\nKIN is 100% open-source, local-first, and telemetry-free.\n\n💻 GitHub: https://github.com/abhayzangir1/KIN\n\n#AI #MultiAgentSystems #OpenSource #TypeScript #React #LocalFirst #DevTools`;
 
-        const X_POST_TEXT = `🚀 Introducing KIN: The Autonomous, Local-First Workforce Operating System.\n\nOrchestrate collaborative multi-agent software engineering teams directly on your workstation with turn-by-turn crash recovery, zero cloud telemetry, and governed desktop/browser control.\n\n100% Open-Source: https://github.com/abhayzangir1/KIN\n\n#AI #OpenSource #LocalFirst #DevTools`;
-
-        try {
-          const { browser, page } = await this.browserController.ensureBrowser({ headless: false });
-          const platform = body?.platform || 'both';
-
-          const injectBanner = async (targetPage: any, bannerId: string, text: string, color: string = '#38bdf8', bg: string = '#0f172a', border: string = '#38bdf8') => {
-            await targetPage.evaluate((bId: string, bText: string, bColor: string, bBg: string, bBorder: string) => {
-              const old = document.getElementById(bId);
-              if (old) old.remove();
-              const banner = document.createElement('div');
-              banner.id = bId;
-              banner.style.position = 'fixed';
-              banner.style.top = '12px';
-              banner.style.left = '50%';
-              banner.style.transform = 'translateX(-50%)';
-              banner.style.zIndex = '9999999';
-              banner.style.background = bBg;
-              banner.style.color = bColor;
-              banner.style.border = `2px solid ${bBorder}`;
-              banner.style.borderRadius = '10px';
-              banner.style.padding = '12px 24px';
-              banner.style.boxShadow = '0 10px 40px rgba(0,0,0,0.85)';
-              banner.style.fontFamily = 'system-ui, -apple-system, sans-serif';
-              banner.style.fontSize = '14px';
-              banner.style.fontWeight = 'bold';
-              banner.style.pointerEvents = 'none';
-              banner.style.transition = 'all 0.3s ease';
-              banner.innerHTML = bText;
-              document.body.appendChild(banner);
-            }, bannerId, text, color, bg, border).catch(() => {});
-          };
-
-          if (platform === 'linkedin' || platform === 'both') {
-            await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-            await injectBanner(page, 'kin-agent-overlay', '🤖 KIN Autonomous Agent: Active on Screen • Waiting for Operator Permission / Login • Checking browser every 1.5s...');
-
-            // Autonomous checking loop: wait for user login / composer
-            for (let check = 0; check < 10; check++) {
-              await new Promise((r) => setTimeout(r, 1500));
-              const postTrigger = await page.$('button.share-box-feed-entry__trigger').catch(() => null);
-              if (postTrigger) {
-                await injectBanner(page, 'kin-agent-overlay', '🤖 KIN Autonomous Agent: Session Detected • Opening LinkedIn Post Composer...');
-                await postTrigger.click().catch(() => {});
-                await new Promise((r) => setTimeout(r, 1500));
-                const editor = await page.$('div.ql-editor').catch(() => null);
-                if (editor) {
-                  await editor.click().catch(() => {});
-                  await page.keyboard.type(LINKEDIN_POST_TEXT, { delay: 5 }).catch(() => {});
-                  await injectBanner(page, 'kin-agent-overlay', '✅ KIN Launch Post Drafted! Review copy and click [Post] when ready.', '#34d399', '#064e3b', '#10b981');
-                  break;
-                }
-              }
-            }
-          }
-
-          if (platform === 'x' || platform === 'both') {
-            const page2 = await browser.newPage().catch(() => page);
-            await page2.goto('https://x.com/compose/post', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-            await injectBanner(page2, 'kin-agent-overlay-x', '🤖 KIN Autonomous Agent: Active on Screen • Waiting for Operator Permission / Login • Checking browser every 1.5s...');
-
-            // Autonomous checking loop: wait for tweet composer
-            for (let check = 0; check < 10; check++) {
-              await new Promise((r) => setTimeout(r, 1500));
-              const tweetEditor = await page2.$('div[data-testid="tweetTextarea_0"]').catch(() => null);
-              if (tweetEditor) {
-                await tweetEditor.click().catch(() => {});
-                await page2.keyboard.type(X_POST_TEXT, { delay: 5 }).catch(() => {});
-                await injectBanner(page2, 'kin-agent-overlay-x', '✅ KIN Launch Post Drafted! Review copy and click [Post] when ready.', '#34d399', '#064e3b', '#10b981');
-                break;
-              }
-            }
-          }
-
-          // Open OpenRouter Free Models & KIN Repo tabs for complete operator visibility
-          try {
-            const page3 = await browser.newPage();
-            await page3.goto('https://openrouter.ai/models?max_price=0', { waitUntil: 'domcontentloaded', timeout: 30000 });
-            await injectBanner(page3, 'kin-agent-overlay-openrouter', '🤖 KIN BYOK Explorer: Free OpenRouter Models (DeepSeek R1, LLaMA 3.3 70B, Gemini 2.0 Flash) Available For Agents', '#c084fc', '#1e1b4b', '#a855f7');
-          } catch {}
-
-          try {
-            const page4 = await browser.newPage();
-            await page4.goto('https://github.com/abhayzangir1/KIN', { waitUntil: 'domcontentloaded', timeout: 30000 });
-            await injectBanner(page4, 'kin-agent-overlay-github', '🤖 KIN OS: Repository Verified • 11 Test Suites Passing • Screenshots & Documentation Ready', '#34d399', '#064e3b', '#10b981');
-          } catch {}
-
-          this.broadcastEvent('browser:social_drafted', { platform, timestamp: Date.now() });
-          return this.sendJson(res, 200, {
-            success: true,
-            message: 'Social posts drafted visibly on screen in browser session',
-            platform,
-          });
-        } catch (err: any) {
-          return this.sendJson(res, 500, {
-            success: false,
-            error: err?.message || String(err),
-          });
-        }
-      }
 
       // 49. POST /api/runs/:runId/pause — Instant Human Takeover: Pause Agent
       const runPauseMatch = pathname.match(/^\/api\/runs\/([^/]+)\/pause$/);
@@ -5675,6 +5651,29 @@ export class CoreServer {
     const isChannel = !channelId.startsWith('dm-');
 
     // 1. Check if user is asking @Boss to hire a new agent
+    if ((contentLower === '/hire' || contentLower === '/hire:') && isChannel) {
+      if (boss) {
+        const helpMsg = this.channelService.sendMessage({
+          channelId,
+          senderId: boss.id,
+          senderType: 'agent',
+          content: `ℹ️ **Usage**: \`/hire @<SpecialistName> <Role/Specialization>\`\n\nExamples:\n- \`/hire @Security Specialist in Vulnerability & Pentesting\`\n- \`/hire @Designer UI and Design Systems Specialist\`\n- \`/hire @QA Automated Testing and Verification Specialist\``,
+          productivityScore: 100,
+        });
+        this.broadcastEvent('message:created', {
+          id: helpMsg.id,
+          channelId: helpMsg.channelId,
+          senderId: helpMsg.senderId,
+          senderName: boss.displayName.replace(/^@/, ''),
+          senderType: 'agent',
+          content: helpMsg.content,
+          createdAt: helpMsg.createdAt,
+          productivityScore: helpMsg.productivityScore,
+        });
+      }
+      return;
+    }
+
     const isHireIntent =
       contentLower.startsWith('/hire') ||
       contentLower.includes('hire') ||
@@ -6102,7 +6101,7 @@ export class CoreServer {
           id: agent.definitionId,
           name: agent.displayName,
           role: agent.isOrchestrator ? 'Lead Sovereign Orchestrator' : 'Specialist',
-          systemPrompt: 'You are @Boss, the Lead Sovereign Orchestrator in KIN OS.',
+          systemPrompt: 'You are @Boss, the Lead Sovereign Orchestrator in KIN.',
           defaultModelId: agent.activeModelId,
           domainAuthority: [],
           capabilities: [],

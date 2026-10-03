@@ -88,7 +88,7 @@ export const SettingsModal: React.FC = () => {
               <h2 className="text-base font-bold text-kin-text flex items-center space-x-2">
                 <span>System Settings & Preferences</span>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                  KIN OS v1.0
+                  KIN Platform v1.0
                 </span>
               </h2>
               <p className="text-xs text-[#8b949e]">Configure autonomy, LLM engine, database, and draggable layout</p>
@@ -384,7 +384,7 @@ export const SettingsModal: React.FC = () => {
                     <span>Local Ollama LLM Engine</span>
                   </h3>
                   <p className="text-xs text-[#8b949e]">
-                    KIN OS runs 100% locally with private LLM inference via Ollama on port 11434.
+                    KIN runs locally with private LLM inference via Ollama on port 11434.
                   </p>
                 </div>
 
@@ -761,13 +761,13 @@ export const SettingsModal: React.FC = () => {
                     <span>System Diagnostics & Kernel Architecture</span>
                   </h3>
                   <p className="text-xs text-[#8b949e]">
-                    Telemetry and architectural specifications of KIN OS.
+                    Telemetry and architectural specifications of KIN Platform.
                   </p>
                 </div>
 
                 <div className="p-4 rounded-lg bg-[#161b22] border border-[#30363d] space-y-3 text-xs font-mono">
                   <div className="flex justify-between py-1 border-b border-[#21262d]">
-                    <span className="text-[#8b949e]">Operating System Engine</span>
+                    <span className="text-[#8b949e]">Workforce Platform Engine</span>
                     <span className="text-kin-text font-bold">KIN Autonomous Workforce Kernel</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-[#21262d]">

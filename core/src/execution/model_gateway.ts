@@ -223,7 +223,7 @@ export class ModelGateway {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
         'HTTP-Referer': 'https://github.com/abhayzangir1/KIN',
-        'X-Title': 'KIN OS',
+        'X-Title': 'KIN Workforce Platform',
       },
       body: JSON.stringify({
         model: modelName,

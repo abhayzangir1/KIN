@@ -4,7 +4,7 @@
 **Date:** 2026-10-01  
 **Status:** Authoritative product baseline (V12)  
 **Product:** KIN  
-**Category:** Local-first AI workforce / agent operating system  
+**Category:** Local-first autonomous AI workforce and multi-agent coordination platform  
 **Platforms:** Windows, macOS, Linux  
 **Distribution:** Open source  
 **Primary UX:** Message-first collaborative workspace with Antigravity-Style Timed Autonomy  
@@ -18,7 +18,7 @@ This document merges the three supplied KIN specifications into one product cont
 ### 0.1 Selected product architecture
 
 - Tauri 2 is the desktop shell.
-- Rust is the native/privileged boundary for OS integration, process supervision, secure IPC, filesystem roots, window lifecycle, packaging, and native capabilities.
+- Rust is the native/privileged boundary for platform integration, process supervision, secure IPC, filesystem roots, window lifecycle, packaging, and native capabilities.
 - The main KIN agent/product runtime is a local TypeScript/Node sidecar/core rather than a Rust-only agent runtime.
 - The core is a modular local monolith, not a local microservice fleet.
 - DeepSeek Harness/Cordis, Google ADK, OpenHands, LangGraph/Deep Agents, OpenAI Agents SDK, Letta and similar systems are reference/adapter sources, not the authoritative KIN domain model.
@@ -97,7 +97,7 @@ Require interactive user approval before every consequential agent capability in
 
 #### Mode C — Full Access
 
-Do not interrupt with approval prompts for actions already permitted by the user's explicit capability policy. Security boundaries, permission scopes, audit logs, OS restrictions, kill switches, and policy enforcement remain active.
+Do not interrupt with approval prompts for actions already permitted by the user's explicit capability policy. Security boundaries, permission scopes, audit logs, host platform restrictions, kill switches, and policy enforcement remain active.
 
 **Full Access is not permission bypass. It is approval-prompt bypass.**
 
@@ -756,7 +756,7 @@ No adaptive mechanism may silently change:
 - credentials;
 - security policy;
 - network allowlists;
-- audit guarantees;
+- audit invariants;
 - kill-switch behavior;
 - KIN core binaries.
 
@@ -924,7 +924,7 @@ Actions may:
 - request approval;
 - execute an approved capability.
 
-V1 prioritizes durable in-app scheduling. OS-level wake/background scheduling is an enhancement.
+V1 prioritizes durable in-app scheduling. Host-level wake/background scheduling is an enhancement.
 
 ---
 
@@ -974,7 +974,7 @@ The interface should expose detail progressively rather than forcing users to mo
 - explicit external connections;
 - least privilege;
 - scoped filesystem roots;
-- OS-protected secrets;
+- Keyring-protected secrets;
 - auditability;
 - policy authority outside the agent prompt;
 - untrusted content remains untrusted.
@@ -1164,7 +1164,7 @@ This section is the canonical resolution of the differences among the supplied P
 | Area | Selected final design | Reason / extracted pattern | Explicitly rejected or deferred |
 |---|---|---|---|
 | Desktop shell | Tauri 2 | Lightweight cross-platform desktop shell | Electron |
-| Native boundary | Small Rust boundary | OS integration, process supervision, native security surfaces | Rust-only agent/product core |
+| Native boundary | Small Rust boundary | Host platform integration, process supervision, native security surfaces | Rust-only agent/product core |
 | Agent/product core | Local Node/TypeScript modular monolith | Better fit for current JS/TS agent ecosystem and adapter reuse | Python microservice fleet; Rust-only runtime |
 | Workspace hierarchy | Workspace-first | Lowest onboarding friction | Mandatory Organization→Department bureaucracy in V1 |
 | Enterprise hierarchy | Optional extension | Preserves future enterprise support without polluting core UX | V1 dependency |
@@ -1199,7 +1199,7 @@ The resulting product is intentionally **simpler internally than the sum of its 
 
 # 30. Final product statement
 
-> **KIN is a local-first AI workforce OS: one human-facing orchestrator, persistent coworkers, temporary specialists, visible collaboration, durable work state, managed context, governed tools, adaptive skills, verified execution, and system-level recovery — with the ability to improve its reusable capabilities over time without silently weakening user control.**
+> **KIN is a local-first autonomous AI workforce platform: one human-facing orchestrator, persistent coworkers, temporary specialists, visible collaboration, durable work state, managed context, governed tools, adaptive skills, verified execution, and system-level recovery — with the ability to improve its reusable capabilities over time without silently weakening user control.**
 
 ---
 
@@ -1239,7 +1239,7 @@ The resulting product is intentionally **simpler internally than the sum of its 
   - `Resume All`: Resumes all interrupted runs from their exact last recorded checkpoint turn.
   - `Discard`: Acknowledges and dismisses the interrupted sessions without re-running.
   - Per-Run Actions: Granular controls to resume individual runs or route them to local fallback models (e.g., Ollama).
-- **Zero Loss Guarantee:** Restores full conversation context, tool state history, and execution parameters, avoiding duplicate tool invocations and wasted model inference.
+- **Context Preservation Invariant:** Restores full conversation context, tool state history, and execution parameters, avoiding duplicate tool invocations and wasted model inference.
 
 ### 32.2 HTTP 429 Quota Guard & Quota-Paused Run State
 - **Proactive Quota Handling:** Runtime intercepts HTTP 429 and `RESOURCE_EXHAUSTED` responses from LLM providers (Anthropic, OpenAI, Gemini).
@@ -1259,7 +1259,7 @@ The resulting product is intentionally **simpler internally than the sum of its 
 
 ### 32.5 Coalesced Wakeup Queue & Concurrency Governor
 - **Debounced Windowing:** The `WakeupQueue` batches burst notifications and dependency triggers across agents within a configurable 1000ms coalescing window.
-- **Resource Governor:** Prior to dispatching agent runs, the queue queries OS-level system metrics (free memory, CPU headroom). Dispatches are throttled or deferred if system resources are constrained.
+- **Resource Governor:** Prior to dispatching agent runs, the queue queries host-level system metrics (free memory, CPU headroom). Dispatches are throttled or deferred if system resources are constrained.
 - **Storm Prevention:** Prevents catastrophic cascading awakenings and memory exhaustion when multi-agent teams broadcast messages simultaneously.
 
 ### 32.6 Extended Slash Command Suite (`/btw` & `/grill-me`)

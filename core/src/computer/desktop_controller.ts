@@ -548,7 +548,7 @@ public static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
         $brushSub = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(148, 163, 184))
 
         $timeStr = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss UTC")
-        $g.DrawString("KIN OS - HEADLESS VIRTUAL DISPLAY SESSION", $fontTitle, $brushText, 80, 80)
+        $g.DrawString("KIN - HEADLESS VIRTUAL DISPLAY SESSION", $fontTitle, $brushText, 80, 80)
         $g.DrawString("Session ID: $sessionId | Interactive: $isInteractive | Virtual Resolution: 1920x1080", $fontSub, $brushSub, 80, 130)
         $g.DrawString("Timestamp: $timeStr", $fontSub, $brushSub, 80, 160)
         $g.DrawString("Physical Display: Unattached / Background Session (GDI+ Direct Surface Unavailable)", $fontSub, $brushSub, 80, 190)

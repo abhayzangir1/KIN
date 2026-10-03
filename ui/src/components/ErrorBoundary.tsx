@@ -29,7 +29,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     this.setState({ errorInfo });
-    console.error(`[KIN OS ERROR BOUNDARY: ${this.props.name || 'Component'}]`, error, errorInfo);
+    console.error(`[KIN ERROR BOUNDARY: ${this.props.name || 'Component'}]`, error, errorInfo);
   }
 
   private handleReset = (): void => {

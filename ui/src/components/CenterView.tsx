@@ -332,9 +332,6 @@ export const CenterView: React.FC = () => {
       setDecisionsModalOpen(true);
       sendMessage('/decisions');
       setInputText('');
-    } else if (cmd === '/schedule' || cmd === '/routine' || cmd === '/timer') {
-      setAutomationsModalOpen(true);
-      setInputText('');
     } else {
       setInputText(`${cmd} `);
       inputRef.current?.focus();

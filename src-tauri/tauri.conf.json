@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "KIN",
   "version": "0.1.0",
-  "identifier": "com.kin.workforce.os",
+  "identifier": "com.kin.workforce",
   "build": {
     "frontendDist": "../ui/dist",
     "devUrl": "http://localhost:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "KIN — AI Workforce OS",
+        "title": "KIN — Autonomous AI Workforce Platform",
         "width": 1400,
         "height": 900,
         "minWidth": 1000,

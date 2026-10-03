@@ -1,8 +1,8 @@
 {
-  "name": "kin-workforce-os",
+  "name": "kin-workforce",
   "version": "1.0.0",
   "private": true,
-  "description": "KIN — Local-first AI Workforce & Agent Operating System",
+  "description": "KIN — Local-first Autonomous AI Workforce & Multi-Agent Coordination Platform",
   "workspaces": [
     "core",
     "ui"
@@ -17,6 +17,7 @@
     "tauri:build": "tauri build"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.12.1",
     "puppeteer-core": "^25.12.0",
     "typescript": "^5.8.2"
   }

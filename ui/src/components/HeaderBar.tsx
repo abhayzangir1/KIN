@@ -65,7 +65,7 @@ export const HeaderBar: React.FC = () => {
       <div className="flex items-center space-x-3">
         <div className="flex items-center space-x-1.5 font-bold tracking-wide text-kin-text">
           <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
-          <span>KIN OS</span>
+          <span>KIN</span>
         </div>
 
         <span className="text-[#30363d]">|</span>

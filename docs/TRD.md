@@ -4,7 +4,7 @@
 **Document Version:** 12.0  
 **Status:** Authoritative Technical Baseline  
 **Target Runtimes:** Node.js v20+, TypeScript 5.8+, SQLite 3 (WAL Mode), React 18, Vite 6, Tauri 2, Ollama  
-**Operating Systems:** Windows 10/11, macOS, Linux  
+**Supported Platforms:** Windows 10/11, macOS, Linux  
 
 ---
 
@@ -127,7 +127,7 @@ All system state is persisted in an authoritative local SQLite database running 
 
 ### 3.5 Event-Driven Coalesced Wakeup Queue
 - `WakeupQueue` enforces a 1000ms coalescing window per `agentId:channelId` pair to merge duplicate wakeup calls.
-- Interrogates `ComputerSupervisor` and `os.freemem()` before dispatching; if free RAM drops below 500MB, dispatch is queued to prevent OS out-of-memory thrashing.
+- Interrogates `ComputerSupervisor` and `os.freemem()` before dispatching; if free RAM drops below 500MB, dispatch is queued to prevent host out-of-memory thrashing.
 
 ---
 
@@ -141,23 +141,23 @@ All system state is persisted in an authoritative local SQLite database running 
 | `/goal` | `/goal[:\n\s]<title> [\| desc] [\| criteria]` | Creates persistent goal milestone and initializes first ready task | Yes (Initial task) |
 | `/btw` | `/btw[:\n\s]<query>` | Ephemeral side-query; runs single-turn inference with `💡 [Side Query / BTW]` badge | No |
 | `/grill-me` | `/grill-me[:\n\s]<topic>` | Interactive architectural interview; renders selectable questionnaire card saving to ADR decisions | Yes (ADR decision) |
-| `/schedule` | `/schedule[:\n\s]<time>[s\|m\|h] <prompt>` | Non-blocking one-shot timer; wakes agent automatically without polling loop | Yes (Schedule item) |
+| `/schedule` | `/schedule[:\n\s]<duration> <prompt>` | Non-blocking one-shot timer; wakes agent automatically without polling loop | Yes (Schedule item) |
 | `/routine` | `/routine[:\n\s]<interval\|cron> <prompt>` | Proactive recurring cron or interval routine with automated awakening | Yes (Routine item) |
 
-> **Concurrency & Input Guarantees:**
+> **Concurrency & Input Invariants:**
 > - **Channel Queue Lock (`channelQueues`)**: `isAgentActiveInChannel` evaluates active executions AND queued channel promises, preventing incoming burst messages from stampeding duplicate execution loops before an active execution record is registered.
 > - **Flexible Delimiters**: All slash commands support whitespace (` `), colon (`:`), and newline (`\n`) as argument separators.
 > - **Keyboard Interaction**: In the UI composer, pressing `Tab` autocompletes the selected slash command into the input field so users can append parameters/directives; pressing `Enter` directly triggers execution or opens dedicated modals.
 
 ---
 
-## 5. Security & Privacy Guarantees
+## 5. Security & Data Privacy Architecture
 
 1. **Strict Path Jail Confinement**: All file read/write operations validate that the resolved target path is strictly within the project jail root. Directory traversal (`../`) and prefix collisions are rejected with 403 Forbidden.
 2. **Financial Safety Shield**: Sensitive operations (`stripe`, `billing`, checkout buttons) trigger the Human Authorization Protocol and halt execution until explicit operator signoff.
 3. **Opt-in Computer Automation**: Desktop mouse/keyboard control is guarded by a single-flight mutex (`DesktopLock`) preventing conflicting inputs.
 4. **Bring Your Own Key (BYOK) Encryption**: Provider API keys are encrypted at rest with scoped grants and daily spending caps.
-5. **Zero Cloud Telemetry**: 100% of messages, tasks, goals, decisions, and turn checkpoints reside in local SQLite storage.
+5. **Zero Cloud Telemetry**: All messages, tasks, goals, decisions, and turn checkpoints reside in local SQLite storage.
 
 ---
 
@@ -208,7 +208,7 @@ All system state is persisted in an authoritative local SQLite database running 
                        │
         ┌──────────────┼────────────────┐
         ▼              ▼                ▼
-     SQLite         Filesystem        OS/native
+     SQLite         Filesystem        Host/native
      state          artifacts          capabilities
         │              │                │
         └──────────────┼────────────────┘
@@ -219,7 +219,7 @@ All system state is persisted in an authoritative local SQLite database running 
 
 ### 0.2 Why the hybrid boundary is selected
 
-The supplied earlier PRD selected a Rust-native core for native concurrency, low footprint and OS integration. The later v9 master plan selected a TypeScript/Node core because it better fits the DeepSeek Harness/Cordis ecosystem and the JS/TS agent ecosystem. The merged design keeps Rust where native capabilities matter and Node/TypeScript where product/agent orchestration velocity and ecosystem reuse matter.
+The supplied earlier PRD selected a Rust-native core for native concurrency, low footprint and native system integration. The later v9 master plan selected a TypeScript/Node core because it better fits the DeepSeek Harness/Cordis ecosystem and the JS/TS agent ecosystem. The merged design keeps Rust where native capabilities matter and Node/TypeScript where product/agent orchestration velocity and ecosystem reuse matter.
 
 The core remains a local monolith to avoid the packaging and synchronization overhead of a desktop microservice fleet.
 
@@ -244,7 +244,7 @@ Exactly one subsystem owns each concern.
 | Recovery | Recovery/Health Manager |
 | Scheduling | Automation Scheduler |
 | UI projection | React frontend |
-| OS privileged operations | Rust/Tauri boundary |
+| Host privileged operations | Rust/Tauri boundary |
 
 No optional framework becomes the authority for these product concerns.
 
@@ -303,7 +303,7 @@ No optional framework becomes the authority for these product concerns.
 
 ## Security
 
-- OS keychain / credential manager
+- System keychain / credential manager
 - capability-based permissions
 - scoped filesystem roots
 - process controls
@@ -526,7 +526,7 @@ Tauri commands/events for:
 - window operations;
 - secure local transport bootstrap;
 - native filesystem/process capabilities;
-- OS integration;
+- Platform integration;
 - packaging/runtime supervision.
 
 ## Frontend -> Core
@@ -994,7 +994,7 @@ Do not create interactive approval interruptions for permitted actions.
 - Meaningfully different actions require fresh evaluation.
 - Approval requests expire safely.
 - The user can cancel a pending operation.
-- Full Access never disables audit, kill-switch, policy, or OS protections.
+- Full Access never disables audit, kill-switch, policy, or host platform protections.
 
 ---
 
@@ -1019,7 +1019,7 @@ Use scoped roots per project/agent/run where needed.
 
 ## Secrets
 
-Secrets are stored through the OS credential manager/keychain where supported.
+Secrets are stored through the system credential manager/keychain where supported.
 
 Secrets must not be injected into general conversation context when a tool can access them directly.
 
@@ -1050,7 +1050,7 @@ At minimum:
 - cancellation propagation;
 - process tree cleanup.
 
-Native isolation depth may vary by operating system. The abstraction must remain consistent across platforms even where the underlying primitive differs.
+Native isolation depth may vary by host platform. The abstraction must remain consistent across platforms even where the underlying primitive differs.
 
 ---
 
@@ -1938,7 +1938,7 @@ Crash recovery, concurrency/failure injection, prompt-injection defenses, packag
 | Technical area | Final selection | Extracted from / why | Rejected or deferred |
 |---|---|---|---|
 | Desktop | Tauri 2 | Native cross-platform shell | Electron |
-| Native layer | Rust boundary | OS/process/security integration | Rust-only agent runtime |
+| Native layer | Rust boundary | System/process/security integration | Rust-only agent runtime |
 | Agent core | Node/TypeScript modular monolith | Ecosystem fit + clean plugin/adaptor model | Python microservices |
 | Interprocess boundary | Tauri IPC + authenticated local core channel | Local, explicit and observable | Distributed network mesh |
 | Persistence | SQLite WAL + filesystem | Local durability, concurrency, portability | Network database |
@@ -2008,10 +2008,9 @@ The live application state is captured and preserved across 8 high-resolution 10
 7. `07_decisions_and_adr.png`: Architectural Decision Records (ADR) and interactive `/grill-me` synthesis modal.
 8. `08_desktop_and_web_control.png`: Governed desktop and web control modal demonstrating Win32 `DesktopLock` input serialization and persistent profile management.
 
-### 51.5 Remote Debugging (Port 9222), OpenRouter Free Models Catalog & Social Launch
-- **Physical Chrome Remote Debugging**: `BrowserController` continuously tests `http://127.0.0.1:9222/json/version`. If the user runs Chrome with `--remote-debugging-port=9222`, KIN connects directly via `puppeteer.connect` to access active logins (LinkedIn, X, OpenRouter, GitHub) without credential re-entry. If inactive, it launches dedicated visible Chrome with `--remote-debugging-port=9222` and isolated profiles.
-- **OpenRouter 100% Free Cloud Models**: Integrated into the Agent Inspector and Settings modal with zero token spend overhead: `deepseek/deepseek-r1:free`, `meta-llama/llama-3.3-70b-instruct:free`, `google/gemini-2.0-flash-exp:free`, and `qwen/qwen-2.5-coder-32b-instruct:free`.
-- **Governed Social Media Drafting Engine**: The `POST /api/browser/draft-posts` route orchestrates visible on-screen browser sessions, injecting high-visibility agent overlay banners and safely drafting launch announcements directly into the composer interfaces of LinkedIn and X.
+### 51.5 Remote Debugging (Port 9222) & OpenRouter Free Models Catalog
+- **Physical Chrome Remote Debugging**: `BrowserController` continuously tests `http://127.0.0.1:9222/json/version`. If the user runs Chrome with `--remote-debugging-port=9222`, KIN connects directly via `puppeteer.connect` to access active browser sessions (GitHub, developer portals, web tools) without credential re-entry. If inactive, it launches dedicated visible Chrome with `--remote-debugging-port=9222` and isolated profiles.
+- **OpenRouter Free-Tier Cloud Models**: Integrated into the Agent Inspector and Settings modal with zero token spend overhead: `deepseek/deepseek-r1:free`, `meta-llama/llama-3.3-70b-instruct:free`, `google/gemini-2.0-flash-exp:free`, and `qwen/qwen-2.5-coder-32b-instruct:free`.
 
 ---
 

@@ -69,7 +69,7 @@ export class ContextCompiler {
   public compile(input: ContextCompileInput): CompiledContextBlocks {
     // Block 1: Immutable Base System Prompt
     const block1Parts = [
-      `You are ${input.agentIdentity.displayName}, an autonomous AI worker in the KIN Operating System.`,
+      `You are ${input.agentIdentity.displayName}, an autonomous AI specialist in the KIN Autonomous Workforce Platform.`,
       `Role: ${input.agentDefinition.role}`,
       `Core Responsibilities and Persona:`,
       input.agentDefinition.systemPrompt,

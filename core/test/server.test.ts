@@ -444,7 +444,7 @@ describe('KIN Phase 1/2: Core IPC Server Integration & Authoritative State', () 
   });
 
   it('POST /api/projects/:id/uploads persists file and metadata in SQLite and disk', async () => {
-    const fileContent = 'Attachment test file content for KIN OS';
+    const fileContent = 'Attachment test file content for KIN Platform';
     const base64 = Buffer.from(fileContent).toString('base64');
 
     // 1. Upload
@@ -605,14 +605,14 @@ describe('KIN Phase 1/2: Core IPC Server Integration & Authoritative State', () 
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        content: '/goal Release KIN OS v1.0 | Full autonomous local workforce | Zero bugs, 100% tests passing',
+        content: '/goal Release KIN Platform v1.0 | Full autonomous local workforce | Zero bugs, complete test suite passing',
       }),
     });
     expect(multiGoalRes.status).toBe(201);
 
     const goalsRes = await fetch(`http://127.0.0.1:${port}/api/projects/proj-kin/goals`);
     const goalsData: any = await goalsRes.json();
-    const createdGoal = goalsData.goals.find((g: any) => g.title === 'Release KIN OS v1.0');
+    const createdGoal = goalsData.goals.find((g: any) => g.title === 'Release KIN Platform v1.0');
     expect(createdGoal).toBeDefined();
     expect(createdGoal.description).toBe('Full autonomous local workforce');
     expect(createdGoal.acceptanceCriteria).toContain('Zero bugs');
