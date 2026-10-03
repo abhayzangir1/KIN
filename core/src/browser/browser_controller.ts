@@ -152,7 +152,7 @@ export class BrowserController {
   /**
    * Launches or reuses the persistent browser session with single-flight mutex serialization.
    */
-  public async ensureBrowser(options: { headless?: boolean } = {}): Promise<{ browser: Browser; page: Page }> {
+  public async ensureBrowser(options: { headless?: boolean; remoteDebuggingUrl?: string } = {}): Promise<{ browser: Browser; page: Page }> {
     if (this.pageProvider) {
       const provided = await this.pageProvider();
       if (provided.page && !provided.page.isClosed()) {
@@ -187,6 +187,29 @@ export class BrowserController {
 
     this.launchPromise = (async () => {
       try {
+        // 1. Check if remote debugging is available on port 9222 or custom URL
+        const remoteUrl = options.remoteDebuggingUrl || process.env.KIN_REMOTE_DEBUG_URL || 'http://127.0.0.1:9222';
+        try {
+          const resp = await fetch(`${remoteUrl.replace(/\/$/, '')}/json/version`, {
+            signal: AbortSignal.timeout(500),
+          });
+          if (resp.ok) {
+            this.browser = await puppeteer.connect({
+              browserURL: remoteUrl,
+              defaultViewport: null,
+            });
+            this.browser.on('disconnected', () => {
+              this.browser = null;
+              this.activePage = null;
+            });
+            const pages = await this.browser.pages();
+            this.activePage = pages.find((p) => !p.isClosed()) || (await this.browser.newPage());
+            return { browser: this.browser, page: this.activePage };
+          }
+        } catch {
+          // Remote debugging port not active, fallback to local launch
+        }
+
         const executablePath = this.findBrowserExecutable();
         if (!executablePath) {
           throw new Error(
@@ -206,6 +229,7 @@ export class BrowserController {
             '--disable-setuid-sandbox',
             '--disable-infobars',
             '--window-size=1280,800',
+            '--remote-debugging-port=9222',
           ],
         });
 

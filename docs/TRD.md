@@ -2008,6 +2008,11 @@ The live application state is captured and preserved across 8 high-resolution 10
 7. `07_decisions_and_adr.png`: Architectural Decision Records (ADR) and interactive `/grill-me` synthesis modal.
 8. `08_desktop_and_web_control.png`: Governed desktop and web control modal demonstrating Win32 `DesktopLock` input serialization and persistent profile management.
 
+### 51.5 Remote Debugging (Port 9222), OpenRouter Free Models Catalog & Social Launch
+- **Physical Chrome Remote Debugging**: `BrowserController` continuously tests `http://127.0.0.1:9222/json/version`. If the user runs Chrome with `--remote-debugging-port=9222`, KIN connects directly via `puppeteer.connect` to access active logins (LinkedIn, X, OpenRouter, GitHub) without credential re-entry. If inactive, it launches dedicated visible Chrome with `--remote-debugging-port=9222` and isolated profiles.
+- **OpenRouter 100% Free Cloud Models**: Integrated into the Agent Inspector and Settings modal with zero token spend overhead: `deepseek/deepseek-r1:free`, `meta-llama/llama-3.3-70b-instruct:free`, `google/gemini-2.0-flash-exp:free`, and `qwen/qwen-2.5-coder-32b-instruct:free`.
+- **Governed Social Media Drafting Engine**: The `POST /api/browser/draft-posts` route orchestrates visible on-screen browser sessions, injecting high-visibility agent overlay banners and safely drafting launch announcements directly into the composer interfaces of LinkedIn and X.
+
 ---
 
 # 52. Final architecture statement

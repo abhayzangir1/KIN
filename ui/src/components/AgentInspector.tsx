@@ -1448,20 +1448,31 @@ export const AgentInspector: React.FC = () => {
                     onChange={(e) => setActiveModelId(e.target.value)}
                     className="w-full bg-[#0a0f1d] border border-[#1e293b] rounded px-2.5 py-1.5 text-kin-text text-xs focus:outline-none focus:border-emerald-500 font-mono"
                   >
-                    {ollamaStatus.models.length > 0 ? (
-                      ollamaStatus.models
-                        .filter((m) => !m.toLowerCase().includes('embed'))
-                        .map((m) => (
-                        <option key={m} value={`ollama/${m}`}>
-                          ollama/{m} (Local)
-                        </option>
-                      ))
-                    ) : (
-                      <>
-                        <option value="ollama/qwen2.5-coder:3b">ollama/qwen2.5-coder:3b (Local)</option>
-                        <option value="ollama/gemma4:e2b">ollama/gemma4:e2b (Local)</option>
-                      </>
-                    )}
+                    <optgroup label="Local Ollama Models">
+                      {ollamaStatus.models.length > 0 ? (
+                        ollamaStatus.models
+                          .filter((m) => !m.toLowerCase().includes('embed'))
+                          .map((m) => (
+                          <option key={m} value={`ollama/${m}`}>
+                            ollama/{m} (Local)
+                          </option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="ollama/qwen2.5-coder:3b">ollama/qwen2.5-coder:3b (Local)</option>
+                          <option value="ollama/gemma4:e2b">ollama/gemma4:e2b (Local)</option>
+                        </>
+                      )}
+                    </optgroup>
+                    <optgroup label="OpenRouter Free & BYOK Models">
+                      <option value="openrouter/meta-llama/llama-3.3-70b-instruct:free">openrouter/meta-llama/llama-3.3-70b-instruct:free (100% Free)</option>
+                      <option value="openrouter/deepseek/deepseek-r1:free">openrouter/deepseek/deepseek-r1:free (100% Free)</option>
+                      <option value="openrouter/google/gemini-2.0-flash-exp:free">openrouter/google/gemini-2.0-flash-exp:free (100% Free)</option>
+                      <option value="openrouter/mistralai/mistral-7b-instruct:free">openrouter/mistralai/mistral-7b-instruct:free (100% Free)</option>
+                      <option value="openrouter/qwen/qwen-2.5-coder-32b-instruct:free">openrouter/qwen/qwen-2.5-coder-32b-instruct:free (100% Free)</option>
+                      <option value="openrouter/anthropic/claude-3.5-sonnet">openrouter/anthropic/claude-3.5-sonnet (BYOK)</option>
+                      <option value="openrouter/openai/gpt-4o">openrouter/openai/gpt-4o (BYOK)</option>
+                    </optgroup>
                     <option value="inherit">inherit (Project Default)</option>
                   </select>
                 </div>

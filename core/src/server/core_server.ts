@@ -4930,6 +4930,101 @@ export class CoreServer {
         return this.sendJson(res, 200, { success: true });
       }
 
+      // 48b. POST /api/browser/draft-posts — Visibly drafts social launch posts in browser
+      if (req.method === 'POST' && pathname === '/api/browser/draft-posts') {
+        const body = await this.parseJsonBody<{ platform?: 'linkedin' | 'x' | 'both' }>(req);
+        const LINKEDIN_POST_TEXT = `Excited to unveil KIN — an autonomous, local-first operating system designed to orchestrate collaborative multi-agent software engineering teams directly on your physical workstation. 🚀\n\nMost AI agent systems today are brittle cloud wrappers: they lose all state when a process terminates, burn tokens on runaway loops, fail catastrophically on network blips, and offer zero hardware-level governance.\n\nWe built KIN from first principles to bring enterprise-grade resilience, determinism, and privacy to local multi-agent software development.\n\nKey Architecture Highlights:\n🛡️ Turn-by-Turn Crash Resilience & State Recovery with 1-click [Resume All]\n⏳ HTTP 429 Quota Guard with countdown & 1-click fallback to local Ollama models\n🎯 Antigravity Slash Command Suite (/plan, /boost, /btw, /grill-me, /teamwork-preview)\n🖥️ Dynamic Hardware Governors & Governed Desktop Control (Win32 DesktopLock mutex)\n🔒 Atomic Distributed Task Leases & Optimistic Concurrency Control (OCC)\n📊 Formal Agent Evaluations & BYOK Vault (OpenRouter, Anthropic, OpenAI)\n\nKIN is 100% open-source, local-first, and telemetry-free.\n\n💻 GitHub: https://github.com/abhayzangir1/KIN\n\n#AI #MultiAgentSystems #OpenSource #TypeScript #React #LocalFirst #DevTools`;
+
+        const X_POST_TEXT = `🚀 Introducing KIN: The Autonomous, Local-First Workforce Operating System.\n\nOrchestrate collaborative multi-agent software engineering teams directly on your workstation with turn-by-turn crash recovery, zero cloud telemetry, and governed desktop/browser control.\n\n100% Open-Source: https://github.com/abhayzangir1/KIN\n\n#AI #OpenSource #LocalFirst #DevTools`;
+
+        try {
+          const { browser, page } = await this.browserController.ensureBrowser({ headless: false });
+          const platform = body?.platform || 'both';
+
+          if (platform === 'linkedin' || platform === 'both') {
+            await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+            await page.evaluate(() => {
+              const old = document.getElementById('kin-agent-overlay');
+              if (old) old.remove();
+              const banner = document.createElement('div');
+              banner.id = 'kin-agent-overlay';
+              banner.style.position = 'fixed';
+              banner.style.top = '10px';
+              banner.style.left = '50%';
+              banner.style.transform = 'translateX(-50%)';
+              banner.style.zIndex = '999999';
+              banner.style.background = '#0f172a';
+              banner.style.color = '#38bdf8';
+              banner.style.border = '2px solid #38bdf8';
+              banner.style.borderRadius = '8px';
+              banner.style.padding = '12px 24px';
+              banner.style.boxShadow = '0 8px 30px rgba(0,0,0,0.8)';
+              banner.style.fontFamily = 'system-ui, sans-serif';
+              banner.style.fontSize = '14px';
+              banner.style.fontWeight = 'bold';
+              banner.innerHTML = '🤖 KIN Autonomous Agent: Active on Screen • Ready to Draft LinkedIn Launch Announcement';
+              document.body.appendChild(banner);
+            }).catch(() => {});
+
+            const postTrigger = await page.$('button.share-box-feed-entry__trigger').catch(() => null);
+            if (postTrigger) {
+              await postTrigger.click().catch(() => {});
+              await new Promise((r) => setTimeout(r, 1500));
+              const editor = await page.$('div.ql-editor').catch(() => null);
+              if (editor) {
+                await editor.click().catch(() => {});
+                await page.keyboard.type(LINKEDIN_POST_TEXT, { delay: 5 }).catch(() => {});
+              }
+            }
+          }
+
+          if (platform === 'x' || platform === 'both') {
+            const page2 = await browser.newPage().catch(() => page);
+            await page2.goto('https://x.com/compose/post', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+            await page2.evaluate(() => {
+              const old = document.getElementById('kin-agent-overlay-x');
+              if (old) old.remove();
+              const banner = document.createElement('div');
+              banner.id = 'kin-agent-overlay-x';
+              banner.style.position = 'fixed';
+              banner.style.top = '10px';
+              banner.style.left = '50%';
+              banner.style.transform = 'translateX(-50%)';
+              banner.style.zIndex = '999999';
+              banner.style.background = '#0f172a';
+              banner.style.color = '#38bdf8';
+              banner.style.border = '2px solid #38bdf8';
+              banner.style.borderRadius = '8px';
+              banner.style.padding = '12px 24px';
+              banner.style.boxShadow = '0 8px 30px rgba(0,0,0,0.8)';
+              banner.style.fontFamily = 'system-ui, sans-serif';
+              banner.style.fontSize = '14px';
+              banner.style.fontWeight = 'bold';
+              banner.innerHTML = '🤖 KIN Autonomous Agent: Active on Screen • Ready to Draft X Launch Post';
+              document.body.appendChild(banner);
+            }).catch(() => {});
+
+            const tweetEditor = await page2.$('div[data-testid="tweetTextarea_0"]').catch(() => null);
+            if (tweetEditor) {
+              await tweetEditor.click().catch(() => {});
+              await page2.keyboard.type(X_POST_TEXT, { delay: 5 }).catch(() => {});
+            }
+          }
+
+          this.broadcastEvent('browser:social_drafted', { platform, timestamp: Date.now() });
+          return this.sendJson(res, 200, {
+            success: true,
+            message: 'Social posts drafted visibly in browser session',
+            platform,
+          });
+        } catch (err: any) {
+          return this.sendJson(res, 500, {
+            success: false,
+            error: err?.message || String(err),
+          });
+        }
+      }
+
       // 49. POST /api/runs/:runId/pause — Instant Human Takeover: Pause Agent
       const runPauseMatch = pathname.match(/^\/api\/runs\/([^/]+)\/pause$/);
       if (req.method === 'POST' && runPauseMatch) {

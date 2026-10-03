@@ -160,6 +160,21 @@ describe('KIN V12: Desktop & Web Control Upgrades', () => {
         await browser.close();
       }
     });
+
+    it('handles remote debugging port probe gracefully and falls back to local browser session', async () => {
+      const browser = new BrowserController();
+      try {
+        const { browser: sessionBrowser, page } = await browser.ensureBrowser({
+          remoteDebuggingUrl: 'http://127.0.0.1:59999',
+          headless: true,
+        });
+        expect(sessionBrowser).toBeDefined();
+        expect(page).toBeDefined();
+        expect(browser.getStatus().active).toBe(true);
+      } finally {
+        await browser.close();
+      }
+    });
   });
 
   describe('4 & 7. Financial Safety Shield & Human Authorization Protocol', () => {

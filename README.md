@@ -11,7 +11,7 @@
 [![Vite](https://img.shields.io/badge/Vite-6.4-646CFF.svg?style=flat-square&logo=vite)](https://vitejs.dev/)
 [![SQLite](https://img.shields.io/badge/SQLite_3-WAL_Mode-003B57.svg?style=flat-square&logo=sqlite)](https://www.sqlite.org/)
 [![Ollama](https://img.shields.io/badge/Ollama-Local_Inference-white.svg?style=flat-square&logo=ollama)](https://ollama.ai/)
-[![Vitest](https://img.shields.io/badge/Tests-113%2F113_Passed-success.svg?style=flat-square&logo=vitest)](https://vitest.dev/)
+[![Vitest](https://img.shields.io/badge/Tests-117%2F117_Passed-success.svg?style=flat-square&logo=vitest)](https://vitest.dev/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 
 [Architecture](docs/TRD.md) • [Product Specifications](docs/PRD.md) • [Verification Suite](tests/verification/) • [Quick Start](#-quick-start)
@@ -138,7 +138,7 @@ KIN/
 │   │   ├── server/              # CoreServer (REST API, SSE Event Bus)
 │   │   ├── skills/              # Continuous Learning & Candidate Harvester
 │   │   └── storage/             # SQLite 3 Database & Migration Runner
-│   └── test/                    # 113 Unit & Integration Vitest Suites
+│   └── test/                    # 117 Unit & Integration Vitest Suites
 ├── ui/                          # Presentation Layer (React 18 + Vite)
 │   └── src/
 │       ├── components/          # CenterView, Sidebar, AgentInspector, Modals
@@ -146,6 +146,7 @@ KIN/
 ├── docs/                        # Complete Engineering Documentation
 │   ├── PRD.md                   # Authoritative Product Requirements Document
 │   ├── TRD.md                   # Technical Requirements & IPC Contracts
+│   ├── LAUNCH_POSTS.md          # Social Media Launch Drafts (LinkedIn & X)
 │   └── assets/                  # High-Resolution Logos & Verified Screenshots
 └── tests/                       # E2E & Physical Chrome Verification Scripts
     └── verification/            # Puppeteer-Core Real-Browser Test Suites
@@ -178,7 +179,7 @@ npm run build --workspace=ui
 ### 3. Run Automated Vitest Test Suite
 ```bash
 npm test --workspace=core
-# Output: Test Files 11 passed (11) | Tests 113 passed (113)
+# Output: Test Files 11 passed (11) | Tests 117 passed (117)
 ```
 
 ### 4. Launch KIN Core Daemon & Dev Server

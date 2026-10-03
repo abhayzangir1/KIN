@@ -30,6 +30,7 @@ export const DesktopControlModal: React.FC = () => {
     fetchBrowserStatus,
     closeBrowser,
     navigateBrowser,
+    draftSocialPosts,
     captureDesktopScreenshot,
     routines,
     fetchRoutines,
@@ -42,6 +43,8 @@ export const DesktopControlModal: React.FC = () => {
   const [windowSearch, setWindowSearch] = useState('');
   const [targetUrl, setTargetUrl] = useState('');
   const [isNavigating, setIsNavigating] = useState(false);
+  const [isDrafting, setIsDrafting] = useState(false);
+  const [draftResult, setDraftResult] = useState<string | null>(null);
   const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null);
   const [screenshotMeta, setScreenshotMeta] = useState<{ isHeadless?: boolean; notice?: string; sessionId?: number } | null>(null);
   const [launchFeedback, setLaunchFeedback] = useState<{ name: string; success: boolean; msg?: string } | null>(null);
@@ -455,6 +458,62 @@ export const DesktopControlModal: React.FC = () => {
                   )}
                 </div>
               </div>
+
+              {/* Quick Actions Bar */}
+              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[#1e2a44]">
+                <button
+                  type="button"
+                  disabled={isDrafting}
+                  onClick={async () => {
+                    setIsDrafting(true);
+                    setDraftResult('Drafting on visible screen...');
+                    const res = await draftSocialPosts('both');
+                    setIsDrafting(false);
+                    if (res?.success) {
+                      setDraftResult('Successfully drafted on LinkedIn & X on screen!');
+                    } else {
+                      setDraftResult(res?.error || 'Failed to draft');
+                    }
+                    setTimeout(() => setDraftResult(null), 6000);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold text-xs flex items-center space-x-1.5 shadow-sm transition disabled:opacity-50"
+                  title="Visibly launch browser and draft launch posts on LinkedIn and X"
+                >
+                  <Globe className="w-3.5 h-3.5" />
+                  <span>{isDrafting ? 'Drafting on Screen...' : '🚀 Draft Social Posts (LinkedIn & X)'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => navigateBrowser('https://openrouter.ai/models?max_price=0')}
+                  className="px-2.5 py-1.5 rounded-lg bg-[#162035] hover:bg-[#1f2d4a] border border-[#283858] text-white text-xs flex items-center space-x-1 transition"
+                  title="Open OpenRouter 100% Free Models Catalog"
+                >
+                  <Search className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Explore OpenRouter Free Models</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => navigateBrowser('https://github.com/abhayzangir1/KIN')}
+                  className="px-2.5 py-1.5 rounded-lg bg-[#162035] hover:bg-[#1f2d4a] border border-[#283858] text-white text-xs flex items-center space-x-1 transition"
+                  title="Open KIN GitHub Repository"
+                >
+                  <Monitor className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>KIN GitHub Repo</span>
+                </button>
+
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20">
+                  Remote Port 9222 Active
+                </span>
+              </div>
+
+              {draftResult && (
+                <div className="p-2 rounded-lg bg-blue-950/40 border border-blue-500/30 text-blue-300 text-xs flex items-center justify-between">
+                  <span>{draftResult}</span>
+                  <button onClick={() => setDraftResult(null)} className="text-gray-400 hover:text-white text-xs ml-2">×</button>
+                </div>
+              )}
 
               {/* Direct URL Navigation Bar */}
               <form onSubmit={handleNavigateSubmit} className="flex items-center space-x-2 pt-2 border-t border-[#1e2a44]">
