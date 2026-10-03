@@ -70,33 +70,51 @@ Whether your PC experiences an unexpected power outage, an LLM provider enforces
 
 <div align="center">
 
-### 1. Docked Crash Recovery Warning Banner
-![Crash Recovery Banner](docs/assets/screenshots/01_crash_recovery_banner.png)
-*Interactive Crash Recovery Banner alerting the operator to interrupted agent runs after an unexpected shutdown, featuring 1-click **Resume All**, **Inspect State**, and **Discard** controls.*
+### 1. Unified Master Workbench & Multi-Agent Interface
+![Master Workbench](docs/assets/screenshots/01_app_interface_workbench.png)
+*The central KIN OS command center featuring real-time agent execution streaming, multi-agent chat channels, hierarchical task trees, and the unified Antigravity slash-command prompt bar.*
 
 ---
 
-### 2. HTTP 429 Quota Guard & Local Model Fallback
-![Quota Pause Banner](docs/assets/screenshots/02_quota_pause_banner.png)
-*Active Quota Pause Banner presenting a live 45-second countdown timer until provider reset, an instant **Resume Now** button, and a 1-click **Switch to Ollama** local fallback.*
+### 2. Interactive Swarm Map & Dependency Topology
+![Swarm Map Topology](docs/assets/screenshots/02_swarm_map_topology.png)
+*Visual multi-agent coordination graph displaying active specialists, inter-agent message delegation, task dependency DAGs, and real-time swarm convergence in an interactive canvas.*
 
 ---
 
-### 3. `/btw` Ephemeral Side-Query Execution
-![BTW Ephemeral Side Query](docs/assets/screenshots/03_btw_ephemeral_query.png)
-*Non-blocking `/btw` side-query rendered with `💡 [Side Query / BTW]` pill badge, delivering immediate architectural context without task creation or channel clutter.*
+### 3. Settings & Bring-Your-Own-Key (BYOK) Credential Vault
+![Settings and Credentials](docs/assets/screenshots/03_settings_and_credentials.png)
+*Secure credential management supporting OpenRouter, Anthropic, OpenAI, and local Ollama inference, alongside hardware-aware RAM tier governor limits and token spend budgets.*
 
 ---
 
-### 4. Interactive `/grill-me` Questionnaire & ADR Synthesis
-![Grill Me Card and ADR](docs/assets/screenshots/04_grill_me_card_and_adr.png)
-*Adversarial `/grill-me` architectural interrogation card with interactive radio option selection, user submission, and synthesized Architectural Decision Record (ADR).*
+### 4. Agent Inspector & Teamwork Matrix
+![Agent Inspector and Teamwork](docs/assets/screenshots/04_agent_inspector_teamwork.png)
+*Deep agent introspection drawer showcasing role assignments, active channels, execution transcripts, quantitative evaluation rubrics, and the multi-agent collaboration matrix.*
 
 ---
 
-### 5. Agent Benchmark Evaluations & BYOK Credential Vault
-![Agent Evals and Credentials](docs/assets/screenshots/05_agent_evals_and_credentials.png)
-*Agent Inspector displaying quantitative benchmark scores (88% Overall), evaluation rubrics, and the Bring-Your-Own-Key (BYOK) credential management vault.*
+### 5. Docked Crash Recovery Warning Banner
+![Crash Recovery Banner](docs/assets/screenshots/05_crash_recovery_banner.png)
+*Interactive Crash Recovery Banner alerting the operator to interrupted agent runs after an unexpected power loss or process kill, featuring 1-click **Resume All**, **Inspect State**, and **Discard** controls.*
+
+---
+
+### 6. HTTP 429 Quota Guard & Local Model Fallback
+![Quota Pause Banner](docs/assets/screenshots/06_quota_pause_banner.png)
+*Active Quota Pause Guard presenting a live countdown timer until provider rate-limit reset, an instant **Resume Now** trigger, and a 1-click **Switch to Ollama** local model fallback.*
+
+---
+
+### 7. Architectural Decision Records (ADR) & `/grill-me`
+![Decisions and ADR](docs/assets/screenshots/07_decisions_and_adr.png)
+*Authoritative decision vault storing immutable design rationale, technical trade-offs, and interactive questionnaire answers generated during `/grill-me` requirement alignment sessions.*
+
+---
+
+### 8. Governed Desktop & Headful Web Automation
+![Desktop and Web Control](docs/assets/screenshots/08_desktop_and_web_control.png)
+*Hardware-governed computer control modal showing Win32 `DesktopLock` input serialization, persistent isolated browser sessions, and coordinate-mapped OS automation.*
 
 </div>
 

@@ -500,5 +500,62 @@ describe('KIN Dynamic Computer & Systems Upgrade (Round 14)', () => {
 
       await supervisor.shutdown();
     });
+
+    it('throttles multi-browser and shell requests when host memory is in low tier', async () => {
+      const supervisor = new ComputerSupervisor({ baseProfileDir: path.join(tempDir, 'profiles') });
+
+      try {
+        // Simulate low memory tier (< 2.5 GB free)
+        supervisor.setMockFreeMemBytes(1.5 * 1024 * 1024 * 1024);
+        const status = supervisor.getGovernorStatus();
+        expect(status.tier).toBe('low');
+        expect(status.maxShellProcesses).toBe(1);
+        expect(status.maxBrowserContexts).toBe(1);
+
+        // 1. Shell concurrency throttle test
+        const releaseShell1 = await supervisor.acquireShellSlot(5000);
+        expect(supervisor.getGovernorStatus().activeShellProcesses).toBe(1);
+
+        let shell2Granted = false;
+        const shell2Promise = supervisor.acquireShellSlot(5000).then((rel) => {
+          shell2Granted = true;
+          return rel;
+        });
+
+        await new Promise((r) => setTimeout(r, 60));
+        expect(shell2Granted).toBe(false);
+        expect(supervisor.getGovernorStatus().queuedShellRequests).toBe(1);
+
+        // Release slot 1 -> slot 2 should unblock
+        releaseShell1();
+        const releaseShell2 = await shell2Promise;
+        expect(shell2Granted).toBe(true);
+        expect(supervisor.getGovernorStatus().activeShellProcesses).toBe(1);
+        expect(supervisor.getGovernorStatus().queuedShellRequests).toBe(0);
+        releaseShell2();
+        expect(supervisor.getGovernorStatus().activeShellProcesses).toBe(0);
+
+        // 2. Browser context concurrency throttle test
+        const releaseBrowser1 = await supervisor.acquireBrowserSlot('agent-low-1', 5000);
+
+        let browser2Granted = false;
+        const browser2Promise = supervisor.acquireBrowserSlot('agent-low-2', 5000).then((rel) => {
+          browser2Granted = true;
+          return rel;
+        });
+
+        await new Promise((r) => setTimeout(r, 60));
+        expect(browser2Granted).toBe(false);
+        expect(supervisor.getGovernorStatus().queuedBrowserRequests).toBe(1);
+
+        releaseBrowser1();
+        const releaseBrowser2 = await browser2Promise;
+        expect(browser2Granted).toBe(true);
+        expect(supervisor.getGovernorStatus().queuedBrowserRequests).toBe(0);
+        releaseBrowser2();
+      } finally {
+        await supervisor.shutdown();
+      }
+    });
   });
 });

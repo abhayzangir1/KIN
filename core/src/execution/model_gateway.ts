@@ -30,19 +30,57 @@ export interface ModelInvocationResult {
   isError?: boolean;
 }
 
+export interface ModelGatewayOptions {
+  apiKeyResolver?: (provider: string) => string | undefined;
+  onUsage?: (provider: string, tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }) => void;
+  openrouterApiKey?: string;
+  openaiApiKey?: string;
+  anthropicApiKey?: string;
+  deepseekApiKey?: string;
+  geminiApiKey?: string;
+  ollamaHost?: string;
+}
+
 export class ModelGateway {
   private ollamaHost: string;
+  private openrouterApiKey?: string;
   private openaiApiKey?: string;
   private anthropicApiKey?: string;
   private deepseekApiKey?: string;
   private geminiApiKey?: string;
+  private apiKeyResolver?: (provider: string) => string | undefined;
+  private onUsage?: (provider: string, tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }) => void;
 
-  constructor() {
-    this.ollamaHost = process.env.OLLAMA_HOST || 'http://localhost:11434';
-    this.openaiApiKey = process.env.OPENAI_API_KEY;
-    this.anthropicApiKey = process.env.ANTHROPIC_API_KEY;
-    this.deepseekApiKey = process.env.DEEPSEEK_API_KEY;
-    this.geminiApiKey = process.env.GEMINI_API_KEY;
+  constructor(options?: ModelGatewayOptions) {
+    this.ollamaHost = options?.ollamaHost || process.env.OLLAMA_HOST || 'http://localhost:11434';
+    this.openrouterApiKey = options?.openrouterApiKey || process.env.OPENROUTER_API_KEY;
+    this.openaiApiKey = options?.openaiApiKey || process.env.OPENAI_API_KEY;
+    this.anthropicApiKey = options?.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
+    this.deepseekApiKey = options?.deepseekApiKey || process.env.DEEPSEEK_API_KEY;
+    this.geminiApiKey = options?.geminiApiKey || process.env.GEMINI_API_KEY;
+    this.apiKeyResolver = options?.apiKeyResolver;
+    this.onUsage = options?.onUsage;
+  }
+
+  public setApiKeyResolver(resolver: (provider: string) => string | undefined) {
+    this.apiKeyResolver = resolver;
+  }
+
+  public setOnUsage(handler: (provider: string, tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }) => void) {
+    this.onUsage = handler;
+  }
+
+  public resolveApiKey(provider: string): string | undefined {
+    if (this.apiKeyResolver) {
+      const resolved = this.apiKeyResolver(provider);
+      if (resolved) return resolved;
+    }
+    if (provider === 'openrouter') return this.openrouterApiKey || process.env.OPENROUTER_API_KEY;
+    if (provider === 'openai') return this.openaiApiKey || process.env.OPENAI_API_KEY;
+    if (provider === 'anthropic') return this.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
+    if (provider === 'deepseek') return this.deepseekApiKey || process.env.DEEPSEEK_API_KEY;
+    if (provider === 'gemini') return this.geminiApiKey || process.env.GEMINI_API_KEY;
+    return undefined;
   }
 
   /**
@@ -55,19 +93,23 @@ export class ModelGateway {
     try {
       if (provider === 'ollama') {
         return await this.invokeOllama(modelName, params, startTime);
+      } else if (provider === 'openrouter') {
+        return await this.invokeOpenRouter(modelName, params, startTime);
       } else if (provider === 'openai') {
+        const apiKey = this.resolveApiKey('openai');
         return await this.invokeOpenAiCompatible(
           'https://api.openai.com/v1/chat/completions',
-          this.openaiApiKey,
+          apiKey,
           modelName,
           params,
           startTime,
           'openai'
         );
       } else if (provider === 'deepseek') {
+        const apiKey = this.resolveApiKey('deepseek');
         return await this.invokeOpenAiCompatible(
           'https://api.deepseek.com/v1/chat/completions',
-          this.deepseekApiKey,
+          apiKey,
           modelName,
           params,
           startTime,
@@ -76,6 +118,12 @@ export class ModelGateway {
       } else if (provider === 'anthropic') {
         return await this.invokeAnthropic(modelName, params, startTime);
       } else {
+        // Check if provider is an OpenRouter namespace or model slug (e.g. meta-llama/..., qwen/...)
+        const openRouterKey = this.resolveApiKey('openrouter');
+        if (openRouterKey && (modelName.includes('/') || params.modelId.includes(':free') || params.modelId.includes('/'))) {
+          return await this.invokeOpenRouter(params.modelId, params, startTime);
+        }
+
         // Fallback for unrecognized provider
         return {
           content: `[KIN Model Gateway Error] Unsupported model provider: "${provider}". Assigned model was: "${params.modelId}".`,
@@ -157,6 +205,77 @@ export class ModelGateway {
     };
   }
 
+  private async invokeOpenRouter(
+    modelName: string,
+    params: ModelInvocationParams,
+    startTime: number,
+    retryCount: number = 0
+  ): Promise<ModelInvocationResult> {
+    const apiKey = this.resolveApiKey('openrouter');
+    if (!apiKey) {
+      throw new Error('API key for OPENROUTER is not set in managed credentials or environment.');
+    }
+
+    const url = 'https://openrouter.ai/api/v1/chat/completions';
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        'HTTP-Referer': 'https://github.com/abhayzangir1/KIN',
+        'X-Title': 'KIN OS',
+      },
+      body: JSON.stringify({
+        model: modelName,
+        messages: params.messages,
+        temperature: params.temperature ?? 0.2,
+        max_tokens: params.maxTokens ?? 2048,
+      }),
+    });
+
+    if (res.status === 429) {
+      // Live 429 rate limit backoff retry
+      if (retryCount < 2) {
+        const retryAfterHeader = res.headers.get('retry-after');
+        const retryAfterSec = retryAfterHeader ? parseInt(retryAfterHeader, 10) : 1;
+        const backoffMs = (isNaN(retryAfterSec) ? 1 : retryAfterSec) * 1000 * (retryCount + 1);
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        return this.invokeOpenRouter(modelName, params, startTime, retryCount + 1);
+      }
+      throw new Error(`OpenRouter 429 Rate Limit exceeded after retries for model "${modelName}".`);
+    }
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => res.statusText);
+      throw new Error(`OpenRouter HTTP ${res.status}: ${errText}`);
+    }
+
+    const data: any = await res.json();
+    const choiceMsg = data?.choices?.[0]?.message;
+    const content = (choiceMsg?.content || choiceMsg?.reasoning || data?.choices?.[0]?.text || '').trim();
+    if (params.onToken && content) {
+      params.onToken(content);
+    }
+
+    const tokensUsed = {
+      promptTokens: data?.usage?.prompt_tokens || 0,
+      completionTokens: data?.usage?.completion_tokens || 0,
+      totalTokens: data?.usage?.total_tokens || 0,
+    };
+
+    if (this.onUsage) {
+      this.onUsage('openrouter', tokensUsed);
+    }
+
+    return {
+      content,
+      modelId: params.modelId,
+      provider: 'openrouter',
+      tokensUsed,
+      durationMs: Date.now() - startTime,
+    };
+  }
+
   private async invokeOpenAiCompatible(
     url: string,
     apiKey: string | undefined,
@@ -166,7 +285,7 @@ export class ModelGateway {
     provider: string
   ): Promise<ModelInvocationResult> {
     if (!apiKey) {
-      throw new Error(`API key for ${provider.toUpperCase()} is not set in environment.`);
+      throw new Error(`API key for ${provider.toUpperCase()} is not set in environment or managed credentials.`);
     }
 
     const res = await fetch(url, {
@@ -194,15 +313,21 @@ export class ModelGateway {
       params.onToken(content);
     }
 
+    const tokensUsed = {
+      promptTokens: data?.usage?.prompt_tokens || 0,
+      completionTokens: data?.usage?.completion_tokens || 0,
+      totalTokens: data?.usage?.total_tokens || 0,
+    };
+
+    if (this.onUsage) {
+      this.onUsage(provider, tokensUsed);
+    }
+
     return {
       content,
       modelId: params.modelId,
       provider,
-      tokensUsed: {
-        promptTokens: data?.usage?.prompt_tokens || 0,
-        completionTokens: data?.usage?.completion_tokens || 0,
-        totalTokens: data?.usage?.total_tokens || 0,
-      },
+      tokensUsed,
       durationMs: Date.now() - startTime,
     };
   }
@@ -212,8 +337,9 @@ export class ModelGateway {
     params: ModelInvocationParams,
     startTime: number
   ): Promise<ModelInvocationResult> {
-    if (!this.anthropicApiKey) {
-      throw new Error('ANTHROPIC_API_KEY is not set in environment.');
+    const apiKey = this.resolveApiKey('anthropic');
+    if (!apiKey) {
+      throw new Error('ANTHROPIC_API_KEY is not set in environment or managed credentials.');
     }
 
     const systemMsg = params.messages.find((m) => m.role === 'system')?.content || '';
@@ -225,7 +351,7 @@ export class ModelGateway {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': this.anthropicApiKey,
+        'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
@@ -248,15 +374,21 @@ export class ModelGateway {
       params.onToken(content);
     }
 
+    const tokensUsed = {
+      promptTokens: data?.usage?.input_tokens || 0,
+      completionTokens: data?.usage?.output_tokens || 0,
+      totalTokens: (data?.usage?.input_tokens || 0) + (data?.usage?.output_tokens || 0),
+    };
+
+    if (this.onUsage) {
+      this.onUsage('anthropic', tokensUsed);
+    }
+
     return {
       content,
       modelId: params.modelId,
       provider: 'anthropic',
-      tokensUsed: {
-        promptTokens: data?.usage?.input_tokens || 0,
-        completionTokens: data?.usage?.output_tokens || 0,
-        totalTokens: (data?.usage?.input_tokens || 0) + (data?.usage?.output_tokens || 0),
-      },
+      tokensUsed,
       durationMs: Date.now() - startTime,
     };
   }

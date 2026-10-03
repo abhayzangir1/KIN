@@ -77,13 +77,19 @@ export class ComputerSupervisor {
     this.startIdleEvictionWatchdog();
   }
 
+  private mockFreeMemBytes?: number;
+
+  public setMockFreeMemBytes(bytes?: number): void {
+    this.mockFreeMemBytes = bytes;
+  }
+
   // ---------------------------------------------------------------------------
   // 1. Hardware Concurrency Governor (Dynamic Adaptive Limiter)
   // ---------------------------------------------------------------------------
 
   public getGovernorStatus(): GovernorStatus {
     const totalMemBytes = os.totalmem();
-    const freeMemBytes = os.freemem();
+    const freeMemBytes = this.mockFreeMemBytes ?? os.freemem();
     const freeMemGB = Number((freeMemBytes / (1024 * 1024 * 1024)).toFixed(2));
 
     let tier: 'low' | 'medium' | 'high' = 'medium';

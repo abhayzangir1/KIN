@@ -123,7 +123,61 @@ export class CoreServer {
     this.activationEngine = new ActivationEngine();
     this.kernel = new AgentKernel(this.db);
     this.policyEngine = new PolicyEngine();
-    this.modelGateway = new ModelGateway();
+    this.modelGateway = new ModelGateway({
+      apiKeyResolver: (provider: string) => {
+        try {
+          const row = this.db.queryOne<any>(
+            'SELECT secret_hash FROM managed_credentials WHERE provider = ? AND is_active = 1 ORDER BY updated_at DESC LIMIT 1',
+            provider
+          );
+          if (row && row.secret_hash) return row.secret_hash;
+        } catch {}
+        if (provider === 'openrouter') return process.env.OPENROUTER_API_KEY;
+        if (provider === 'openai') return process.env.OPENAI_API_KEY;
+        if (provider === 'anthropic') return process.env.ANTHROPIC_API_KEY;
+        if (provider === 'deepseek') return process.env.DEEPSEEK_API_KEY;
+        if (provider === 'gemini') return process.env.GEMINI_API_KEY;
+        return undefined;
+      },
+      onUsage: (provider: string, tokensUsed: { totalTokens: number }) => {
+        try {
+          this.db.execute(
+            'UPDATE managed_credentials SET current_spend_tokens = current_spend_tokens + ?, updated_at = ? WHERE provider = ? AND is_active = 1',
+            tokensUsed.totalTokens,
+            Date.now(),
+            provider
+          );
+        } catch {}
+      },
+    });
+
+    // Auto-seed active OpenRouter credential from browser/environment if not yet registered
+    try {
+      const existingOpenRouter = this.db.queryOne<any>(
+        'SELECT id FROM managed_credentials WHERE provider = ?',
+        'openrouter'
+      );
+      if (!existingOpenRouter) {
+        const defaultOpenRouterKey = process.env.OPENROUTER_API_KEY || '';
+        if (defaultOpenRouterKey) {
+          const now = Date.now();
+        this.db.execute(
+          `INSERT INTO managed_credentials (id, provider, key_alias, secret_hash, scoped_grants_json, max_spend_tokens, current_spend_tokens, is_active, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `cred-${now}-openrouter`,
+          'openrouter',
+          'OpenRouter Free Tier (ZDR Compliant)',
+          defaultOpenRouterKey,
+          JSON.stringify([]),
+          5000000,
+          0,
+          1,
+          now,
+          now
+        );
+        }
+      }
+    } catch {}
     this.contextCompiler = new ContextCompiler();
     this.scheduler = new SchedulerService(this.db);
     this.computerSupervisor = new ComputerSupervisor();
@@ -1821,6 +1875,149 @@ export class CoreServer {
         const targetProjectId = channel.projectId || this.activeProjectId;
         const allProjectAgents = this.agentRepo.listIdentitiesByProject(targetProjectId);
 
+        const rawContent = userMsg.content;
+        const contentTrimmed = rawContent.trim();
+        const contentLower = contentTrimmed.toLowerCase();
+
+        // FAST-PATH: /btw <query> — Dedicated Non-Blocking Ephemeral Side-Channel Inquiry
+        // Intercepted before steer detection and channel queue locks so side inquiries answer in parallel
+        // without waiting for long agent execution loops, without polluting project DAGs or acquiring task leases.
+        if (
+          contentLower === '/btw' ||
+          contentLower.startsWith('/btw ') ||
+          contentLower.startsWith('/btw:') ||
+          contentLower.startsWith('/btw\n')
+        ) {
+          const btwQuery = rawContent.replace(/^\/btw[\s:\n]*/i, '').trim();
+          const boss = allProjectAgents.find((a) => a.isOrchestrator) || allProjectAgents[0] || this.agentRepo.getIdentity('agent-boss');
+
+          const formattedUserMsg = {
+            id: userMsg.id,
+            channelId: userMsg.channelId,
+            senderId: userMsg.senderId,
+            senderName: 'Human',
+            senderType: 'human',
+            content: userMsg.content,
+            createdAt: userMsg.createdAt,
+            isSteer: false,
+            metadata: { isSideQuery: true },
+          };
+          this.broadcastEvent('message:created', formattedUserMsg);
+          this.sendJson(res, 201, { message: formattedUserMsg, triggeredCount: 1, sideQuery: true });
+
+          // Non-blocking parallel execution on dedicated fast path
+          (async () => {
+            if (!btwQuery) {
+              if (boss) {
+                const helpMsg = this.channelService.sendMessage({
+                  channelId,
+                  senderId: boss.id,
+                  senderType: 'agent',
+                  content: `💡 **Usage**: \`/btw <question>\`\n\nAsk a quick side-channel question without modifying active tasks, mutating project goals, or claiming work leases.\n\n*Example*: \`/btw What port is the Node daemon running on?\``,
+                  productivityScore: 100,
+                });
+                this.broadcastEvent('message:created', {
+                  id: helpMsg.id,
+                  channelId: helpMsg.channelId,
+                  senderId: helpMsg.senderId,
+                  senderName: boss.displayName.replace(/^@/, ''),
+                  senderType: 'agent',
+                  content: helpMsg.content,
+                  createdAt: helpMsg.createdAt,
+                  productivityScore: helpMsg.productivityScore,
+                  metadata: { isSideQuery: true },
+                });
+              }
+              return;
+            }
+
+            const answeringAgent = allProjectAgents.find((a) =>
+              btwQuery.toLowerCase().includes(a.displayName.toLowerCase().replace(/^@/, ''))
+            ) || boss;
+
+            if (answeringAgent) {
+              let answer = '';
+              let modelUsed = answeringAgent.activeModelId;
+
+              // Check if OpenRouter is active in BYOK credentials
+              const openRouterKey = this.modelGateway.resolveApiKey('openrouter');
+              const ollamaInfo = await this.getLocalOllamaModels();
+
+              try {
+                const fastModelPromise = (async () => {
+                  if (openRouterKey) {
+                    const orRes = await this.modelGateway.invoke({
+                      modelId: 'openrouter/qwen/qwen3.8-27b:free',
+                      messages: [
+                        { role: 'system', content: `You are ${answeringAgent.displayName}, an AI specialist in KIN OS. The human operator is asking a quick side-channel question (/btw). Provide a sharp, direct, concise answer without proposing tasks.` },
+                        { role: 'user', content: btwQuery },
+                      ],
+                      maxTokens: 512,
+                    });
+                    if (!orRes.isError && orRes.content) {
+                      return { content: orRes.content, model: 'openrouter/qwen/qwen3.8-27b:free' };
+                    }
+                  }
+
+                  if (ollamaInfo.online) {
+                    const res = await this.modelGateway.invoke({
+                      modelId: answeringAgent.activeModelId,
+                      messages: [
+                        { role: 'system', content: `You are ${answeringAgent.displayName}, an AI specialist in KIN OS. The human operator is asking a quick side-channel question (/btw). Provide a sharp, direct, concise answer without proposing tasks.` },
+                        { role: 'user', content: btwQuery },
+                      ],
+                      maxTokens: 512,
+                    });
+                    if (!res.isError && res.content) {
+                      return { content: res.content, model: answeringAgent.activeModelId };
+                    }
+                  }
+                  return null;
+                })();
+
+                const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500));
+                const fastResult = await Promise.race([fastModelPromise, timeoutPromise]);
+                if (fastResult) {
+                  answer = fastResult.content;
+                  modelUsed = fastResult.model;
+                }
+              } catch (err: any) {
+                console.warn('[KIN CORE] Fast-path /btw model invocation fallback:', err?.message);
+              }
+
+              if (!answer) {
+                let dbSizeKb = 0;
+                try {
+                  const dbStat = fs.statSync(this.dbPath || 'kin_storage.sqlite');
+                  dbSizeKb = Math.round(dbStat.size / 1024);
+                } catch {}
+                answer = `Regarding "${btwQuery}": KIN daemon is active on port 54321 with SQLite WAL mode (${dbSizeKb} KB journal), immediate turn checkpoints, and atomic task leases. Ready to assist.`;
+              }
+
+              const btwReply = this.channelService.sendMessage({
+                channelId,
+                senderId: answeringAgent.id,
+                senderType: 'agent',
+                content: `💡 **[Side Query / BTW]**\n\n${answer}`,
+                productivityScore: 100,
+              });
+              this.broadcastEvent('message:created', {
+                id: btwReply.id,
+                channelId: btwReply.channelId,
+                senderId: btwReply.senderId,
+                senderName: answeringAgent.displayName.replace(/^@/, ''),
+                senderType: 'agent',
+                content: btwReply.content,
+                createdAt: btwReply.createdAt,
+                productivityScore: btwReply.productivityScore,
+                metadata: { isSideQuery: true, modelUsed },
+              });
+            }
+          })().catch((err) => console.error('[KIN CORE] /btw fast-path execution error:', err));
+
+          return;
+        }
+
         // Check if any agent is currently executing IN THIS SPECIFIC CHANNEL
         const activeExecutionsInChan = Array.from(this.activeAgentExecutions.values()).filter(
           (e) => e.channelId === channelId
@@ -1934,10 +2131,6 @@ export class CoreServer {
 
         const triggeredCount = routing.targetAgents.length;
         this.sendJson(res, 201, { message: formattedUserMsg, triggeredCount });
-
-        const rawContent = userMsg.content;
-        const contentTrimmed = rawContent.trim();
-        const contentLower = contentTrimmed.toLowerCase();
 
         const isExplicitCommand = contentLower.startsWith('/') || contentLower.includes('hire') || contentLower.includes('assign');
         if (isSteer && !isExplicitCommand) {
@@ -2905,80 +3098,7 @@ export class CoreServer {
           }
         }
 
-        // 5e. /btw <query> — Ephemeral Side-Channel Inquiry (Zero DAG / Task Lease Mutation)
-        if (
-          contentLower === '/btw' ||
-          contentLower.startsWith('/btw ') ||
-          contentLower.startsWith('/btw:') ||
-          contentLower.startsWith('/btw\n')
-        ) {
-          const btwQuery = rawContent.replace(/^\/btw[\s:\n]*/i, '').trim();
-          if (!btwQuery) {
-            if (boss) {
-              const helpMsg = this.channelService.sendMessage({
-                channelId,
-                senderId: boss.id,
-                senderType: 'agent',
-                content: `💡 **Usage**: \`/btw <question>\`\n\nAsk a quick side-channel question without modifying active tasks, mutating project goals, or claiming work leases.\n\n*Example*: \`/btw What port is the Node daemon running on?\``,
-                productivityScore: 100,
-              });
-              this.broadcastEvent('message:created', {
-                id: helpMsg.id,
-                channelId: helpMsg.channelId,
-                senderId: helpMsg.senderId,
-                senderName: boss.displayName.replace(/^@/, ''),
-                senderType: 'agent',
-                content: helpMsg.content,
-                createdAt: helpMsg.createdAt,
-                productivityScore: helpMsg.productivityScore,
-              });
-            }
-            return;
-          }
-
-          const answeringAgent = routing.targetAgents[0] || boss;
-          if (answeringAgent) {
-            let answer = '';
-            const ollamaInfo = await this.getLocalOllamaModels();
-            if (ollamaInfo.online) {
-              try {
-                const res = await this.modelGateway.invoke({
-                  modelId: answeringAgent.activeModelId,
-                  messages: [
-                    { role: 'system', content: `You are ${answeringAgent.displayName}, an AI specialist in KIN OS. The human operator is asking a quick side-channel question (/btw). Provide a sharp, direct, concise answer without proposing tasks.` },
-                    { role: 'user', content: btwQuery },
-                  ],
-                });
-                answer = (!res.isError && res.content)
-                  ? res.content
-                  : `Regarding "${btwQuery}": SQLite is operating in WAL journal mode with immediate turn checkpoints, atomic task leases, and zero busy-polling.`;
-              } catch (err: any) {
-                answer = `Regarding "${btwQuery}": KIN daemon is active on port 54321 with SQLite storage. Ready to assist.`;
-              }
-            } else {
-              answer = `Regarding "${btwQuery}": KIN daemon is active with SQLite WAL mode, turn checkpoints, and atomic task leases. Ready to assist.`;
-            }
-
-            const btwReply = this.channelService.sendMessage({
-              channelId,
-              senderId: answeringAgent.id,
-              senderType: 'agent',
-              content: `💡 **[Side Query / BTW]**\n\n${answer}`,
-              productivityScore: 100,
-            });
-            this.broadcastEvent('message:created', {
-              id: btwReply.id,
-              channelId: btwReply.channelId,
-              senderId: btwReply.senderId,
-              senderName: answeringAgent.displayName.replace(/^@/, ''),
-              senderType: 'agent',
-              content: btwReply.content,
-              createdAt: btwReply.createdAt,
-              productivityScore: btwReply.productivityScore,
-            });
-          }
-          return;
-        }
+        // 5e. /btw is handled on the dedicated non-blocking fast-path channel at the top of handleChannelMessages
 
         // 5f. /grill-me [topic] — Adversarial Inquiry & Architecture Hardening
         if (
