@@ -342,7 +342,10 @@ export const CenterView: React.FC = () => {
   };
 
   const handleQuoteMessage = (msg: any) => {
-    const sender = msg.senderType === 'human' ? 'Human' : msg.senderName;
+    let sender = msg.senderType === 'human' ? 'Human' : msg.senderName;
+    if (sender && sender.startsWith('@')) {
+      sender = sender.slice(1);
+    }
     const cleanContent = msg.content.length > 250 ? msg.content.slice(0, 250) + '...' : msg.content;
     const formatted = `> [Quote @${sender}]: "${cleanContent.replace(/\r?\n/g, ' ')}"\n\n`;
     setInputText((prev) => formatted + prev);
@@ -427,7 +430,7 @@ export const CenterView: React.FC = () => {
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim()) return;
-    if (isChannelExecuting && !inputText.trim().startsWith('/')) {
+    if (isChannelExecuting && !inputText.trim().startsWith('/') && !inputText.trim().startsWith('>')) {
       handleQueueNext();
       return;
     }

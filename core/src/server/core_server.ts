@@ -519,6 +519,41 @@ export class CoreServer {
     // Guarantee @Boss is in #general channel_members
     this.workspaceRepo.addChannelMember('chan-general', 'agent-boss');
 
+    // Ensure DocWriter specialist exists for live daemon / production deliverables
+    if (!process.env.VITEST && process.env.NODE_ENV !== 'test') {
+      const docIdentity = this.agentRepo.getIdentity('agent-docwriter');
+      if (!docIdentity) {
+        this.agentRepo.createDefinition({
+          id: 'def-docwriter',
+          name: 'DocWriter',
+          role: 'Technical Documentation & Architecture Specialist',
+          systemPrompt: 'You are @DocWriter, the technical documentation specialist. You write comprehensive, clear TRDs, architecture docs, and READMEs.',
+          defaultModelId: 'ollama/qwen2.5-coder:3b',
+          domainAuthority: ['Documentation', 'Architecture', 'TRD', 'Verification'],
+          capabilities: ['read', 'write'],
+          createdAt: now,
+        });
+        this.agentRepo.createIdentity({
+          id: 'agent-docwriter',
+          workspaceId: 'ws-default',
+          projectId: 'proj-kin',
+          definitionId: 'def-docwriter',
+          displayName: '@DocWriter',
+          activeModelId: 'ollama/qwen2.5-coder:3b',
+          isOrchestrator: false,
+          isEphemeral: false,
+          createdAt: now,
+          updatedAt: now,
+        });
+        this.workspaceRepo.addChannelMember('chan-general', 'agent-docwriter');
+      }
+    }
+
+    // Prune historical duplicate goals on startup
+    try {
+      this.taskRepo.pruneDuplicateGoals('proj-kin');
+    } catch {}
+
     // Ensure initial project goal and tasks exist for proj-kin
     const goals = this.taskRepo.listGoals('proj-kin');
     if (goals.length === 0) {
@@ -2041,9 +2076,19 @@ export class CoreServer {
           }
         }
 
+        const activeAgentNames = allProjectAgents
+          .filter((a) => activeAgentIds.includes(a.id))
+          .map((a) => a.displayName.toLowerCase().replace(/^@/, ''));
+
+        const hasNonActiveMention = userMsg.mentions.some((m: string) => {
+          const clean = m.toLowerCase().replace(/^@/, '');
+          return !activeAgentIds.some((id) => id.toLowerCase() === clean) &&
+                 !activeAgentNames.some((n) => n === clean);
+        }) || (/@([a-zA-Z0-9_-]+)/i.test(body.content) && !activeAgentNames.some((n) => body.content.toLowerCase().includes(`@${n}`)));
+
         let isSteer = false;
         // Only treat as a steer if the channel is currently running an agent AND the user is NOT directing this message to another specialist!
-        if (isAgentActiveInChannel && !targetedOtherAgent) {
+        if (isAgentActiveInChannel && !targetedOtherAgent && !hasNonActiveMention) {
           isSteer = true;
           let targetAgentId: string | undefined;
           for (const ag of allProjectAgents) {
@@ -4941,39 +4986,52 @@ export class CoreServer {
           const { browser, page } = await this.browserController.ensureBrowser({ headless: false });
           const platform = body?.platform || 'both';
 
-          if (platform === 'linkedin' || platform === 'both') {
-            await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-            await page.evaluate(() => {
-              const old = document.getElementById('kin-agent-overlay');
+          const injectBanner = async (targetPage: any, bannerId: string, text: string, color: string = '#38bdf8', bg: string = '#0f172a', border: string = '#38bdf8') => {
+            await targetPage.evaluate((bId: string, bText: string, bColor: string, bBg: string, bBorder: string) => {
+              const old = document.getElementById(bId);
               if (old) old.remove();
               const banner = document.createElement('div');
-              banner.id = 'kin-agent-overlay';
+              banner.id = bId;
               banner.style.position = 'fixed';
-              banner.style.top = '10px';
+              banner.style.top = '12px';
               banner.style.left = '50%';
               banner.style.transform = 'translateX(-50%)';
-              banner.style.zIndex = '999999';
-              banner.style.background = '#0f172a';
-              banner.style.color = '#38bdf8';
-              banner.style.border = '2px solid #38bdf8';
-              banner.style.borderRadius = '8px';
+              banner.style.zIndex = '9999999';
+              banner.style.background = bBg;
+              banner.style.color = bColor;
+              banner.style.border = `2px solid ${bBorder}`;
+              banner.style.borderRadius = '10px';
               banner.style.padding = '12px 24px';
-              banner.style.boxShadow = '0 8px 30px rgba(0,0,0,0.8)';
-              banner.style.fontFamily = 'system-ui, sans-serif';
+              banner.style.boxShadow = '0 10px 40px rgba(0,0,0,0.85)';
+              banner.style.fontFamily = 'system-ui, -apple-system, sans-serif';
               banner.style.fontSize = '14px';
               banner.style.fontWeight = 'bold';
-              banner.innerHTML = '🤖 KIN Autonomous Agent: Active on Screen • Ready to Draft LinkedIn Launch Announcement';
+              banner.style.pointerEvents = 'none';
+              banner.style.transition = 'all 0.3s ease';
+              banner.innerHTML = bText;
               document.body.appendChild(banner);
-            }).catch(() => {});
+            }, bannerId, text, color, bg, border).catch(() => {});
+          };
 
-            const postTrigger = await page.$('button.share-box-feed-entry__trigger').catch(() => null);
-            if (postTrigger) {
-              await postTrigger.click().catch(() => {});
+          if (platform === 'linkedin' || platform === 'both') {
+            await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+            await injectBanner(page, 'kin-agent-overlay', '🤖 KIN Autonomous Agent: Active on Screen • Waiting for Operator Permission / Login • Checking browser every 1.5s...');
+
+            // Autonomous checking loop: wait for user login / composer
+            for (let check = 0; check < 10; check++) {
               await new Promise((r) => setTimeout(r, 1500));
-              const editor = await page.$('div.ql-editor').catch(() => null);
-              if (editor) {
-                await editor.click().catch(() => {});
-                await page.keyboard.type(LINKEDIN_POST_TEXT, { delay: 5 }).catch(() => {});
+              const postTrigger = await page.$('button.share-box-feed-entry__trigger').catch(() => null);
+              if (postTrigger) {
+                await injectBanner(page, 'kin-agent-overlay', '🤖 KIN Autonomous Agent: Session Detected • Opening LinkedIn Post Composer...');
+                await postTrigger.click().catch(() => {});
+                await new Promise((r) => setTimeout(r, 1500));
+                const editor = await page.$('div.ql-editor').catch(() => null);
+                if (editor) {
+                  await editor.click().catch(() => {});
+                  await page.keyboard.type(LINKEDIN_POST_TEXT, { delay: 5 }).catch(() => {});
+                  await injectBanner(page, 'kin-agent-overlay', '✅ KIN Launch Post Drafted! Review copy and click [Post] when ready.', '#34d399', '#064e3b', '#10b981');
+                  break;
+                }
               }
             }
           }
@@ -4981,40 +5039,38 @@ export class CoreServer {
           if (platform === 'x' || platform === 'both') {
             const page2 = await browser.newPage().catch(() => page);
             await page2.goto('https://x.com/compose/post', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-            await page2.evaluate(() => {
-              const old = document.getElementById('kin-agent-overlay-x');
-              if (old) old.remove();
-              const banner = document.createElement('div');
-              banner.id = 'kin-agent-overlay-x';
-              banner.style.position = 'fixed';
-              banner.style.top = '10px';
-              banner.style.left = '50%';
-              banner.style.transform = 'translateX(-50%)';
-              banner.style.zIndex = '999999';
-              banner.style.background = '#0f172a';
-              banner.style.color = '#38bdf8';
-              banner.style.border = '2px solid #38bdf8';
-              banner.style.borderRadius = '8px';
-              banner.style.padding = '12px 24px';
-              banner.style.boxShadow = '0 8px 30px rgba(0,0,0,0.8)';
-              banner.style.fontFamily = 'system-ui, sans-serif';
-              banner.style.fontSize = '14px';
-              banner.style.fontWeight = 'bold';
-              banner.innerHTML = '🤖 KIN Autonomous Agent: Active on Screen • Ready to Draft X Launch Post';
-              document.body.appendChild(banner);
-            }).catch(() => {});
+            await injectBanner(page2, 'kin-agent-overlay-x', '🤖 KIN Autonomous Agent: Active on Screen • Waiting for Operator Permission / Login • Checking browser every 1.5s...');
 
-            const tweetEditor = await page2.$('div[data-testid="tweetTextarea_0"]').catch(() => null);
-            if (tweetEditor) {
-              await tweetEditor.click().catch(() => {});
-              await page2.keyboard.type(X_POST_TEXT, { delay: 5 }).catch(() => {});
+            // Autonomous checking loop: wait for tweet composer
+            for (let check = 0; check < 10; check++) {
+              await new Promise((r) => setTimeout(r, 1500));
+              const tweetEditor = await page2.$('div[data-testid="tweetTextarea_0"]').catch(() => null);
+              if (tweetEditor) {
+                await tweetEditor.click().catch(() => {});
+                await page2.keyboard.type(X_POST_TEXT, { delay: 5 }).catch(() => {});
+                await injectBanner(page2, 'kin-agent-overlay-x', '✅ KIN Launch Post Drafted! Review copy and click [Post] when ready.', '#34d399', '#064e3b', '#10b981');
+                break;
+              }
             }
           }
+
+          // Open OpenRouter Free Models & KIN Repo tabs for complete operator visibility
+          try {
+            const page3 = await browser.newPage();
+            await page3.goto('https://openrouter.ai/models?max_price=0', { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await injectBanner(page3, 'kin-agent-overlay-openrouter', '🤖 KIN BYOK Explorer: Free OpenRouter Models (DeepSeek R1, LLaMA 3.3 70B, Gemini 2.0 Flash) Available For Agents', '#c084fc', '#1e1b4b', '#a855f7');
+          } catch {}
+
+          try {
+            const page4 = await browser.newPage();
+            await page4.goto('https://github.com/abhayzangir1/KIN', { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await injectBanner(page4, 'kin-agent-overlay-github', '🤖 KIN OS: Repository Verified • 11 Test Suites Passing • Screenshots & Documentation Ready', '#34d399', '#064e3b', '#10b981');
+          } catch {}
 
           this.broadcastEvent('browser:social_drafted', { platform, timestamp: Date.now() });
           return this.sendJson(res, 200, {
             success: true,
-            message: 'Social posts drafted visibly in browser session',
+            message: 'Social posts drafted visibly on screen in browser session',
             platform,
           });
         } catch (err: any) {

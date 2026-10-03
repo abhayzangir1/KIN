@@ -339,13 +339,17 @@ describe('KIN Dynamic Computer & Systems Upgrade (Round 14)', () => {
       expect(data).toHaveProperty('message');
 
       // Allow background agent reply creation
-      await new Promise((r) => setTimeout(r, 250));
+      let compoundCard: any;
+      for (let i = 0; i < 15; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        const msgRes = await fetch(`http://127.0.0.1:${serverPort}/api/channels/chan-general/messages`);
+        const msgData: any = await msgRes.json();
+        const messages = msgData.messages || [];
+        compoundCard = messages.find((m: any) => m.content && m.content.includes('Compound Pipeline Engaged'));
+        if (compoundCard) break;
+      }
 
       // Verify compound card and matrix was created in channel
-      const msgRes = await fetch(`http://127.0.0.1:${serverPort}/api/channels/chan-general/messages`);
-      const msgData: any = await msgRes.json();
-      const messages = msgData.messages || [];
-      const compoundCard = messages.find((m: any) => m.content.includes('Compound Pipeline Engaged'));
       expect(compoundCard).toBeDefined();
       expect(compoundCard.content).toContain('Workforce Collaboration Matrix');
       expect(compoundCard.content).toContain('Milestone Breakdown DAG');
@@ -371,12 +375,15 @@ describe('KIN Dynamic Computer & Systems Upgrade (Round 14)', () => {
       expect(res.status).toBe(201);
 
       // Allow background agent reply creation
-      await new Promise((r) => setTimeout(r, 300));
-
-      const msgRes = await fetch(`http://127.0.0.1:${serverPort}/api/channels/chan-general/messages`);
-      const msgData: any = await msgRes.json();
-      const messages = msgData.messages || [];
-      const compoundCard = messages.find((m: any) => m.senderType === 'agent' && m.content.includes('Hardened Sovereign Core'));
+      let compoundCard: any;
+      for (let i = 0; i < 15; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        const msgRes = await fetch(`http://127.0.0.1:${serverPort}/api/channels/chan-general/messages`);
+        const msgData: any = await msgRes.json();
+        const messages = msgData.messages || [];
+        compoundCard = messages.find((m: any) => m.senderType === 'agent' && m.content && m.content.includes('Hardened Sovereign Core'));
+        if (compoundCard) break;
+      }
       expect(compoundCard).toBeDefined();
       expect(compoundCard.content).toContain('Goal Milestone');
       expect(compoundCard.content).toContain('Teamwork Preview');

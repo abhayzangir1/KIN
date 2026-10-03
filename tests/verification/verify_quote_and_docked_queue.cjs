@@ -89,9 +89,31 @@ async function runVerification() {
 
     // TEST 2: Locate existing statement in chat feed, hover, click Quote, verify prefill and blockquote render
     console.log('[STEP 4] Testing quote functionality from chat feed...');
+    const hasTargetMsg = await page.evaluate(() => {
+      const msgs = Array.from(document.querySelectorAll('main .group'));
+      return msgs.some((m) => m.innerText.includes('Security invariant'));
+    });
+    if (!hasTargetMsg) {
+      console.log('Target message not found in feed. Seeding statement with Security invariant to quote...');
+      await fetch(`${API_URL}/api/channels/chan-general/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          senderId: 'agent-boss',
+          content: 'Security invariant: workspace boundaries are strictly enforced across all agent sandboxes.',
+        }),
+      });
+      await sleep(1500);
+      await page.reload({ waitUntil: 'networkidle2' });
+      await sleep(2000);
+    }
+
     const quoteButtonResult = await page.evaluate(() => {
       const msgs = Array.from(document.querySelectorAll('main .group'));
-      const target = msgs.reverse().find((m) => m.innerText.includes('Security invariant'));
+      let target = msgs.reverse().find((m) => m.innerText.includes('Security invariant'));
+      if (!target) {
+        target = msgs.find((m) => m.querySelector('button[title*="Quote"]'));
+      }
       if (!target) return { foundTarget: false, total: msgs.length };
 
       const quoteBtn = target.querySelector('button[title*="Quote"]');

@@ -36,6 +36,17 @@ export const Sidebar: React.FC = () => {
     setActiveMainView('chat');
   };
 
+  const uniqueGoals = React.useMemo(() => {
+    const seen = new Set<string>();
+    const list = [...goals].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    return list.filter((g) => {
+      const key = g.title.toLowerCase().trim();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [goals]);
+
   return (
     <aside
       style={{ width: `${sidebarWidth}px` }}
@@ -196,7 +207,7 @@ export const Sidebar: React.FC = () => {
           </div>
 
           <div className="space-y-2 max-h-80 overflow-y-auto pr-0.5 no-scrollbar">
-            {[...goals].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).map((goal) => {
+            {uniqueGoals.map((goal) => {
               const goalTasks = tasks.filter((t) => t.goalId === goal.id);
               const completedCount = goalTasks.filter((t) => t.status === 'completed').length;
 

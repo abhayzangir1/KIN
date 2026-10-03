@@ -84,171 +84,168 @@ Orchestrate collaborative multi-agent software engineering teams directly on you
     });
   }
 
-  const pages = await browser.pages();
-  const page1 = pages[0] || (await browser.newPage());
+  const existingPages = await browser.pages();
+
+  // Helper function to inject rich interactive banner
+  async function injectBanner(page, id, text, copyText = null, color = '#38bdf8', bg = '#0f172a', border = '#38bdf8') {
+    return page.evaluate((bId, bText, bCopy, bColor, bBg, bBorder) => {
+      const old = document.getElementById(bId);
+      if (old) old.remove();
+      const banner = document.createElement('div');
+      banner.id = bId;
+      banner.style.position = 'fixed';
+      banner.style.top = '12px';
+      banner.style.left = '50%';
+      banner.style.transform = 'translateX(-50%)';
+      banner.style.zIndex = '9999999';
+      banner.style.background = bBg;
+      banner.style.color = bColor;
+      banner.style.border = `2px solid ${bBorder}`;
+      banner.style.borderRadius = '10px';
+      banner.style.padding = '10px 20px';
+      banner.style.boxShadow = '0 10px 40px rgba(0,0,0,0.85)';
+      banner.style.fontFamily = 'system-ui, -apple-system, sans-serif';
+      banner.style.fontSize = '13px';
+      banner.style.fontWeight = 'bold';
+      banner.style.display = 'flex';
+      banner.style.alignItems = 'center';
+      banner.style.gap = '12px';
+
+      const label = document.createElement('span');
+      label.id = `${bId}-label`;
+      label.innerHTML = bText;
+      banner.appendChild(label);
+
+      if (bCopy) {
+        const btn = document.createElement('button');
+        btn.innerHTML = '📋 Copy Post Text';
+        btn.style.background = '#0284c7';
+        btn.style.color = '#ffffff';
+        btn.style.border = 'none';
+        btn.style.borderRadius = '6px';
+        btn.style.padding = '5px 12px';
+        btn.style.cursor = 'pointer';
+        btn.style.fontSize = '12px';
+        btn.style.fontWeight = 'bold';
+        btn.onclick = () => {
+          navigator.clipboard.writeText(bCopy);
+          btn.innerHTML = '✅ Copied!';
+          setTimeout(() => { btn.innerHTML = '📋 Copy Post Text'; }, 2000);
+        };
+        banner.appendChild(btn);
+      }
+      document.body.appendChild(banner);
+    }, id, text, copyText, color, bg, border).catch(() => {});
+  }
 
   // -------------------------------------------------------------
   // Step 1: LinkedIn Tab
   // -------------------------------------------------------------
-  console.log('\n[1/4] Navigating to LinkedIn (https://www.linkedin.com/feed/)...');
-  await page1.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-  await sleep(2500);
+  console.log('\n[1/4] Connecting to LinkedIn tab...');
+  let page1 = existingPages.find(p => p.url().includes('linkedin.com'));
+  if (!page1) {
+    page1 = await browser.newPage();
+    await page1.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+  } else {
+    await page1.bringToFront().catch(() => {});
+  }
+  await sleep(1500);
 
-  await page1.evaluate(() => {
-    const old = document.getElementById('kin-agent-overlay');
-    if (old) old.remove();
-    const banner = document.createElement('div');
-    banner.id = 'kin-agent-overlay';
-    banner.style.position = 'fixed';
-    banner.style.top = '10px';
-    banner.style.left = '50%';
-    banner.style.transform = 'translateX(-50%)';
-    banner.style.zIndex = '999999';
-    banner.style.background = '#0f172a';
-    banner.style.color = '#38bdf8';
-    banner.style.border = '2px solid #38bdf8';
-    banner.style.borderRadius = '8px';
-    banner.style.padding = '12px 24px';
-    banner.style.boxShadow = '0 8px 30px rgba(0,0,0,0.8)';
-    banner.style.fontFamily = 'system-ui, sans-serif';
-    banner.style.fontSize = '14px';
-    banner.style.fontWeight = 'bold';
-    banner.innerHTML = '🤖 KIN Autonomous Agent: Active on Screen • Ready to Draft LinkedIn Launch Announcement';
-    document.body.appendChild(banner);
-  }).catch(() => {});
+  await injectBanner(page1, 'kin-agent-overlay', '🤖 KIN Autonomous Agent (Port 9222 Connected) • Watching for login / Ready to draft announcement', LINKEDIN_POST_TEXT);
 
-  const isLoggedInLinkedIn = await page1.evaluate(() => {
-    return !!(
-      document.querySelector('button.share-box-feed-entry__trigger') ||
-      document.querySelector('div.feed-identity-module') ||
-      document.querySelector('nav.global-nav')
-    );
-  }).catch(() => false);
+  let linkedinDrafted = false;
+  for (let check = 0; check < 40; check++) {
+    const isLoggedInLinkedIn = await page1.evaluate(() => {
+      return !!(
+        document.querySelector('button.share-box-feed-entry__trigger') ||
+        document.querySelector('div.ql-editor') ||
+        document.querySelector('div.feed-identity-module') ||
+        document.querySelector('nav.global-nav')
+      );
+    }).catch(() => false);
 
-  if (isLoggedInLinkedIn) {
-    console.log('[LinkedIn] Detected active user session! Opening post composer...');
-    const postTrigger = await page1.$('button.share-box-feed-entry__trigger').catch(() => null);
-    if (postTrigger) {
-      await postTrigger.click().catch(() => {});
-      await sleep(2000);
-      const editor = await page1.$('div.ql-editor').catch(() => null);
+    if (isLoggedInLinkedIn) {
+      console.log('[LinkedIn] Detected active user session! Opening post composer...');
+      let editor = await page1.$('div.ql-editor').catch(() => null);
+      if (!editor) {
+        const postTrigger = await page1.$('button.share-box-feed-entry__trigger').catch(() => null);
+        if (postTrigger) {
+          await postTrigger.click().catch(() => {});
+          await sleep(2000);
+          editor = await page1.$('div.ql-editor').catch(() => null);
+        }
+      }
       if (editor) {
         await editor.click().catch(() => {});
         await page1.keyboard.type(LINKEDIN_POST_TEXT, { delay: 5 }).catch(() => {});
         console.log('[LinkedIn] Post drafted successfully in composer!');
+        await injectBanner(page1, 'kin-agent-overlay', '✅ KIN Launch Post Drafted! Review copy and click [Post] when ready.', null, '#34d399', '#064e3b', '#10b981');
+        linkedinDrafted = true;
+        break;
       }
+    } else {
+      if (check % 5 === 0) {
+        console.log(`[LinkedIn] Waiting for user session/login (check ${check + 1}/40)...`);
+      }
+      await sleep(2000);
     }
-  } else {
-    console.log('[LinkedIn] Notice: User session pending login. Displaying interactive banner.');
   }
 
   // -------------------------------------------------------------
   // Step 2: X (Twitter) Tab
   // -------------------------------------------------------------
-  console.log('\n[2/4] Opening tab for X (https://x.com/compose/post)...');
-  const page2 = await browser.newPage();
-  await page2.goto('https://x.com/compose/post', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-  await sleep(2500);
+  console.log('\n[2/4] Connecting to X (Twitter) tab...');
+  let page2 = existingPages.find(p => p.url().includes('x.com') || p.url().includes('twitter.com'));
+  if (!page2) {
+    page2 = await browser.newPage();
+    await page2.goto('https://x.com/compose/post', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+  } else {
+    await page2.bringToFront().catch(() => {});
+  }
+  await sleep(1500);
 
-  await page2.evaluate(() => {
-    const old = document.getElementById('kin-agent-overlay-x');
-    if (old) old.remove();
-    const banner = document.createElement('div');
-    banner.id = 'kin-agent-overlay-x';
-    banner.style.position = 'fixed';
-    banner.style.top = '10px';
-    banner.style.left = '50%';
-    banner.style.transform = 'translateX(-50%)';
-    banner.style.zIndex = '999999';
-    banner.style.background = '#0f172a';
-    banner.style.color = '#38bdf8';
-    banner.style.border = '2px solid #38bdf8';
-    banner.style.borderRadius = '8px';
-    banner.style.padding = '12px 24px';
-    banner.style.boxShadow = '0 8px 30px rgba(0,0,0,0.8)';
-    banner.style.fontFamily = 'system-ui, sans-serif';
-    banner.style.fontSize = '14px';
-    banner.style.fontWeight = 'bold';
-    banner.innerHTML = '🤖 KIN Autonomous Agent: Active on Screen • Ready to Draft X (Twitter) Launch Post';
-    document.body.appendChild(banner);
-  }).catch(() => {});
+  await injectBanner(page2, 'kin-agent-overlay-x', '🤖 KIN Autonomous Agent (Port 9222 Connected) • Watching for login / Ready to draft tweet', X_POST_TEXT);
 
-  const isLoggedInX = await page2.evaluate(() => {
-    return !!(
-      document.querySelector('div[data-testid="tweetTextarea_0"]') ||
-      document.querySelector('a[data-testid="AppTabBar_Home_Link"]')
-    );
-  }).catch(() => false);
-
-  if (isLoggedInX) {
-    console.log('[X] Detected active session! Typing draft into tweet composer...');
+  let xDrafted = false;
+  for (let check = 0; check < 40; check++) {
     const tweetEditor = await page2.$('div[data-testid="tweetTextarea_0"]').catch(() => null);
     if (tweetEditor) {
+      console.log('[X] Detected active session! Typing draft into tweet composer...');
       await tweetEditor.click().catch(() => {});
       await page2.keyboard.type(X_POST_TEXT, { delay: 5 }).catch(() => {});
       console.log('[X] Launch post drafted successfully in composer!');
+      await injectBanner(page2, 'kin-agent-overlay-x', '✅ KIN Launch Post Drafted! Review copy and click [Post] when ready.', null, '#34d399', '#064e3b', '#10b981');
+      xDrafted = true;
+      break;
+    } else {
+      if (check % 5 === 0) {
+        console.log(`[X] Waiting for tweet composer / user login (check ${check + 1}/40)...`);
+      }
+      await sleep(2000);
     }
-  } else {
-    console.log('[X] Notice: User session pending login. Displaying interactive banner.');
   }
 
   // -------------------------------------------------------------
   // Step 3: OpenRouter Free Models Tab
   // -------------------------------------------------------------
-  console.log('\n[3/4] Opening tab for OpenRouter Free Models (https://openrouter.ai/models?max_price=0)...');
-  const page3 = await browser.newPage();
-  await page3.goto('https://openrouter.ai/models?max_price=0', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-  await sleep(2000);
-
-  await page3.evaluate(() => {
-    const banner = document.createElement('div');
-    banner.id = 'kin-agent-overlay-openrouter';
-    banner.style.position = 'fixed';
-    banner.style.top = '10px';
-    banner.style.left = '50%';
-    banner.style.transform = 'translateX(-50%)';
-    banner.style.zIndex = '999999';
-    banner.style.background = '#1e1b4b';
-    banner.style.color = '#c084fc';
-    banner.style.border = '2px solid #a855f7';
-    banner.style.borderRadius = '8px';
-    banner.style.padding = '12px 24px';
-    banner.style.boxShadow = '0 8px 30px rgba(0,0,0,0.8)';
-    banner.style.fontFamily = 'system-ui, sans-serif';
-    banner.style.fontSize = '14px';
-    banner.style.fontWeight = 'bold';
-    banner.innerHTML = '🤖 KIN BYOK Explorer: Free OpenRouter Models (DeepSeek R1, LLaMA 3.3 70B, Gemini 2.0 Flash) Available For Agents';
-    document.body.appendChild(banner);
-  }).catch(() => {});
+  console.log('\n[3/4] Ensuring OpenRouter Free Models tab...');
+  let page3 = existingPages.find(p => p.url().includes('openrouter.ai'));
+  if (!page3) {
+    page3 = await browser.newPage();
+    await page3.goto('https://openrouter.ai/models?max_price=0', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+  }
+  await injectBanner(page3, 'kin-agent-overlay-openrouter', '🤖 KIN BYOK Explorer: Free OpenRouter Models (DeepSeek R1, LLaMA 3.3 70B, Gemini 2.0 Flash) Available For Agents', null, '#c084fc', '#1e1b4b', '#a855f7');
 
   // -------------------------------------------------------------
   // Step 4: KIN GitHub Repository Tab
   // -------------------------------------------------------------
-  console.log('\n[4/4] Opening tab for KIN GitHub Repository (https://github.com/abhayzangir1/KIN)...');
-  const page4 = await browser.newPage();
-  await page4.goto('https://github.com/abhayzangir1/KIN', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-  await sleep(2000);
-
-  await page4.evaluate(() => {
-    const banner = document.createElement('div');
-    banner.id = 'kin-agent-overlay-github';
-    banner.style.position = 'fixed';
-    banner.style.top = '10px';
-    banner.style.left = '50%';
-    banner.style.transform = 'translateX(-50%)';
-    banner.style.zIndex = '999999';
-    banner.style.background = '#064e3b';
-    banner.style.color = '#34d399';
-    banner.style.border = '2px solid #10b981';
-    banner.style.borderRadius = '8px';
-    banner.style.padding = '12px 24px';
-    banner.style.boxShadow = '0 8px 30px rgba(0,0,0,0.8)';
-    banner.style.fontFamily = 'system-ui, sans-serif';
-    banner.style.fontSize = '14px';
-    banner.style.fontWeight = 'bold';
-    banner.innerHTML = '🤖 KIN OS: Repository Verified • 11 Test Suites Passing • Screenshots & Documentation Ready';
-    document.body.appendChild(banner);
-  }).catch(() => {});
+  console.log('\n[4/4] Ensuring KIN GitHub Repository tab...');
+  let page4 = existingPages.find(p => p.url().includes('github.com/abhayzangir1/KIN'));
+  if (!page4) {
+    page4 = await browser.newPage();
+    await page4.goto('https://github.com/abhayzangir1/KIN', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+  }
+  await injectBanner(page4, 'kin-agent-overlay-github', '🤖 KIN OS: Repository Verified • 11 Test Suites Passing • Screenshots & Documentation Ready', null, '#34d399', '#064e3b', '#10b981');
 
   console.log('\n================================================================');
   console.log('BROWSER AUTOMATION ACTIVE ON USER SCREEN');
@@ -257,16 +254,10 @@ Orchestrate collaborative multi-agent software engineering teams directly on you
   console.log('Keeping browser window open for 20 seconds so operator can inspect...');
   console.log('================================================================');
 
-  await sleep(20000);
-
-  if (!isRemoteConnected) {
-    console.log('[DONE] Closing dedicated automation window...');
-    await browser.close().catch(() => {});
-  } else {
-    console.log('[DONE] Disconnecting remote debugging session (user browser left open)...');
+  console.log('[DONE] Automation cycle complete. Browser window remains active and visible on screen for operator inspection and posting.');
+  try {
     browser.disconnect();
-  }
-
+  } catch {}
   process.exit(0);
 })().catch((err) => {
   console.error('[SOCIAL POST DRAFT ERROR]', err);

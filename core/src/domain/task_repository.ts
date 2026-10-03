@@ -315,7 +315,7 @@ export class TaskRepository {
     return promotedTaskIds;
   }
 
-  public listGoals(projectId: string): Goal[] {
+  public listGoals(projectId: string, deduplicate: boolean = true): Goal[] {
     const rows = this.db.query<{
       id: string;
       project_id: string;
@@ -325,9 +325,9 @@ export class TaskRepository {
       status: string;
       created_at: number;
       updated_at: number;
-    }>('SELECT * FROM goals WHERE project_id = ? ORDER BY created_at DESC', projectId);
+    }>('SELECT * FROM goals WHERE project_id = ? ORDER BY updated_at DESC, created_at DESC', projectId);
 
-    return rows.map((r) => ({
+    const goals = rows.map((r) => ({
       id: r.id,
       projectId: r.project_id,
       title: r.title,
@@ -337,6 +337,44 @@ export class TaskRepository {
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     }));
+
+    if (!deduplicate) return goals;
+
+    const seen = new Set<string>();
+    return goals.filter((g) => {
+      const key = g.title.toLowerCase().trim();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  /**
+   * Prunes duplicate goals with the same title from the SQLite database, preserving the latest updated row.
+   */
+  public pruneDuplicateGoals(projectId: string): number {
+    const all = this.listGoals(projectId, false);
+    const seen = new Map<string, string>(); // title -> keptId
+    const toDelete: string[] = [];
+
+    for (const g of all) {
+      const key = g.title.toLowerCase().trim();
+      if (seen.has(key)) {
+        toDelete.push(g.id);
+      } else {
+        seen.set(key, g.id);
+      }
+    }
+
+    if (toDelete.length > 0) {
+      this.db.transactionSync(() => {
+        for (const id of toDelete) {
+          this.db.execute('DELETE FROM goals WHERE id = ?', id);
+        }
+      });
+    }
+
+    return toDelete.length;
   }
 
   public listTasksByGoal(goalId: string): Task[] {
