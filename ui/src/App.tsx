@@ -21,6 +21,7 @@ export const App: React.FC = () => {
   const {
     fetchState,
     initSSE,
+    closeSSE,
     setSidebarWidth,
     setInspectorWidth,
   } = useKinStore();
@@ -32,7 +33,10 @@ export const App: React.FC = () => {
     (window as any).kinStore = useKinStore;
     fetchState();
     initSSE();
-  }, [fetchState, initSSE]);
+    return () => {
+      closeSSE();
+    };
+  }, [fetchState, initSSE, closeSSE]);
 
   // Global mouse move and up listeners for fluid Antigravity-style dragging
   useEffect(() => {

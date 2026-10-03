@@ -652,6 +652,7 @@ interface KinState {
   clearSelectedArtifact: () => void;
   setActiveRightTab: (tab: 'Agent' | 'Changes' | 'Review' | 'Artifacts' | 'Uploads' | 'Terminal') => void;
   initSSE: () => void;
+  closeSSE: () => void;
   setActiveChannel: (channelId: string) => Promise<void>;
   setActiveProject: (projectId: string) => Promise<void>;
   createProject: (name: string, repoPath?: string) => Promise<void>;
@@ -742,6 +743,7 @@ interface KinState {
 }
 
 let eventSourceInstance: EventSource | null = null;
+let sseReconnectTimer: any = null;
 
 export const useKinStore = create<KinState>((set, get) => ({
   projects: [],
@@ -1179,8 +1181,13 @@ export const useKinStore = create<KinState>((set, get) => ({
   },
 
   initSSE: () => {
+    if (sseReconnectTimer) {
+      clearTimeout(sseReconnectTimer);
+      sseReconnectTimer = null;
+    }
     if (eventSourceInstance) {
       eventSourceInstance.close();
+      eventSourceInstance = null;
     }
 
     try {
@@ -1860,7 +1867,11 @@ export const useKinStore = create<KinState>((set, get) => ({
           try { sse.close(); } catch {}
           eventSourceInstance = null;
         }
-        setTimeout(() => {
+        if (sseReconnectTimer) {
+          clearTimeout(sseReconnectTimer);
+        }
+        sseReconnectTimer = setTimeout(() => {
+          sseReconnectTimer = null;
           console.log('[KIN UI] EventSource connection error or disconnect, auto-reconnecting...');
           get().initSSE();
         }, 3000);
@@ -1868,6 +1879,20 @@ export const useKinStore = create<KinState>((set, get) => ({
     } catch (err) {
       console.error('[KIN UI] SSE connection error:', err);
     }
+  },
+
+  closeSSE: () => {
+    if (sseReconnectTimer) {
+      clearTimeout(sseReconnectTimer);
+      sseReconnectTimer = null;
+    }
+    if (eventSourceInstance) {
+      try {
+        eventSourceInstance.close();
+      } catch {}
+      eventSourceInstance = null;
+    }
+    set({ isConnected: false });
   },
 
   setActiveChannel: async (channelId: string) => {

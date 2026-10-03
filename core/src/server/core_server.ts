@@ -1963,7 +1963,7 @@ export class CoreServer {
             .replace(/\/boost\b/gi, '')
             .replace(/\/teamwork(-preview)?\b/gi, '')
             .replace(/\/goal\b/gi, '')
-            .replace(/^[,\s|:-]+/, '')
+            .replace(/^[,\s|:\-/]+/, '')
             .trim();
 
           const now = Date.now();

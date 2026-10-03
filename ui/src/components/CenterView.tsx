@@ -763,7 +763,7 @@ export const CenterView: React.FC = () => {
       )}
 
       {/* Slash Commands Overlay */}
-      {showSlashMenu && !inputText.includes(' ') && matchingSlashCommands.length > 0 && (
+      {showSlashMenu && matchingSlashCommands.length > 0 && (
         <div className="absolute bottom-16 left-4 bg-[#0f172a] border border-[#2d3748] rounded-xl shadow-2xl p-2 z-20 w-80 space-y-1 text-xs">
           <div className="text-[10px] text-[#64748b] uppercase font-bold px-2 py-0.5 flex items-center justify-between">
             <span>Commands ({matchingSlashCommands.length})</span>
