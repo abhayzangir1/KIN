@@ -1157,7 +1157,90 @@ The following are reference sources, not mandatory dependencies:
 
 ---
 
-# 30. Final decision ledger — what was selected from the three specifications
+# 30. Capability Evolution — Governed Computer Use & Timed Autonomy
+
+### 30.1 In-App Scheduler & Timed Autonomy
+- **Antigravity-Style Scheduler:** Agents can wake themselves using non-blocking timers (`schedule` / `timer`) rather than busy-polling on GPU/CPU.
+- **Modes:** One-shot timers (`DurationSeconds`, `TimerCondition`, `Prompt`) and recurring cron schedules (`CronExpression`, `Prompt`, `MaxIterations`).
+- **Persistence:** Stored in durable SQLite `schedules` table with WAL mode.
+- **Trigger Behavior:** When a timer fires, the scheduler broadcasts a high-priority system wakeup into the project channel/inbox.
+
+### 30.2 Autonomous Multi-Turn ReAct Tool Loop
+- **Multi-Turn Bounded Execution:** Agents iteratively call tools (`readFile`, `writeFile`, `listDirectory`, `executeShell`, `schedule`, `mcp`), observe outputs, and self-correct errors up to a maximum turn budget.
+- **Policy Enforcement:** All tool invocations remain governed by the Policy Engine (Auto, Always Ask, Full Access).
+
+### 30.3 Runtime Skills Engine & MCP Integration
+- **Dynamic Skills:** First-class procedural packages dynamically matched by domain/trigger patterns and injected into context.
+- **Durable Experience:** Successful executions and error repairs are stored in `skill_experiences`.
+- **MCP Protocol:** Native JSON-RPC client connecting to external stdio/SSE MCP servers, auto-discovering capabilities.
+
+### 30.4 Governed Computer & Application Use
+- **Desktop & App Control:** Discovery and control of installed desktop applications (VS Code, Android Studio, WhatsApp, browsers).
+- **Physical Interaction Cycle:** Strict Observe → Act → Observe → Verify → Continue loop.
+- **Human Takeover Overlay:** Ubiquitous floating takeover banner allowing the user to press `ESC` or click to pause the agent, interact manually (e.g. solve CAPTCHA/MFA), and click `Resume Agent`.
+- **Persistent Headful Browser Sessions:** Dedicated browser profiles preserving cookies, logins, and session storage.
+- **Financial Safety Shield:** Financial transactions and checkout actions are hardcoded to `CRITICAL RISK` requiring explicit user approval. Payment credentials are never exposed to LLM context.
+- **Proactive Personal Routines:** Natural language routines ("Every morning review calendar...", "Watch this repository...") translated into scheduled tasks with triggers, conditions, and autonomous delegation.
+
+---
+
+# 31. Enterprise Resilience, Crash Recovery & Collaborative Autonomy
+
+### 31.1 Turn-by-Turn Checkpointing & Crash Recovery
+- **Granular Checkpointing:** Every turn of execution within `agent_loop.ts` persists an immutable turn checkpoint (`onTurnCheckpoint`) containing model messages, tool invocation arguments, tool execution results, and updated token usage to SQLite `agent_runs.checkpoint_data`.
+- **Interrupted Run Detection:** Upon daemon initialization or supervisor self-healing sweeps, the system inspects active runs for abandoned heartbeats (`recoverStaleRunsDetailed()`). Stale executions transition to interrupted states and are staged in `pendingRecoveries`.
+- **Docked Recovery Surface:** A dedicated UI banner surfaces interrupted agent operations with one-click actions:
+  - `Resume All`: Resumes all interrupted runs from their exact last recorded checkpoint turn.
+  - `Discard`: Acknowledges and dismisses the interrupted sessions without re-running.
+  - Per-Run Actions: Granular controls to resume individual runs or route them to local fallback models (e.g., Ollama).
+- **Context Preservation Invariant:** Restores full conversation context, tool state history, and execution parameters, avoiding duplicate tool invocations and wasted model inference.
+
+### 31.2 HTTP 429 Quota Guard & Quota-Paused Run State
+- **Proactive Quota Handling:** Runtime intercepts HTTP 429 and `RESOURCE_EXHAUSTED` responses from LLM providers (Anthropic, OpenAI, Gemini).
+- **Non-Destructive Pause:** Rather than failing the task, runs transition to `RunState = 'quota_paused'` with `quotaResetsAt` computed from HTTP `Retry-After` headers or intelligent exponential backoff.
+- **Automated Resume Timer:** A docked Quota Pause Banner presents a live countdown timer until quota reset, an instant `Resume Now` override, and a `Switch to Ollama` one-click fallback for offline/local execution.
+
+### 31.3 Atomic Distributed Task Leases
+- **Distributed Concurrency Control:** Extends the `tasks` schema with `claimed_by_run_id`, `lease_expires_at`, and `retry_count`.
+- **Atomic Lease Claims:** Atomic SQL operations (`claimTaskWithLease`) ensure that a task can only be claimed by a single agent run, preventing duplicate execution and race conditions during high-concurrency swarm operations.
+- **Lease Renewal & Heartbeats:** Active runs periodically renew their task lease (`renewTaskLease`).
+- **Abandoned Lease Reclamation:** If a worker process terminates abnormally, expired task leases are automatically reclaimed (`reclaimExpiredTaskLeases`), resetting task status to `pending` and incrementing `retry_count` subject to max retry thresholds.
+
+### 31.4 Strategic Goal Ancestry & Objective Anchor
+- **Root-to-Leaf Alignment:** Deep recursive delegation chains propagate ancestral goal trees (`GoalAncestryChain`) down to leaf agents.
+- **Context Injection:** Injected directly into agent prompt context via `context_compiler.ts` under `### STRATEGIC GOAL ANCESTRY & OBJECTIVE ANCHOR:`.
+- **Goal Drift Prevention:** Ensures that sub-delegated agents maintain full awareness of parent objectives, constraints, and success criteria even in complex multi-tier delegations.
+
+### 31.5 Coalesced Wakeup Queue & Concurrency Governor
+- **Debounced Windowing:** The `WakeupQueue` batches burst notifications and dependency triggers across agents within a configurable 1000ms coalescing window.
+- **Resource Governor:** Prior to dispatching agent runs, the queue queries host-level system metrics (free memory, CPU headroom). Dispatches are throttled or deferred if system resources are constrained.
+- **Storm Prevention:** Prevents catastrophic cascading awakenings and memory exhaustion when multi-agent teams broadcast messages simultaneously.
+
+### 31.6 Extended Slash Command Suite (`/btw` & `/grill-me`)
+- **`/btw <query>` (Side Queries):** Allows users to ask ephemeral side questions directly to the orchestrator or agent without polluting project history, task DAGs, or persistent channel context. Output is styled with an ephemeral badge (`💡 [Side Query / BTW]`).
+- **`/grill-me [topic]` (Interactive Architectural Scrutiny):**
+  - Triggers an adversarial architectural review mode where the orchestrator interrogates the user's design choices.
+  - Generates structured multiple-choice grilling questions rendered in an interactive `GrillMeCard` UI.
+  - Synthesizes user responses into a hardened Architectural Decision Record (ADR) stored in SQLite and linked to project artifacts.
+
+### 31.7 Formal Agent Evaluations
+- **Benchmark Rubrics:** Quantitative evaluation framework assessing agent outputs across multiple core dimensions:
+  - *Reasoning Depth & Logic*
+  - *Context Grounding & Factuality*
+  - *Tool & Policy Compliance*
+  - *Execution Efficiency & Latency*
+- **Persistence & Telemetry:** Evaluation runs and scores are recorded in the SQLite `agent_evaluations` table with test case inputs, expected outputs, execution latencies, and normalized scores (0-100%).
+- **Interactive Inspector UI:** Dedicated `Evals` subtab in the Agent Inspector showing benchmark radar/score meters, historical performance trends, and an interactive `Run Benchmark Eval` trigger.
+
+### 31.8 Managed Credentials & Bring-Your-Own-Key (BYOK)
+- **Centralized Credential Vault:** Secure storage for provider API keys and external service credentials in `managed_credentials` table.
+- **Granular Scoping:** Keys are bound to specific provider types (`gemini`, `openai`, `anthropic`, `ollama`), rate limits, and token budgets.
+- **Usage Metering:** Real-time tracking of token expenditures and request counts per credential.
+- **Inspector Management UI:** Integrated `BYOK` subtab in the Agent Inspector for adding, inspecting, rotating, and revoking provider credentials with masked display and active usage statistics.
+
+---
+
+# 32. Final decision ledger — what was selected from the three specifications
 
 This section is the canonical resolution of the differences among the supplied PRD, v9 Unified PRD/TRD, and v9 Final Master Plan.
 
@@ -1197,91 +1280,8 @@ The resulting product is intentionally **simpler internally than the sum of its 
 
 ---
 
-# 30. Final product statement
+# 33. Final product statement
 
 > **KIN is a local-first autonomous AI workforce platform: one human-facing orchestrator, persistent coworkers, temporary specialists, visible collaboration, durable work state, managed context, governed tools, adaptive skills, verified execution, and system-level recovery — with the ability to improve its reusable capabilities over time without silently weakening user control.**
-
----
-
-# 31. V12 Capability Evolution — Governed Computer Use & Timed Autonomy
-
-### 31.1 In-App Scheduler & Timed Autonomy
-- **Antigravity-Style Scheduler:** Agents can wake themselves using non-blocking timers (`schedule` / `timer`) rather than busy-polling on GPU/CPU.
-- **Modes:** One-shot timers (`DurationSeconds`, `TimerCondition`, `Prompt`) and recurring cron schedules (`CronExpression`, `Prompt`, `MaxIterations`).
-- **Persistence:** Stored in durable SQLite `schedules` table with WAL mode.
-- **Trigger Behavior:** When a timer fires, the scheduler broadcasts a high-priority system wakeup into the project channel/inbox.
-
-### 31.2 Autonomous Multi-Turn ReAct Tool Loop
-- **Multi-Turn Bounded Execution:** Agents iteratively call tools (`readFile`, `writeFile`, `listDirectory`, `executeShell`, `schedule`, `mcp`), observe outputs, and self-correct errors up to a maximum turn budget.
-- **Policy Enforcement:** All tool invocations remain governed by the Policy Engine (Auto, Always Ask, Full Access).
-
-### 31.3 Runtime Skills Engine & MCP Integration
-- **Dynamic Skills:** First-class procedural packages dynamically matched by domain/trigger patterns and injected into context.
-- **Durable Experience:** Successful executions and error repairs are stored in `skill_experiences`.
-- **MCP Protocol:** Native JSON-RPC client connecting to external stdio/SSE MCP servers, auto-discovering capabilities.
-
-### 31.4 Governed Computer & Application Use
-- **Desktop & App Control:** Discovery and control of installed desktop applications (VS Code, Android Studio, WhatsApp, browsers).
-- **Physical Interaction Cycle:** Strict Observe → Act → Observe → Verify → Continue loop.
-- **Human Takeover Overlay:** Ubiquitous floating takeover banner allowing the user to press `ESC` or click to pause the agent, interact manually (e.g. solve CAPTCHA/MFA), and click `Resume Agent`.
-- **Persistent Headful Browser Sessions:** Dedicated browser profiles preserving cookies, logins, and session storage.
-- **Financial Safety Shield:** Financial transactions and checkout actions are hardcoded to `CRITICAL RISK` requiring explicit user approval. Payment credentials are never exposed to LLM context.
-- **Proactive Personal Routines:** Natural language routines ("Every morning review calendar...", "Watch this repository...") translated into scheduled tasks with triggers, conditions, and autonomous delegation.
-
----
-
-# 32. Enterprise Resilience, Crash Recovery & Collaborative Autonomy
-
-### 32.1 Turn-by-Turn Checkpointing & Crash Recovery
-- **Granular Checkpointing:** Every turn of execution within `agent_loop.ts` persists an immutable turn checkpoint (`onTurnCheckpoint`) containing model messages, tool invocation arguments, tool execution results, and updated token usage to SQLite `agent_runs.checkpoint_data`.
-- **Interrupted Run Detection:** Upon daemon initialization or supervisor self-healing sweeps, the system inspects active runs for abandoned heartbeats (`recoverStaleRunsDetailed()`). Stale executions transition to interrupted states and are staged in `pendingRecoveries`.
-- **Docked Recovery Surface:** A dedicated UI banner surfaces interrupted agent operations with one-click actions:
-  - `Resume All`: Resumes all interrupted runs from their exact last recorded checkpoint turn.
-  - `Discard`: Acknowledges and dismisses the interrupted sessions without re-running.
-  - Per-Run Actions: Granular controls to resume individual runs or route them to local fallback models (e.g., Ollama).
-- **Context Preservation Invariant:** Restores full conversation context, tool state history, and execution parameters, avoiding duplicate tool invocations and wasted model inference.
-
-### 32.2 HTTP 429 Quota Guard & Quota-Paused Run State
-- **Proactive Quota Handling:** Runtime intercepts HTTP 429 and `RESOURCE_EXHAUSTED` responses from LLM providers (Anthropic, OpenAI, Gemini).
-- **Non-Destructive Pause:** Rather than failing the task, runs transition to `RunState = 'quota_paused'` with `quotaResetsAt` computed from HTTP `Retry-After` headers or intelligent exponential backoff.
-- **Automated Resume Timer:** A docked Quota Pause Banner presents a live countdown timer until quota reset, an instant `Resume Now` override, and a `Switch to Ollama` one-click fallback for offline/local execution.
-
-### 32.3 Atomic Distributed Task Leases
-- **Distributed Concurrency Control:** Extends the `tasks` schema with `claimed_by_run_id`, `lease_expires_at`, and `retry_count`.
-- **Atomic Lease Claims:** Atomic SQL operations (`claimTaskWithLease`) ensure that a task can only be claimed by a single agent run, preventing duplicate execution and race conditions during high-concurrency swarm operations.
-- **Lease Renewal & Heartbeats:** Active runs periodically renew their task lease (`renewTaskLease`).
-- **Abandoned Lease Reclamation:** If a worker process terminates abnormally, expired task leases are automatically reclaimed (`reclaimExpiredTaskLeases`), resetting task status to `pending` and incrementing `retry_count` subject to max retry thresholds.
-
-### 32.4 Strategic Goal Ancestry & Objective Anchor
-- **Root-to-Leaf Alignment:** Deep recursive delegation chains propagate ancestral goal trees (`GoalAncestryChain`) down to leaf agents.
-- **Context Injection:** Injected directly into agent prompt context via `context_compiler.ts` under `### STRATEGIC GOAL ANCESTRY & OBJECTIVE ANCHOR:`.
-- **Goal Drift Prevention:** Ensures that sub-delegated agents maintain full awareness of parent objectives, constraints, and success criteria even in complex multi-tier delegations.
-
-### 32.5 Coalesced Wakeup Queue & Concurrency Governor
-- **Debounced Windowing:** The `WakeupQueue` batches burst notifications and dependency triggers across agents within a configurable 1000ms coalescing window.
-- **Resource Governor:** Prior to dispatching agent runs, the queue queries host-level system metrics (free memory, CPU headroom). Dispatches are throttled or deferred if system resources are constrained.
-- **Storm Prevention:** Prevents catastrophic cascading awakenings and memory exhaustion when multi-agent teams broadcast messages simultaneously.
-
-### 32.6 Extended Slash Command Suite (`/btw` & `/grill-me`)
-- **`/btw <query>` (Side Queries):** Allows users to ask ephemeral side questions directly to the orchestrator or agent without polluting project history, task DAGs, or persistent channel context. Output is styled with an ephemeral badge (`💡 [Side Query / BTW]`).
-- **`/grill-me [topic]` (Interactive Architectural Scrutiny):**
-  - Triggers an adversarial architectural review mode where the orchestrator interrogates the user's design choices.
-  - Generates structured multiple-choice grilling questions rendered in an interactive `GrillMeCard` UI.
-  - Synthesizes user responses into a hardened Architectural Decision Record (ADR) stored in SQLite and linked to project artifacts.
-
-### 32.7 Formal Agent Evaluations
-- **Benchmark Rubrics:** Quantitative evaluation framework assessing agent outputs across multiple core dimensions:
-  - *Reasoning Depth & Logic*
-  - *Context Grounding & Factuality*
-  - *Tool & Policy Compliance*
-  - *Execution Efficiency & Latency*
-- **Persistence & Telemetry:** Evaluation runs and scores are recorded in the SQLite `agent_evaluations` table with test case inputs, expected outputs, execution latencies, and normalized scores (0-100%).
-- **Interactive Inspector UI:** Dedicated `Evals` subtab in the Agent Inspector showing benchmark radar/score meters, historical performance trends, and an interactive `Run Benchmark Eval` trigger.
-
-### 32.8 Managed Credentials & Bring-Your-Own-Key (BYOK)
-- **Centralized Credential Vault:** Secure storage for provider API keys and external service credentials in `managed_credentials` table.
-- **Granular Scoping:** Keys are bound to specific provider types (`gemini`, `openai`, `anthropic`, `ollama`), rate limits, and token budgets.
-- **Usage Metering:** Real-time tracking of token expenditures and request counts per credential.
-- **Inspector Management UI:** Integrated `BYOK` subtab in the Agent Inspector for adding, inspecting, rotating, and revoking provider credentials with masked display and active usage statistics.
 
 
