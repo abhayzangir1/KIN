@@ -26,30 +26,70 @@
 ## 🌟 Product Core & Vision
 
 ### Product Core
-**KIN** is an autonomous, local-first engineering workforce platform. Instead of routing your code, proprietary context, and development tasks through opaque cloud wrappers, KIN executes multi-agent workflows directly on your workstation. It combines **local SQLite persistence**, **turn-by-turn execution checkpointing**, **hardware resource governors**, and **governed desktop and browser automation** into a cohesive engineering environment.
+**KIN** is a sovereign, local-first autonomous AI workforce and multi-agent coordination platform. Unlike cloud wrappers or single-purpose bots, KIN empowers you to **swarm any type of autonomous agent for any task** directly on your local workstation — from deep research, operations, and daily personal routines to social media management, data analysis, and software engineering.
 
-### Vision & Engineering Philosophy
-- **Local State Authority**: All tasks, channel messages, execution checkpoints, memories, and API credentials live in an ACID-compliant local SQLite database with Write-Ahead Logging (`WAL` mode).
-- **Crash Resilience Without Data Loss**: Every reasoning turn and tool action persists to an immutable checkpoint. When interrupted by an unexpected power loss, system reboot, or process kill, in-flight runs can be resumed from the exact recorded turn.
-- **Hardware-Aware Autonomy**: Dynamic governors inspect available system RAM (`os.freemem()`) before spawning heavy processes, and physical input mutexes serialize mouse and keyboard interactions to prevent collisions.
-- **Deterministic Multi-Agent Collaboration**: Specialists claim tasks through atomic leases, work in isolated git worktrees, and communicate over structured channels without goal drift.
+KIN pairs **authoritative local SQLite persistence** with **turn-by-turn crash recovery**, **hardware-aware dynamic RAM governors**, and **governed desktop & browser automation** into a cohesive, private desktop environment.
+
+### Vision & Core Philosophy
+- **Universal Multi-Task Swarms**: You are not limited to one domain. Hire, configure, and coordinate specialist agent teams for research, operations, daily personal routines, web automation, content drafting, or full-stack development.
+- **Local Sovereignty & Zero Cloud Lock-In**: All messages, tasks, goals, memories, checkpoints, and credentials reside on your own machine in SQLite with Write-Ahead Logging (`WAL` mode). Zero telemetry is transmitted to third parties.
+- **Crash Resilience Without Data Loss**: Every reasoning turn and tool invocation commits an immutable checkpoint. Following unexpected power loss or process termination, interrupted runs resume from their exact recorded state.
+- **Hardware-Aware Autonomy**: Dynamic governors continuously monitor host RAM (`os.freemem()`) before dispatching heavy processes, while a Win32 `DesktopLock` mutex serializes mouse and keyboard inputs to prevent collisions.
+- **Zero Cloud Subscriptions Required**: Run 100% offline with local **Ollama** models, or connect to any cloud LLM provider (OpenRouter, Anthropic, OpenAI, Gemini) using your own keys (BYOK) with token spend caps.
 
 ---
 
-## 💼 Real-World Use Cases
+## ⚡ The Sovereign Alternative to ChatGPT Dots, Grok Bots & OpenDots
 
-1. **Full-Lifecycle Software Engineering**:
-   - Deconstruct complex epics into sequential milestone DAG tasks with `/plan`.
-   - Provision isolated git worktrees for parallel feature implementations.
-   - Run automated peer reviews on changed files with `@Boss` and execute test suites locally.
-2. **Web & Communications Automation**:
-   - Execute browser tasks across social platforms, documentation sites, Slack, or Discord using persistent browser sessions that preserve logins and cookies.
-   - Extract reference data, verify web applications, and interact with web portals under operator oversight.
-3. **Hardware-Governed Desktop Control**:
-   - Automate local GUI applications, inspect active windows, and execute coordinate-mapped keyboard and mouse actions.
-   - Gate sensitive actions (such as checkout, billing, and credential retrieval) behind mandatory human approval barriers.
-4. **Proactive Timed Execution & Recurring Routines**:
-   - Establish non-busy-polling timers with `/schedule` and recurring cron maintenance routines with `/routine` to perform automated repository audits and health checks.
+Recent industry advancements have introduced persistent "always-on" agent concepts like **ChatGPT Dots** (OpenAI), **Grok Bots** (xAI), and **OpenDots**. Here is how KIN fundamentally differentiates:
+
+| Dimension | ChatGPT Dots (OpenAI) | Grok Bots (xAI) | OpenDots (CopilotKit) | **KIN (Autonomous Workforce Platform)** |
+|---|---|---|---|---|
+| **Architecture** | Proprietary cloud microservices | Proprietary cloud service | Cloud/server-centric template | **Local-First Native Desktop (Tauri 2 + Rust + Node)** |
+| **Data Privacy** | All files, prompts, and actions stored on OpenAI servers | Stored on xAI cloud servers | Depends on deployment server | **100% Sovereign: Local SQLite WAL on your disk** |
+| **Cost & Gating** | Gated behind $200/mo Pro / Enterprise | Gated behind xAI subscription tiers | Self-hosted infrastructure costs | **Free & 100% Open Source (MIT). $0 subscription.** |
+| **Offline Operation** | Impossible (requires continuous cloud connection) | Impossible (cloud only) | Requires running server | **Native 100% Offline with local Ollama models** |
+| **Crash Recovery** | Server-side restart; context wiped on session drop | Managed in cloud | Application-level | **Turn-by-Turn SQLite Checkpointing & Instant Resumption** |
+| **Hardware Governors** | None (cloud compute) | None (cloud compute) | Manual server sizing | **Dynamic Host RAM Governor (`os.freemem()`)** |
+| **Physical Computer Use**| Virtual cloud browser sandbox | Cloud agent tool calls | Virtual cloud environment | **Governed Real Desktop & Browser Control (Win32 Mutex + Human Takeover)** |
+| **Autonomy Modes** | Fixed provider guardrails | Fixed provider policy | Developer-configured | **Fine-Grained: `AUTO`, `ALWAYS_ASK`, `FULL_ACCESS`** |
+
+---
+
+## 🚀 1-Click Quickstart (Zero Friction)
+
+Get KIN running on your machine with a single click:
+
+### Windows (1-Click Launch)
+Double-click `start.bat` in the repository root, or run in PowerShell:
+```powershell
+.\start.bat
+```
+*Automatically verifies Node.js, installs dependencies, builds workspaces, starts Ollama if present, and launches the KIN Core daemon and UI at `http://localhost:5173`.*
+
+### macOS / Linux (1-Click Launch)
+Run the launch script in your terminal:
+```bash
+chmod +x start.sh
+./start.sh
+```
+
+---
+
+## 💼 Multi-Domain Workforces (Swarm Any Agent For Any Task)
+
+Users can swarm arbitrary specialist agents tailored to specific real-world domains:
+
+1. **Deep Research & Intelligence Swarms**:
+   - Swarm multi-agent teams to synthesize technical literature, extract structured insights from documents, track competitors, and compile executive briefings.
+2. **Proactive Daily Routines & Personal Automations**:
+   - Configure background routines with `/routine` (e.g. morning calendar digests, repository health checks, inbox summaries) and non-blocking timers with `/schedule`.
+3. **Governed Web & Social Platform Automation**:
+   - Run partitioned browser sessions that retain logins and cookies to navigate portals, verify web deployments, fill multi-step forms, and draft posts on GitHub, X, or LinkedIn with human oversight.
+4. **Strategic Executive & Product Planning**:
+   - Conduct interactive architectural scrutiny interviews using `/grill-me`, decompose complex epics into milestone DAGs with `/plan`, and track persistent objectives with `/goal`.
+5. **Full-Lifecycle Software Engineering & Data Analysis**:
+   - Provision isolated git worktrees, execute local build and test suites, run automated peer reviews with `@Boss`, and debug code in parallel worktrees without merge conflicts.
 
 ---
 

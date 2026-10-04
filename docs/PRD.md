@@ -152,11 +152,15 @@ The product combines:
 
 - Discord/Slack-style channels, DMs, mentions, presence and visible collaboration;
 - a default general-purpose assistant similar to a general conversational AI;
-- source-backed research workflows;
-- autonomous coding/project execution;
+- source-backed research workflows and multi-agent intelligence synthesis;
+- proactive daily personal routines and non-blocking background scheduling;
+- governed web automation, browser control, and desktop task automation;
+- autonomous coding, project execution, and isolated git worktrees;
 - persistent AI coworkers with identity, memory, history and skills;
 - adaptive delegation and temporary specialist workers;
 - durable tasks, artifacts, decisions, evidence and audit history.
+
+KIN stands as the sovereign, local-first alternative to cloud-locked persistent agent products such as **ChatGPT Dots** (OpenAI), **Grok Bots** (xAI), and **OpenDots**. While those offerings bind users to expensive monthly cloud subscriptions ($200+/month) and store all proprietary context on third-party cloud servers, KIN delivers persistent multi-agent swarms directly on local workstations with 100% local SQLite WAL persistence, zero telemetry, turn-by-turn crash recovery, and native support for offline models (Ollama) alongside Bring-Your-Own-Key (BYOK) cloud providers.
 
 ### Product promise
 

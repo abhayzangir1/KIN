@@ -7,29 +7,35 @@
 ## 1. Product Core, Vision & Real-World Use Cases
 
 ### 1.1 Product Core
-**KIN** is an autonomous, local-first engineering workforce platform designed to coordinate specialized multi-agent teams directly on physical developer workstations. Rather than functioning as a remote chatbot wrapper or relying on ephemeral cloud infrastructure, KIN operates with **authoritative local state**, **turn-by-turn crash recovery**, **hardware-aware resource governors**, and **governed desktop/browser automation**.
+**KIN** is a sovereign, local-first autonomous AI workforce and multi-agent coordination platform. Rather than functioning as a remote chatbot wrapper or relying on ephemeral cloud infrastructure, KIN enables users to **swarm custom autonomous agents for any workload** directly on their physical workstations — including deep research, daily operational routines, web automation, data analysis, and software engineering.
+
+KIN operates with **authoritative local state**, **turn-by-turn crash recovery**, **hardware-aware resource governors**, and **governed desktop/browser automation**. It stands as a private, local-first alternative to closed cloud ecosystems like **ChatGPT Dots** (OpenAI) and **Grok Bots** (xAI), providing persistent agentic teammates with zero monthly subscriptions, zero cloud lock-in, and zero telemetry.
 
 ### 1.2 Vision & Principles
+- **Universal Multi-Domain Swarms**: Users can spawn and orchestrate specialist agent teams across any discipline — research analysts, operations managers, social media coordinators, executive assistants, or software engineers.
 - **Local Sovereignty**: All code, tasks, goals, memories, checkpoints, and credentials reside on the host machine in SQLite with Write-Ahead Logging (WAL). Zero telemetry is transmitted to third parties.
 - **Turn-by-Turn Crash Resilience**: Every reasoning step and tool invocation records an immutable checkpoint. Following unexpected power loss or process termination, interrupted runs resume from their exact recorded state.
 - **Hardware-Governed Autonomy**: Dynamic memory governors (`os.freemem()`) and input mutex locks serialize access to physical resources, preventing out-of-memory lockups and concurrent input contention.
 - **Deterministic Multi-Agent Coordination**: Agents operate within strict domain boundaries, claim tasks via atomic distributed leases, work in isolated git worktrees, and communicate over structured channels.
 
 ### 1.3 Real-World Use Cases
-1. **End-to-End Software Engineering**:
-   - Decomposing architectural requirements into milestone DAG tasks.
-   - Provisioning isolated git worktrees for parallel feature development.
-   - Performing automated peer code reviews and executing test suites.
-2. **Web & Social Platform Workflow Automation**:
+1. **Deep Research & Intelligence Swarms**:
+   - Synthesizing multi-source technical and market literature into structured intelligence dossiers.
+   - Extracting structured data from PDFs, documents, and web portals with verifiable citations.
+2. **Proactive Personal Routines & Daily Operations**:
+   - Running background cron routines (`/routine`) and timed alarms (`/schedule`) for morning briefings, repository health audits, and inbox summaries without CPU/GPU busy-polling.
+3. **Web & Social Platform Workflow Automation**:
    - Running persistent, partitioned browser sessions with session persistence (cookies and local storage).
-   - Automating communication on developer platforms, social platforms, Slack, or Discord with operator supervision.
+   - Automating communication on developer platforms, social platforms (X, LinkedIn), Slack, or Discord with operator supervision.
    - Extracting documentation, tracking issues, and submitting pull requests.
-3. **Hardware-Governed Desktop Control**:
+4. **Hardware-Governed Desktop Control**:
    - Inspecting active GUI windows and display geometry.
    - Automating desktop tasks using serialized mouse, keyboard, and coordinate-mapped actions with the Win32 `DesktopLock` single-flight mutex.
    - Enforcing human confirmation barriers for sensitive actions (e.g., checkout flows, credential access).
-4. **Proactive Timed Execution & Recurring Routines**:
-   - Scheduling background repository health audits and recurring cron routines without CPU or GPU busy-polling.
+5. **Full-Lifecycle Software Engineering & Data Analysis**:
+   - Decomposing architectural requirements into milestone DAG tasks with `/plan`.
+   - Provisioning isolated git worktrees for parallel feature development.
+   - Performing automated peer code reviews and executing test suites locally.
 
 ---
 
