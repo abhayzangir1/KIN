@@ -620,6 +620,16 @@ Imported skill instructions.`;
       expect(importData.imported).toBeGreaterThanOrEqual(1);
 
       fs.rmSync(tempImportDir, { recursive: true, force: true });
+
+      // Verify invalid import body returns 400
+      const invalidRes = await fetch(`http://127.0.0.1:${serverPort}/api/skills/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invalid: true }),
+      });
+      expect(invalidRes.status).toBe(400);
+      const invalidData: any = await invalidRes.json();
+      expect(invalidData.error).toBeDefined();
     });
 
     it('POST /api/channels/:id/messages with /skills create and /skills import parses and executes subcommands', async () => {

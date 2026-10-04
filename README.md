@@ -14,7 +14,7 @@
 [![Rust](https://img.shields.io/badge/Rust-2021-DEA584.svg?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![SQLite](https://img.shields.io/badge/SQLite_3-WAL_Mode-003B57.svg?style=flat-square&logo=sqlite)](https://www.sqlite.org/)
 [![Ollama](https://img.shields.io/badge/Ollama-Local_Inference-white.svg?style=flat-square&logo=ollama)](https://ollama.ai/)
-[![Vitest](https://img.shields.io/badge/Tests-136%2F136_Passed-success.svg?style=flat-square&logo=vitest)](https://vitest.dev/)
+[![Vitest](https://img.shields.io/badge/Tests-139%2F139_Passed-success.svg?style=flat-square&logo=vitest)](https://vitest.dev/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 
 [Architecture](docs/ARCHITECTURE.md) • [API Reference](docs/API.md) • [Skills Guide](docs/SKILLS_GUIDE.md) • [Slash Commands](docs/SLASH_COMMANDS.md) • [Tutorials](docs/TUTORIALS.md) • [Operations](docs/OPERATIONS.md) • [Troubleshooting](docs/TROUBLESHOOTING.md) • [Contributing](docs/CONTRIBUTING.md) • [FAQ](docs/FAQ.md) • [PRD](docs/PRD.md) • [TRD](docs/TRD.md)
@@ -312,7 +312,7 @@ npm run build
 ### 3. Run Automated Vitest Test Suite
 ```bash
 npm test --workspace=core
-# Output: Test Files 11 passed (11) | Tests 136 passed (136)
+# Output: Test Files 11 passed (11) | Tests 139 passed (139)
 ```
 
 ### 4. Launch Core Server Daemon & Web Interface

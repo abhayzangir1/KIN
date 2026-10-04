@@ -5154,26 +5154,30 @@ export class CoreServer {
 
       // 33. POST /api/skills/import
       if (req.method === 'POST' && pathname === '/api/skills/import') {
-        const body = await this.parseJsonBody<any>(req);
-        if (!body) return this.sendJson(res, 400, { error: 'Empty import body' });
+        try {
+          const body = await this.parseJsonBody<any>(req);
+          if (!body) return this.sendJson(res, 400, { error: 'Empty import body' });
 
-        if (body.directoryPath || body.dirPath || body.path) {
-          const rawDir = body.directoryPath || body.dirPath || body.path;
-          const targetDir = path.isAbsolute(rawDir) ? rawDir : path.resolve(process.cwd(), rawDir);
-          const dirResult = this.skillEngine.importSkillDirectory(targetDir);
-          this.broadcastEvent('skill:imported', dirResult);
-          return this.sendJson(res, 201, { success: true, imported: dirResult.imported, skills: dirResult.skills });
-        }
+          if (body.directoryPath || body.dirPath || body.path || body.directory || body.dir) {
+            const rawDir = body.directoryPath || body.dirPath || body.path || body.directory || body.dir;
+            const targetDir = path.isAbsolute(rawDir) ? rawDir : path.resolve(process.cwd(), rawDir);
+            const dirResult = this.skillEngine.importSkillDirectory(targetDir);
+            this.broadcastEvent('skill:imported', dirResult);
+            return this.sendJson(res, 201, { success: true, imported: dirResult.imported, skills: dirResult.skills });
+          }
 
-        const hasSkillsArray = Array.isArray(body) || (body && Array.isArray(body.skills));
-        if (hasSkillsArray) {
-          const resBundle = this.skillEngine.importSkillBundle(body);
-          this.broadcastEvent('skill:imported', resBundle);
-          return this.sendJson(res, 201, { success: true, imported: resBundle.imported, skills: resBundle.skills });
-        } else {
-          const imported = this.skillEngine.importSkill(body);
-          this.broadcastEvent('skill:imported', imported);
-          return this.sendJson(res, 201, { success: true, skill: imported, imported: 1 });
+          const hasSkillsArray = Array.isArray(body) || (body && Array.isArray(body.skills));
+          if (hasSkillsArray) {
+            const resBundle = this.skillEngine.importSkillBundle(body);
+            this.broadcastEvent('skill:imported', resBundle);
+            return this.sendJson(res, 201, { success: true, imported: resBundle.imported, skills: resBundle.skills });
+          } else {
+            const imported = this.skillEngine.importSkill(body);
+            this.broadcastEvent('skill:imported', imported);
+            return this.sendJson(res, 201, { success: true, skill: imported, imported: 1 });
+          }
+        } catch (err: any) {
+          return this.sendJson(res, 400, { error: err.message || 'Failed to import skill' });
         }
       }
 

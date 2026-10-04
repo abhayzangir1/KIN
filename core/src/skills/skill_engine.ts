@@ -431,16 +431,22 @@ export class SkillEngine {
 
     this.db.execute('DELETE FROM skills WHERE id = ?', id);
 
-    // Remove from disk if exists
+    // Remove from disk if exists safely without path traversal or directory root wiping
     try {
-      const folderName = row.name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
-      const skillPath = path.join(this.skillsDir, folderName);
-      if (fs.existsSync(skillPath)) {
-        fs.rmSync(skillPath, { recursive: true, force: true });
-      }
-      const directMd = path.join(this.skillsDir, `${folderName}.md`);
-      if (fs.existsSync(directMd)) {
-        fs.unlinkSync(directMd);
+      const folderName = row.name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase().replace(/^-+|-+$/g, '');
+      if (folderName && folderName !== '.' && folderName !== '..') {
+        const skillPath = path.resolve(this.skillsDir, folderName);
+        const resolvedSkillsDir = path.resolve(this.skillsDir);
+        // Ensure skillPath is strictly a child of skillsDir and not skillsDir itself
+        if (skillPath !== resolvedSkillsDir && skillPath.startsWith(resolvedSkillsDir)) {
+          if (fs.existsSync(skillPath)) {
+            fs.rmSync(skillPath, { recursive: true, force: true });
+          }
+          const directMd = path.resolve(this.skillsDir, `${folderName}.md`);
+          if (fs.existsSync(directMd)) {
+            fs.unlinkSync(directMd);
+          }
+        }
       }
     } catch (err) {
       console.warn(`[SkillEngine] Failed to delete skill disk folder:`, err);
@@ -1010,23 +1016,28 @@ export class SkillEngine {
 
     const data = parsed.skill || (Array.isArray(parsed.skills) ? parsed.skills[0] : parsed);
 
-    if (!data || !data.name || (!data.instructions && !data.handlerCode)) {
+    if (!data || !data.name || (!data.instructions && !data.handlerCode && !data.description)) {
       throw new Error('Invalid skill package: missing name or instructions');
     }
 
     const rawName = String(data.name).trim();
-    const id = data.id ? String(data.id).trim() : `skill-${rawName.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()}`;
+    const sanitizedSlug = rawName.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase().replace(/^-+|-+$/g, '') || 'custom-skill';
+    const id = data.id ? String(data.id).trim() : `skill-${sanitizedSlug}`;
     const now = Date.now();
     const existing = this.getSkill(id);
 
     const patterns = Array.isArray(data.triggerPatterns) && data.triggerPatterns.length > 0
       ? data.triggerPatterns
-      : (data.tags || []);
+      : (Array.isArray(data.trigger_patterns) ? data.trigger_patterns : (data.tags || []));
+
+    const requiredTools = Array.isArray(data.requiredTools)
+      ? data.requiredTools
+      : (Array.isArray(data.required_tools) ? data.required_tools : []);
 
     const enabled = data.enabled !== undefined ? Boolean(data.enabled) : (data.status !== 'disabled');
     const status = !enabled ? 'disabled' : (data.status || 'active');
-    const instructions = data.instructions || data.handlerCode || '';
-    const skillType = data.skillType || (data.handlerCode ? 'tool_extension' : 'prompt_instruction');
+    const instructions = data.instructions || data.handlerCode || data.description || '';
+    const skillType = data.skillType || data.skill_type || (data.handlerCode ? 'tool_extension' : 'prompt_instruction');
     const paramsJson = typeof data.parameters === 'object' && data.parameters !== null
       ? JSON.stringify(data.parameters)
       : typeof data.parameters === 'string'
@@ -1041,7 +1052,7 @@ export class SkillEngine {
         data.version || this.bumpPatchVersion(existing.version),
         data.description || '',
         instructions,
-        JSON.stringify(data.requiredTools || []),
+        JSON.stringify(requiredTools),
         JSON.stringify(patterns),
         status,
         paramsJson,
@@ -1060,7 +1071,7 @@ export class SkillEngine {
         data.version || '1.0.0',
         data.description || '',
         instructions,
-        JSON.stringify(data.requiredTools || []),
+        JSON.stringify(requiredTools),
         JSON.stringify(patterns),
         status,
         paramsJson,
@@ -1126,7 +1137,7 @@ export class SkillEngine {
         fs.mkdirSync(this.skillsDir, { recursive: true });
       }
 
-      const folderName = skill.name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
+      const folderName = skill.name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase().replace(/^-+|-+$/g, '') || skill.id || 'unnamed-skill';
       const skillFolder = path.join(this.skillsDir, folderName);
       if (!fs.existsSync(skillFolder)) {
         fs.mkdirSync(skillFolder, { recursive: true });
@@ -1187,8 +1198,10 @@ export class SkillEngine {
         const fullPath = path.join(targetDir, entry.name);
 
         if (entry.isDirectory()) {
-          // Check for SKILL.md
-          const skillMd = path.join(fullPath, 'SKILL.md');
+          // Check for SKILL.md or skill.md
+          const skillMd = fs.existsSync(path.join(fullPath, 'SKILL.md'))
+            ? path.join(fullPath, 'SKILL.md')
+            : path.join(fullPath, 'skill.md');
           const skillJson = path.join(fullPath, 'skill.json');
           const implTs = path.join(fullPath, 'implementation.ts');
 
@@ -1201,17 +1214,27 @@ export class SkillEngine {
                 handlerCode = fs.readFileSync(implTs, 'utf-8');
               }
 
+              const requiredTools = Array.isArray(frontmatter.required_tools)
+                ? frontmatter.required_tools
+                : (Array.isArray(frontmatter.requiredTools) ? frontmatter.requiredTools : []);
+
+              const triggerPatterns = Array.isArray(frontmatter.trigger_patterns)
+                ? frontmatter.trigger_patterns
+                : (Array.isArray(frontmatter.triggerPatterns)
+                ? frontmatter.triggerPatterns
+                : (Array.isArray(frontmatter.tags) ? frontmatter.tags : []));
+
               const skill = this.importSkill({
                 name: frontmatter.name || entry.name,
-                version: frontmatter.version || '1.0.0',
+                version: frontmatter.version ? String(frontmatter.version) : '1.0.0',
                 description: frontmatter.description || '',
-                instructions: body || frontmatter.instructions || '',
+                instructions: body || frontmatter.instructions || frontmatter.description || '',
                 handlerCode,
                 parameters: frontmatter.parameters,
                 skillType: frontmatter.skill_type || frontmatter.skillType || (handlerCode ? 'tool_extension' : 'prompt_instruction'),
                 enabled: frontmatter.enabled !== false,
-                requiredTools: Array.isArray(frontmatter.required_tools) ? frontmatter.required_tools : [],
-                triggerPatterns: Array.isArray(frontmatter.trigger_patterns) ? frontmatter.trigger_patterns : [],
+                requiredTools,
+                triggerPatterns,
               });
               loaded.push(skill);
             } catch (err: any) {
@@ -1233,25 +1256,36 @@ export class SkillEngine {
               const res = this.importSkillBundle(raw);
               loaded.push(...res.skills);
             } catch {}
-          } else if (entry.name.endsWith('.md') && entry.name !== 'README.md') {
+          } else if (entry.name.endsWith('.md') && entry.name.toLowerCase() !== 'readme.md') {
             try {
               const rawMd = fs.readFileSync(fullPath, 'utf-8');
               const { frontmatter, body } = parseFrontmatterAndBody(rawMd);
-              if (frontmatter.name) {
-                const skill = this.importSkill({
-                  name: frontmatter.name,
-                  version: frontmatter.version || '1.0.0',
-                  description: frontmatter.description || '',
-                  instructions: body || '',
-                  parameters: frontmatter.parameters,
-                  skillType: frontmatter.skill_type || 'prompt_instruction',
-                  enabled: frontmatter.enabled !== false,
-                  requiredTools: frontmatter.required_tools || [],
-                  triggerPatterns: frontmatter.trigger_patterns || [],
-                });
-                loaded.push(skill);
-              }
-            } catch {}
+              const skillName = frontmatter.name || entry.name.replace(/\.md$/i, '');
+              const requiredTools = Array.isArray(frontmatter.required_tools)
+                ? frontmatter.required_tools
+                : (Array.isArray(frontmatter.requiredTools) ? frontmatter.requiredTools : []);
+
+              const triggerPatterns = Array.isArray(frontmatter.trigger_patterns)
+                ? frontmatter.trigger_patterns
+                : (Array.isArray(frontmatter.triggerPatterns)
+                ? frontmatter.triggerPatterns
+                : (Array.isArray(frontmatter.tags) ? frontmatter.tags : []));
+
+              const skill = this.importSkill({
+                name: skillName,
+                version: frontmatter.version ? String(frontmatter.version) : '1.0.0',
+                description: frontmatter.description || '',
+                instructions: body || frontmatter.instructions || frontmatter.description || '',
+                parameters: frontmatter.parameters,
+                skillType: frontmatter.skill_type || frontmatter.skillType || 'prompt_instruction',
+                enabled: frontmatter.enabled !== false,
+                requiredTools,
+                triggerPatterns,
+              });
+              loaded.push(skill);
+            } catch (err: any) {
+              console.warn(`[SkillEngine] Failed to import standalone markdown skill ${fullPath}:`, err.message);
+            }
           }
         }
       }
@@ -1341,35 +1375,98 @@ export class SkillEngine {
 
 /**
  * Robust zero-dependency YAML frontmatter parser for SKILL.md markdown files.
+ * Supports:
+ * - Top-level scalar key-values (strings, numbers, booleans)
+ * - Quoted and unquoted strings
+ * - Folded (>) and literal (|) multiline strings
+ * - Standard bulleted YAML lists (- item)
+ * - JSON-encoded arrays and objects ([...], {...})
+ * - Files without trailing newlines after closing ---
+ * - Resilient fallback if closing --- delimiter is omitted
  */
-function parseFrontmatterAndBody(markdown: string): { frontmatter: Record<string, any>; body: string } {
+export function parseFrontmatterAndBody(markdown: string): { frontmatter: Record<string, any>; body: string } {
   const trimmed = markdown.trim();
   if (!trimmed.startsWith('---')) {
     return { frontmatter: {}, body: trimmed };
   }
-  const match = trimmed.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
-  if (!match) {
-    return { frontmatter: {}, body: trimmed };
+
+  let rawYaml = '';
+  let body = '';
+
+  const closedMatch = trimmed.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n([\s\S]*))?$/);
+  if (closedMatch) {
+    rawYaml = closedMatch[1];
+    body = (closedMatch[2] || '').trim();
+  } else {
+    // If no clean closing delimiter, check if there's any \n--- in the text
+    const secondDelim = trimmed.indexOf('\n---', 3);
+    if (secondDelim !== -1) {
+      rawYaml = trimmed.slice(3, secondDelim).trim();
+      const rest = trimmed.slice(secondDelim + 4);
+      body = rest.replace(/^\r?\n/, '').trim();
+    } else {
+      // Unclosed delimiter: treat lines after initial --- as frontmatter
+      rawYaml = trimmed.slice(3).trim();
+      body = '';
+    }
   }
-  const rawYaml = match[1];
-  const body = match[2].trim();
+
   const frontmatter: Record<string, any> = {};
-
   const lines = rawYaml.split(/\r?\n/);
-  let currentKey: string | null = null;
-  let multilineVal = '';
 
-  for (const line of lines) {
-    const keyMatch = line.match(/^([a-zA-Z0-9_-]+):\s*(.*)$/);
-    if (keyMatch) {
-      if (currentKey && multilineVal) {
-        frontmatter[currentKey] = multilineVal.trim();
-        multilineVal = '';
+  let currentKey: string | null = null;
+  let multilineMode: 'folded' | 'literal' | 'none' = 'none';
+  let multilineVal = '';
+  let activeListKey: string | null = null;
+
+  const commitMultiline = () => {
+    if (currentKey && multilineVal !== '') {
+      frontmatter[currentKey] = multilineVal.trim();
+      multilineVal = '';
+    }
+    multilineMode = 'none';
+  };
+
+  for (const rawLine of lines) {
+    // Strip trailing comments (e.g. key: val # comment)
+    const lineWithoutComment = rawLine.replace(/(\s+#.*)$/, '');
+    const trimmedLine = lineWithoutComment.trim();
+    if (!trimmedLine || trimmedLine.startsWith('#')) {
+      continue;
+    }
+
+    // Check for bullet list item: ^\s*-\s+(.*)$
+    const listMatch = lineWithoutComment.match(/^\s*-\s+(.*)$/);
+    if (listMatch) {
+      const itemVal = listMatch[1].trim().replace(/^["']|["']$/g, '');
+      const targetKey = activeListKey || currentKey;
+      if (targetKey) {
+        if (!Array.isArray(frontmatter[targetKey])) {
+          frontmatter[targetKey] = [];
+        }
+        frontmatter[targetKey].push(itemVal);
       }
+      continue;
+    }
+
+    // Check for top-level key: ^([a-zA-Z0-9_-]+):\s*(.*)$
+    const keyMatch = lineWithoutComment.match(/^([a-zA-Z0-9_-]+):\s*(.*)$/);
+    if (keyMatch) {
+      commitMultiline();
+      activeListKey = null;
+
       currentKey = keyMatch[1];
       const val = keyMatch[2].trim();
-      if (val === '>' || val === '|') {
+
+      if (val === '>' || val === '>-') {
+        multilineMode = 'folded';
         multilineVal = '';
+      } else if (val === '|' || val === '|-') {
+        multilineMode = 'literal';
+        multilineVal = '';
+      } else if (val === '') {
+        // Value might be on subsequent lines (bullet list or indented block)
+        activeListKey = currentKey;
       } else if (val.startsWith('[') || val.startsWith('{')) {
         try {
           frontmatter[currentKey] = JSON.parse(val);
@@ -1377,23 +1474,28 @@ function parseFrontmatterAndBody(markdown: string): { frontmatter: Record<string
           frontmatter[currentKey] = val;
         }
         currentKey = null;
-      } else if (val === 'true') {
+      } else if (val.toLowerCase() === 'true') {
         frontmatter[currentKey] = true;
         currentKey = null;
-      } else if (val === 'false') {
+      } else if (val.toLowerCase() === 'false') {
         frontmatter[currentKey] = false;
+        currentKey = null;
+      } else if (!isNaN(Number(val)) && val !== '') {
+        frontmatter[currentKey] = Number(val);
         currentKey = null;
       } else {
         frontmatter[currentKey] = val.replace(/^["']|["']$/g, '');
         currentKey = null;
       }
-    } else if (currentKey) {
-      multilineVal += (multilineVal ? ' ' : '') + line.trim();
+    } else if (currentKey && multilineMode !== 'none') {
+      const sep = multilineMode === 'folded' ? ' ' : '\n';
+      multilineVal += (multilineVal ? sep : '') + trimmedLine;
+    } else if (currentKey && activeListKey === currentKey) {
+      multilineVal += (multilineVal ? ' ' : '') + trimmedLine;
     }
   }
-  if (currentKey && multilineVal) {
-    frontmatter[currentKey] = multilineVal.trim();
-  }
+
+  commitMultiline();
 
   return { frontmatter, body };
 }

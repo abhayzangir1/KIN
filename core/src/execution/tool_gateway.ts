@@ -587,8 +587,8 @@ export class ToolGateway {
           if (!this.skillEngine) {
             throw new Error('SkillEngine is not configured in ToolGateway.');
           }
-          if (params.directoryPath || params.dirPath || params.path) {
-            const rawPath = params.directoryPath || params.dirPath || params.path;
+          if (params.directoryPath || params.dirPath || params.path || params.directory || params.dir) {
+            const rawPath = params.directoryPath || params.dirPath || params.path || params.directory || params.dir;
             const targetDir = path.isAbsolute(rawPath)
               ? rawPath
               : path.resolve(context.worktreeRoot, rawPath);
@@ -1124,6 +1124,10 @@ export class ToolGateway {
     // 2. Safe reversible operations
     if (
       toolName === 'writeFile' ||
+      toolName === 'create_skill' ||
+      toolName === 'createSkill' ||
+      toolName === 'import_skill' ||
+      toolName === 'importSkill' ||
       toolName === 'desktopMouseMove' ||
       toolName === 'desktopMouseClick' ||
       toolName === 'desktopFocusWindow' ||

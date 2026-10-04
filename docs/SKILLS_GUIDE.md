@@ -55,8 +55,8 @@ parameters: {"maxTokens": 4000, "extractBibtex": true}
 | `description` | string | Concise explanation of what the skill accomplishes. |
 | `skill_type` | string | Category: `prompt_instruction`, `tool_extension`, or `workflow`. |
 | `enabled` | boolean | Whether the skill is active for automatic runtime matching. |
-| `required_tools` | array | Names of tools required to execute this skill (e.g. `["readFile", "executeShell"]`). |
-| `trigger_patterns` | array | Keywords and phrases that trigger this skill during context matching. |
+| `required_tools` | array | Names of tools required to execute this skill (YAML bullet list or JSON array: `["readFile", "executeShell"]`; `requiredTools` alias supported). |
+| `trigger_patterns` | array | Keywords and phrases that trigger this skill during context matching (YAML bullet list or JSON array; `triggerPatterns` / `tags` aliases supported). |
 | `parameters` | object | Configurable parameters passed to the skill. |
 
 ---

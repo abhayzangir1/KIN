@@ -46,6 +46,27 @@ npm run dev:ui
 
 ---
 
+## Reporting Issues (Bug vs. Feature Triage)
+
+Before opening a new issue on GitHub, search existing open and closed issues to avoid duplicate filings.
+
+### Bug Reports
+When reporting a bug, include:
+1. **Summary**: A concise description of the unexpected behavior or failure.
+2. **Reproduction Steps**: Step-by-step instructions or test script that triggers the issue.
+3. **Expected vs. Actual Behavior**: Concrete input, expected output, and actual outcome.
+4. **Environment Telemetry**: Node.js version, platform (Windows, macOS, Linux), and inference model (local Ollama model or cloud BYOK provider).
+5. **Daemon & Server Logs**: Relevant stack traces from terminal logs.
+
+### Feature Requests & RFCs
+When proposing enhancements or new agent capabilities:
+1. **Problem Statement**: What real-world user or agent workflow is currently difficult or unsupported?
+2. **Proposed Solution**: High-level design, proposed tool schema, REST route, or slash command syntax.
+3. **Architectural Tier**: Clarify which system layer is impacted (Storage, Hardware Governor, Model Gateway, Tool Gateway, Kernel Loop, or User Interface).
+4. **Backward Compatibility**: Ensure proposed changes preserve existing SQLite WAL schema and test invariants.
+
+---
+
 ## Branching & Commit Guidelines
 
 ### Branch Naming Conventions

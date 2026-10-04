@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { KinDatabase } from '../src/storage/db.js';
 import { MigrationRunner } from '../src/storage/migration_runner.js';
-import { SkillEngine } from '../src/skills/skill_engine.js';
+import { SkillEngine, parseFrontmatterAndBody } from '../src/skills/skill_engine.js';
 import { MemoryRepository } from '../src/domain/memory_repository.js';
 import { ToolGateway } from '../src/execution/tool_gateway.js';
 import * as fs from 'node:fs';
@@ -481,5 +481,115 @@ Steps to clean CSV:
     expect(deleted).toBe(true);
     expect(skillEngine.getSkill(skill.id)).toBeUndefined();
     expect(fs.existsSync(diskPath)).toBe(false);
+  });
+
+  it('13. YAML Frontmatter Parser: parses bulleted lists, handles unclosed delimiters, and files without trailing newlines', () => {
+    // 1. Standard YAML with bulleted lists and folded multiline
+    const yamlStandard = `---
+name: yaml-bullet-skill
+version: 1.5.0
+description: >
+  A multi-line folded
+  description string.
+required_tools:
+  - readFile
+  - executeShell
+trigger_patterns:
+  - analysis
+  - metrics
+parameters: {"timeout": 5000}
+enabled: true
+---
+Procedural steps:
+1. Do this.
+2. Do that.`;
+
+    const parsed1 = parseFrontmatterAndBody(yamlStandard);
+    expect(parsed1.frontmatter.name).toBe('yaml-bullet-skill');
+    expect(parsed1.frontmatter.version).toBe('1.5.0');
+    expect(parsed1.frontmatter.description).toBe('A multi-line folded description string.');
+    expect(parsed1.frontmatter.required_tools).toEqual(['readFile', 'executeShell']);
+    expect(parsed1.frontmatter.trigger_patterns).toEqual(['analysis', 'metrics']);
+    expect(parsed1.frontmatter.parameters).toEqual({ timeout: 5000 });
+    expect(parsed1.frontmatter.enabled).toBe(true);
+    expect(parsed1.body).toContain('Procedural steps:');
+
+    // 2. File ending with --- without trailing newline
+    const yamlNoTrailingNewline = `---\nname: no-newline-skill\nversion: 2.0.0\n---`;
+    const parsed2 = parseFrontmatterAndBody(yamlNoTrailingNewline);
+    expect(parsed2.frontmatter.name).toBe('no-newline-skill');
+    expect(parsed2.frontmatter.version).toBe('2.0.0');
+
+    // 3. Unclosed delimiter fallback
+    const yamlUnclosed = `---\nname: unclosed-skill\ndescription: Unclosed frontmatter test`;
+    const parsed3 = parseFrontmatterAndBody(yamlUnclosed);
+    expect(parsed3.frontmatter.name).toBe('unclosed-skill');
+    expect(parsed3.frontmatter.description).toBe('Unclosed frontmatter test');
+  });
+
+  it('14. Directory Import with Standard YAML & Standalone Markdown: imports bulleted skills and standalone md files', () => {
+    const tempDir = path.join(process.cwd(), `temp_yaml_import_${Date.now()}`);
+    const skillSubdir = path.join(tempDir, 'bullet-skill');
+    fs.mkdirSync(skillSubdir, { recursive: true });
+
+    const skillMd = `---
+name: bullet-skill
+version: 1.0.0
+description: Skill with YAML bullet lists
+required_tools:
+  - readFile
+  - executeShell
+trigger_patterns:
+  - bullet
+  - list
+---
+Instructions for bullet skill.`;
+
+    fs.writeFileSync(path.join(skillSubdir, 'SKILL.md'), skillMd, 'utf-8');
+
+    // Also write a standalone markdown file
+    const standaloneMd = `---
+name: standalone-skill
+version: 1.1.0
+description: Standalone markdown skill
+requiredTools:
+  - writeFile
+tags:
+  - standalone
+---
+Standalone skill instructions.`;
+    fs.writeFileSync(path.join(tempDir, 'standalone-skill.md'), standaloneMd, 'utf-8');
+
+    const result = skillEngine.importSkillDirectory(tempDir);
+    expect(result.imported).toBe(2);
+
+    const s1 = skillEngine.getSkill('skill-bullet-skill');
+    expect(s1).toBeDefined();
+    expect(s1?.requiredTools).toEqual(['readFile', 'executeShell']);
+    expect(s1?.triggerPatterns).toEqual(['bullet', 'list']);
+
+    const s2 = skillEngine.getSkill('skill-standalone-skill');
+    expect(s2).toBeDefined();
+    expect(s2?.requiredTools).toEqual(['writeFile']);
+    expect(s2?.triggerPatterns).toEqual(['standalone']);
+
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('15. Safe Skill Deletion & Path Confinement: protects root skills directory against accidental deletion', () => {
+    const custom = skillEngine.createSkill({
+      id: 'skill-safe-del',
+      name: 'safe-del',
+      description: 'Testing path confinement',
+      instructions: 'Run test.',
+    });
+
+    const skillsDir = skillEngine.getSkillsDir();
+    expect(fs.existsSync(skillsDir)).toBe(true);
+
+    const deleted = skillEngine.deleteSkill('skill-safe-del');
+    expect(deleted).toBe(true);
+    // Root skillsDir must never be deleted!
+    expect(fs.existsSync(skillsDir)).toBe(true);
   });
 });
