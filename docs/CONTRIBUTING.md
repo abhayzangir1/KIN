@@ -11,8 +11,8 @@ This guide outlines our development workflow, coding standards, testing requirem
 When contributing to KIN, adhere to the platform's core architectural tenets:
 1. **Local Sovereignty First**: All state, credentials, memories, goals, and tasks remain strictly on the user's local workstation. Never transmit telemetry or user workspace files to external cloud servers.
 2. **Crash Resilience Without Data Loss**: Every significant turn, message, and action record must persist to SQLite in Write-Ahead Logging (`WAL`) mode with atomic checkpoints.
-3. **Hardware-Aware Safety**: Concurrency and heavy tasks must honor memory governors (`os.freemem()`), and desktop interactions must be serialized through mutex locks to prevent collision.
-4. **Transparent Communication**: Do not use misleading claims or exaggerated terms (such as "guarantee", "100%", or "bulletproof"). Be accurate and verifiable in documentation.
+3. **Hardware-Aware Safety**: Concurrency and heavy tasks must honor system memory governors, and desktop interactions must be serialized through mutex locks to prevent collision.
+4. **Transparent Communication**: Do not use unverified claims or exaggerated promises. Be accurate and verifiable in documentation.
 
 ---
 

@@ -1233,7 +1233,7 @@ The following are reference sources, not mandatory dependencies:
   - *Context Grounding & Factuality*
   - *Tool & Policy Compliance*
   - *Execution Efficiency & Latency*
-- **Persistence & Telemetry:** Evaluation runs and scores are recorded in the SQLite `agent_evaluations` table with test case inputs, expected outputs, execution latencies, and normalized scores (0-100%).
+- **Persistence & Telemetry:** Evaluation runs and scores are recorded in the SQLite `agent_evaluations` table with test case inputs, expected outputs, execution latencies, and normalized scores (0-100 scale).
 - **Interactive Inspector UI:** Dedicated `Evals` subtab in the Agent Inspector showing benchmark radar/score meters, historical performance trends, and an interactive `Run Benchmark Eval` trigger.
 
 ### 31.8 Managed Credentials & Bring-Your-Own-Key (BYOK)

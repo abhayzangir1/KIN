@@ -543,7 +543,7 @@ Human steering and cancellation events jump ahead of ordinary autonomous work.
 
 ## 9.2 Event-Driven Coalesced Wakeup Queue & Host Resource Governor
 - `WakeupQueue` enforces a 1000ms coalescing window per `agentId:channelId` pair to merge duplicate wakeup calls.
-- Interrogates `ComputerSupervisor` and `os.freemem()` before dispatching; if free RAM drops below 500MB, dispatch is queued to prevent host out-of-memory thrashing.
+- Interrogates `ComputerSupervisor` and system free memory metrics before dispatching; if free RAM drops below 500MB, dispatch is queued to prevent host out-of-memory thrashing.
 
 ---
 
@@ -1970,7 +1970,7 @@ Under heavy agent execution where turn-locks serialize `channelQueues`, side inq
 - **Zero Task DAG Pollution**: Operates purely out-of-band without creating spurious tasks or corrupting active project states.
 
 ### 51.3 Dynamic Memory Governor Tiers
-The `ComputerSupervisor` (`core/src/computer/computer_supervisor.ts`) continuously monitors `os.freemem()` to dynamically gate heavy local processes:
+The `ComputerSupervisor` (`core/src/computer/computer_supervisor.ts`) continuously monitors host free memory metrics to dynamically gate heavy local processes:
 - **Normal Tier (> 2.5 GB Free)**: Full multi-browser and shell concurrency allowed up to max budget.
 - **Low Tier (500 MB – 2.5 GB Free)**: Throttles browser instances to 1 and limits shell task concurrency to prevent host thrashing.
 - **Critical Tier (< 500 MB Free)**: Rejects new browser and shell allocations with HTTP 503 and forces 3-minute idle context eviction.

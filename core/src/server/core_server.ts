@@ -955,6 +955,10 @@ export class CoreServer {
     return this.skillEngine;
   }
 
+  public getToolGateway(): ToolGateway {
+    return this.toolGateway;
+  }
+
   public getTakeoverStatus(runId: string): 'continue' | 'pause' | 'abort' {
     const s = this.takeoverStates.get(runId);
     if (s?.isAborted) return 'abort';
@@ -2676,7 +2680,7 @@ export class CoreServer {
                 channelId,
                 senderId: boss.id,
                 senderType: 'agent',
-                content: `ℹ️ **Usage**: \`/goal <title> [| <description>] [| <criterion 1>, <criterion 2>]\`\n\nExample: \`/goal Ship Antigravity Hub | File review and git diffing | Zero regressions, 100% test pass\``,
+                content: `ℹ️ **Usage**: \`/goal <title> [| <description>] [| <criterion 1>, <criterion 2>]\`\n\nExample: \`/goal Ship Antigravity Hub | File review and git diffing | Zero regressions, full test pass\``,
                 productivityScore: 100,
               });
               this.broadcastEvent('message:created', {

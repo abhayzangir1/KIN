@@ -711,6 +711,55 @@ Imported skill instructions.`;
       expect(fs.existsSync(path.join(tutorialsDir, '04-advanced-workflows.md'))).toBe(true);
     });
 
+    it('imports single skill directory with routine.json and handles ToolGateway agent import_skill execution', async () => {
+      const dailyDir = fs.existsSync(path.resolve(process.cwd(), 'docs/EXAMPLES/daily-briefing-bot'))
+        ? path.resolve(process.cwd(), 'docs/EXAMPLES/daily-briefing-bot')
+        : path.resolve(process.cwd(), '../docs/EXAMPLES/daily-briefing-bot');
+
+      // 1. Verify single skill directory import yields exactly 1 skill (not duplicated by routine.json)
+      const res = server.getSkillEngine().loadSkillsFromDirectory(dailyDir);
+      expect(res.loadedCount).toBe(1);
+      expect(res.skills[0].name).toBe('daily-briefing-bot');
+      expect(server.getSkillEngine().getSkill('skill-daily-briefing-routine')).toBeUndefined();
+
+      // 2. Verify ToolGateway import_skill tool execution with relative path
+      const toolGateway = server.getToolGateway();
+      const execResult = await toolGateway.executeTool(
+        'import_skill',
+        { directoryPath: 'docs/EXAMPLES/github-triage-bot' },
+        {
+          runId: 'run-test-tool-import',
+          agentId: 'agent-boss',
+          worktreeRoot: path.resolve(process.cwd(), '.kin/worktrees/test-sub-worktree'),
+          autonomyMode: 'AUTO',
+          allowedCapabilities: ['skills:manage'],
+        }
+      );
+      expect(execResult.success).toBe(true);
+      expect((execResult.output as any).importedCount).toBe(1);
+
+      // 3. Verify zero banned words across all documentation files
+      const docsRoot = fs.existsSync(path.resolve(process.cwd(), 'docs'))
+        ? path.resolve(process.cwd(), 'docs')
+        : path.resolve(process.cwd(), '../docs');
+      const bannedPhrases = ['operating system', 'guarantee', '100%', 'bulletproof'];
+      const scanFiles = (dir: string) => {
+        for (const file of fs.readdirSync(dir)) {
+          const full = path.join(dir, file);
+          if (fs.statSync(full).isDirectory()) {
+            if (file !== 'node_modules' && file !== '.git' && file !== 'assets') scanFiles(full);
+          } else if (file.endsWith('.md')) {
+            const content = fs.readFileSync(full, 'utf-8');
+            for (const phrase of bannedPhrases) {
+              expect(content.toLowerCase()).not.toContain(phrase.toLowerCase());
+            }
+            expect(content).not.toMatch(/\bos\b/i);
+          }
+        }
+      };
+      scanFiles(docsRoot);
+    });
+
     it('POST /api/approvals creates approval and transitions run state to waiting_for_approval, and resolve updates run', async () => {
       // 1. Insert seed agent & run in test db
       db.execute(`INSERT INTO workspaces (id, name, root_path, default_autonomy_mode, created_at, updated_at) VALUES ('ws-appr', 'Appr WS', '.', 'AUTO', 1, 1)`);

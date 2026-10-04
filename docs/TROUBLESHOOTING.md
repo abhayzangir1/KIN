@@ -95,7 +95,7 @@ Agent fails with `Error: Failed to fetch from Ollama` or model responses return 
 Runs pause with warning: `Governor paused execution: Free RAM below minimum threshold`.
 
 ### Cause
-KIN includes a dynamic hardware governor that inspects free workstation memory via `os.freemem()` before scheduling heavy operations. By default, execution pauses if available memory drops below 256 MB.
+KIN includes a dynamic hardware governor that inspects free workstation memory via system memory metrics before scheduling heavy operations. By default, execution pauses if available memory drops below 256 MB.
 
 ### Resolution Steps
 1. **Check current memory status**:

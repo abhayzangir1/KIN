@@ -14,7 +14,7 @@
 [![Rust](https://img.shields.io/badge/Rust-2021-DEA584.svg?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![SQLite](https://img.shields.io/badge/SQLite_3-WAL_Mode-003B57.svg?style=flat-square&logo=sqlite)](https://www.sqlite.org/)
 [![Ollama](https://img.shields.io/badge/Ollama-Local_Inference-white.svg?style=flat-square&logo=ollama)](https://ollama.ai/)
-[![Vitest](https://img.shields.io/badge/Tests-140%2F140_Passed-success.svg?style=flat-square&logo=vitest)](https://vitest.dev/)
+[![Vitest](https://img.shields.io/badge/Tests-141%2F141_Passed-success.svg?style=flat-square&logo=vitest)](https://vitest.dev/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 
 [Architecture](docs/ARCHITECTURE.md) • [API Reference](docs/API.md) • [Skills Guide](docs/SKILLS_GUIDE.md) • [Slash Commands](docs/SLASH_COMMANDS.md) • [Tutorials](docs/TUTORIALS.md) • [Operations](docs/OPERATIONS.md) • [Troubleshooting](docs/TROUBLESHOOTING.md) • [Contributing](docs/CONTRIBUTING.md) • [FAQ](docs/FAQ.md) • [PRD](docs/PRD.md) • [TRD](docs/TRD.md)
@@ -34,7 +34,7 @@ KIN pairs **authoritative local SQLite persistence** with **turn-by-turn crash r
 - **Universal Multi-Task Swarms**: You are not limited to one domain. Hire, configure, and coordinate specialist agent teams for research, operations, daily personal routines, web automation, content drafting, or full-stack development.
 - **Local Sovereignty & Zero Cloud Lock-In**: All messages, tasks, goals, memories, checkpoints, and credentials reside on your own machine in SQLite with Write-Ahead Logging (`WAL` mode). Zero telemetry is transmitted to third parties.
 - **Crash Resilience Without Data Loss**: Every reasoning turn and tool invocation commits an immutable checkpoint. Following unexpected power loss or process termination, interrupted runs resume from their exact recorded state.
-- **Hardware-Aware Autonomy**: Dynamic governors continuously monitor host RAM (`os.freemem()`) before dispatching heavy processes, while a Win32 `DesktopLock` mutex serializes mouse and keyboard inputs to prevent collisions.
+- **Hardware-Aware Autonomy**: Dynamic governors continuously monitor host RAM before dispatching heavy processes, while a Win32 `DesktopLock` mutex serializes mouse and keyboard inputs to prevent collisions.
 - **Zero Cloud Subscriptions Required**: Run completely offline with local **Ollama** models, or connect to any cloud LLM provider (OpenRouter, Anthropic, OpenAI, Gemini) using your own keys (BYOK) with token spend caps.
 
 ---
@@ -50,7 +50,7 @@ Recent industry advancements have introduced persistent "always-on" agent concep
 | **Cost & Gating** | Gated behind $200/mo Pro / Enterprise | Gated behind xAI subscription tiers | Self-hosted infrastructure costs | **Free & Open Source (MIT). $0 subscription.** |
 | **Offline Operation** | Impossible (requires continuous cloud connection) | Impossible (cloud only) | Requires running server | **Native Offline Execution with local Ollama models** |
 | **Crash Recovery** | Server-side restart; context wiped on session drop | Managed in cloud | Application-level | **Turn-by-Turn SQLite Checkpointing & Instant Resumption** |
-| **Hardware Governors** | None (cloud compute) | None (cloud compute) | Manual server sizing | **Dynamic Host RAM Governor (`os.freemem()`)** |
+| **Hardware Governors** | None (cloud compute) | None (cloud compute) | Manual server sizing | **Dynamic Host RAM Governor** |
 | **Physical Computer Use**| Virtual cloud browser sandbox | Cloud agent tool calls | Virtual cloud environment | **Governed Real Desktop & Browser Control (Win32 Mutex + Human Takeover)** |
 | **Autonomy Modes** | Fixed provider guardrails | Fixed provider policy | Developer-configured | **Fine-Grained: `AUTO`, `ALWAYS_ASK`, `FULL_ACCESS`** |
 
@@ -115,7 +115,7 @@ Features are ordered below according to their system hierarchy and architectural
 - **Crash Recovery Supervisor**: Upon restart after an abnormal shutdown, KIN reconciles stale leases and presents an interactive **Docked Crash Recovery Banner** in the UI with options to **Resume All**, **Inspect State**, or **Discard**.
 
 ### 2. Hardware Resource Governors & Input Mutex
-- **RAM-Aware Process Throttling**: Queries `os.freemem()` before allocating browser contexts or shell processes. If available memory drops below 500 MB, execution tasks are queued to avoid host thrashing.
+- **RAM-Aware Process Throttling**: Queries free system memory before allocating browser contexts or shell processes. If available memory drops below 500 MB, execution tasks are queued to avoid host thrashing.
 - **Win32 `DesktopLock` Mutex**: Serializes mouse and keyboard inputs across agents through a single-flight Promise mutex, preventing conflicting inputs.
 
 ### 3. The 5-Block Context Compiler

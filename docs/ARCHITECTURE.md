@@ -15,7 +15,7 @@ KIN operates with **authoritative local state**, **turn-by-turn crash recovery**
 - **Universal Multi-Domain Swarms**: Users can spawn and orchestrate specialist agent teams across any discipline — research analysts, operations managers, social media coordinators, executive assistants, or software engineers.
 - **Local Sovereignty**: All code, tasks, goals, memories, checkpoints, and credentials reside on the host machine in SQLite with Write-Ahead Logging (WAL). Zero telemetry is transmitted to third parties.
 - **Turn-by-Turn Crash Resilience**: Every reasoning step and tool invocation records an immutable checkpoint. Following unexpected power loss or process termination, interrupted runs resume from their exact recorded state.
-- **Hardware-Governed Autonomy**: Dynamic memory governors (`os.freemem()`) and input mutex locks serialize access to physical resources, preventing out-of-memory lockups and concurrent input contention.
+- **Hardware-Governed Autonomy**: Dynamic memory governors and input mutex locks serialize access to physical resources, preventing out-of-memory lockups and concurrent input contention.
 - **Deterministic Multi-Agent Coordination**: Agents operate within strict domain boundaries, claim tasks via atomic distributed leases, work in isolated git worktrees, and communicate over structured channels.
 
 ### 1.3 Real-World Use Cases
@@ -227,7 +227,7 @@ The computer control subsystem provides safe, hardware-governed desktop and brow
 ```mermaid
 graph TD
     subgraph Governors["Hardware & Safety Governors"]
-        RAMGov["RAM Governor: Inspects os.freemem() > 500MB"]
+        RAMGov["RAM Governor: Inspects Free RAM > 500MB"]
         MutexLock["DesktopLock: Single-Flight Win32 Mutex"]
         RiskShield["Financial Safety Shield (Checkout/Billing Gates)"]
     end
@@ -252,7 +252,7 @@ graph TD
 ```
 
 1. **Dynamic RAM Governor**:
-   - `ComputerSupervisor` queries `os.freemem()` before allocating browser contexts or child processes.
+   - `ComputerSupervisor` queries host free memory metrics before allocating browser contexts or child processes.
    - If available RAM drops below 500 MB, execution tasks queue gracefully instead of triggering host thrashing.
 2. **Win32 `DesktopLock` Single-Flight Mutex**:
    - Physical mouse and keyboard inputs are serialized across concurrent agents.

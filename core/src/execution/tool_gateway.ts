@@ -589,9 +589,20 @@ export class ToolGateway {
           }
           if (params.directoryPath || params.dirPath || params.path || params.directory || params.dir) {
             const rawPath = params.directoryPath || params.dirPath || params.path || params.directory || params.dir;
-            const targetDir = path.isAbsolute(rawPath)
+            let targetDir = path.isAbsolute(rawPath)
               ? rawPath
               : path.resolve(context.worktreeRoot, rawPath);
+            if (!fs.existsSync(targetDir)) {
+              const cwdResolved = path.resolve(process.cwd(), rawPath);
+              if (fs.existsSync(cwdResolved)) {
+                targetDir = cwdResolved;
+              } else {
+                const parentResolved = path.resolve(process.cwd(), '..', rawPath);
+                if (fs.existsSync(parentResolved)) {
+                  targetDir = parentResolved;
+                }
+              }
+            }
             const result = this.skillEngine.importSkillDirectory(targetDir);
             return {
               success: true,
