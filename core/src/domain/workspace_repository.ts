@@ -107,6 +107,25 @@ export class WorkspaceRepository {
     this.db.execute('DELETE FROM projects WHERE id = ?', projectId);
   }
 
+  public deleteChannel(channelId: string): void {
+    this.db.transactionSync(() => {
+      this.db.execute('DELETE FROM messages WHERE channel_id = ?', channelId);
+      this.db.execute('DELETE FROM channel_members WHERE channel_id = ?', channelId);
+      this.db.execute('DELETE FROM channels WHERE id = ?', channelId);
+    });
+  }
+
+  public pruneEphemeralTestChannels(projectId: string): number {
+    const rows = this.db.query<{ id: string }>(
+      `SELECT id FROM channels WHERE project_id = ? AND (name LIKE 'stress-%' OR name LIKE 'audit-%' OR name LIKE 'chan-%' OR name LIKE 'test-%') AND id != 'chan-general'`,
+      projectId
+    );
+    for (const r of rows) {
+      this.deleteChannel(r.id);
+    }
+    return rows.length;
+  }
+
   public createChannel(channel: Channel): void {
     this.db.execute(
       `INSERT INTO channels (id, project_id, name, topic, is_private, created_at)

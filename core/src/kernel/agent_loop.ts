@@ -688,15 +688,74 @@ When you receive the <observation>, evaluate the result and provide the next ste
   public static extractToolCall(content: string): { name: string; params: any } | null {
     if (!content || typeof content !== 'string') return null;
 
-    const parseJsonPayload = (rawPayload: string): { name: string; params: any } | null => {
-      let raw = rawPayload.trim();
-      // Strip markdown code fences if present (e.g. ```json ... ```)
-      if (raw.startsWith('```')) {
-        raw = raw.replace(/^```[a-zA-Z]*\r?\n?/, '').replace(/\r?\n?```$/, '').trim();
+    const extractBalancedJsonBlocks = (text: string): string[] => {
+      const blocks: string[] = [];
+      let inString = false;
+      let stringChar = '';
+      let escape = false;
+      let braceDepth = 0;
+      let startIndex = -1;
+
+      for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+
+        if (escape) {
+          escape = false;
+          continue;
+        }
+
+        if (char === '\\' && inString) {
+          escape = true;
+          continue;
+        }
+
+        if (inString) {
+          if (char === stringChar) {
+            inString = false;
+          }
+          continue;
+        }
+
+        if (char === '"' || char === "'") {
+          inString = true;
+          stringChar = char;
+          continue;
+        }
+
+        if (char === '{') {
+          if (braceDepth === 0) {
+            startIndex = i;
+          }
+          braceDepth++;
+        } else if (char === '}') {
+          if (braceDepth > 0) {
+            braceDepth--;
+            if (braceDepth === 0 && startIndex !== -1) {
+              blocks.push(text.slice(startIndex, i + 1));
+              startIndex = -1;
+            }
+          }
+        }
       }
 
-      // 1. In known path-like fields, convert backslashes to forward slashes before JSON parsing.
-      let cleanedJson = raw.replace(
+      return blocks;
+    };
+
+    const sanitizeJsonString = (rawPayload: string): string => {
+      let cleaned = rawPayload.trim();
+
+      // 1. Unwrap markdown code fence if present
+      if (cleaned.startsWith('```')) {
+        cleaned = cleaned.replace(/^```[a-zA-Z]*\r?\n?/, '').replace(/\r?\n?```$/, '').trim();
+      }
+
+      // 2. Normalize single quotes if python/js style dict
+      if (cleaned.startsWith("{'") || cleaned.includes("': '") || cleaned.includes("': {")) {
+        cleaned = cleaned.replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, '"$1"');
+      }
+
+      // 3. Normalize path backslashes in known file path fields
+      cleaned = cleaned.replace(
         /("(?:path|filePath|dirPath|targetPath|worktreeRoot|cwd|appNameOrPath)"\s*:\s*")([^"]*)(")/gi,
         (_m, prefix, pathVal, suffix) => {
           const normalized = pathVal.replace(/\\+/g, '/');
@@ -704,14 +763,58 @@ When you receive the <observation>, evaluate the result and provide the next ste
         }
       );
 
-      // 2. Escape any unescaped backslashes across all strings:
-      cleanedJson = cleanedJson.replace(/\\(?!["\\/bfnrt]|u[0-9a-fA-F]{4})/g, '\\\\');
+      // 4. Escape unescaped newlines/tabs inside double-quoted string literals
+      let inStr = false;
+      let esc = false;
+      let out = '';
+      for (let i = 0; i < cleaned.length; i++) {
+        const ch = cleaned[i];
+        if (esc) {
+          out += ch;
+          esc = false;
+          continue;
+        }
+        if (ch === '\\' && inStr) {
+          out += ch;
+          esc = true;
+          continue;
+        }
+        if (ch === '"') {
+          inStr = !inStr;
+          out += ch;
+          continue;
+        }
+        if (inStr) {
+          if (ch === '\n') {
+            out += '\\n';
+            continue;
+          }
+          if (ch === '\r') {
+            out += '\\r';
+            continue;
+          }
+          if (ch === '\t') {
+            out += '\\t';
+            continue;
+          }
+        }
+        out += ch;
+      }
+      cleaned = out;
 
-      // 3. Pre-clean trailing commas in objects and arrays commonly emitted by small models
-      cleanedJson = cleanedJson.replace(/,\s*([}\]])/g, '$1');
+      // 5. Escape stray unescaped backslashes across all strings:
+      cleaned = cleaned.replace(/\\(?!["\\/bfnrt]|u[0-9a-fA-F]{4})/g, '\\\\');
 
+      // 6. Pre-clean trailing commas in objects and arrays
+      cleaned = cleaned.replace(/,\s*([}\]])/g, '$1');
+
+      return cleaned;
+    };
+
+    const parseJsonPayload = (rawPayload: string): { name: string; params: any } | null => {
+      const sanitized = sanitizeJsonString(rawPayload);
       try {
-        const parsed = JSON.parse(cleanedJson);
+        const parsed = JSON.parse(sanitized);
         const toolName = parsed.name || parsed.tool;
         if (toolName && typeof toolName === 'string') {
           return {
@@ -720,25 +823,20 @@ When you receive the <observation>, evaluate the result and provide the next ste
           };
         }
       } catch (e) {
-        // Fallback: Attempt relaxed regex extraction if strict JSON parse failed
+        // Fallback: Relaxed regex extraction
         try {
-          const nameMatch = raw.match(/"(?:name|tool)"\s*:\s*"([^"]+)"/) || raw.match(/'(?:name|tool)'\s*:\s*'([^']+)'/);
+          const nameMatch = rawPayload.match(/["'](?:name|tool)["']\s*:\s*["']([^"']+)["']/);
           if (nameMatch) {
             const name = nameMatch[1];
             const paramsMatch =
-              raw.match(/"(?:parameters|params|arguments|args)"\s*:\s*(\{[\s\S]*\})/i) ||
-              raw.match(/'(?:parameters|params|arguments|args)'\s*:\s*(\{[\s\S]*\})/i);
+              rawPayload.match(/["'](?:parameters|params|arguments|args)["']\s*:\s*(\{[\s\S]*\})/i);
             if (paramsMatch) {
-              let cleanedParams = paramsMatch[1]
-                .replace(/,\s*([}\]])/g, '$1')
-                .replace(/'/g, '"');
-              cleanedParams = cleanedParams.replace(
-                /("(?:path|filePath|dirPath|targetPath|worktreeRoot|cwd|appNameOrPath)"\s*:\s*")([^"]*)(")/gi,
-                (_m, p, v, s) => `${p}${v.replace(/\\+/g, '/')}${s}`
-              );
-              cleanedParams = cleanedParams.replace(/\\(?!["\\/bfnrt]|u[0-9a-fA-F]{4})/g, '\\\\');
-              const params = JSON.parse(cleanedParams);
-              return { name, params };
+              const blocks = extractBalancedJsonBlocks(paramsMatch[0]);
+              if (blocks.length > 0) {
+                const pCleaned = sanitizeJsonString(blocks[0]);
+                const params = JSON.parse(pCleaned);
+                return { name, params };
+              }
             }
             return { name, params: {} };
           }
@@ -747,25 +845,30 @@ When you receive the <observation>, evaluate the result and provide the next ste
       return null;
     };
 
-    // 1. Explicit <tool_call> tags
-    const tagMatch = content.match(/<tool_call>([\s\S]*?)(?:<\/tool_call>|$)/i);
+    // 1. Explicit tags: <tool_call> or <tool> or <function_call>
+    const tagMatch = content.match(/<(tool_call|tool|function_call)>([\s\S]*?)(?:<\/\1>|$)/i);
     if (tagMatch) {
-      const res = parseJsonPayload(tagMatch[1]);
+      const res = parseJsonPayload(tagMatch[2]);
       if (res) return res;
     }
 
-    // 2. Markdown code fences (e.g. ```json { "name": ... } ```)
-    const codeBlockMatch = content.match(/```(?:json)?\s*(\{[\s\S]*?"(?:name|tool)"[\s\S]*?\})\s*```/i);
-    if (codeBlockMatch) {
-      const res = parseJsonPayload(codeBlockMatch[1]);
-      if (res) return res;
+    // 2. Markdown code fences
+    const codeBlockMatches = content.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi);
+    for (const match of codeBlockMatches) {
+      const block = match[1].trim();
+      if (block.includes('"name"') || block.includes('"tool"') || block.includes("'name'") || block.includes("'tool'")) {
+        const res = parseJsonPayload(block);
+        if (res) return res;
+      }
     }
 
-    // 3. Raw JSON tool call emitted by models without wrappers
-    const rawJsonMatch = content.match(/(\{[\s\r\n]*"(?:name|tool)"[\s\S]*?"(?:parameters|params|arguments|args)"[\s\S]*?\})/i);
-    if (rawJsonMatch) {
-      const res = parseJsonPayload(rawJsonMatch[1]);
-      if (res) return res;
+    // 3. Balanced JSON blocks anywhere in content (handles raw JSON with any key ordering or surrounding text)
+    const blocks = extractBalancedJsonBlocks(content);
+    for (const block of blocks) {
+      if (block.includes('"name"') || block.includes('"tool"') || block.includes("'name'") || block.includes("'tool'")) {
+        const res = parseJsonPayload(block);
+        if (res) return res;
+      }
     }
 
     return null;

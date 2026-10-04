@@ -523,13 +523,45 @@ export class CoreServer {
       this.workspaceRepo.addChannelMember('chan-general', bossIdentity.id);
     }
 
-    // Ensure terminology invariant across any pre-existing agent definitions
-    this.db.execute(`
-      UPDATE agent_definitions 
-      SET system_prompt = REPLACE(REPLACE(system_prompt, 'KIN OS', 'KIN'), 'KIN Operating System', 'KIN Platform'),
-          role = REPLACE(REPLACE(role, 'KIN OS', 'KIN'), 'KIN Operating System', 'KIN Platform')
-      WHERE system_prompt LIKE '%OS%' OR role LIKE '%OS%'
-    `);
+    // Ensure terminology invariant across all pre-existing database records
+    try {
+      this.db.execute(`
+        UPDATE agent_definitions 
+        SET system_prompt = REPLACE(REPLACE(REPLACE(system_prompt, 'KIN Operating System', 'KIN Platform'), 'KIN OS', 'KIN Platform'), 'operating system', 'platform runtime'),
+            role = REPLACE(REPLACE(REPLACE(role, 'KIN Operating System', 'KIN Platform'), 'KIN OS', 'KIN Platform'), 'operating system', 'platform runtime')
+        WHERE system_prompt LIKE '%OS%' OR role LIKE '%OS%' OR system_prompt LIKE '%operating system%' OR role LIKE '%operating system%'
+      `);
+      this.db.execute(`
+        UPDATE messages 
+        SET content = REPLACE(REPLACE(REPLACE(content, 'KIN Operating System', 'KIN Platform'), 'KIN OS', 'KIN Platform'), 'operating system', 'platform runtime')
+        WHERE content LIKE '%KIN OS%' OR content LIKE '%KIN Operating System%' OR content LIKE '%operating system%'
+      `);
+      this.db.execute(`
+        UPDATE goals 
+        SET title = REPLACE(REPLACE(REPLACE(title, 'KIN Operating System', 'KIN Platform'), 'KIN OS', 'KIN Platform'), 'operating system', 'platform runtime'),
+            description = REPLACE(REPLACE(REPLACE(description, 'KIN Operating System', 'KIN Platform'), 'KIN OS', 'KIN Platform'), 'operating system', 'platform runtime')
+        WHERE title LIKE '%OS%' OR description LIKE '%OS%' OR title LIKE '%operating system%' OR description LIKE '%operating system%'
+      `);
+      this.db.execute(`
+        UPDATE tasks 
+        SET title = REPLACE(REPLACE(REPLACE(title, 'KIN Operating System', 'KIN Platform'), 'KIN OS', 'KIN Platform'), 'operating system', 'platform runtime'),
+            description = REPLACE(REPLACE(REPLACE(description, 'KIN Operating System', 'KIN Platform'), 'KIN OS', 'KIN Platform'), 'operating system', 'platform runtime')
+        WHERE title LIKE '%OS%' OR description LIKE '%OS%' OR title LIKE '%operating system%' OR description LIKE '%operating system%'
+      `);
+      this.db.execute(`
+        UPDATE decisions 
+        SET title = REPLACE(REPLACE(REPLACE(title, 'KIN Operating System', 'KIN Platform'), 'KIN OS', 'KIN Platform'), 'operating system', 'platform runtime'),
+            rationale = REPLACE(REPLACE(REPLACE(rationale, 'KIN Operating System', 'KIN Platform'), 'KIN OS', 'KIN Platform'), 'operating system', 'platform runtime')
+        WHERE title LIKE '%OS%' OR rationale LIKE '%OS%' OR title LIKE '%operating system%' OR rationale LIKE '%operating system%'
+      `);
+    } catch {}
+
+    // Prune ephemeral test channels from live environment
+    if (!process.env.VITEST && process.env.NODE_ENV !== 'test') {
+      try {
+        this.workspaceRepo.pruneEphemeralTestChannels('proj-kin');
+      } catch {}
+    }
 
     // Ensure DocWriter specialist exists for live daemon / production deliverables
     if (!process.env.VITEST && process.env.NODE_ENV !== 'test') {
@@ -771,6 +803,18 @@ export class CoreServer {
       }
     } catch {}
     return false;
+  }
+
+  /**
+   * Sanitizes all user-facing strings to enforce terminology compliance.
+   */
+  public sanitizeTerminology(text: string): string {
+    if (!text || typeof text !== 'string') return text;
+    return text
+      .replace(/\bKIN\s+Operating\s+System\b/gi, 'KIN Platform')
+      .replace(/\bKIN\s+OS\b/gi, 'KIN Platform')
+      .replace(/\boperating\s+system\b/gi, 'platform runtime')
+      .replace(/\bOS\s+background\b/gi, 'background');
   }
 
   /**
@@ -1539,6 +1583,22 @@ export class CoreServer {
         return this.sendJson(res, 201, { channel: channelItem });
       }
 
+      // 7b-2. DELETE /api/channels/:id — Delete a channel and its messages
+      const channelDeleteMatch = pathname.match(/^\/api\/channels\/([^/]+)$/);
+      if (req.method === 'DELETE' && channelDeleteMatch) {
+        const channelId = channelDeleteMatch[1];
+        if (channelId === 'chan-general') {
+          return this.sendJson(res, 400, { error: 'Cannot delete default general channel' });
+        }
+        const existing = this.workspaceRepo.getChannel(channelId);
+        if (!existing) {
+          return this.sendJson(res, 404, { error: 'Channel not found' });
+        }
+        this.workspaceRepo.deleteChannel(channelId);
+        this.broadcastEvent('channel:deleted', { channelId, projectId: existing.projectId });
+        return this.sendJson(res, 200, { success: true, channelId });
+      }
+
       // 7c. GET /api/channels/:id/members — List members assigned to channel
       const channelMembersMatch = pathname.match(/^\/api\/channels\/([^/]+)\/members$/);
       if (req.method === 'GET' && channelMembersMatch) {
@@ -1973,7 +2033,14 @@ export class CoreServer {
         }
 
         // Persist message
-        const senderType = body.senderType || (body.senderId?.startsWith('agent-') ? 'agent' : 'human');
+        let senderType: 'human' | 'agent' | 'system' = 'human';
+        if (body.senderType === 'agent' || body.senderId?.startsWith('agent-')) {
+          senderType = 'agent';
+        } else if (body.senderType === 'system') {
+          senderType = 'system';
+        } else {
+          senderType = 'human';
+        }
         const userMsg = this.channelService.sendMessage({
           channelId,
           senderId: body.senderId || 'user-operator',
@@ -3940,6 +4007,19 @@ export class CoreServer {
         return this.sendJson(res, 201, { goal, initialTask: initTask });
       }
 
+      // 16-2. DELETE /api/goals/:id — Delete a goal and its tasks
+      const goalDeleteMatch = pathname.match(/^\/api\/goals\/([^/]+)$/);
+      if (req.method === 'DELETE' && goalDeleteMatch) {
+        const goalId = goalDeleteMatch[1];
+        const existing = this.taskRepo.getGoal(goalId);
+        if (!existing) {
+          return this.sendJson(res, 404, { error: 'Goal not found' });
+        }
+        this.taskRepo.deleteGoal(goalId);
+        this.broadcastEvent('goal:deleted', { goalId, projectId: existing.projectId });
+        return this.sendJson(res, 200, { success: true, goalId });
+      }
+
       // 16a-2. GET /api/decisions — List all decisions across projects
       if (req.method === 'GET' && pathname === '/api/decisions') {
         const decisions = this.taskRepo.listAllDecisions();
@@ -4137,6 +4217,19 @@ export class CoreServer {
           advancedNextTaskId,
           goalCompleted,
         });
+      }
+
+      // 18b. DELETE /api/tasks/:id — Delete a single task
+      const taskDeleteMatch = pathname.match(/^\/api\/tasks\/([^/]+)$/);
+      if (req.method === 'DELETE' && taskDeleteMatch) {
+        const taskId = taskDeleteMatch[1];
+        const existing = this.taskRepo.getTask(taskId);
+        if (!existing) {
+          return this.sendJson(res, 404, { error: 'Task not found' });
+        }
+        this.taskRepo.deleteTask(taskId);
+        this.broadcastEvent('task:deleted', { taskId, goalId: existing.goalId });
+        return this.sendJson(res, 200, { success: true, taskId });
       }
 
       // 19. GET /api/projects/:id/analytics — Project-level live analytics
@@ -6412,12 +6505,12 @@ export class CoreServer {
         return;
       }
 
-      // 6. Persist agent reply to SQLite
+      // 6. Persist agent reply to SQLite (with terminology compliance filter)
       const agentReply = this.channelService.sendMessage({
         channelId,
         senderId: agent.id,
         senderType: 'agent',
-        content: loopResult.finalContent,
+        content: this.sanitizeTerminology(loopResult.finalContent),
         productivityScore: loopResult.actions.some((a) => a.error) ? 75 : 95,
       });
 

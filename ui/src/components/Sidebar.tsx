@@ -1,6 +1,6 @@
 import React from 'react';
 import { useKinStore } from '../store/kinStore.js';
-import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale } from 'lucide-react';
+import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale, Trash2 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
   const {
@@ -8,6 +8,7 @@ export const Sidebar: React.FC = () => {
     channels,
     activeChannelId,
     setActiveChannel,
+    deleteChannel,
     agents,
     selectedAgentId,
     setSelectedAgentId,
@@ -15,6 +16,8 @@ export const Sidebar: React.FC = () => {
     setAddAgentModalOpen,
     goals,
     tasks,
+    deleteGoal,
+    deleteTask,
     updateTaskStatus,
     setNewGoalModalOpen,
     setNewTaskModalOpen,
@@ -110,6 +113,20 @@ export const Sidebar: React.FC = () => {
                       <span className="text-[9px] text-[#64748b] group-hover:text-kin-muted">
                         {chan.memberIds.length}
                       </span>
+                    )}
+                    {chan.id !== 'chan-general' && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.confirm(`Delete channel #${chan.name}?`)) {
+                            deleteChannel(chan.id);
+                          }
+                        }}
+                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-500/20 text-[#64748b] hover:text-red-400 transition"
+                        title="Delete Channel"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
                     )}
                   </div>
                 </button>
@@ -214,12 +231,25 @@ export const Sidebar: React.FC = () => {
               return (
                 <div key={goal.id} className="p-2 rounded-lg bg-[#0e1424] border border-[#1e293b] space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <span className="font-semibold text-kin-text text-[11px] truncate" title={goal.title}>
+                    <span className="font-semibold text-kin-text text-[11px] truncate flex-1 mr-1" title={goal.title}>
                       {goal.title}
                     </span>
-                    <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-[#1e293b] text-emerald-400">
-                      {completedCount}/{goalTasks.length}
-                    </span>
+                    <div className="flex items-center space-x-1 shrink-0">
+                      <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-[#1e293b] text-emerald-400">
+                        {completedCount}/{goalTasks.length}
+                      </span>
+                      <button
+                        onClick={() => {
+                          if (window.confirm(`Delete goal "${goal.title}" and its tasks?`)) {
+                            deleteGoal(goal.id);
+                          }
+                        }}
+                        className="p-0.5 rounded hover:bg-red-500/20 text-[#64748b] hover:text-red-400 transition"
+                        title="Delete Goal"
+                      >
+                        <Trash2 className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="space-y-1">
@@ -266,17 +296,26 @@ export const Sidebar: React.FC = () => {
                             </span>
                           </div>
 
-                          <span
-                            className={`text-[8px] font-mono uppercase px-1 py-0.2 rounded shrink-0 ${
-                              task.status === 'completed'
-                                ? 'bg-emerald-500/10 text-emerald-400'
-                                : task.status === 'running'
-                                ? 'bg-blue-500/10 text-blue-400'
-                                : 'bg-[#1e293b] text-[#64748b]'
-                            }`}
-                          >
-                            {task.status}
-                          </span>
+                          <div className="flex items-center space-x-1 shrink-0">
+                            <span
+                              className={`text-[8px] font-mono uppercase px-1 py-0.2 rounded ${
+                                task.status === 'completed'
+                                  ? 'bg-emerald-500/10 text-emerald-400'
+                                  : task.status === 'running'
+                                  ? 'bg-blue-500/10 text-blue-400'
+                                  : 'bg-[#1e293b] text-[#64748b]'
+                              }`}
+                            >
+                              {task.status}
+                            </span>
+                            <button
+                              onClick={() => deleteTask(task.id)}
+                              className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-500/20 text-[#64748b] hover:text-red-400 transition"
+                              title="Delete Task"
+                            >
+                              <Trash2 className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
                         </div>
                       );
                     })}

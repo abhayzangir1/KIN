@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import { KinDatabase } from '../src/storage/db.js';
 import { MigrationRunner } from '../src/storage/migration_runner.js';
 import { ComputerSupervisor } from '../src/computer/computer_supervisor.js';
@@ -592,6 +592,49 @@ describe('KIN Dynamic Computer & Systems Upgrade (Round 14)', () => {
       expect(extracted?.params.dirPath).toBe('core/src');
     });
 
+    it('extracts tool calls when parameters appear before name in raw JSON with surrounding text', () => {
+      const content = 'I will read it: {"parameters": {"path": "test.txt"}, "name": "readFile"}';
+      const extracted = AgentLoopRunner.extractToolCall(content);
+      expect(extracted).not.toBeNull();
+      expect(extracted?.name).toBe('readFile');
+      expect(extracted?.params.path).toBe('test.txt');
+    });
+
+    it('extracts tool calls with raw physical newlines inside JSON string parameters', () => {
+      const content = '<tool_call>\n{"name": "writeFile", "parameters": {"path": "test.txt", "content": "line 1\nline 2"}}\n</tool_call>';
+      const extracted = AgentLoopRunner.extractToolCall(content);
+      expect(extracted).not.toBeNull();
+      expect(extracted?.name).toBe('writeFile');
+      expect(extracted?.params.content).toBe('line 1\nline 2');
+    });
+
+    it('extracts tool calls from single-quoted JSON dicts', () => {
+      const content = "{'name': 'readFile', 'parameters': {'path': 'test.txt'}}";
+      const extracted = AgentLoopRunner.extractToolCall(content);
+      expect(extracted).not.toBeNull();
+      expect(extracted?.name).toBe('readFile');
+      expect(extracted?.params.path).toBe('test.txt');
+    });
+
+    it('extracts tool calls with nested objects inside parameters surrounded by text', () => {
+      const content = 'Here is the action:\n{"name": "executeAction", "parameters": {"config": {"timeout": 5000, "retries": 3}, "action": "run"}}\nDone.';
+      const extracted = AgentLoopRunner.extractToolCall(content);
+      expect(extracted).not.toBeNull();
+      expect(extracted?.name).toBe('executeAction');
+      expect(extracted?.params.config.timeout).toBe(5000);
+      expect(extracted?.params.action).toBe('run');
+    });
+
+    it('extracts tool calls from <function_call> and <tool> tags', () => {
+      const fCall = '<function_call>{"name": "desktopScreenshot", "parameters": {}}</function_call>';
+      const extracted1 = AgentLoopRunner.extractToolCall(fCall);
+      expect(extracted1?.name).toBe('desktopScreenshot');
+
+      const toolTag = '<tool>{"name": "browserClose", "parameters": {}}</tool>';
+      const extracted2 = AgentLoopRunner.extractToolCall(toolTag);
+      expect(extracted2?.name).toBe('browserClose');
+    });
+
     it('parses diverse routine duration units correctly via parseScheduleDurationAndPrompt', () => {
       const server = new CoreServer({ port: 0, dbPath });
       
@@ -606,6 +649,90 @@ describe('KIN Dynamic Computer & Systems Upgrade (Round 14)', () => {
       const p3 = server.parseScheduleDurationAndPrompt('1h 30m Daily operations briefing');
       expect(p3?.durationSeconds).toBe(5400);
       expect(p3?.prompt).toBe('Daily operations briefing');
+    });
+  });
+
+  describe('7. Authoritative Resource Lifecycle: Channels, Goals, Tasks Deletion & Terminology Sanitization', () => {
+    let server: CoreServer;
+    let serverPort: number;
+    let suite7Dir: string;
+    let suite7DbPath: string;
+
+    beforeAll(async () => {
+      suite7Dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kin-lifecycle-test-'));
+      suite7DbPath = path.join(suite7Dir, 'lifecycle_storage.sqlite');
+      const suite7Db = new KinDatabase({ dbPath: suite7DbPath });
+      new MigrationRunner(suite7Db).runMigrations();
+      suite7Db.close();
+
+      server = new CoreServer({ port: 0, dbPath: suite7DbPath });
+      serverPort = await server.start();
+    });
+
+    afterAll(async () => {
+      await server.stop();
+      try {
+        fs.rmSync(suite7Dir, { recursive: true, force: true });
+      } catch {}
+    });
+
+    it('creates and deletes a channel via DELETE /api/channels/:id (protecting chan-general)', async () => {
+      const createRes = await fetch(`http://127.0.0.1:${serverPort}/api/channels`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'temp-cleanup-channel', topic: 'Testing channel deletion' }),
+      });
+      expect(createRes.status).toBe(201);
+      const { channel } = await createRes.json();
+
+      // Protect general channel
+      const generalDel = await fetch(`http://127.0.0.1:${serverPort}/api/channels/chan-general`, { method: 'DELETE' });
+      expect(generalDel.status).toBe(400);
+
+      // Delete created channel
+      const delRes = await fetch(`http://127.0.0.1:${serverPort}/api/channels/${channel.id}`, { method: 'DELETE' });
+      expect(delRes.status).toBe(200);
+      const delData = await delRes.json();
+      expect(delData.success).toBe(true);
+
+      // Verify channel is gone
+      const verifyRes = await fetch(`http://127.0.0.1:${serverPort}/api/channels/${channel.id}`, { method: 'DELETE' });
+      expect(verifyRes.status).toBe(404);
+    });
+
+    it('creates and deletes goals and individual tasks via DELETE endpoints', async () => {
+      const goalRes = await fetch(`http://127.0.0.1:${serverPort}/api/projects/proj-kin/goals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Temporary Verification Goal' }),
+      });
+      expect(goalRes.status).toBe(201);
+      const { goal } = await goalRes.json();
+
+      // Create a second task
+      const taskRes = await fetch(`http://127.0.0.1:${serverPort}/api/goals/${goal.id}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Temporary Subtask' }),
+      });
+      expect(taskRes.status).toBe(201);
+      const { task: secondTask } = await taskRes.json();
+
+      // Delete single task
+      const delTaskRes = await fetch(`http://127.0.0.1:${serverPort}/api/tasks/${secondTask.id}`, { method: 'DELETE' });
+      expect(delTaskRes.status).toBe(200);
+
+      // Delete goal (which cascades to remaining tasks)
+      const delGoalRes = await fetch(`http://127.0.0.1:${serverPort}/api/goals/${goal.id}`, { method: 'DELETE' });
+      expect(delGoalRes.status).toBe(200);
+    });
+
+    it('sanitizes forbidden terminology correctly', () => {
+      const sanitized = server.sanitizeTerminology('Welcome to the KIN OS and KIN Operating System runtime on this operating system.');
+      expect(sanitized).not.toContain('KIN OS');
+      expect(sanitized).not.toContain('KIN Operating System');
+      expect(sanitized).not.toContain('operating system');
+      expect(sanitized).toBe('Welcome to the KIN Platform and KIN Platform runtime on this platform runtime.');
     });
   });
 });

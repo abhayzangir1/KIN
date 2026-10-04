@@ -474,6 +474,13 @@ export class TaskRepository {
     });
   }
 
+  public deleteTask(id: string): void {
+    this.db.transactionSync(() => {
+      this.db.execute('DELETE FROM task_dependencies WHERE task_id = ? OR depends_on_task_id = ?', id, id);
+      this.db.execute('DELETE FROM tasks WHERE id = ?', id);
+    });
+  }
+
   public createDecision(decision: Decision): void {
     this.db.execute(
       `INSERT INTO decisions (id, project_id, task_id, decided_by_id, title, rationale, alternatives_considered_json, status, created_at)

@@ -658,12 +658,15 @@ interface KinState {
   createProject: (name: string, repoPath?: string) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
   createGoal: (title: string, description?: string, acceptanceCriteria?: string[]) => Promise<void>;
+  deleteGoal: (goalId: string) => Promise<{ success: boolean; error?: string }>;
   createTask: (goalId: string, title: string, description?: string, assignedAgentId?: string) => Promise<void>;
+  deleteTask: (taskId: string) => Promise<{ success: boolean; error?: string }>;
   updateTaskStatus: (taskId: string, status: 'ready' | 'running' | 'completed' | 'failed') => Promise<void>;
   setNewGoalModalOpen: (open: boolean) => void;
   setNewTaskModalOpen: (open: boolean) => void;
   fetchChannelMembers: (channelId: string) => Promise<void>;
   createChannel: (name: string, topic?: string) => Promise<void>;
+  deleteChannel: (channelId: string) => Promise<{ success: boolean; error?: string }>;
   addChannelMember: (channelId: string, agentId: string) => Promise<void>;
   removeChannelMember: (channelId: string, agentId: string) => Promise<void>;
   hireAgent: (params: {
@@ -1095,6 +1098,23 @@ export const useKinStore = create<KinState>((set, get) => ({
     }
   },
 
+  deleteChannel: async (channelId: string) => {
+    try {
+      const res = await fetch(`/api/channels/${channelId}`, { method: 'DELETE' });
+      if (res.ok) {
+        set((state) => ({
+          channels: state.channels.filter((c) => c.id !== channelId),
+          activeChannelId: state.activeChannelId === channelId ? 'chan-general' : state.activeChannelId,
+        }));
+        return { success: true };
+      }
+      const data = await res.json().catch(() => ({}));
+      return { success: false, error: data.error || 'Failed to delete channel' };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Network error' };
+    }
+  },
+
   addChannelMember: async (channelId: string, agentId: string) => {
     try {
       const res = await fetch(`/api/channels/${channelId}/members`, {
@@ -1382,6 +1402,18 @@ export const useKinStore = create<KinState>((set, get) => ({
         get().fetchState();
       });
 
+      sse.addEventListener('channel:deleted', (e) => {
+        try {
+          const { channelId } = JSON.parse(e.data);
+          set((state) => ({
+            channels: state.channels.filter((c) => c.id !== channelId),
+            activeChannelId: state.activeChannelId === channelId ? 'chan-general' : state.activeChannelId,
+          }));
+        } catch {
+          get().fetchState();
+        }
+      });
+
       sse.addEventListener('channel:member_added', (e) => {
         try {
           const { channelId } = JSON.parse(e.data);
@@ -1445,6 +1477,18 @@ export const useKinStore = create<KinState>((set, get) => ({
           });
         } catch (err) {
           console.error('[KIN UI] Failed to parse goal:updated event', err);
+        }
+      });
+
+      sse.addEventListener('goal:deleted', (e) => {
+        try {
+          const { goalId } = JSON.parse(e.data);
+          set((state) => ({
+            goals: state.goals.filter((g) => g.id !== goalId),
+            tasks: state.tasks.filter((t) => t.goalId !== goalId),
+          }));
+        } catch {
+          get().fetchState();
         }
       });
 
@@ -2136,6 +2180,23 @@ export const useKinStore = create<KinState>((set, get) => ({
     }
   },
 
+  deleteGoal: async (goalId: string) => {
+    try {
+      const res = await fetch(`/api/goals/${goalId}`, { method: 'DELETE' });
+      if (res.ok) {
+        set((state) => ({
+          goals: state.goals.filter((g) => g.id !== goalId),
+          tasks: state.tasks.filter((t) => t.goalId !== goalId),
+        }));
+        return { success: true };
+      }
+      const data = await res.json().catch(() => ({}));
+      return { success: false, error: data.error || 'Failed to delete goal' };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Network error' };
+    }
+  },
+
   createTask: async (goalId: string, title: string, description?: string, assignedAgentId?: string) => {
     try {
       const res = await fetch(`/api/goals/${goalId}/tasks`, {
@@ -2151,6 +2212,22 @@ export const useKinStore = create<KinState>((set, get) => ({
       }
     } catch (err) {
       console.error('[KIN UI] Failed to create task:', err);
+    }
+  },
+
+  deleteTask: async (taskId: string) => {
+    try {
+      const res = await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
+      if (res.ok) {
+        set((state) => ({
+          tasks: state.tasks.filter((t) => t.id !== taskId),
+        }));
+        return { success: true };
+      }
+      const data = await res.json().catch(() => ({}));
+      return { success: false, error: data.error || 'Failed to delete task' };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Network error' };
     }
   },
 
