@@ -712,8 +712,8 @@ interface KinState {
 
   // Skills Engine & Learning Pipeline Actions
   fetchSkills: () => Promise<void>;
-  createSkill: (params: { name: string; instructions: string; description?: string; tags?: string[] }) => Promise<{ success: boolean; skill?: SkillItem; error?: string }>;
-  updateSkill: (skillId: string, params: { name?: string; instructions?: string; description?: string; tags?: string[] }) => Promise<{ success: boolean; skill?: SkillItem; error?: string }>;
+  createSkill: (params: { id?: string; name: string; instructions?: string; handlerCode?: string; description?: string; parameters?: any; skillType?: string; enabled?: boolean; tags?: string[]; requiredTools?: string[]; triggerPatterns?: string[] }) => Promise<{ success: boolean; skill?: SkillItem; error?: string }>;
+  updateSkill: (skillId: string, params: { name?: string; instructions?: string; handlerCode?: string; description?: string; parameters?: any; skillType?: string; enabled?: boolean; tags?: string[]; requiredTools?: string[]; triggerPatterns?: string[] }) => Promise<{ success: boolean; skill?: SkillItem; error?: string }>;
   deleteSkill: (skillId: string) => Promise<boolean>;
   exportSkill: (skillId: string) => Promise<any>;
   exportAllSkills: () => Promise<any>;
@@ -2676,7 +2676,7 @@ export const useKinStore = create<KinState>((set, get) => ({
     }
   },
 
-  createSkill: async (params: { name: string; instructions: string; description?: string; tags?: string[] }) => {
+  createSkill: async (params: { id?: string; name: string; instructions?: string; handlerCode?: string; description?: string; parameters?: any; skillType?: string; enabled?: boolean; tags?: string[]; requiredTools?: string[]; triggerPatterns?: string[] }) => {
     try {
       const res = await fetch('/api/skills', {
         method: 'POST',
@@ -2697,7 +2697,7 @@ export const useKinStore = create<KinState>((set, get) => ({
     }
   },
 
-  updateSkill: async (skillId: string, params: { name?: string; instructions?: string; description?: string; tags?: string[] }) => {
+  updateSkill: async (skillId: string, params: { name?: string; instructions?: string; handlerCode?: string; description?: string; parameters?: any; skillType?: string; enabled?: boolean; tags?: string[]; requiredTools?: string[]; triggerPatterns?: string[] }) => {
     try {
       const res = await fetch(`/api/skills/${encodeURIComponent(skillId)}`, {
         method: 'PATCH',
@@ -2762,7 +2762,17 @@ export const useKinStore = create<KinState>((set, get) => ({
 
   importSkill: async (bundleJson: string | object) => {
     try {
-      const payload = typeof bundleJson === 'string' ? JSON.parse(bundleJson) : bundleJson;
+      let payload: any;
+      if (typeof bundleJson === 'string') {
+        const trimmed = bundleJson.trim();
+        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+          payload = JSON.parse(trimmed);
+        } else {
+          payload = { directoryPath: trimmed };
+        }
+      } else {
+        payload = bundleJson;
+      }
       const res = await fetch('/api/skills/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

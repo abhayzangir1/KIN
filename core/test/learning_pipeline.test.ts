@@ -3,6 +3,7 @@ import { KinDatabase } from '../src/storage/db.js';
 import { MigrationRunner } from '../src/storage/migration_runner.js';
 import { SkillEngine } from '../src/skills/skill_engine.js';
 import { MemoryRepository } from '../src/domain/memory_repository.js';
+import { ToolGateway } from '../src/execution/tool_gateway.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -332,5 +333,153 @@ describe('KIN Learning & Self-Improvement Pipeline (OpenDots + Trans4mers Archit
         expectedVersion: 1, // outdated version!
       });
     }).toThrow(/OCC CONFLICT/);
+  });
+
+  it('9. Persistent Skill Creation: persists custom skills with parameters, handlerCode, and disk files in .kin/skills/', () => {
+    const customSkill = skillEngine.createSkill({
+      id: 'skill-paper-extractor',
+      name: 'paper-extractor',
+      version: '1.2.0',
+      description: 'Extracts methodology and conclusions from scientific literature',
+      instructions: '1. Read document text. 2. Parse methodology. 3. Extract key metrics.',
+      handlerCode: 'export function extract(text: string) { return { extracted: true }; }',
+      parameters: { format: 'json', maxTokens: 4000 },
+      requiredTools: ['readFile'],
+      triggerPatterns: ['paper', 'extract', 'literature'],
+      skillType: 'tool_extension',
+      enabled: true,
+    });
+
+    expect(customSkill.id).toBe('skill-paper-extractor');
+    expect(customSkill.name).toBe('paper-extractor');
+    expect(customSkill.version).toBe('1.2.0');
+    expect(customSkill.handlerCode).toContain('export function extract');
+    expect(customSkill.parameters).toEqual({ format: 'json', maxTokens: 4000 });
+    expect(customSkill.enabled).toBe(true);
+
+    // Verify disk persistence in .kin/skills/
+    const diskPath = path.join(skillEngine.getSkillsDir(), 'paper-extractor', 'SKILL.md');
+    expect(fs.existsSync(diskPath)).toBe(true);
+    const diskContent = fs.readFileSync(diskPath, 'utf-8');
+    expect(diskContent).toContain('name: paper-extractor');
+    expect(diskContent).toContain('Extracts methodology and conclusions');
+
+    const implPath = path.join(skillEngine.getSkillsDir(), 'paper-extractor', 'implementation.ts');
+    expect(fs.existsSync(implPath)).toBe(true);
+    expect(fs.readFileSync(implPath, 'utf-8')).toContain('export function extract');
+
+    const jsonPath = path.join(skillEngine.getSkillsDir(), 'paper-extractor', 'skill.json');
+    expect(fs.existsSync(jsonPath)).toBe(true);
+  });
+
+  it('10. Directory Import & Loading: scans and imports skills from directory containing SKILL.md and implementation.ts', () => {
+    const tempDir = path.join(process.cwd(), `temp_skill_import_${Date.now()}`);
+    const skillSubdir = path.join(tempDir, 'data-cleaner');
+    fs.mkdirSync(skillSubdir, { recursive: true });
+
+    const skillMd = `---
+name: data-cleaner
+version: 2.0.0
+description: Cleans and standardizes raw CSV data
+skill_type: tool_extension
+enabled: true
+required_tools: ["readFile", "writeFile"]
+trigger_patterns: ["clean", "csv", "data"]
+parameters: {"nullThreshold": 0.2}
+---
+
+Steps to clean CSV:
+1. Inspect header row.
+2. Strip trailing whitespace.
+3. Validate numeric columns.`;
+
+    fs.writeFileSync(path.join(skillSubdir, 'SKILL.md'), skillMd, 'utf-8');
+    fs.writeFileSync(path.join(skillSubdir, 'implementation.ts'), 'export function clean(data: any) { return []; }', 'utf-8');
+
+    // Import directory
+    const importResult = skillEngine.importSkillDirectory(tempDir);
+    expect(importResult.imported).toBeGreaterThanOrEqual(1);
+
+    const importedSkill = skillEngine.getSkill('skill-data-cleaner');
+    expect(importedSkill).toBeDefined();
+    expect(importedSkill?.name).toBe('data-cleaner');
+    expect(importedSkill?.version).toBe('2.0.0');
+    expect(importedSkill?.instructions).toContain('Steps to clean CSV');
+    expect(importedSkill?.handlerCode).toContain('export function clean');
+    expect(importedSkill?.requiredTools).toEqual(['readFile', 'writeFile']);
+
+    // Clean up tempDir
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('11. ToolGateway create_skill & import_skill: swarmed agents dynamically create and import skills via tool calls', async () => {
+    const toolGateway = new ToolGateway({ db, skillEngine });
+
+    const context = {
+      runId: 'run-swarm-1',
+      agentId: 'agent-boss',
+      worktreeRoot: process.cwd(),
+      autonomyMode: 'AUTO' as const,
+      allowedCapabilities: ['*'],
+    };
+
+    // Agent executes create_skill tool
+    const createRes = await toolGateway.executeTool<any>(
+      'create_skill',
+      {
+        name: 'dynamic-summarizer',
+        description: 'Auto-generated specialist skill created by agent workforce',
+        instructions: 'Summarize text with 3 executive bullet points.',
+        parameters: { style: 'bullets' },
+        triggerPatterns: ['summarize', 'brief'],
+      },
+      context
+    );
+
+    expect(createRes.success).toBe(true);
+    expect(createRes.output?.name).toBe('dynamic-summarizer');
+
+    const createdInDb = skillEngine.getSkill('skill-dynamic-summarizer');
+    expect(createdInDb).toBeDefined();
+    expect(createdInDb?.description).toBe('Auto-generated specialist skill created by agent workforce');
+
+    // Agent executes import_skill tool with bundle JSON
+    const importRes = await toolGateway.executeTool<any>(
+      'import_skill',
+      {
+        bundleJson: JSON.stringify({
+          skills: [
+            {
+              name: 'json-validator',
+              description: 'Validates JSON schemas and syntax',
+              instructions: 'Validate schema against specification.',
+              requiredTools: ['readFile'],
+            },
+          ],
+        }),
+      },
+      context
+    );
+
+    expect(importRes.success).toBe(true);
+    expect(importRes.output?.importedCount).toBe(1);
+    expect(skillEngine.getSkill('skill-json-validator')).toBeDefined();
+  });
+
+  it('12. Skill Deletion: cleans up SQLite state and disk directory', () => {
+    const skill = skillEngine.createSkill({
+      name: 'temporary-skill',
+      description: 'Skill to be deleted',
+      instructions: 'Temporary instructions',
+    });
+
+    expect(skillEngine.getSkill(skill.id)).toBeDefined();
+    const diskPath = path.join(skillEngine.getSkillsDir(), 'temporary-skill');
+    expect(fs.existsSync(diskPath)).toBe(true);
+
+    const deleted = skillEngine.deleteSkill(skill.id);
+    expect(deleted).toBe(true);
+    expect(skillEngine.getSkill(skill.id)).toBeUndefined();
+    expect(fs.existsSync(diskPath)).toBe(false);
   });
 });

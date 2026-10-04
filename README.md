@@ -14,10 +14,10 @@
 [![Rust](https://img.shields.io/badge/Rust-2021-DEA584.svg?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![SQLite](https://img.shields.io/badge/SQLite_3-WAL_Mode-003B57.svg?style=flat-square&logo=sqlite)](https://www.sqlite.org/)
 [![Ollama](https://img.shields.io/badge/Ollama-Local_Inference-white.svg?style=flat-square&logo=ollama)](https://ollama.ai/)
-[![Vitest](https://img.shields.io/badge/Tests-117%2F117_Passed-success.svg?style=flat-square&logo=vitest)](https://vitest.dev/)
+[![Vitest](https://img.shields.io/badge/Tests-136%2F136_Passed-success.svg?style=flat-square&logo=vitest)](https://vitest.dev/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 
-[Architecture Guide](docs/ARCHITECTURE.md) • [Product Specifications](docs/PRD.md) • [Technical Requirements](docs/TRD.md) • [Native Installation](#-native-desktop-installation--packaging) • [Quick Start](#-quick-start)
+[Architecture](docs/ARCHITECTURE.md) • [API Reference](docs/API.md) • [Skills Guide](docs/SKILLS_GUIDE.md) • [Slash Commands](docs/SLASH_COMMANDS.md) • [Tutorials](docs/TUTORIALS.md) • [Operations](docs/OPERATIONS.md) • [Troubleshooting](docs/TROUBLESHOOTING.md) • [Contributing](docs/CONTRIBUTING.md) • [FAQ](docs/FAQ.md) • [PRD](docs/PRD.md) • [TRD](docs/TRD.md)
 
 ---
 
@@ -35,7 +35,7 @@ KIN pairs **authoritative local SQLite persistence** with **turn-by-turn crash r
 - **Local Sovereignty & Zero Cloud Lock-In**: All messages, tasks, goals, memories, checkpoints, and credentials reside on your own machine in SQLite with Write-Ahead Logging (`WAL` mode). Zero telemetry is transmitted to third parties.
 - **Crash Resilience Without Data Loss**: Every reasoning turn and tool invocation commits an immutable checkpoint. Following unexpected power loss or process termination, interrupted runs resume from their exact recorded state.
 - **Hardware-Aware Autonomy**: Dynamic governors continuously monitor host RAM (`os.freemem()`) before dispatching heavy processes, while a Win32 `DesktopLock` mutex serializes mouse and keyboard inputs to prevent collisions.
-- **Zero Cloud Subscriptions Required**: Run 100% offline with local **Ollama** models, or connect to any cloud LLM provider (OpenRouter, Anthropic, OpenAI, Gemini) using your own keys (BYOK) with token spend caps.
+- **Zero Cloud Subscriptions Required**: Run completely offline with local **Ollama** models, or connect to any cloud LLM provider (OpenRouter, Anthropic, OpenAI, Gemini) using your own keys (BYOK) with token spend caps.
 
 ---
 
@@ -46,9 +46,9 @@ Recent industry advancements have introduced persistent "always-on" agent concep
 | Dimension | ChatGPT Dots (OpenAI) | Grok Bots (xAI) | OpenDots (CopilotKit) | **KIN (Autonomous Workforce Platform)** |
 |---|---|---|---|---|
 | **Architecture** | Proprietary cloud microservices | Proprietary cloud service | Cloud/server-centric template | **Local-First Native Desktop (Tauri 2 + Rust + Node)** |
-| **Data Privacy** | All files, prompts, and actions stored on OpenAI servers | Stored on xAI cloud servers | Depends on deployment server | **100% Sovereign: Local SQLite WAL on your disk** |
-| **Cost & Gating** | Gated behind $200/mo Pro / Enterprise | Gated behind xAI subscription tiers | Self-hosted infrastructure costs | **Free & 100% Open Source (MIT). $0 subscription.** |
-| **Offline Operation** | Impossible (requires continuous cloud connection) | Impossible (cloud only) | Requires running server | **Native 100% Offline with local Ollama models** |
+| **Data Privacy** | All files, prompts, and actions stored on OpenAI servers | Stored on xAI cloud servers | Depends on deployment server | **Fully Sovereign: Local SQLite WAL on your disk** |
+| **Cost & Gating** | Gated behind $200/mo Pro / Enterprise | Gated behind xAI subscription tiers | Self-hosted infrastructure costs | **Free & Open Source (MIT). $0 subscription.** |
+| **Offline Operation** | Impossible (requires continuous cloud connection) | Impossible (cloud only) | Requires running server | **Native Offline Execution with local Ollama models** |
 | **Crash Recovery** | Server-side restart; context wiped on session drop | Managed in cloud | Application-level | **Turn-by-Turn SQLite Checkpointing & Instant Resumption** |
 | **Hardware Governors** | None (cloud compute) | None (cloud compute) | Manual server sizing | **Dynamic Host RAM Governor (`os.freemem()`)** |
 | **Physical Computer Use**| Virtual cloud browser sandbox | Cloud agent tool calls | Virtual cloud environment | **Governed Real Desktop & Browser Control (Win32 Mutex + Human Takeover)** |
@@ -105,8 +105,9 @@ Features are ordered below according to their system hierarchy and architectural
                   └── 5. Tool Gateway & Sandboxing (OCC File Integrity + Git Worktrees)
                        └── 6. Multi-Agent Coordination (Atomic Leases + Specialist Routing)
                             └── 7. Computer & Browser Automation (Persistent Profiles + Win32 Lock)
-                                 └── 8. Slash Command Engine (Unified & Compound Pipelines)
-                                      └── 9. Reactive User Interface (SSE Bus + Swarm Map)
+                                 └── 8. Persistent Skills Engine (SKILL.md + Dynamic Creation & Import)
+                                      └── 9. Slash Command Engine (Unified & Compound Pipelines)
+                                           └── 10. Reactive User Interface (SSE Bus + Swarm Map)
 ```
 
 ### 1. Authoritative State & Turn-by-Turn Checkpointing
@@ -142,19 +143,29 @@ Features are ordered below according to their system hierarchy and architectural
 - **Persistent Partitioned Profiles**: Chromium sessions run with agent-specific directories (`.kin/browser_profiles/<agentId>`) that retain logins, cookies, and local storage, with a 3-minute idle eviction policy.
 - **Financial Safety Shield**: Detects payment, billing, and checkout interactions as `CRITICAL_RISK`, requiring explicit human confirmation before execution.
 
-### 8. Antigravity Slash Command Suite
-- **`/plan <topic>`**: Decomposes objectives into milestone DAG tasks with dependency chaining.
-- **`/boost <target>`**: Runs git porcelain checks, verifies SQLite WAL metrics, and activates high-autonomy verification.
-- **`/teamwork-preview`**: Displays active specialists, assigned channels, and local Ollama model readiness.
-- **`/goal <title> [| desc] [| criteria]`**: Adds persistent goals with acceptance criteria.
-- **`/schedule <duration> [prompt]`**: Sets a non-busy-polling timer that wakes the agent when the duration elapses.
-- **`/routine <interval | cron> [prompt]`**: Configures periodic cron routines for proactive background operations.
-- **`/btw <query>`**: Non-blocking side queries answered immediately without creating DAG tasks.
-- **`/grill-me [topic]`**: Launches an interactive architectural questionnaire and records decisions as ADRs.
-- **`/decisions` or `/adr`**: Lists or proposes Architectural Decision Records.
-- **`/skills`**: Displays registered skills and capability extensions.
-- **`/hire <role> [name]`**: Registers a new specialist agent definition and identity.
-- **Compound Pipelines**: Supports chained commands (e.g. `/plan /boost /teamwork-preview /goal`).
+### 8. Persistent Skills Engine & Dynamic Capabilities
+- **Dual SQLite & Disk Synchronization**: Every skill is persisted both in the SQLite `skills` table and on disk under `.kin/skills/<folder>/` containing standard `SKILL.md` (metadata frontmatter and instructions), `implementation.ts` handler logic, and `skill.json` parameter schemas.
+- **Dynamic Skill Synthesis by Agents**: Autonomous agents can synthesize new tools during task execution using the `create_skill` tool, making custom tools immediately callable across the swarm.
+- **Directory Bundle Import**: Easily import existing skill bundles from local folders via `POST /api/skills/import` or the `/skills import <directoryPath>` slash command.
+- **Continuous Learning Loop**: The `LearningPipeline` records successful execution traces and extracts reusable playbooks into institutional memory.
+
+### 9. Antigravity Slash Command Suite
+
+| Command | Syntax / Arguments | Purpose |
+|---|---|---|
+| `/plan` | `<objective>` | Decompose a high-level outcome into a directed acyclic task graph (DAG). |
+| `/boost` | `<target>` | Perform git status inspection, evaluate SQLite WAL metrics, and activate deep-autonomy verification. |
+| `/teamwork-preview` | *(none)* | Inspect active specialist roles, assigned communication channels, and local Ollama model readiness. |
+| `/goal` | `<title> [\| desc] [\| criteria]` | Declare a top-level persistent goal with quantifiable acceptance criteria. |
+| `/schedule` | `<duration> [prompt]` | Register a non-busy-polling timer (e.g. `10m`, `2h`) that triggers an agent turn upon expiry. |
+| `/routine` | `<interval \| cron> [prompt]` | Establish a persistent background recurring routine (e.g. `1h`, `0 9 * * 1-5`). |
+| `/btw` | `<query>` | Ask an ephemeral, non-blocking side query without creating a task in the DAG. |
+| `/grill-me` | `[topic]` | Trigger an architectural interview where the agent interrogates the human and records ADRs. |
+| `/decisions` or `/adr` | `[list \| propose]` | View or propose Architectural Decision Records. |
+| `/skills` | `[list \| create \| import]` | Manage persistent skills. Support dynamic skill creation and directory bundle import. |
+| `/hire` | `<role> [name]` | Register and configure a new specialist agent identity. |
+
+- **Compound Pipelines**: Slash commands can be chained into atomic compound pipelines (e.g. `/plan /boost /teamwork-preview /goal Architecture Scrutiny | High assurance build`). The engine parses sub-commands sequentially, executes setup phases, and provisions tasks without human intervention.
 
 ---
 
@@ -163,49 +174,49 @@ Features are ordered below according to their system hierarchy and architectural
 <div align="center">
 
 ### 1. Unified Master Workbench
-![Master Workbench](docs/assets/screenshots/01_app_interface_workbench.png)
+![KIN Master Workbench interface showing channel messages, task tree, and agent status](docs/assets/screenshots/01_app_interface_workbench.png)
 *Central workspace featuring real-time agent output streaming, channel-based collaboration, task trees, and the unified slash-command prompt.*
 
 ---
 
 ### 2. Interactive Swarm Map
-![Swarm Map Topology](docs/assets/screenshots/02_swarm_map_topology.png)
+![Interactive Swarm Map showing real-time agent topology, message routes, and task dependencies](docs/assets/screenshots/02_swarm_map_topology.png)
 *Interactive graph rendering active specialists, message delegation flows, task dependency DAGs, and real-time swarm convergence.*
 
 ---
 
 ### 3. Settings & Credential Vault
-![Settings and Credentials](docs/assets/screenshots/03_settings_and_credentials.png)
+![Settings modal showing local Ollama configuration, OpenRouter BYOK credentials, and memory limits](docs/assets/screenshots/03_settings_and_credentials.png)
 *Manage OpenRouter, Anthropic, OpenAI, and local Ollama inference settings, alongside memory governor thresholds and token spend caps.*
 
 ---
 
 ### 4. Agent Inspector & Teamwork Matrix
-![Agent Inspector and Teamwork](docs/assets/screenshots/04_agent_inspector_teamwork.png)
+![Agent Inspector drawer displaying specialist prompt, tool capabilities, and channel assignments](docs/assets/screenshots/04_agent_inspector_teamwork.png)
 *Detailed agent drawer displaying role definitions, assigned channels, execution histories, evaluation metrics, and team collaboration status.*
 
 ---
 
 ### 5. Docked Crash Recovery Banner
-![Crash Recovery Banner](docs/assets/screenshots/05_crash_recovery_banner.png)
+![Docked Crash Recovery Banner alerting operator to interrupted runs with 1-click resumption](docs/assets/screenshots/05_crash_recovery_banner.png)
 *Crash recovery prompt alerting the operator to interrupted runs following a system restart, with 1-click **Resume All**, **Inspect State**, and **Discard** options.*
 
 ---
 
 ### 6. HTTP 429 Quota Guard & Local Fallback
-![Quota Pause Banner](docs/assets/screenshots/06_quota_pause_banner.png)
+![HTTP 429 Quota Guard banner displaying live rate-limit reset countdown and local Ollama failover](docs/assets/screenshots/06_quota_pause_banner.png)
 *Quota pause banner displaying a live countdown to rate-limit reset, a **Resume Now** action, and 1-click failover to local **Ollama** models.*
 
 ---
 
 ### 7. Architectural Decision Records (ADR) & `/grill-me`
-![Decisions and ADR](docs/assets/screenshots/07_decisions_and_adr.png)
+![Architectural Decision Records log and interactive questionnaire interface](docs/assets/screenshots/07_decisions_and_adr.png)
 *Decision log tracking design rationale, trade-offs, and interactive questionnaire responses recorded during `/grill-me` requirement alignment sessions.*
 
 ---
 
 ### 8. Governed Desktop & Browser Automation
-![Desktop and Web Control](docs/assets/screenshots/08_desktop_and_web_control.png)
+![Desktop and Web Control dashboard showing Win32 input mutex state and browser session trajectory](docs/assets/screenshots/08_desktop_and_web_control.png)
 *Computer control interface showing Win32 `DesktopLock` input serialization, persistent browser sessions, and coordinate-mapped desktop actions.*
 
 </div>
@@ -301,7 +312,7 @@ npm run build
 ### 3. Run Automated Vitest Test Suite
 ```bash
 npm test --workspace=core
-# Output: Test Files 11 passed (11) | Tests 117 passed (117)
+# Output: Test Files 11 passed (11) | Tests 136 passed (136)
 ```
 
 ### 4. Launch Core Server Daemon & Web Interface

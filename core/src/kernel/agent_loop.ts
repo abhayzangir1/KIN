@@ -422,6 +422,10 @@ export class AgentLoopRunner {
             'browserStep',
             'browserClose',
             'delegateToAgent',
+            'create_skill',
+            'createSkill',
+            'import_skill',
+            'importSkill',
           ],
         };
 

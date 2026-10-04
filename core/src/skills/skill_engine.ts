@@ -5,6 +5,8 @@
 // rollback management, selective budgeted retrieval, and learning metrics.
 // ============================================================================
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { KinDatabase } from '../storage/db.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -19,6 +21,10 @@ export interface Skill {
   tags?: string[];
   isBuiltIn: boolean;
   status: 'candidate' | 'active' | 'deprecated' | 'disabled';
+  parameters?: Record<string, unknown> | string;
+  handlerCode?: string;
+  skillType?: string;
+  enabled?: boolean;
   evidenceCount?: number;
   successCount?: number;
   failureCount?: number;
@@ -81,10 +87,17 @@ export interface LearningMetrics {
 
 export class SkillEngine {
   private db: KinDatabase;
+  private skillsDir: string;
 
-  constructor(db: KinDatabase) {
+  constructor(db: KinDatabase, options?: { skillsDir?: string }) {
     this.db = db;
+    this.skillsDir = options?.skillsDir || path.resolve(process.cwd(), '.kin', 'skills');
     this.seedDefaultSkills();
+    this.loadSkillsFromDirectory();
+  }
+
+  public getSkillsDir(): string {
+    return this.skillsDir;
   }
 
   /**
@@ -204,8 +217,8 @@ export class SkillEngine {
       const existing = this.db.queryOne<{ id: string }>('SELECT id FROM skills WHERE id = ?', id);
       if (!existing) {
         this.db.execute(
-          `INSERT INTO skills (id, name, version, description, instructions, required_tools_json, trigger_patterns_json, is_built_in, status, evidence_count, success_count, failure_count, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO skills (id, name, version, description, instructions, required_tools_json, trigger_patterns_json, is_built_in, status, evidence_count, success_count, failure_count, parameters_json, handler_code, skill_type, enabled, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', NULL, 'prompt_instruction', 1, ?, ?)`,
           id,
           d.name,
           d.version,
@@ -263,41 +276,75 @@ export class SkillEngine {
   }
 
   /**
-   * Creates a new skill (custom or candidate).
+   * Creates a new skill (custom or candidate) and persists to SQLite and disk (.kin/skills/).
    */
   public createSkill(params: {
+    id?: string;
     name: string;
     version?: string;
     description: string;
-    instructions: string;
+    instructions?: string;
+    handlerCode?: string;
+    parameters?: Record<string, unknown> | string;
     requiredTools?: string[];
     triggerPatterns?: string[];
     tags?: string[];
+    skillType?: string;
+    enabled?: boolean;
     status?: 'candidate' | 'active' | 'deprecated' | 'disabled';
     evidenceCount?: number;
   }): Skill {
-    const id = `skill-${params.name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()}`;
+    const rawName = params.name.trim();
+    const sanitizedName = rawName.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
+    const id = params.id ? params.id.trim() : `skill-${sanitizedName}`;
     const now = Date.now();
     const patterns = params.triggerPatterns || params.tags || [];
-    const status = params.status || 'active';
+    const enabled = params.enabled !== undefined ? Boolean(params.enabled) : (params.status !== 'disabled');
+    const status = !enabled ? 'disabled' : (params.status || 'active');
+    const instructions = params.instructions || params.handlerCode || '';
+    const skillType = params.skillType || (params.handlerCode ? 'tool_extension' : 'prompt_instruction');
+    const paramsJson = typeof params.parameters === 'object' && params.parameters !== null
+      ? JSON.stringify(params.parameters)
+      : typeof params.parameters === 'string'
+      ? params.parameters
+      : '{}';
 
     this.db.execute(
-      `INSERT INTO skills (id, name, version, description, instructions, required_tools_json, trigger_patterns_json, is_built_in, status, evidence_count, success_count, failure_count, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0, 0, ?, ?)`,
+      `INSERT INTO skills (id, name, version, description, instructions, required_tools_json, trigger_patterns_json, is_built_in, status, evidence_count, success_count, failure_count, parameters_json, handler_code, skill_type, enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         version = excluded.version,
+         description = excluded.description,
+         instructions = excluded.instructions,
+         required_tools_json = excluded.required_tools_json,
+         trigger_patterns_json = excluded.trigger_patterns_json,
+         status = excluded.status,
+         parameters_json = excluded.parameters_json,
+         handler_code = excluded.handler_code,
+         skill_type = excluded.skill_type,
+         enabled = excluded.enabled,
+         updated_at = excluded.updated_at`,
       id,
-      params.name,
+      rawName,
       params.version || (status === 'candidate' ? '0.1.0' : '1.0.0'),
       params.description || '',
-      params.instructions || '',
+      instructions,
       JSON.stringify(params.requiredTools || []),
       JSON.stringify(patterns),
       status,
       params.evidenceCount || 1,
+      paramsJson,
+      params.handlerCode || null,
+      skillType,
+      enabled ? 1 : 0,
       now,
       now
     );
 
-    return this.getSkill(id)!;
+    const created = this.getSkill(id)!;
+    this.saveSkillToDisk(created);
+    return created;
   }
 
   /**
@@ -310,9 +357,13 @@ export class SkillEngine {
       version?: string;
       description?: string;
       instructions?: string;
+      handlerCode?: string;
+      parameters?: Record<string, unknown> | string;
       requiredTools?: string[];
       triggerPatterns?: string[];
       tags?: string[];
+      skillType?: string;
+      enabled?: boolean;
       status?: 'candidate' | 'active' | 'deprecated' | 'disabled';
     },
     promotedBy: string = 'human-operator',
@@ -337,10 +388,16 @@ export class SkillEngine {
     const instructions = params.instructions ?? existing.instructions ?? '';
     const requiredTools = params.requiredTools ?? existing.requiredTools;
     const patterns = params.triggerPatterns ?? params.tags ?? existing.triggerPatterns;
-    const status = params.status ?? existing.status;
+    const enabled = params.enabled !== undefined ? Boolean(params.enabled) : (params.status !== undefined ? params.status !== 'disabled' : existing.enabled !== false);
+    const status = !enabled ? 'disabled' : (params.status ?? existing.status);
+    const handlerCode = params.handlerCode !== undefined ? params.handlerCode : existing.handlerCode;
+    const skillType = params.skillType ?? existing.skillType ?? 'prompt_instruction';
+    const paramsJson = params.parameters !== undefined
+      ? (typeof params.parameters === 'object' ? JSON.stringify(params.parameters) : String(params.parameters))
+      : (typeof existing.parameters === 'object' ? JSON.stringify(existing.parameters) : (existing.parameters || '{}'));
 
     this.db.execute(
-      `UPDATE skills SET name = ?, version = ?, description = ?, instructions = ?, required_tools_json = ?, trigger_patterns_json = ?, status = ?, updated_at = ?
+      `UPDATE skills SET name = ?, version = ?, description = ?, instructions = ?, required_tools_json = ?, trigger_patterns_json = ?, status = ?, parameters_json = ?, handler_code = ?, skill_type = ?, enabled = ?, updated_at = ?
        WHERE id = ?`,
       name,
       version,
@@ -349,24 +406,46 @@ export class SkillEngine {
       JSON.stringify(requiredTools),
       JSON.stringify(patterns),
       status,
+      paramsJson,
+      handlerCode || null,
+      skillType,
+      enabled ? 1 : 0,
       now,
       id
     );
 
-    return this.getSkill(id)!;
+    const updated = this.getSkill(id)!;
+    this.saveSkillToDisk(updated);
+    return updated;
   }
 
   /**
-   * Deletes a custom (non-built-in) skill.
+   * Deletes a custom (non-built-in) skill from SQLite and removes its disk file.
    */
   public deleteSkill(id: string): boolean {
-    const row = this.db.queryOne<{ id: string; is_built_in: number }>('SELECT id, is_built_in FROM skills WHERE id = ?', id);
+    const row = this.db.queryOne<{ id: string; name: string; is_built_in: number }>('SELECT id, name, is_built_in FROM skills WHERE id = ?', id);
     if (!row) return false;
     if (row.is_built_in) {
       throw new Error('Cannot delete built-in system skill');
     }
 
     this.db.execute('DELETE FROM skills WHERE id = ?', id);
+
+    // Remove from disk if exists
+    try {
+      const folderName = row.name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
+      const skillPath = path.join(this.skillsDir, folderName);
+      if (fs.existsSync(skillPath)) {
+        fs.rmSync(skillPath, { recursive: true, force: true });
+      }
+      const directMd = path.join(this.skillsDir, `${folderName}.md`);
+      if (fs.existsSync(directMd)) {
+        fs.unlinkSync(directMd);
+      }
+    } catch (err) {
+      console.warn(`[SkillEngine] Failed to delete skill disk folder:`, err);
+    }
+
     return true;
   }
 
@@ -931,11 +1010,12 @@ export class SkillEngine {
 
     const data = parsed.skill || (Array.isArray(parsed.skills) ? parsed.skills[0] : parsed);
 
-    if (!data || !data.name || !data.instructions) {
+    if (!data || !data.name || (!data.instructions && !data.handlerCode)) {
       throw new Error('Invalid skill package: missing name or instructions');
     }
 
-    const id = `skill-${data.name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()}`;
+    const rawName = String(data.name).trim();
+    const id = data.id ? String(data.id).trim() : `skill-${rawName.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()}`;
     const now = Date.now();
     const existing = this.getSkill(id);
 
@@ -943,36 +1023,58 @@ export class SkillEngine {
       ? data.triggerPatterns
       : (data.tags || []);
 
+    const enabled = data.enabled !== undefined ? Boolean(data.enabled) : (data.status !== 'disabled');
+    const status = !enabled ? 'disabled' : (data.status || 'active');
+    const instructions = data.instructions || data.handlerCode || '';
+    const skillType = data.skillType || (data.handlerCode ? 'tool_extension' : 'prompt_instruction');
+    const paramsJson = typeof data.parameters === 'object' && data.parameters !== null
+      ? JSON.stringify(data.parameters)
+      : typeof data.parameters === 'string'
+      ? data.parameters
+      : '{}';
+
     if (existing) {
       this.archiveSkillVersion(existing, 'bundle-import', 'Imported updated skill definition');
       this.db.execute(
-        `UPDATE skills SET version = ?, description = ?, instructions = ?, required_tools_json = ?, trigger_patterns_json = ?, status = 'active', updated_at = ?
+        `UPDATE skills SET version = ?, description = ?, instructions = ?, required_tools_json = ?, trigger_patterns_json = ?, status = ?, parameters_json = ?, handler_code = ?, skill_type = ?, enabled = ?, updated_at = ?
          WHERE id = ?`,
         data.version || this.bumpPatchVersion(existing.version),
         data.description || '',
-        data.instructions,
+        instructions,
         JSON.stringify(data.requiredTools || []),
         JSON.stringify(patterns),
+        status,
+        paramsJson,
+        data.handlerCode || null,
+        skillType,
+        enabled ? 1 : 0,
         now,
         id
       );
     } else {
       this.db.execute(
-        `INSERT INTO skills (id, name, version, description, instructions, required_tools_json, trigger_patterns_json, is_built_in, status, evidence_count, success_count, failure_count, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'active', 1, 0, 0, ?, ?)`,
+        `INSERT INTO skills (id, name, version, description, instructions, required_tools_json, trigger_patterns_json, is_built_in, status, evidence_count, success_count, failure_count, parameters_json, handler_code, skill_type, enabled, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 1, 0, 0, ?, ?, ?, ?, ?, ?)`,
         id,
-        data.name,
+        rawName,
         data.version || '1.0.0',
         data.description || '',
-        data.instructions,
+        instructions,
         JSON.stringify(data.requiredTools || []),
         JSON.stringify(patterns),
+        status,
+        paramsJson,
+        data.handlerCode || null,
+        skillType,
+        enabled ? 1 : 0,
         now,
         now
       );
     }
 
-    return this.getSkill(id)!;
+    const imported = this.getSkill(id)!;
+    this.saveSkillToDisk(imported);
+    return imported;
   }
 
   /**
@@ -1015,6 +1117,163 @@ export class SkillEngine {
     return { imported: imported.length, skills: imported };
   }
 
+  /**
+   * Persists a skill definition to disk under .kin/skills/<folder>/SKILL.md and skill.json.
+   */
+  public saveSkillToDisk(skill: Skill): void {
+    try {
+      if (!fs.existsSync(this.skillsDir)) {
+        fs.mkdirSync(this.skillsDir, { recursive: true });
+      }
+
+      const folderName = skill.name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
+      const skillFolder = path.join(this.skillsDir, folderName);
+      if (!fs.existsSync(skillFolder)) {
+        fs.mkdirSync(skillFolder, { recursive: true });
+      }
+
+      // 1. Write structured SKILL.md with YAML frontmatter
+      const skillMdPath = path.join(skillFolder, 'SKILL.md');
+      const paramStr = typeof skill.parameters === 'object'
+        ? JSON.stringify(skill.parameters)
+        : (skill.parameters || '{}');
+
+      const mdContent = [
+        '---',
+        `name: ${skill.name}`,
+        `version: ${skill.version || '1.0.0'}`,
+        `description: >\n  ${(skill.description || '').replace(/\n/g, '\n  ')}`,
+        `skill_type: ${skill.skillType || 'prompt_instruction'}`,
+        `enabled: ${skill.enabled !== false}`,
+        `required_tools: ${JSON.stringify(skill.requiredTools || [])}`,
+        `trigger_patterns: ${JSON.stringify(skill.triggerPatterns || [])}`,
+        `parameters: ${paramStr}`,
+        '---',
+        '',
+        skill.instructions || '',
+      ].join('\n');
+
+      fs.writeFileSync(skillMdPath, mdContent, 'utf-8');
+
+      // 2. Write implementation.ts if handlerCode is present
+      if (skill.handlerCode) {
+        const implPath = path.join(skillFolder, 'implementation.ts');
+        fs.writeFileSync(implPath, skill.handlerCode, 'utf-8');
+      }
+
+      // 3. Write portable skill.json manifest
+      const jsonManifestPath = path.join(skillFolder, 'skill.json');
+      fs.writeFileSync(jsonManifestPath, JSON.stringify({ $schema: 'https://kin.dev/schemas/skill-v1.json', skill }, null, 2), 'utf-8');
+    } catch (err) {
+      console.warn(`[SkillEngine] Failed to save skill '${skill.name}' to disk:`, err);
+    }
+  }
+
+  /**
+   * Scans a directory (defaults to .kin/skills/) and loads/persists all skills into SQLite.
+   */
+  public loadSkillsFromDirectory(dirPath?: string): { loadedCount: number; skills: Skill[] } {
+    const targetDir = dirPath ? path.resolve(dirPath) : this.skillsDir;
+    const loaded: Skill[] = [];
+
+    if (!fs.existsSync(targetDir)) {
+      return { loadedCount: 0, skills: [] };
+    }
+
+    try {
+      const entries = fs.readdirSync(targetDir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        const fullPath = path.join(targetDir, entry.name);
+
+        if (entry.isDirectory()) {
+          // Check for SKILL.md
+          const skillMd = path.join(fullPath, 'SKILL.md');
+          const skillJson = path.join(fullPath, 'skill.json');
+          const implTs = path.join(fullPath, 'implementation.ts');
+
+          if (fs.existsSync(skillMd)) {
+            try {
+              const rawMd = fs.readFileSync(skillMd, 'utf-8');
+              const { frontmatter, body } = parseFrontmatterAndBody(rawMd);
+              let handlerCode: string | undefined;
+              if (fs.existsSync(implTs)) {
+                handlerCode = fs.readFileSync(implTs, 'utf-8');
+              }
+
+              const skill = this.importSkill({
+                name: frontmatter.name || entry.name,
+                version: frontmatter.version || '1.0.0',
+                description: frontmatter.description || '',
+                instructions: body || frontmatter.instructions || '',
+                handlerCode,
+                parameters: frontmatter.parameters,
+                skillType: frontmatter.skill_type || frontmatter.skillType || (handlerCode ? 'tool_extension' : 'prompt_instruction'),
+                enabled: frontmatter.enabled !== false,
+                requiredTools: Array.isArray(frontmatter.required_tools) ? frontmatter.required_tools : [],
+                triggerPatterns: Array.isArray(frontmatter.trigger_patterns) ? frontmatter.trigger_patterns : [],
+              });
+              loaded.push(skill);
+            } catch (err: any) {
+              console.warn(`[SkillEngine] Failed to parse ${skillMd}:`, err.message);
+            }
+          } else if (fs.existsSync(skillJson)) {
+            try {
+              const raw = fs.readFileSync(skillJson, 'utf-8');
+              const skill = this.importSkill(raw);
+              loaded.push(skill);
+            } catch (err: any) {
+              console.warn(`[SkillEngine] Failed to parse ${skillJson}:`, err.message);
+            }
+          }
+        } else if (entry.isFile()) {
+          if (entry.name.endsWith('.json')) {
+            try {
+              const raw = fs.readFileSync(fullPath, 'utf-8');
+              const res = this.importSkillBundle(raw);
+              loaded.push(...res.skills);
+            } catch {}
+          } else if (entry.name.endsWith('.md') && entry.name !== 'README.md') {
+            try {
+              const rawMd = fs.readFileSync(fullPath, 'utf-8');
+              const { frontmatter, body } = parseFrontmatterAndBody(rawMd);
+              if (frontmatter.name) {
+                const skill = this.importSkill({
+                  name: frontmatter.name,
+                  version: frontmatter.version || '1.0.0',
+                  description: frontmatter.description || '',
+                  instructions: body || '',
+                  parameters: frontmatter.parameters,
+                  skillType: frontmatter.skill_type || 'prompt_instruction',
+                  enabled: frontmatter.enabled !== false,
+                  requiredTools: frontmatter.required_tools || [],
+                  triggerPatterns: frontmatter.trigger_patterns || [],
+                });
+                loaded.push(skill);
+              }
+            } catch {}
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[SkillEngine] Failed to scan directory '${targetDir}':`, err.message);
+    }
+
+    return { loadedCount: loaded.length, skills: loaded };
+  }
+
+  /**
+   * Imports an external skill bundle or directory of skills into persistent storage.
+   */
+  public importSkillDirectory(dirPath: string): { imported: number; skills: Skill[] } {
+    const result = this.loadSkillsFromDirectory(dirPath);
+    // Ensure all loaded skills are saved to .kin/skills/
+    for (const skill of result.skills) {
+      this.saveSkillToDisk(skill);
+    }
+    return { imported: result.loadedCount, skills: result.skills };
+  }
+
   private archiveSkillVersion(skill: Skill, promotedBy: string, changeSummary?: string): void {
     const versionId = `sver-${uuidv4()}`;
     this.db.execute(
@@ -1042,6 +1301,18 @@ export class SkillEngine {
 
   private mapRowToSkill(row: any): Skill {
     const triggerPatterns = JSON.parse(row.trigger_patterns_json || '[]');
+    let parameters: any = undefined;
+    if (row.parameters_json) {
+      try {
+        parameters = JSON.parse(row.parameters_json);
+      } catch {
+        parameters = row.parameters_json;
+      }
+    }
+    const enabled = row.enabled !== undefined && row.enabled !== null
+      ? Boolean(row.enabled)
+      : row.status !== 'disabled';
+
     return {
       id: row.id,
       name: row.name,
@@ -1053,6 +1324,10 @@ export class SkillEngine {
       tags: triggerPatterns,
       isBuiltIn: Boolean(row.is_built_in),
       status: row.status,
+      parameters,
+      handlerCode: row.handler_code ?? undefined,
+      skillType: row.skill_type || 'prompt_instruction',
+      enabled,
       evidenceCount: row.evidence_count ?? 0,
       successCount: row.success_count ?? 0,
       failureCount: row.failure_count ?? 0,
@@ -1062,4 +1337,63 @@ export class SkillEngine {
       updatedAt: row.updated_at,
     };
   }
+}
+
+/**
+ * Robust zero-dependency YAML frontmatter parser for SKILL.md markdown files.
+ */
+function parseFrontmatterAndBody(markdown: string): { frontmatter: Record<string, any>; body: string } {
+  const trimmed = markdown.trim();
+  if (!trimmed.startsWith('---')) {
+    return { frontmatter: {}, body: trimmed };
+  }
+  const match = trimmed.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
+  if (!match) {
+    return { frontmatter: {}, body: trimmed };
+  }
+  const rawYaml = match[1];
+  const body = match[2].trim();
+  const frontmatter: Record<string, any> = {};
+
+  const lines = rawYaml.split(/\r?\n/);
+  let currentKey: string | null = null;
+  let multilineVal = '';
+
+  for (const line of lines) {
+    const keyMatch = line.match(/^([a-zA-Z0-9_-]+):\s*(.*)$/);
+    if (keyMatch) {
+      if (currentKey && multilineVal) {
+        frontmatter[currentKey] = multilineVal.trim();
+        multilineVal = '';
+      }
+      currentKey = keyMatch[1];
+      const val = keyMatch[2].trim();
+      if (val === '>' || val === '|') {
+        multilineVal = '';
+      } else if (val.startsWith('[') || val.startsWith('{')) {
+        try {
+          frontmatter[currentKey] = JSON.parse(val);
+        } catch {
+          frontmatter[currentKey] = val;
+        }
+        currentKey = null;
+      } else if (val === 'true') {
+        frontmatter[currentKey] = true;
+        currentKey = null;
+      } else if (val === 'false') {
+        frontmatter[currentKey] = false;
+        currentKey = null;
+      } else {
+        frontmatter[currentKey] = val.replace(/^["']|["']$/g, '');
+        currentKey = null;
+      }
+    } else if (currentKey) {
+      multilineVal += (multilineVal ? ' ' : '') + line.trim();
+    }
+  }
+  if (currentKey && multilineVal) {
+    frontmatter[currentKey] = multilineVal.trim();
+  }
+
+  return { frontmatter, body };
 }

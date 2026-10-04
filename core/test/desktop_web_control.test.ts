@@ -548,6 +548,114 @@ describe('KIN V12: Desktop & Web Control Upgrades', () => {
       expect(expData.experiences.some((e: any) => e.runId === 'run-exp-query-1')).toBe(true);
     });
 
+    it('POST /api/skills creates persistent custom skill with parameters and handlerCode, and DELETE /api/skills/:id removes it', async () => {
+      // 1. Create skill
+      const createRes = await fetch(`http://127.0.0.1:${serverPort}/api/skills`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'api-skill-test',
+          description: 'Testing persistent skill endpoint',
+          instructions: 'Step 1. Run query. Step 2. Verify.',
+          handlerCode: 'export function run() { return true; }',
+          parameters: { timeout: 3000 },
+          skillType: 'tool_extension',
+          enabled: true,
+        }),
+      });
+      expect(createRes.status).toBe(201);
+      const createData: any = await createRes.json();
+      expect(createData.skill.name).toBe('api-skill-test');
+      expect(createData.skill.parameters).toEqual({ timeout: 3000 });
+      expect(createData.skill.handlerCode).toContain('export function run');
+
+      // 2. Query in list
+      const listRes = await fetch(`http://127.0.0.1:${serverPort}/api/skills`);
+      expect(listRes.status).toBe(200);
+      const listData: any = await listRes.json();
+      expect(listData.skills.some((s: any) => s.name === 'api-skill-test')).toBe(true);
+
+      // 3. Delete skill
+      const delRes = await fetch(`http://127.0.0.1:${serverPort}/api/skills/${createData.skill.id}`, {
+        method: 'DELETE',
+      });
+      expect(delRes.status).toBe(200);
+      const delData: any = await delRes.json();
+      expect(delData.success).toBe(true);
+
+      // 4. Verify removed from list
+      const listAfterRes = await fetch(`http://127.0.0.1:${serverPort}/api/skills`);
+      const listAfterData: any = await listAfterRes.json();
+      expect(listAfterData.skills.some((s: any) => s.id === createData.skill.id)).toBe(false);
+    });
+
+    it('POST /api/skills/import with directoryPath imports skills from directory', async () => {
+      const tempImportDir = path.join(process.cwd(), `temp_endpoint_import_${Date.now()}`);
+      const skillSubdir = path.join(tempImportDir, 'bundle-test-skill');
+      fs.mkdirSync(skillSubdir, { recursive: true });
+
+      const skillMd = `---
+name: bundle-test-skill
+version: 1.0.0
+description: Skill imported via directoryPath endpoint
+skill_type: prompt_instruction
+enabled: true
+required_tools: ["readFile"]
+trigger_patterns: ["test", "import"]
+---
+
+Imported skill instructions.`;
+
+      fs.writeFileSync(path.join(skillSubdir, 'SKILL.md'), skillMd, 'utf-8');
+
+      const importRes = await fetch(`http://127.0.0.1:${serverPort}/api/skills/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ directoryPath: tempImportDir }),
+      });
+
+      expect(importRes.status).toBe(201);
+      const importData: any = await importRes.json();
+      expect(importData.success).toBe(true);
+      expect(importData.imported).toBeGreaterThanOrEqual(1);
+
+      fs.rmSync(tempImportDir, { recursive: true, force: true });
+    });
+
+    it('POST /api/channels/:id/messages with /skills create and /skills import parses and executes subcommands', async () => {
+      const stateRes = await fetch(`http://127.0.0.1:${serverPort}/api/state`);
+      const stateData: any = await stateRes.json();
+      const channelId = stateData.channels[0].id;
+
+      // 1. Use /skills create slash command
+      const channelRes = await fetch(`http://127.0.0.1:${serverPort}/api/channels/${channelId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: '/skills create slash-tester | Skill created via slash command | Execute tests | executeShell | test,slash',
+          senderId: 'user-operator',
+        }),
+      });
+      expect(channelRes.status).toBe(201);
+
+      // Verify skill was created in SkillEngine
+      const created = server.getSkillEngine().getSkill('skill-slash-tester');
+      expect(created).toBeDefined();
+      expect(created?.description).toBe('Skill created via slash command');
+      expect(created?.requiredTools).toEqual(['executeShell']);
+
+      // 2. Use /skills list
+      const listCmdRes = await fetch(`http://127.0.0.1:${serverPort}/api/channels/${channelId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: '/skills',
+          senderId: 'user-operator',
+        }),
+      });
+      expect(listCmdRes.status).toBe(201);
+    });
+
     it('POST /api/approvals creates approval and transitions run state to waiting_for_approval, and resolve updates run', async () => {
       // 1. Insert seed agent & run in test db
       db.execute(`INSERT INTO workspaces (id, name, root_path, default_autonomy_mode, created_at, updated_at) VALUES ('ws-appr', 'Appr WS', '.', 'AUTO', 1, 1)`);

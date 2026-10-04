@@ -97,6 +97,18 @@ export class MigrationRunner {
         if (!skillCols.includes('validator_ref')) {
           this.db.exec('ALTER TABLE skills ADD COLUMN validator_ref TEXT;');
         }
+        if (!skillCols.includes('parameters_json')) {
+          this.db.exec("ALTER TABLE skills ADD COLUMN parameters_json TEXT DEFAULT '{}';");
+        }
+        if (!skillCols.includes('handler_code')) {
+          this.db.exec('ALTER TABLE skills ADD COLUMN handler_code TEXT;');
+        }
+        if (!skillCols.includes('skill_type')) {
+          this.db.exec("ALTER TABLE skills ADD COLUMN skill_type TEXT DEFAULT 'prompt_instruction';");
+        }
+        if (!skillCols.includes('enabled')) {
+          this.db.exec('ALTER TABLE skills ADD COLUMN enabled BOOLEAN DEFAULT 1;');
+        }
       }
 
       // Pre-migration: skill_experiences learning columns

@@ -18,6 +18,7 @@ import { SchedulerService } from '../automation/scheduler.js';
 import { ToolDefinitionSchema } from '../context/context_compiler.js';
 import { KinDatabase } from '../storage/db.js';
 import { ComputerSupervisor } from '../computer/computer_supervisor.js';
+import { SkillEngine } from '../skills/skill_engine.js';
 
 export class StaleWriteConflictError extends Error {
   public code = 'STALE_WRITE_CONFLICT';
@@ -68,6 +69,7 @@ export class ToolGateway {
   private scheduler?: SchedulerService;
   private db?: KinDatabase;
   private computerSupervisor?: ComputerSupervisor;
+  private skillEngine?: SkillEngine;
 
   constructor(options?: {
     desktopController?: DesktopController;
@@ -76,6 +78,7 @@ export class ToolGateway {
     scheduler?: SchedulerService;
     db?: KinDatabase;
     computerSupervisor?: ComputerSupervisor;
+    skillEngine?: SkillEngine;
   }) {
     this.desktopController = options?.desktopController ?? new DesktopController();
     this.browserController = options?.browserController ?? new BrowserController();
@@ -83,6 +86,15 @@ export class ToolGateway {
     this.scheduler = options?.scheduler;
     this.db = options?.db;
     this.computerSupervisor = options?.computerSupervisor;
+    this.skillEngine = options?.skillEngine;
+  }
+
+  public setSkillEngine(skillEngine: SkillEngine): void {
+    this.skillEngine = skillEngine;
+  }
+
+  public getSkillEngine(): SkillEngine | undefined {
+    return this.skillEngine;
   }
 
   public setDatabase(db: KinDatabase): void {
@@ -316,6 +328,36 @@ export class ToolGateway {
           required: ['targetAgent', 'directive'],
         },
       },
+      {
+        name: 'create_skill',
+        description: 'Dynamically create and persist a new reusable skill or custom tool definition in the application.',
+        parameters: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Unique identifier or slug for the skill (e.g. data-analyzer)' },
+            description: { type: 'string', description: 'Summary of what the skill does and when agents should use it' },
+            instructions: { type: 'string', description: 'Step-by-step guidance, procedures, or system instructions for the skill' },
+            handlerCode: { type: 'string', description: 'Optional TypeScript or JavaScript executable logic or tool implementation' },
+            parameters: { type: 'object', description: 'Optional input parameter schema for the skill' },
+            requiredTools: { type: 'array', items: { type: 'string' }, description: 'Tools required by this skill' },
+            triggerPatterns: { type: 'array', items: { type: 'string' }, description: 'Keywords or trigger phrases activating this skill' },
+            skillType: { type: 'string', enum: ['prompt_instruction', 'tool_extension', 'workflow'], description: 'Category of skill' },
+            enabled: { type: 'boolean', description: 'Whether the skill is active immediately (default: true)' },
+          },
+          required: ['name', 'description'],
+        },
+      },
+      {
+        name: 'import_skill',
+        description: 'Import an external skill package, bundle, or directory into persistent storage.',
+        parameters: {
+          type: 'object',
+          properties: {
+            bundleJson: { type: 'string', description: 'Raw JSON string or object of a portable skill or bundle' },
+            directoryPath: { type: 'string', description: 'Path to a directory containing SKILL.md or bundle files' },
+          },
+        },
+      },
     ];
   }
 
@@ -324,6 +366,12 @@ export class ToolGateway {
    */
   public getRequiredCapability(toolName: string): { primary: string; aliases: string[] } {
     switch (toolName) {
+      case 'create_skill':
+      case 'createSkill':
+      case 'import_skill':
+      case 'importSkill':
+        return { primary: 'skills:manage', aliases: ['skills:manage', 'skills', 'skill', 'agent:coordinate', 'create_skill', 'createSkill', 'import_skill', 'importSkill', '*'] };
+
       case 'readFile':
       case 'listDirectory':
         return { primary: 'fs:read', aliases: ['fs:read', 'fs_read', 'read', 'fs'] };
@@ -499,6 +547,78 @@ export class ToolGateway {
     risk: RiskLevel
   ): Promise<ToolInvocationResult<T>> {
     switch (toolName) {
+        // Persistent Skills & Dynamic Capability Creation
+        case 'create_skill':
+        case 'createSkill': {
+          if (!this.skillEngine) {
+            throw new Error('SkillEngine is not configured in ToolGateway.');
+          }
+          if (!params.name || (!params.instructions && !params.handlerCode && !params.description)) {
+            throw new Error("create_skill requires 'name' and ('instructions' or 'handlerCode' or 'description')");
+          }
+          const skill = this.skillEngine.createSkill({
+            id: params.id,
+            name: params.name,
+            version: params.version,
+            description: params.description || '',
+            instructions: params.instructions || params.handlerCode || params.description,
+            handlerCode: params.handlerCode,
+            parameters: params.parameters,
+            requiredTools: params.requiredTools,
+            triggerPatterns: params.triggerPatterns || params.tags,
+            skillType: params.skillType,
+            enabled: params.enabled,
+          });
+          return {
+            success: true,
+            output: {
+              skillId: skill.id,
+              name: skill.name,
+              version: skill.version,
+              status: skill.status,
+              message: `Skill '${skill.name}' successfully created and persisted to SQLite and disk (.kin/skills/${skill.name.toLowerCase()}/).`,
+            } as T,
+            riskLevel: risk,
+          };
+        }
+
+        case 'import_skill':
+        case 'importSkill': {
+          if (!this.skillEngine) {
+            throw new Error('SkillEngine is not configured in ToolGateway.');
+          }
+          if (params.directoryPath || params.dirPath || params.path) {
+            const rawPath = params.directoryPath || params.dirPath || params.path;
+            const targetDir = path.isAbsolute(rawPath)
+              ? rawPath
+              : path.resolve(context.worktreeRoot, rawPath);
+            const result = this.skillEngine.importSkillDirectory(targetDir);
+            return {
+              success: true,
+              output: {
+                importedCount: result.imported,
+                skills: result.skills.map((s) => ({ id: s.id, name: s.name })),
+                message: `Successfully imported ${result.imported} skill(s) from directory '${targetDir}'.`,
+              } as T,
+              riskLevel: risk,
+            };
+          } else if (params.bundleJson || params.bundle || params.skill) {
+            const payload = params.bundleJson || params.bundle || params.skill;
+            const result = this.skillEngine.importSkillBundle(payload);
+            return {
+              success: true,
+              output: {
+                importedCount: result.imported,
+                skills: result.skills.map((s) => ({ id: s.id, name: s.name })),
+                message: `Successfully imported ${result.imported} skill(s) into persistent storage.`,
+              } as T,
+              riskLevel: risk,
+            };
+          } else {
+            throw new Error("import_skill requires either 'directoryPath' or 'bundleJson'");
+          }
+        }
+
         // Filesystem & Shell
         case 'readFile': {
           const targetPath = params.filePath || params.path;

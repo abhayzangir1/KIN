@@ -190,6 +190,7 @@ export class CoreServer {
     this.browserController = this.toolGateway.getBrowserController();
     this.financialSafety = this.toolGateway.getFinancialSafety();
     this.skillEngine = new SkillEngine(this.db);
+    this.toolGateway.setSkillEngine(this.skillEngine);
     this.recoveryEngine = new RecoveryEngine(this.skillEngine);
     this.mcpClient = new McpClientManager(process.cwd());
     this.agentLoopRunner = new AgentLoopRunner(
@@ -948,6 +949,10 @@ export class CoreServer {
 
   public getRecoveryEngine(): RecoveryEngine {
     return this.recoveryEngine;
+  }
+
+  public getSkillEngine(): SkillEngine {
+    return this.skillEngine;
   }
 
   public getTakeoverStatus(runId: string): 'continue' | 'pause' | 'abort' {
@@ -3217,20 +3222,167 @@ export class CoreServer {
           contentLower.startsWith('/skill\n')
         ) {
           if (boss) {
-            const allSkills = this.skillEngine.listSkills();
+            const rawSub = rawContent.replace(/^\/(skills|skill)[\s:\n]*/i, '').trim();
+
+            // Subcommand: /skills create <name> | <description> | <instructions> [| <tools> | <tags>]
+            if (rawSub.startsWith('create ') || rawSub.startsWith('add ')) {
+              const text = rawSub.replace(/^(create|add)\s*/i, '').trim();
+              const parts = text.split('|').map((s) => s.trim()).filter(Boolean);
+              if (parts.length < 2) {
+                const helpMsg = this.channelService.sendMessage({
+                  channelId,
+                  senderId: boss.id,
+                  senderType: 'agent',
+                  content: `💡 **Usage**: \`/skills create <name> | <description> | <instructions> [| <tools,comma,sep> | <tags,comma,sep>]\`\n\n*Example*: \`/skills create paper-summarizer | Summarize scientific papers | Read PDF or text and produce executive bullets | readFile | research,summarize\``,
+                  productivityScore: 100,
+                });
+                this.broadcastEvent('message:created', {
+                  id: helpMsg.id,
+                  channelId: helpMsg.channelId,
+                  senderId: helpMsg.senderId,
+                  senderName: boss.displayName.replace(/^@/, ''),
+                  senderType: 'agent',
+                  content: helpMsg.content,
+                  createdAt: helpMsg.createdAt,
+                  productivityScore: helpMsg.productivityScore,
+                });
+                return;
+              }
+
+              const skillName = parts[0];
+              const skillDesc = parts[1];
+              const skillInst = parts[2] || parts[1];
+              const skillTools = parts[3] ? parts[3].split(',').map((t) => t.trim()).filter(Boolean) : [];
+              const skillTags = parts[4] ? parts[4].split(',').map((t) => t.trim()).filter(Boolean) : [skillName];
+
+              try {
+                const created = this.skillEngine.createSkill({
+                  name: skillName,
+                  description: skillDesc,
+                  instructions: skillInst,
+                  requiredTools: skillTools,
+                  triggerPatterns: skillTags,
+                  tags: skillTags,
+                  skillType: skillTools.length > 0 ? 'tool_extension' : 'prompt_instruction',
+                  status: 'active',
+                });
+                this.broadcastEvent('skill:created', created);
+
+                const reply = this.channelService.sendMessage({
+                  channelId,
+                  senderId: boss.id,
+                  senderType: 'agent',
+                  content: `✅ **Skill Created & Persisted**: "${created.name}" (v${created.version})\n- **ID**: \`${created.id}\`\n- **Description**: ${created.description}\n- **Tools Required**: ${created.requiredTools.length > 0 ? created.requiredTools.map((t) => `\`${t}\``).join(', ') : 'None'}\n- **Persisted To**: SQLite database & \`.kin/skills/${created.name.toLowerCase()}/SKILL.md\``,
+                  productivityScore: 100,
+                });
+                this.broadcastEvent('message:created', {
+                  id: reply.id,
+                  channelId: reply.channelId,
+                  senderId: reply.senderId,
+                  senderName: boss.displayName.replace(/^@/, ''),
+                  senderType: 'agent',
+                  content: reply.content,
+                  createdAt: reply.createdAt,
+                  productivityScore: reply.productivityScore,
+                });
+              } catch (err: any) {
+                const errReply = this.channelService.sendMessage({
+                  channelId,
+                  senderId: boss.id,
+                  senderType: 'agent',
+                  content: `❌ **Failed to create skill**: ${err.message}`,
+                  productivityScore: 100,
+                });
+                this.broadcastEvent('message:created', {
+                  id: errReply.id,
+                  channelId: errReply.channelId,
+                  senderId: errReply.senderId,
+                  senderName: boss.displayName.replace(/^@/, ''),
+                  senderType: 'agent',
+                  content: errReply.content,
+                  createdAt: errReply.createdAt,
+                  productivityScore: errReply.productivityScore,
+                });
+              }
+              return;
+            }
+
+            // Subcommand: /skills import <pathOrJson>
+            if (rawSub.startsWith('import ')) {
+              const target = rawSub.replace(/^import\s*/i, '').trim();
+              try {
+                let importedCount = 0;
+                let skillNames: string[] = [];
+
+                if (target.startsWith('{') || target.startsWith('[')) {
+                  const resBundle = this.skillEngine.importSkillBundle(target);
+                  importedCount = resBundle.imported;
+                  skillNames = resBundle.skills.map((s) => s.name);
+                  this.broadcastEvent('skill:imported', resBundle);
+                } else {
+                  const targetDir = path.isAbsolute(target) ? target : path.resolve(process.cwd(), target);
+                  const dirRes = this.skillEngine.importSkillDirectory(targetDir);
+                  importedCount = dirRes.imported;
+                  skillNames = dirRes.skills.map((s) => s.name);
+                  this.broadcastEvent('skill:imported', dirRes);
+                }
+
+                const reply = this.channelService.sendMessage({
+                  channelId,
+                  senderId: boss.id,
+                  senderType: 'agent',
+                  content: `📦 **Skills Imported**: Successfully imported ${importedCount} skill(s) into persistent storage!\n${skillNames.map((n) => `• **${n}**`).join('\n')}`,
+                  productivityScore: 100,
+                });
+                this.broadcastEvent('message:created', {
+                  id: reply.id,
+                  channelId: reply.channelId,
+                  senderId: reply.senderId,
+                  senderName: boss.displayName.replace(/^@/, ''),
+                  senderType: 'agent',
+                  content: reply.content,
+                  createdAt: reply.createdAt,
+                  productivityScore: reply.productivityScore,
+                });
+              } catch (err: any) {
+                const errReply = this.channelService.sendMessage({
+                  channelId,
+                  senderId: boss.id,
+                  senderType: 'agent',
+                  content: `❌ **Failed to import skill**: ${err.message}`,
+                  productivityScore: 100,
+                });
+                this.broadcastEvent('message:created', {
+                  id: errReply.id,
+                  channelId: errReply.channelId,
+                  senderId: errReply.senderId,
+                  senderName: boss.displayName.replace(/^@/, ''),
+                  senderType: 'agent',
+                  content: errReply.content,
+                  createdAt: errReply.createdAt,
+                  productivityScore: errReply.productivityScore,
+                });
+              }
+              return;
+            }
+
+            // Default: List all skills
+            const allSkills = this.skillEngine.listSkills('all');
             let skillsText = `🛠️ **Registered Agent Skills & Capabilities (${allSkills.length})**\n\n`;
             if (allSkills.length === 0) {
               skillsText += `_No external skills registered. Default platform primitives (bash, git, editor, computer) active._\n`;
             } else {
               for (const sk of allSkills) {
-                skillsText += `• **${sk.name}** \`v${sk.version || '1.0.0'}\`${sk.isBuiltIn ? ' *(Built-in)*' : ''}\n`;
+                const badge = sk.isBuiltIn ? ' *(Built-in)*' : ' *(Persistent Custom)*';
+                const statusIcon = sk.status === 'active' ? '🟢' : sk.status === 'candidate' ? '🟡' : '⚪';
+                skillsText += `${statusIcon} **${sk.name}** \`v${sk.version || '1.0.0'}\`${badge}\n`;
                 skillsText += `  - ${sk.description}\n`;
                 if (sk.tags && sk.tags.length > 0) {
                   skillsText += `  - *Tags*: ${sk.tags.map((t: string) => `\`${t}\``).join(', ')}\n`;
                 }
               }
             }
-            skillsText += `\n💡 *Tip*: Manage skills anytime via the **Skills & Tool Catalog** button in the header bar.`;
+            skillsText += `\n💡 *Commands*: \`/skills create <name> | <desc> | <instructions>\` • \`/skills import <path/bundle>\``;
 
             const reply = this.channelService.sendMessage({
               channelId,
@@ -5004,6 +5156,15 @@ export class CoreServer {
       if (req.method === 'POST' && pathname === '/api/skills/import') {
         const body = await this.parseJsonBody<any>(req);
         if (!body) return this.sendJson(res, 400, { error: 'Empty import body' });
+
+        if (body.directoryPath || body.dirPath || body.path) {
+          const rawDir = body.directoryPath || body.dirPath || body.path;
+          const targetDir = path.isAbsolute(rawDir) ? rawDir : path.resolve(process.cwd(), rawDir);
+          const dirResult = this.skillEngine.importSkillDirectory(targetDir);
+          this.broadcastEvent('skill:imported', dirResult);
+          return this.sendJson(res, 201, { success: true, imported: dirResult.imported, skills: dirResult.skills });
+        }
+
         const hasSkillsArray = Array.isArray(body) || (body && Array.isArray(body.skills));
         if (hasSkillsArray) {
           const resBundle = this.skillEngine.importSkillBundle(body);
@@ -5036,12 +5197,16 @@ export class CoreServer {
       // 32b. POST /api/skills — Create custom skill
       if (req.method === 'POST' && pathname === '/api/skills') {
         const body = await this.parseJsonBody<any>(req);
-        if (!body.name || !body.instructions) {
-          return this.sendJson(res, 400, { error: 'Name and instructions are required' });
+        if (!body || !body.name || (!body.instructions && !body.handlerCode && !body.description)) {
+          return this.sendJson(res, 400, { error: 'Name and instructions (or handlerCode) are required' });
         }
-        const skill = this.skillEngine.createSkill(body);
-        this.broadcastEvent('skill:created', skill);
-        return this.sendJson(res, 201, { skill });
+        try {
+          const skill = this.skillEngine.createSkill(body);
+          this.broadcastEvent('skill:created', skill);
+          return this.sendJson(res, 201, { skill });
+        } catch (e: any) {
+          return this.sendJson(res, 400, { error: e.message });
+        }
       }
 
       // 32c. DELETE /api/skills/:id — Delete skill
