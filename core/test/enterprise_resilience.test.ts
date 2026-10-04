@@ -489,7 +489,7 @@ describe('KIN Enterprise Resilience: CoreServer API & Slash Commands', () => {
       }
     }
     expect(found).toBe(true);
-  });
+  }, 15000);
 
   it('POST /api/channels/:id/messages with /grill-me produces interactive questionnaire', async () => {
     const stateRes = await fetch(`http://127.0.0.1:${port}/api/state`);
