@@ -1,0 +1,8 @@
+{
+  "name": "daily-briefing-routine",
+  "cronExpression": "0 9 * * *",
+  "prompt": "Compile daily workspace briefing covering active goals, pending tasks, and recent git commits",
+  "type": "cron",
+  "targetChannel": "#general",
+  "description": "Fires daily at 09:00 to post an executive project digest into the team channel"
+}

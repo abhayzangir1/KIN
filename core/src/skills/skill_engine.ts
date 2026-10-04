@@ -1192,6 +1192,49 @@ export class SkillEngine {
     }
 
     try {
+      const stat = fs.statSync(targetDir);
+      if (stat.isFile()) {
+        if (targetDir.endsWith('.json')) {
+          const raw = fs.readFileSync(targetDir, 'utf-8');
+          const res = this.importSkillBundle(raw);
+          return { loadedCount: res.imported, skills: res.skills };
+        } else if (targetDir.endsWith('.md')) {
+          const rawMd = fs.readFileSync(targetDir, 'utf-8');
+          const { frontmatter, body } = parseFrontmatterAndBody(rawMd);
+          const skillName = frontmatter.name || path.basename(targetDir, path.extname(targetDir));
+          const parentDir = path.dirname(targetDir);
+          let handlerCode: string | undefined;
+          const siblingImpl = path.join(parentDir, 'implementation.ts');
+          if (fs.existsSync(siblingImpl)) {
+            handlerCode = fs.readFileSync(siblingImpl, 'utf-8');
+          }
+          const requiredTools = Array.isArray(frontmatter.required_tools)
+            ? frontmatter.required_tools
+            : (Array.isArray(frontmatter.requiredTools) ? frontmatter.requiredTools : []);
+
+          const triggerPatterns = Array.isArray(frontmatter.trigger_patterns)
+            ? frontmatter.trigger_patterns
+            : (Array.isArray(frontmatter.triggerPatterns)
+            ? frontmatter.triggerPatterns
+            : (Array.isArray(frontmatter.tags) ? frontmatter.tags : []));
+
+          const skill = this.importSkill({
+            name: skillName,
+            version: frontmatter.version ? String(frontmatter.version) : '1.0.0',
+            description: frontmatter.description || '',
+            instructions: body || frontmatter.instructions || frontmatter.description || '',
+            handlerCode,
+            parameters: frontmatter.parameters,
+            skillType: frontmatter.skill_type || frontmatter.skillType || (handlerCode ? 'tool_extension' : 'prompt_instruction'),
+            enabled: frontmatter.enabled !== false,
+            requiredTools,
+            triggerPatterns,
+          });
+          return { loadedCount: 1, skills: [skill] };
+        }
+        return { loadedCount: 0, skills: [] };
+      }
+
       const entries = fs.readdirSync(targetDir, { withFileTypes: true });
 
       for (const entry of entries) {
@@ -1261,6 +1304,11 @@ export class SkillEngine {
               const rawMd = fs.readFileSync(fullPath, 'utf-8');
               const { frontmatter, body } = parseFrontmatterAndBody(rawMd);
               const skillName = frontmatter.name || entry.name.replace(/\.md$/i, '');
+              let handlerCode: string | undefined;
+              const siblingImpl = path.join(targetDir, 'implementation.ts');
+              if (fs.existsSync(siblingImpl)) {
+                handlerCode = fs.readFileSync(siblingImpl, 'utf-8');
+              }
               const requiredTools = Array.isArray(frontmatter.required_tools)
                 ? frontmatter.required_tools
                 : (Array.isArray(frontmatter.requiredTools) ? frontmatter.requiredTools : []);
@@ -1276,8 +1324,9 @@ export class SkillEngine {
                 version: frontmatter.version ? String(frontmatter.version) : '1.0.0',
                 description: frontmatter.description || '',
                 instructions: body || frontmatter.instructions || frontmatter.description || '',
+                handlerCode,
                 parameters: frontmatter.parameters,
-                skillType: frontmatter.skill_type || frontmatter.skillType || 'prompt_instruction',
+                skillType: frontmatter.skill_type || frontmatter.skillType || (handlerCode ? 'tool_extension' : 'prompt_instruction'),
                 enabled: frontmatter.enabled !== false,
                 requiredTools,
                 triggerPatterns,

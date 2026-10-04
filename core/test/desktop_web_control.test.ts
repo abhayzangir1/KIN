@@ -664,6 +664,51 @@ Imported skill instructions.`;
         }),
       });
       expect(listCmdRes.status).toBe(201);
+
+      // 3. Use /skills import docs/EXAMPLES/research-analyzer
+      const importCmdRes = await fetch(`http://127.0.0.1:${serverPort}/api/channels/${channelId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: '/skills import docs/EXAMPLES/research-analyzer',
+          senderId: 'user-operator',
+        }),
+      });
+      expect(importCmdRes.status).toBe(201);
+      const resAnalyzer = server.getSkillEngine().getSkill('skill-research-analyzer');
+      expect(resAnalyzer).toBeDefined();
+      expect(resAnalyzer?.name).toBe('research-analyzer');
+      expect(resAnalyzer?.requiredTools).toContain('browserNavigate');
+    });
+
+    it('POST /api/skills/import imports all docs/EXAMPLES and verifies docs/TUTORIALS existence and integrity', async () => {
+      const examplesDir = fs.existsSync(path.resolve(process.cwd(), 'docs/EXAMPLES'))
+        ? path.resolve(process.cwd(), 'docs/EXAMPLES')
+        : path.resolve(process.cwd(), '../docs/EXAMPLES');
+
+      const importAllRes = await fetch(`http://127.0.0.1:${serverPort}/api/skills/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ directoryPath: examplesDir }),
+      });
+      expect(importAllRes.status).toBe(201);
+      const importAllData: any = await importAllRes.json();
+      expect(importAllData.imported).toBeGreaterThanOrEqual(3);
+
+      const skillEngine = server.getSkillEngine();
+      expect(skillEngine.getSkill('skill-research-analyzer')).toBeDefined();
+      expect(skillEngine.getSkill('skill-daily-briefing-bot')).toBeDefined();
+      expect(skillEngine.getSkill('skill-github-triage-bot')).toBeDefined();
+
+      // Verify tutorial files exist and are populated
+      const tutorialsDir = fs.existsSync(path.resolve(process.cwd(), 'docs/TUTORIALS'))
+        ? path.resolve(process.cwd(), 'docs/TUTORIALS')
+        : path.resolve(process.cwd(), '../docs/TUTORIALS');
+
+      expect(fs.existsSync(path.join(tutorialsDir, '01-research-swarm.md'))).toBe(true);
+      expect(fs.existsSync(path.join(tutorialsDir, '02-daily-routines.md'))).toBe(true);
+      expect(fs.existsSync(path.join(tutorialsDir, '03-parallel-coding.md'))).toBe(true);
+      expect(fs.existsSync(path.join(tutorialsDir, '04-advanced-workflows.md'))).toBe(true);
     });
 
     it('POST /api/approvals creates approval and transitions run state to waiting_for_approval, and resolve updates run', async () => {

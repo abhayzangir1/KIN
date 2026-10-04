@@ -3320,7 +3320,13 @@ export class CoreServer {
                   skillNames = resBundle.skills.map((s) => s.name);
                   this.broadcastEvent('skill:imported', resBundle);
                 } else {
-                  const targetDir = path.isAbsolute(target) ? target : path.resolve(process.cwd(), target);
+                  let targetDir = path.isAbsolute(target) ? target : path.resolve(process.cwd(), target);
+                  if (!fs.existsSync(targetDir)) {
+                    const parentResolved = path.resolve(process.cwd(), '..', target);
+                    if (fs.existsSync(parentResolved)) {
+                      targetDir = parentResolved;
+                    }
+                  }
                   const dirRes = this.skillEngine.importSkillDirectory(targetDir);
                   importedCount = dirRes.imported;
                   skillNames = dirRes.skills.map((s) => s.name);
@@ -5160,7 +5166,13 @@ export class CoreServer {
 
           if (body.directoryPath || body.dirPath || body.path || body.directory || body.dir) {
             const rawDir = body.directoryPath || body.dirPath || body.path || body.directory || body.dir;
-            const targetDir = path.isAbsolute(rawDir) ? rawDir : path.resolve(process.cwd(), rawDir);
+            let targetDir = path.isAbsolute(rawDir) ? rawDir : path.resolve(process.cwd(), rawDir);
+            if (!fs.existsSync(targetDir)) {
+              const parentResolved = path.resolve(process.cwd(), '..', rawDir);
+              if (fs.existsSync(parentResolved)) {
+                targetDir = parentResolved;
+              }
+            }
             const dirResult = this.skillEngine.importSkillDirectory(targetDir);
             this.broadcastEvent('skill:imported', dirResult);
             return this.sendJson(res, 201, { success: true, imported: dirResult.imported, skills: dirResult.skills });
