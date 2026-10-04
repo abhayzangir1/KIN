@@ -12,6 +12,9 @@ import { SkillEngine, Skill } from '../skills/skill_engine.js';
 import { RecoveryEngine } from '../recovery/recovery_engine.js';
 import { FinancialSafetyShield } from '../policy/financial_safety.js';
 import { AutonomyMode } from '../domain/types.js';
+import * as path from 'node:path';
+import { OutputSpiller } from '../context/output_spiller.js';
+import { ContextCompactor } from '../context/context_compactor.js';
 
 export interface AgentLoopOptions {
   runId: string;
@@ -34,6 +37,7 @@ export interface AgentLoopOptions {
   onQuotaPaused?: (turn: number, resetAt: number, conversationHistory: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>, actions: AgentLoopAction[]) => Promise<void> | void;
   onToolStart?: (toolName: string, params: any) => void;
   onToolEnd?: (toolName: string, output: any, error?: string) => void;
+  onTokenUsage?: (tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }) => Promise<{ exceeded: boolean }> | { exceeded: boolean } | void;
   checkTakeoverStatus?: () => 'continue' | 'pause' | 'abort';
   getSteerDirectives?: () => string[];
   getModelId?: () => string;
@@ -67,6 +71,8 @@ export class AgentLoopRunner {
   private skillEngine: SkillEngine;
   private recoveryEngine: RecoveryEngine;
   private financialSafety: FinancialSafetyShield;
+  private outputSpiller: OutputSpiller;
+  private contextCompactor: ContextCompactor;
 
   constructor(
     modelGateway: ModelGateway,
@@ -74,7 +80,9 @@ export class AgentLoopRunner {
     scheduler: SchedulerService,
     skillEngine: SkillEngine,
     recoveryEngine?: RecoveryEngine,
-    financialSafety?: FinancialSafetyShield
+    financialSafety?: FinancialSafetyShield,
+    outputSpiller?: OutputSpiller,
+    contextCompactor?: ContextCompactor
   ) {
     this.modelGateway = modelGateway;
     this.toolGateway = toolGateway;
@@ -82,6 +90,8 @@ export class AgentLoopRunner {
     this.skillEngine = skillEngine;
     this.recoveryEngine = recoveryEngine ?? new RecoveryEngine(skillEngine);
     this.financialSafety = financialSafety ?? new FinancialSafetyShield();
+    this.outputSpiller = outputSpiller ?? new OutputSpiller({ thresholdBytes: 4000 });
+    this.contextCompactor = contextCompactor ?? new ContextCompactor();
   }
 
   /**
@@ -154,6 +164,9 @@ export class AgentLoopRunner {
       actions.push(...options.resumeFromTurnCheckpoint.actions);
     }
     let finalContent = '';
+    const spillDir = path.join(options.worktreeRoot || process.cwd(), '.kin', 'spill');
+    const outputSpiller = new OutputSpiller({ spillDir, thresholdBytes: 4000 });
+    const compactor = new ContextCompactor();
 
     while (currentTurn < maxTurns) {
       // Check instant human takeover status
@@ -176,6 +189,48 @@ export class AgentLoopRunner {
 
       currentTurn++;
 
+      // Multi-turn context compaction to prevent prompt context bloat
+      if (conversationHistory.length > 4) {
+        const estimatedTokens = conversationHistory.reduce((acc, m) => acc + Math.ceil(m.content.length / 4), 0);
+        const maxTokens = 16000;
+        if (estimatedTokens > maxTokens * 0.75) {
+          const compMessages = conversationHistory.map((m, idx) => ({
+            id: `msg-${idx}`,
+            channelId: options.channelId,
+            senderId: m.role === 'assistant' ? options.agentId : (m.role === 'system' ? 'system' : 'user'),
+            senderType: (m.role === 'assistant' ? 'agent' : (m.role === 'system' ? 'system' : 'human')) as 'agent' | 'system' | 'human',
+            content: m.content,
+            mentions: [],
+            productivityScore: 100,
+            createdAt: Date.now() - (conversationHistory.length - idx) * 1000,
+          }));
+
+          const compactionResult = this.contextCompactor.evaluateAndCompact({
+            messages: compMessages,
+            currentTokens: estimatedTokens,
+            maxTokens,
+            compactionThresholdRatio: 0.75,
+            snapshotState: {
+              goalId: options.runId,
+              primaryObjective: options.userPrompt,
+              completedTasks: actions.filter((a) => !a.error).map((a, i) => ({ id: `act-${i}`, title: a.toolName })),
+              activeTask: { id: `turn-${currentTurn}`, title: `Turn ${currentTurn} execution` },
+              modifiedFiles: [],
+              encounteredErrorsAndResolutions: actions.filter((a) => a.error).map((a) => ({ error: a.error || '', fixApplied: 'Handled in loop' })),
+              immutableDecisions: [],
+              pendingTaskDag: [],
+            },
+          });
+
+          if (compactionResult.didCompact) {
+            conversationHistory = compactionResult.compactedMessages.map((m) => ({
+              role: (m.senderType === 'system' ? 'system' : (m.senderType === 'agent' ? 'assistant' : 'user')) as 'system' | 'assistant' | 'user',
+              content: m.content,
+            }));
+          }
+        }
+      }
+
       // Drain and inject any mid-task steering directives from the user
       if (options.getSteerDirectives) {
         const steerDirectives = options.getSteerDirectives();
@@ -196,6 +251,23 @@ export class AgentLoopRunner {
           modelId: currentModelId,
           messages: conversationHistory,
         });
+
+        // Record token usage and enforce hard run budgets
+        if (response?.tokensUsed && options.onTokenUsage) {
+          try {
+            const usageResult = await options.onTokenUsage(response.tokensUsed);
+            if (usageResult && (usageResult as any).exceeded) {
+              return {
+                finalContent: `Execution halted: Hard token budget allocated for this run has been reached.`,
+                turnCount: currentTurn,
+                actions,
+                isAborted: true,
+              };
+            }
+          } catch (uErr) {
+            console.warn('[KIN RUN] Token usage check notice:', uErr);
+          }
+        }
       } catch (err: any) {
         const errMsg = err?.message || String(err);
         if (this.isQuotaError(errMsg)) {
@@ -584,8 +656,11 @@ export class AgentLoopRunner {
         ? displayOutput
         : JSON.stringify(displayOutput, null, 2);
 
-      // Truncate overly long observations to 10,000 characters to safeguard local LLM context limits
-      if (rawObservationStr.length > 10000) {
+      // Spill oversized tool output (>4000 characters) to disk using OutputSpiller
+      if (rawObservationStr.length > 4000) {
+        const spill = this.outputSpiller.processOutput(rawObservationStr, toolCall.name);
+        rawObservationStr = spill.content;
+      } else if (rawObservationStr.length > 10000) {
         rawObservationStr = rawObservationStr.slice(0, 10000) + '\n... [observation truncated to 10,000 characters for context limit safety]';
       }
 

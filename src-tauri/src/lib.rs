@@ -13,9 +13,9 @@ use supervisor::ProcessSupervisor;
 pub fn run() {
     // 1. Initialize native Process Supervisor (Job Object on Windows)
     if let Err(e) = ProcessSupervisor::init() {
-        eprintln!("[KIN WARNING] Failed to initialize OS Process Supervisor: {}", e);
+        eprintln!("[KIN WARNING] Failed to initialize Native Process Supervisor: {}", e);
     } else {
-        println!("[KIN CORE] OS Process Supervisor initialized successfully.");
+        println!("[KIN CORE] Native Process Supervisor initialized successfully.");
     }
 
     // 2. Build and run Tauri application
@@ -27,6 +27,9 @@ pub fn run() {
         ])
         .setup(|app| {
             println!("[KIN SHELL] Tauri 2 desktop shell ready: version {}", app.package_info().version);
+            if let Err(daemon_err) = ProcessSupervisor::spawn_core_daemon_if_needed() {
+                eprintln!("[KIN WARNING] Daemon auto-spawn notice: {}", daemon_err);
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

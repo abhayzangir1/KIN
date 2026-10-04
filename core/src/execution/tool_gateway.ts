@@ -14,11 +14,13 @@ import { AutonomyMode, RiskLevel } from '../domain/types.js';
 import { DesktopController } from '../computer/desktop_controller.js';
 import { BrowserController, WebStepAction } from '../browser/browser_controller.js';
 import { FinancialSafetyShield } from '../policy/financial_safety.js';
+import { PolicyEngine } from '../policy/policy_engine.js';
 import { SchedulerService } from '../automation/scheduler.js';
 import { ToolDefinitionSchema } from '../context/context_compiler.js';
 import { KinDatabase } from '../storage/db.js';
 import { ComputerSupervisor } from '../computer/computer_supervisor.js';
 import { SkillEngine } from '../skills/skill_engine.js';
+import { McpClientManager } from './mcp_client.js';
 
 export class StaleWriteConflictError extends Error {
   public code = 'STALE_WRITE_CONFLICT';
@@ -40,6 +42,8 @@ export class StaleWriteConflictError extends Error {
 export interface ToolExecutionContext {
   runId: string;
   agentId: string;
+  parentRunId?: string;
+  parentCapabilities?: string[];
   worktreeRoot: string;
   autonomyMode: AutonomyMode;
   allowedCapabilities: string[];
@@ -52,6 +56,7 @@ export interface ToolExecutionContext {
   abortSignal?: AbortSignal;
   expectedHash?: string;
   forceWrite?: boolean;
+  approvalToken?: string;
 }
 
 export interface ToolInvocationResult<T = unknown> {
@@ -66,10 +71,13 @@ export class ToolGateway {
   private desktopController: DesktopController;
   private browserController: BrowserController;
   private financialSafety: FinancialSafetyShield;
+  private policyEngine: PolicyEngine;
   private scheduler?: SchedulerService;
   private db?: KinDatabase;
   private computerSupervisor?: ComputerSupervisor;
   private skillEngine?: SkillEngine;
+  private mcpClient?: McpClientManager;
+  private singleUseApprovalTokens: Map<string, { toolName: string; runId?: string; expiresAt: number }> = new Map();
 
   constructor(options?: {
     desktopController?: DesktopController;
@@ -79,14 +87,57 @@ export class ToolGateway {
     db?: KinDatabase;
     computerSupervisor?: ComputerSupervisor;
     skillEngine?: SkillEngine;
+    policyEngine?: PolicyEngine;
+    mcpClient?: McpClientManager;
   }) {
     this.desktopController = options?.desktopController ?? new DesktopController();
     this.browserController = options?.browserController ?? new BrowserController();
     this.financialSafety = options?.financialSafety ?? new FinancialSafetyShield();
+    this.policyEngine = options?.policyEngine ?? new PolicyEngine();
     this.scheduler = options?.scheduler;
     this.db = options?.db;
     this.computerSupervisor = options?.computerSupervisor;
     this.skillEngine = options?.skillEngine;
+    this.mcpClient = options?.mcpClient;
+  }
+
+  public setPolicyEngine(policyEngine: PolicyEngine): void {
+    this.policyEngine = policyEngine;
+  }
+
+  public getPolicyEngine(): PolicyEngine {
+    return this.policyEngine;
+  }
+
+  public setMcpClient(mcpClient: McpClientManager): void {
+    this.mcpClient = mcpClient;
+  }
+
+  public getMcpClient(): McpClientManager | undefined {
+    return this.mcpClient;
+  }
+
+  public generateApprovalToken(toolName: string, runId?: string, ttlMs: number = 60000): string {
+    const token = `appr-tok-${Date.now()}-${crypto.randomBytes(16).toString('hex')}`;
+    this.singleUseApprovalTokens.set(token, {
+      toolName,
+      runId,
+      expiresAt: Date.now() + ttlMs,
+    });
+    return token;
+  }
+
+  public consumeApprovalToken(token: string, toolName: string, runId?: string): boolean {
+    const record = this.singleUseApprovalTokens.get(token);
+    if (!record) return false;
+    if (Date.now() > record.expiresAt) {
+      this.singleUseApprovalTokens.delete(token);
+      return false;
+    }
+    if (record.toolName !== toolName) return false;
+    if (record.runId && runId && record.runId !== runId) return false;
+    this.singleUseApprovalTokens.delete(token);
+    return true;
   }
 
   public setSkillEngine(skillEngine: SkillEngine): void {
@@ -152,7 +203,7 @@ export class ToolGateway {
    * Deterministically exported for compilation into Block 2 of LLM context.
    */
   public getToolSchemas(): ToolDefinitionSchema[] {
-    return [
+    const schemas: ToolDefinitionSchema[] = [
       {
         name: 'readFile',
         description: 'Read the contents of a file within the project workspace.',
@@ -359,12 +410,30 @@ export class ToolGateway {
         },
       },
     ];
+
+    const mcp = this.mcpClient;
+    if (mcp) {
+      const mcpTools = mcp.getAllTools();
+      for (const t of mcpTools) {
+        schemas.push({
+          name: `mcp__${t.serverName}__${t.name}`,
+          description: `[MCP Server: ${t.serverName}] ${t.description || t.name}`,
+          parameters: t.inputSchema || { type: 'object', properties: {} },
+        });
+      }
+    }
+
+    return schemas;
   }
 
   /**
    * Maps every tool to its discrete capability tag and recognized aliases.
    */
   public getRequiredCapability(toolName: string): { primary: string; aliases: string[] } {
+    if (toolName.startsWith('mcp__')) {
+      return { primary: 'mcp:call', aliases: ['mcp:call', 'mcp', toolName, '*'] };
+    }
+
     switch (toolName) {
       case 'create_skill':
       case 'createSkill':
@@ -495,7 +564,13 @@ export class ToolGateway {
       return res;
     }
 
-    // 1. Granular Capability Tag Enforcement (403 Forbidden on violation)
+    // 1. Single-Use Operator Approval Token Check
+    let approvalBypassed = false;
+    if (context.approvalToken) {
+      approvalBypassed = this.consumeApprovalToken(context.approvalToken, toolName, context.runId);
+    }
+
+    // 2. Granular Capability Tag Enforcement (403 Forbidden on violation)
     const capCheck = this.checkCapabilityAuthorized(toolName, context.allowedCapabilities);
     if (!capCheck.authorized) {
       const err = `FORBIDDEN: Agent '${context.agentId}' lacks required capability '${capCheck.requiredTag}' to execute '${toolName}'. Allowed: [${(context.allowedCapabilities || []).join(', ')}]`;
@@ -508,20 +583,45 @@ export class ToolGateway {
       return res;
     }
 
-    // 2. Evaluate Autonomy Mode & Risk Gate
-    const approvalRequired = this.checkApprovalRequired(risk, context);
+    // 3. Authoritative Policy Engine Gate (capabilities, attenuation, risk, autonomy)
+    const targetPathOrCmd = params?.command || params?.filePath || params?.path || params?.url || (params?.name ? String(params.name) : undefined);
+    const policyResult = this.policyEngine.evaluateAction({
+      agentId: context.agentId,
+      parentRunId: context.parentRunId,
+      toolName,
+      commandOrPath: targetPathOrCmd,
+      riskLevel: risk,
+      autonomyMode: context.autonomyMode,
+      agentCapabilities: context.allowedCapabilities,
+      parentCapabilities: context.parentCapabilities,
+      subagentApprovedWhitelist: context.subagentWhitelist,
+    });
+
+    if (!policyResult.allowed) {
+      const res: ToolInvocationResult<T> = {
+        success: false,
+        riskLevel: risk,
+        error: policyResult.reason || `FORBIDDEN: Action '${toolName}' disallowed by policy.`,
+      };
+      this.recordActionRecord(context, toolName, params, res, 'failure', Date.now() - startTime);
+      return res;
+    }
+
+    // 4. Evaluate Autonomy Mode & Risk Gate
+    // If a verified single-use approval token was provided, approval is fulfilled.
+    const approvalRequired = approvalBypassed ? false : (policyResult.requiresInteractiveApproval || this.checkApprovalRequired(risk, context, toolName));
     if (approvalRequired) {
       const res: ToolInvocationResult<T> = {
         success: false,
         requiresApproval: true,
         riskLevel: risk,
-        error: `Action '${toolName}' classified as ${risk} risk requires interactive human approval under ${context.autonomyMode} mode.`,
+        error: policyResult.reason || `Action '${toolName}' classified as ${risk} risk requires interactive human approval under ${context.autonomyMode} mode.`,
       };
       this.recordActionRecord(context, toolName, params, res, 'requires_approval', Date.now() - startTime);
       return res;
     }
 
-    // 3. Route to native execution handlers
+    // 5. Route to native execution handlers
     try {
       const rawResult = await this.dispatchToolExecution<T>(toolName, params, context, risk);
       const durationMs = Date.now() - startTime;
@@ -546,6 +646,23 @@ export class ToolGateway {
     context: ToolExecutionContext,
     risk: RiskLevel
   ): Promise<ToolInvocationResult<T>> {
+    // Dynamic MCP Tool Invocation
+    if (toolName.startsWith('mcp__')) {
+      if (!this.mcpClient) {
+        throw new Error(`MCP Client is not configured in ToolGateway for '${toolName}'.`);
+      }
+      const parts = toolName.split('__');
+      const serverName = parts[1];
+      const mcpTool = parts.slice(2).join('__');
+      const callRes = await this.mcpClient.callTool(serverName, mcpTool, params);
+      return {
+        success: !callRes.isError,
+        output: callRes.content as T,
+        riskLevel: risk,
+        error: callRes.isError ? (callRes.content?.[0]?.text || 'MCP tool execution error') : undefined,
+      };
+    }
+
     switch (toolName) {
         // Persistent Skills & Dynamic Capability Creation
         case 'create_skill':
@@ -1183,9 +1300,16 @@ export class ToolGateway {
     return 'MEDIUM';
   }
 
-  public checkApprovalRequired(risk: RiskLevel, context: ToolExecutionContext): boolean {
-    // Zero-Trust Rule: CRITICAL risk actions (financial payment, destructive format, etc.)
-    // CANNOT be bypassed under any mode (even FULL_ACCESS).
+  public checkApprovalRequired(risk: RiskLevel, context: ToolExecutionContext, toolName?: string): boolean {
+    if (context.approvalToken) {
+      const valid = this.consumeApprovalToken(context.approvalToken, toolName || '', context.runId);
+      if (valid) {
+        return false;
+      }
+    }
+
+    // Zero-Trust Rule: CRITICAL risk actions without valid single-use operator authorization token
+    // cannot be bypassed under any mode (even FULL_ACCESS).
     if (risk === 'CRITICAL') {
       return true;
     }

@@ -33,15 +33,20 @@ import { RecoveryEngine } from '../recovery/recovery_engine.js';
 import { FinancialSafetyShield } from '../policy/financial_safety.js';
 import { MemoryRepository } from '../domain/memory_repository.js';
 import { ComputerSupervisor } from '../computer/computer_supervisor.js';
+import { SecretVault } from '../security/secret_vault.js';
+import { WorktreeManager } from '../execution/worktree_manager.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface CoreServerOptions {
   port?: number;
   dbPath?: string;
+  requireIpcAuth?: boolean;
 }
 
 export class CoreServer {
   private port: number;
+  private requireIpcAuth: boolean;
+  private ipcAuthToken: string = '';
   private server?: http.Server;
   private db: KinDatabase;
   private workspaceRepo: WorkspaceRepository;
@@ -108,8 +113,31 @@ export class CoreServer {
 
   constructor(options: CoreServerOptions = {}) {
     this.port = options.port ?? 54321;
+    this.requireIpcAuth = options.requireIpcAuth ?? (this.port === 54321);
     this.dbPath = options.dbPath ?? './kin_storage.sqlite';
     this.db = new KinDatabase({ dbPath: this.dbPath });
+
+    if (this.requireIpcAuth) {
+      try {
+        const kinDir = path.resolve(process.cwd(), '.kin');
+        if (!fs.existsSync(kinDir)) {
+          fs.mkdirSync(kinDir, { recursive: true });
+        }
+        const tokenPath = path.join(kinDir, 'ipc_auth.token');
+        if (fs.existsSync(tokenPath)) {
+          this.ipcAuthToken = fs.readFileSync(tokenPath, 'utf-8').trim();
+        } else {
+          this.ipcAuthToken = crypto.randomBytes(32).toString('hex');
+          try {
+            fs.writeFileSync(tokenPath, this.ipcAuthToken, { encoding: 'utf-8', mode: 0o600 });
+          } catch {
+            fs.writeFileSync(tokenPath, this.ipcAuthToken, 'utf-8');
+          }
+        }
+      } catch (tokenErr) {
+        console.warn('[KIN CORE] IPC auth token setup notice:', tokenErr);
+      }
+    }
     
     // Ensure migrations have executed
     const migrationRunner = new MigrationRunner(this.db);
@@ -161,20 +189,21 @@ export class CoreServer {
         const defaultOpenRouterKey = process.env.OPENROUTER_API_KEY || '';
         if (defaultOpenRouterKey) {
           const now = Date.now();
-        this.db.execute(
-          `INSERT INTO managed_credentials (id, provider, key_alias, secret_hash, scoped_grants_json, max_spend_tokens, current_spend_tokens, is_active, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          `cred-${now}-openrouter`,
-          'openrouter',
-          'OpenRouter Free Tier (ZDR Compliant)',
-          defaultOpenRouterKey,
-          JSON.stringify([]),
-          5000000,
-          0,
-          1,
-          now,
-          now
-        );
+          const encryptedKey = SecretVault.getInstance().encrypt(defaultOpenRouterKey);
+          this.db.execute(
+            `INSERT INTO managed_credentials (id, provider, key_alias, secret_hash, scoped_grants_json, max_spend_tokens, current_spend_tokens, is_active, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `cred-${now}-openrouter`,
+            'openrouter',
+            'OpenRouter Free Tier (ZDR Compliant)',
+            encryptedKey,
+            JSON.stringify([]),
+            5000000,
+            0,
+            1,
+            now,
+            now
+          );
         }
       }
     } catch {}
@@ -193,6 +222,7 @@ export class CoreServer {
     this.toolGateway.setSkillEngine(this.skillEngine);
     this.recoveryEngine = new RecoveryEngine(this.skillEngine);
     this.mcpClient = new McpClientManager(process.cwd());
+    this.toolGateway.setMcpClient(this.mcpClient);
     this.agentLoopRunner = new AgentLoopRunner(
       this.modelGateway,
       this.toolGateway,
@@ -893,6 +923,10 @@ export class CoreServer {
     });
   }
 
+  public getIpcAuthToken(): string {
+    return this.ipcAuthToken;
+  }
+
   public stop(): Promise<void> {
     return new Promise((resolve) => {
       for (const client of Array.from(this.sseClients)) {
@@ -1095,16 +1129,38 @@ export class CoreServer {
     }
   }
 
-  private handleCors(res: http.ServerResponse): void {
-    if (res.headersSent) return;
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  private isAllowedOrigin(origin?: string): boolean {
+    if (!origin) return true;
+    if (!this.requireIpcAuth && this.port !== 54321) return true;
+    try {
+      const u = new URL(origin);
+      if (u.protocol === 'tauri:' && u.hostname === 'localhost') return true;
+      if (u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '::1') return true;
+      return false;
+    } catch {
+      return origin === 'tauri://localhost' || origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1');
+    }
   }
 
-  private sendJson(res: http.ServerResponse, statusCode: number, data: any): void {
+  private handleCors(res: http.ServerResponse, req?: http.IncomingMessage): void {
+    if (res.headersSent) return;
+    const origin = req?.headers?.origin;
+    if (this.requireIpcAuth || this.port === 54321) {
+      if (origin && this.isAllowedOrigin(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+      } else if (!origin) {
+        res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5173');
+      }
+    } else {
+      res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-IPC-Token');
+  }
+
+  private sendJson(res: http.ServerResponse, statusCode: number, data: any, req?: http.IncomingMessage): void {
     if (res.headersSent || res.writableEnded || res.destroyed) return;
-    this.handleCors(res);
+    this.handleCors(res, req);
     res.writeHead(statusCode, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(data));
   }
@@ -1133,7 +1189,7 @@ export class CoreServer {
   }
 
   private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-    this.handleCors(res);
+    this.handleCors(res, req);
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
@@ -1144,14 +1200,31 @@ export class CoreServer {
     const parsedUrl = new URL(req.url ?? '/', 'http://127.0.0.1');
     const pathname = parsedUrl.pathname;
 
+    // Enforce local loopback IPC token authentication when enabled
+    if (this.requireIpcAuth && this.ipcAuthToken) {
+      const authHeader = req.headers['authorization'] || '';
+      const xIpcToken = req.headers['x-ipc-token'] as string;
+      const queryToken = parsedUrl.searchParams.get('token');
+      const bearerToken = typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+      const providedToken = bearerToken || xIpcToken || queryToken;
+
+      if (providedToken !== this.ipcAuthToken) {
+        this.sendJson(res, 401, { error: 'Unauthorized: Valid IPC token required' }, req);
+        return;
+      }
+    }
+
     try {
       // 1. SSE Stream
       if (req.method === 'GET' && pathname === '/api/events') {
+        const sseOrigin = (this.requireIpcAuth || this.port === 54321)
+          ? (req.headers.origin && this.isAllowedOrigin(req.headers.origin) ? req.headers.origin : 'http://localhost:5173')
+          : (req.headers.origin || '*');
         res.writeHead(200, {
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
           Connection: 'keep-alive',
-          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Origin': sseOrigin,
         });
         res.write(': connected\n\n');
         this.sseClients.add(res);
@@ -2054,15 +2127,41 @@ export class CoreServer {
         } else {
           senderType = 'human';
         }
+        const targetProjectId = channel.projectId || this.activeProjectId;
+        const allProjectAgents = this.agentRepo.listIdentitiesByProject(targetProjectId);
+
+        // Resolve [📎 filename] attachments in .kin/uploads/
+        let effectiveContent = body.content.trim();
+        const attachmentMatches = Array.from(effectiveContent.matchAll(/\[📎\s*([^\]]+)\]/g));
+        if (attachmentMatches.length > 0) {
+          const project = this.workspaceRepo.getProject(targetProjectId);
+          const uploadsDir = path.join(project?.repoPath || process.cwd(), '.kin', 'uploads');
+          if (fs.existsSync(uploadsDir)) {
+            const files = fs.readdirSync(uploadsDir);
+            for (const match of attachmentMatches) {
+              const rawFilename = match[1].trim();
+              const matchedFile = files.find((f) => f === rawFilename || f.endsWith(`-${rawFilename}`) || f.includes(rawFilename));
+              if (matchedFile) {
+                const diskPath = path.join(uploadsDir, matchedFile);
+                try {
+                  const stat = fs.statSync(diskPath);
+                  let preview = '';
+                  if (stat.size < 64000) {
+                    preview = `\n[File Content Preview]:\n${fs.readFileSync(diskPath, 'utf-8').slice(0, 4000)}`;
+                  }
+                  effectiveContent += `\n\n[System Attachment: '${rawFilename}' resolved on disk at: ${diskPath} (${stat.size} bytes)]${preview}`;
+                } catch {}
+              }
+            }
+          }
+        }
+
         const userMsg = this.channelService.sendMessage({
           channelId,
           senderId: body.senderId || 'user-operator',
           senderType,
-          content: body.content.trim(),
+          content: effectiveContent,
         });
-
-        const targetProjectId = channel.projectId || this.activeProjectId;
-        const allProjectAgents = this.agentRepo.listIdentitiesByProject(targetProjectId);
 
         const rawContent = userMsg.content;
         const contentTrimmed = rawContent.trim();
@@ -3313,7 +3412,21 @@ export class CoreServer {
 
             // Subcommand: /skills import <pathOrJson>
             if (rawSub.startsWith('import ')) {
-              const target = rawSub.replace(/^import\s*/i, '').trim();
+              let target = rawSub.replace(/^import\s*/i, '').trim();
+              const attachMatch = target.match(/\[📎\s*([^\]]+)\]/);
+              if (attachMatch) {
+                const rawName = attachMatch[1].trim();
+                const project = this.workspaceRepo.getProject(targetProjectId);
+                const uploadsDir = path.join(project?.repoPath || process.cwd(), '.kin', 'uploads');
+                if (fs.existsSync(uploadsDir)) {
+                  const files = fs.readdirSync(uploadsDir);
+                  const matchedFile = files.find((f) => f === rawName || f.endsWith(`-${rawName}`) || f.includes(rawName));
+                  if (matchedFile) {
+                    target = path.join(uploadsDir, matchedFile);
+                  }
+                }
+              }
+
               try {
                 let importedCount = 0;
                 let skillNames: string[] = [];
@@ -3324,17 +3437,37 @@ export class CoreServer {
                   skillNames = resBundle.skills.map((s) => s.name);
                   this.broadcastEvent('skill:imported', resBundle);
                 } else {
-                  let targetDir = path.isAbsolute(target) ? target : path.resolve(process.cwd(), target);
-                  if (!fs.existsSync(targetDir)) {
+                  let targetPath = path.isAbsolute(target) ? target : path.resolve(process.cwd(), target);
+                  if (!fs.existsSync(targetPath)) {
                     const parentResolved = path.resolve(process.cwd(), '..', target);
                     if (fs.existsSync(parentResolved)) {
-                      targetDir = parentResolved;
+                      targetPath = parentResolved;
                     }
                   }
-                  const dirRes = this.skillEngine.importSkillDirectory(targetDir);
-                  importedCount = dirRes.imported;
-                  skillNames = dirRes.skills.map((s) => s.name);
-                  this.broadcastEvent('skill:imported', dirRes);
+                  if (fs.existsSync(targetPath) && fs.statSync(targetPath).isFile()) {
+                    const rawFileText = fs.readFileSync(targetPath, 'utf-8');
+                    if (rawFileText.trim().startsWith('{') || rawFileText.trim().startsWith('[')) {
+                      const resBundle = this.skillEngine.importSkillBundle(rawFileText);
+                      importedCount = resBundle.imported;
+                      skillNames = resBundle.skills.map((s) => s.name);
+                      this.broadcastEvent('skill:imported', resBundle);
+                    } else {
+                      const baseSkillName = path.basename(targetPath, path.extname(targetPath)).replace(/[^a-zA-Z0-9_-]/g, '_');
+                      const importedSkill = this.skillEngine.createSkill({
+                        name: baseSkillName,
+                        description: `Imported from uploaded file ${path.basename(targetPath)}`,
+                        instructions: rawFileText,
+                      });
+                      importedCount = 1;
+                      skillNames = [importedSkill.name];
+                      this.broadcastEvent('skill:created', importedSkill);
+                    }
+                  } else {
+                    const dirRes = this.skillEngine.importSkillDirectory(targetPath);
+                    importedCount = dirRes.imported;
+                    skillNames = dirRes.skills.map((s) => s.name);
+                    this.broadcastEvent('skill:imported', dirRes);
+                  }
                 }
 
                 const reply = this.channelService.sendMessage({
@@ -3989,6 +4122,10 @@ export class CoreServer {
           if (body.approved) {
             try {
               const payload = JSON.parse(approvalRow.action_payload_json || '{}');
+              const approvalToken = this.toolGateway.generateApprovalToken(
+                approvalRow.tool_name,
+                approvalRow.run_id
+              );
               toolExecutionResult = await this.toolGateway.executeTool(
                 approvalRow.tool_name,
                 payload,
@@ -3998,6 +4135,7 @@ export class CoreServer {
                   worktreeRoot,
                   autonomyMode: 'FULL_ACCESS', // Explicit operator authorization overrides gate
                   allowedCapabilities: ['*'],
+                  approvalToken,
                 }
               );
 
@@ -5822,12 +5960,17 @@ export class CoreServer {
           try {
             if (r.scoped_grants_json) scopedAgentIds = JSON.parse(r.scoped_grants_json);
           } catch {}
+          let rawKey = r.secret_hash || '';
+          try {
+            rawKey = SecretVault.getInstance().decrypt(r.secret_hash);
+          } catch {}
+          const maskedKey = rawKey.length > 8 ? `${rawKey.slice(0, 4)}...${rawKey.slice(-4)}` : '****...****';
           return {
             id: r.id,
             provider: r.provider,
             keyName: r.key_alias,
             keyAlias: r.key_alias,
-            maskedKey: r.secret_hash.length > 8 ? `${r.secret_hash.slice(0, 4)}...${r.secret_hash.slice(-4)}` : '****...****',
+            maskedKey,
             monthlyQuotaTokens: r.max_spend_tokens,
             maxSpendTokens: r.max_spend_tokens,
             usedTokens: r.current_spend_tokens,
@@ -5861,13 +6004,15 @@ export class CoreServer {
           ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}`
           : '****...****';
 
+        const encryptedKey = SecretVault.getInstance().encrypt(apiKey);
+
         this.db.execute(
           `INSERT INTO managed_credentials (id, provider, key_alias, secret_hash, scoped_grants_json, max_spend_tokens, current_spend_tokens, is_active, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           credId,
           provider,
           keyName,
-          apiKey,
+          encryptedKey,
           JSON.stringify(scopedAgentIds),
           Number(monthlyQuotaTokens),
           0,
@@ -6505,6 +6650,21 @@ export class CoreServer {
       const project = this.workspaceRepo.getProject(targetProjectId);
       const repoRoot = project?.repoPath || process.cwd();
 
+      // Check if coding task to provision isolated git worktree
+      let worktreeInfo: { worktreePath: string; branch: string; isShadowRepo: boolean } | null = null;
+      let effectiveWorktreeRoot = repoRoot;
+      const isCoding = !!(activeTaskId || freshIdentity.capabilities?.includes('worktree') || triggerMsg?.content?.toLowerCase().includes('code') || triggerMsg?.content?.toLowerCase().includes('refactor') || triggerMsg?.content?.toLowerCase().includes('implement') || triggerMsg?.content?.toLowerCase().includes('fix') || triggerMsg?.content?.toLowerCase().includes('bug'));
+      if (isCoding) {
+        try {
+          const worktreeManager = new WorktreeManager(repoRoot);
+          worktreeInfo = await worktreeManager.provisionWorktree(run.id, freshIdentity.displayName?.replace(/^@/, '') || 'worker');
+          effectiveWorktreeRoot = worktreeInfo.worktreePath;
+          this.kernel.updateWorktreePath(run.id, effectiveWorktreeRoot);
+        } catch (wtErr) {
+          console.warn('[KIN CORE] Worktree provision notice (falling back to repoRoot):', wtErr);
+        }
+      }
+
       // 4b. Incorporate any in-flight mid-task steering directives from the user
       const relevantSteers = this.pendingSteers.filter((s) => {
         if (s.channelId !== channelId) return false;
@@ -6531,9 +6691,16 @@ export class CoreServer {
         channelId,
         userPrompt: triggerMsg?.content || '',
         systemPrompt: compiled.fullAssembledPrompt,
-        worktreeRoot: repoRoot,
+        worktreeRoot: effectiveWorktreeRoot,
         autonomyMode: this.workspaceRepo.getWorkspace('ws-default')?.defaultAutonomyMode ?? 'AUTO',
         maxTurns: 6,
+        onTokenUsage: (tokensUsed) => {
+          try {
+            return this.kernel.recordTokenUsage(run.id, tokensUsed.totalTokens);
+          } catch {
+            return { exceeded: false };
+          }
+        },
         initialMessages: resumeCheckpoint?.conversationHistory?.length ? resumeCheckpoint.conversationHistory : modelMessages,
         resumeFromTurnCheckpoint: resumeCheckpoint,
         onTurnCheckpoint: async (turn, conversationHistory, actions) => {
@@ -6718,6 +6885,33 @@ export class CoreServer {
         }
       }
 
+      // Handle isolated git worktree changes: commit diff, verify and merge to base branch
+      let worktreeCommitSha: string | null = null;
+      if (worktreeInfo) {
+        try {
+          const worktreeManager = new WorktreeManager(repoRoot);
+          const diff = await worktreeManager.generateDiff(worktreeInfo.worktreePath);
+          if (diff && diff.trim().length > 0) {
+            worktreeCommitSha = await worktreeManager.commitWorktreeChanges(
+              worktreeInfo.worktreePath,
+              `KIN agent ${freshIdentity.displayName} automated task ${run.id}`
+            );
+            const mergeRes = await worktreeManager.verifyAndMerge(
+              worktreeInfo.worktreePath,
+              worktreeInfo.branch,
+              'main'
+            );
+            if (!mergeRes.success && mergeRes.error) {
+              console.warn('[KIN CORE] Worktree merge conflict/error:', mergeRes.error);
+            }
+          } else {
+            await worktreeManager.removeWorktree(worktreeInfo.worktreePath);
+          }
+        } catch (wtMergeErr) {
+          console.warn('[KIN CORE] Worktree merge/cleanup error:', wtMergeErr);
+        }
+      }
+
       // Record actual loopResult.actions in checkpoints table upon run completion
       if (run?.id && loopResult?.actions) {
         try {
@@ -6734,7 +6928,7 @@ export class CoreServer {
               agentId: freshIdentity.id,
               channelId,
             }),
-            null,
+            worktreeCommitSha,
             Date.now()
           );
         } catch (chkErr) {

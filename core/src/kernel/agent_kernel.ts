@@ -68,6 +68,19 @@ export class AgentKernel {
     const id = uuidv4();
     const now = Date.now();
 
+    let allocatedTokens = params.allocatedTokens;
+    if (params.parentRunId) {
+      const parentRun = this.getRun(params.parentRunId);
+      if (allocatedTokens === undefined && parentRun) {
+        // Inherit remaining token budget from parent run
+        const remainingBudget = Math.max(1000, parentRun.allocatedTokens - parentRun.usedTokens);
+        allocatedTokens = remainingBudget;
+      }
+    }
+    if (allocatedTokens === undefined) {
+      allocatedTokens = 100000;
+    }
+
     const run: AgentRun = {
       id,
       agentId: params.agentId,
@@ -78,7 +91,7 @@ export class AgentKernel {
       triggerMessageId: params.triggerMessageId,
       state: 'running',
       heartbeatAt: now,
-      allocatedTokens: params.allocatedTokens ?? 100000,
+      allocatedTokens,
       usedTokens: 0,
       createdAt: now,
     };
@@ -194,6 +207,17 @@ export class AgentKernel {
     this.db.execute(
       `UPDATE agent_runs SET heartbeat_at = ? WHERE id = ? AND state = 'running'`,
       Date.now(),
+      runId
+    );
+  }
+
+  /**
+   * Associates an isolated git worktree path with an active agent run.
+   */
+  public updateWorktreePath(runId: string, worktreePath: string): void {
+    this.db.execute(
+      `UPDATE agent_runs SET worktree_path = ? WHERE id = ?`,
+      worktreePath,
       runId
     );
   }
@@ -337,12 +361,43 @@ export class AgentKernel {
     return depth;
   }
 
-  private countDescendants(parentRunId: string): number {
+  public countDescendants(parentRunId: string): number {
     const row = this.db.queryOne<{ count: number }>(
-      `SELECT COUNT(*) as count FROM agent_runs WHERE parent_run_id = ?`,
+      `WITH RECURSIVE descendants(id) AS (
+         SELECT id FROM agent_runs WHERE parent_run_id = ?
+         UNION ALL
+         SELECT r.id FROM agent_runs r
+         JOIN descendants d ON r.parent_run_id = d.id
+       )
+       SELECT COUNT(*) as count FROM descendants`,
       parentRunId
     );
     return row?.count ?? 0;
+  }
+
+  /**
+   * Increments agent_runs.used_tokens by turn usage and checks hard budget limit.
+   */
+  public recordTokenUsage(runId: string, tokens: number): { usedTokens: number; allocatedTokens: number; exceeded: boolean } {
+    this.db.execute(
+      `UPDATE agent_runs SET used_tokens = used_tokens + ? WHERE id = ?`,
+      tokens,
+      runId
+    );
+    const run = this.getRun(runId);
+    const usedTokens = run?.usedTokens ?? 0;
+    const allocatedTokens = run?.allocatedTokens ?? 100000;
+    const exceeded = usedTokens >= allocatedTokens;
+
+    if (exceeded && run && run.state === 'running') {
+      this.transitionState(runId, 'failed', `Hard token budget exceeded: ${usedTokens}/${allocatedTokens} tokens used.`);
+    }
+
+    return {
+      usedTokens,
+      allocatedTokens,
+      exceeded,
+    };
   }
 
   private recordEvent(eventType: string, entityType: string, entityId: string, payload: Record<string, unknown>): void {

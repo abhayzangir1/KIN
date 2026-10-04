@@ -4,6 +4,8 @@
 // and zero autonomous model routing (strictly adheres to user-assigned model).
 // ============================================================================
 
+import { SecretVault } from '../security/secret_vault.js';
+
 export interface ModelMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -72,15 +74,21 @@ export class ModelGateway {
   }
 
   public resolveApiKey(provider: string): string | undefined {
+    let rawKey: string | undefined;
     if (this.apiKeyResolver) {
       const resolved = this.apiKeyResolver(provider);
-      if (resolved) return resolved;
+      if (resolved) rawKey = resolved;
     }
-    if (provider === 'openrouter') return this.openrouterApiKey || process.env.OPENROUTER_API_KEY;
-    if (provider === 'openai') return this.openaiApiKey || process.env.OPENAI_API_KEY;
-    if (provider === 'anthropic') return this.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
-    if (provider === 'deepseek') return this.deepseekApiKey || process.env.DEEPSEEK_API_KEY;
-    if (provider === 'gemini') return this.geminiApiKey || process.env.GEMINI_API_KEY;
+    if (!rawKey) {
+      if (provider === 'openrouter') rawKey = this.openrouterApiKey || process.env.OPENROUTER_API_KEY;
+      else if (provider === 'openai') rawKey = this.openaiApiKey || process.env.OPENAI_API_KEY;
+      else if (provider === 'anthropic') rawKey = this.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
+      else if (provider === 'deepseek') rawKey = this.deepseekApiKey || process.env.DEEPSEEK_API_KEY;
+      else if (provider === 'gemini') rawKey = this.geminiApiKey || process.env.GEMINI_API_KEY;
+    }
+    if (rawKey) {
+      return SecretVault.getInstance().decrypt(rawKey);
+    }
     return undefined;
   }
 
@@ -174,7 +182,7 @@ export class ModelGateway {
       body: JSON.stringify({
         model: modelName,
         messages: params.messages,
-        stream: false,
+        stream: true,
         options: {
           temperature: params.temperature ?? 0.2,
           num_predict: params.maxTokens ?? 2048,
@@ -187,27 +195,129 @@ export class ModelGateway {
       throw new Error(`Ollama HTTP ${res.status}: ${errText}`);
     }
 
-    const data: any = await res.json();
-    const rawContent = data?.message?.content || '';
-    const rawThinking = data?.message?.thinking || '';
-    let content = rawContent;
-    if (!content.trim() && rawThinking.trim()) {
-      content = rawThinking.trim();
+    let fullContent = '';
+    let fullThinking = '';
+    let promptTokens = 0;
+    let completionTokens = 0;
+
+    if (res.body && typeof (res.body as any).getReader === 'function') {
+      const reader = (res.body as any).getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const parsed = JSON.parse(trimmed);
+            const token = parsed?.message?.content || '';
+            const thinkToken = parsed?.message?.thinking || '';
+            if (token) {
+              fullContent += token;
+              if (params.onToken) {
+                params.onToken(token);
+              }
+            }
+            if (thinkToken) {
+              fullThinking += thinkToken;
+            }
+            if (parsed.done) {
+              promptTokens = parsed.prompt_eval_count || promptTokens;
+              completionTokens = parsed.eval_count || completionTokens;
+            }
+          } catch {}
+        }
+      }
+
+      if (buffer.trim()) {
+        try {
+          const parsed = JSON.parse(buffer.trim());
+          const token = parsed?.message?.content || '';
+          if (token) {
+            fullContent += token;
+            if (params.onToken) params.onToken(token);
+          }
+          if (parsed.done) {
+            promptTokens = parsed.prompt_eval_count || promptTokens;
+            completionTokens = parsed.eval_count || completionTokens;
+          }
+        } catch {}
+      }
+    } else if (res.body && (Symbol.asyncIterator in (res.body as any))) {
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      for await (const chunk of (res.body as any)) {
+        buffer += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const parsed = JSON.parse(trimmed);
+            const token = parsed?.message?.content || '';
+            const thinkToken = parsed?.message?.thinking || '';
+            if (token) {
+              fullContent += token;
+              if (params.onToken) params.onToken(token);
+            }
+            if (thinkToken) fullThinking += thinkToken;
+            if (parsed.done) {
+              promptTokens = parsed.prompt_eval_count || promptTokens;
+              completionTokens = parsed.eval_count || completionTokens;
+            }
+          } catch {}
+        }
+      }
+    } else {
+      const text = await res.text();
+      const lines = text.split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const parsed = JSON.parse(trimmed);
+          const token = parsed?.message?.content || '';
+          if (token) fullContent += token;
+          if (parsed.done) {
+            promptTokens = parsed.prompt_eval_count || promptTokens;
+            completionTokens = parsed.eval_count || completionTokens;
+          }
+        } catch {}
+      }
+      if (params.onToken && fullContent) {
+        params.onToken(fullContent);
+      }
     }
-    if (params.onToken && content) {
-      params.onToken(content);
+
+    let content = fullContent;
+    if (!content.trim() && fullThinking.trim()) {
+      content = fullThinking.trim();
+    }
+
+    const tokensUsed = {
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+    };
+
+    if (this.onUsage) {
+      this.onUsage('ollama', tokensUsed);
     }
 
     return {
       content,
-      thinking: rawThinking.trim() || undefined,
+      thinking: fullThinking.trim() || undefined,
       modelId: params.modelId,
       provider: 'ollama',
-      tokensUsed: {
-        promptTokens: data?.prompt_eval_count || 0,
-        completionTokens: data?.eval_count || 0,
-        totalTokens: (data?.prompt_eval_count || 0) + (data?.eval_count || 0),
-      },
+      tokensUsed,
       durationMs: Date.now() - startTime,
     };
   }
