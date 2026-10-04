@@ -81,7 +81,7 @@ export const DesktopControlModal: React.FC = () => {
         setLaunchFeedback({
           name: win.title || win.processName,
           success: true,
-          msg: `Taskbar alert flashed. Windows OS background focus lock prevented direct foreground theft without user interaction.`,
+          msg: `Taskbar alert flashed. Windows background focus lock prevented direct foreground theft without user interaction.`,
         });
       } else {
         setLaunchFeedback({

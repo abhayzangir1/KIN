@@ -388,7 +388,7 @@ public static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
         activated: isActivated,
         focusLocked: isLocked,
         notice: isLocked
-          ? 'Window restored and taskbar alert flashed. Windows OS background focus lock (LockSetForegroundWindow) prevented background focus stealing without operator interaction.'
+          ? 'Window restored and taskbar alert flashed. Windows background focus lock (LockSetForegroundWindow) prevented background focus stealing without operator interaction.'
           : 'Window activated and brought to foreground.',
         details: { target: titleOrPid, output: out, focusLocked: isLocked, activated: isActivated },
       };

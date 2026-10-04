@@ -19,6 +19,7 @@ export interface ModelInvocationParams {
 
 export interface ModelInvocationResult {
   content: string;
+  thinking?: string;
   modelId: string;
   provider: string;
   tokensUsed: {
@@ -187,13 +188,19 @@ export class ModelGateway {
     }
 
     const data: any = await res.json();
-    const content = data?.message?.content || '';
+    const rawContent = data?.message?.content || '';
+    const rawThinking = data?.message?.thinking || '';
+    let content = rawContent;
+    if (!content.trim() && rawThinking.trim()) {
+      content = rawThinking.trim();
+    }
     if (params.onToken && content) {
       params.onToken(content);
     }
 
     return {
       content,
+      thinking: rawThinking.trim() || undefined,
       modelId: params.modelId,
       provider: 'ollama',
       tokensUsed: {

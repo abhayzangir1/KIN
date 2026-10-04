@@ -4,6 +4,7 @@ import { MigrationRunner } from '../src/storage/migration_runner.js';
 import { ComputerSupervisor } from '../src/computer/computer_supervisor.js';
 import { ToolGateway, StaleWriteConflictError } from '../src/execution/tool_gateway.js';
 import { CoreServer } from '../src/server/core_server.js';
+import { AgentLoopRunner } from '../src/kernel/agent_loop.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -565,4 +566,47 @@ describe('KIN Dynamic Computer & Systems Upgrade (Round 14)', () => {
       }
     });
   });
+
+  describe('6. Resilient Tool Call Extraction & Routine Duration Parsing', () => {
+    it('extracts tool calls from raw JSON without <tool_call> tags', () => {
+      const rawJson = '{"name": "readFile", "parameters": {"filePath": "D:\\\\KIN\\\\core\\\\docs\\\\server.md"}}';
+      const extracted = AgentLoopRunner.extractToolCall(rawJson);
+      expect(extracted).not.toBeNull();
+      expect(extracted?.name).toBe('readFile');
+      expect(extracted?.params.filePath).toBe('D:/KIN/core/docs/server.md');
+    });
+
+    it('extracts tool calls from markdown code fences', () => {
+      const fenced = '```json\n{"name": "writeFile", "parameters": {"filePath": "src/index.ts", "content": "hello"}}\n```';
+      const extracted = AgentLoopRunner.extractToolCall(fenced);
+      expect(extracted).not.toBeNull();
+      expect(extracted?.name).toBe('writeFile');
+      expect(extracted?.params.content).toBe('hello');
+    });
+
+    it('extracts tool calls from classic <tool_call> tags with backslash path normalization', () => {
+      const tagged = '<tool_call>\n{"name": "listDirectory", "parameters": {"dirPath": "core\\\\src"}}\n</tool_call>';
+      const extracted = AgentLoopRunner.extractToolCall(tagged);
+      expect(extracted).not.toBeNull();
+      expect(extracted?.name).toBe('listDirectory');
+      expect(extracted?.params.dirPath).toBe('core/src');
+    });
+
+    it('parses diverse routine duration units correctly via parseScheduleDurationAndPrompt', () => {
+      const server = new CoreServer({ port: 0, dbPath });
+      
+      const p1 = server.parseScheduleDurationAndPrompt('30s Check active tasks');
+      expect(p1?.durationSeconds).toBe(30);
+      expect(p1?.prompt).toBe('Check active tasks');
+
+      const p2 = server.parseScheduleDurationAndPrompt('5m Deep repository audit');
+      expect(p2?.durationSeconds).toBe(300);
+      expect(p2?.prompt).toBe('Deep repository audit');
+
+      const p3 = server.parseScheduleDurationAndPrompt('1h 30m Daily operations briefing');
+      expect(p3?.durationSeconds).toBe(5400);
+      expect(p3?.prompt).toBe('Daily operations briefing');
+    });
+  });
 });
+

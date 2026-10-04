@@ -471,7 +471,8 @@ export class CoreServer {
     }
 
     // Ensure strictly ONE default agent: @Boss (Orchestrator)
-    const bossIdentity = this.agentRepo.getIdentity('agent-boss');
+    const existingAgents = this.agentRepo.listIdentitiesByProject('proj-kin');
+    let bossIdentity = this.agentRepo.getIdentity('agent-boss') || existingAgents.find((a) => a.displayName.toLowerCase() === '@boss' || a.displayName.toLowerCase() === 'boss');
     if (!bossIdentity) {
       // Clean up any legacy test agents to enforce the single-agent requirement
       this.db.execute("DELETE FROM messages WHERE sender_id IN ('agent-orch', 'agent-backend', 'agent-frontend', 'agent-db')");
@@ -514,14 +515,25 @@ export class CoreServer {
         content: 'KIN Platform initialized. I am @Boss, your Lead Sovereign Orchestrator. Workspace boundaries are strictly enforced.',
         productivityScore: 100,
       });
+      bossIdentity = this.agentRepo.getIdentity('agent-boss');
     }
 
-    // Guarantee @Boss is in #general channel_members
-    this.workspaceRepo.addChannelMember('chan-general', 'agent-boss');
+    // Ensure @Boss is in #general channel_members
+    if (bossIdentity) {
+      this.workspaceRepo.addChannelMember('chan-general', bossIdentity.id);
+    }
+
+    // Ensure terminology invariant across any pre-existing agent definitions
+    this.db.execute(`
+      UPDATE agent_definitions 
+      SET system_prompt = REPLACE(REPLACE(system_prompt, 'KIN OS', 'KIN'), 'KIN Operating System', 'KIN Platform'),
+          role = REPLACE(REPLACE(role, 'KIN OS', 'KIN'), 'KIN Operating System', 'KIN Platform')
+      WHERE system_prompt LIKE '%OS%' OR role LIKE '%OS%'
+    `);
 
     // Ensure DocWriter specialist exists for live daemon / production deliverables
     if (!process.env.VITEST && process.env.NODE_ENV !== 'test') {
-      const docIdentity = this.agentRepo.getIdentity('agent-docwriter');
+      const docIdentity = this.agentRepo.getIdentity('agent-docwriter') || existingAgents.find((a) => a.displayName.toLowerCase() === '@docwriter' || a.displayName.toLowerCase() === 'docwriter');
       if (!docIdentity) {
         this.agentRepo.createDefinition({
           id: 'def-docwriter',
@@ -2072,7 +2084,7 @@ export class CoreServer {
                   return null;
                 })();
 
-                const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500));
+                const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000));
                 const fastResult = await Promise.race([fastModelPromise, timeoutPromise]);
                 if (fastResult) {
                   answer = fastResult.content;
@@ -2255,7 +2267,8 @@ export class CoreServer {
         const hasTeamworkCmd = /\/teamwork(-preview)?\b/i.test(cleanForCompound);
         const hasGoalCmd = /\/goal\b/i.test(cleanForCompound);
         const hasScheduleCmd = /\/(schedule|timer)\b/i.test(cleanForCompound);
-        const compoundCount = (hasPlanCmd ? 1 : 0) + (hasBoostCmd ? 1 : 0) + (hasTeamworkCmd ? 1 : 0) + (hasGoalCmd ? 1 : 0) + (hasScheduleCmd ? 1 : 0);
+        const hasRoutineCmd = /\/routine\b/i.test(cleanForCompound);
+        const compoundCount = (hasPlanCmd ? 1 : 0) + (hasBoostCmd ? 1 : 0) + (hasTeamworkCmd ? 1 : 0) + (hasGoalCmd ? 1 : 0) + (hasScheduleCmd ? 1 : 0) + (hasRoutineCmd ? 1 : 0);
 
         if (compoundCount >= 2 && boss) {
           // Extract any user-specified topic, directive text, or pipe-separated params
@@ -2265,6 +2278,7 @@ export class CoreServer {
             .replace(/\/teamwork(-preview)?\b/gi, '')
             .replace(/\/goal\b/gi, '')
             .replace(/\/(schedule|timer)\b/gi, '')
+            .replace(/\/routine\b/gi, '')
             .replace(/^[,\s|:\-/]+/, '')
             .trim();
 
@@ -2382,11 +2396,31 @@ export class CoreServer {
             const verifyAgent = specialistAgents.length > 1 ? specialistAgents[1] : (specialistAgents[0] || boss);
             const phaseAssignments = [archAgent, implAgent, verifyAgent];
 
-            const phaseSteps = [
-              `[Phase 1] Architecture, Specifications & Contracts: ${objective}`,
-              `[Phase 2] Core Implementation & Refinements: ${objective}`,
-              `[Phase 3] Verification, Stress Testing & Edge Cases: ${objective}`,
-            ];
+            let phaseSteps: string[] = [];
+            if (!hasGoalCmd && strippedTopic.includes('|')) {
+              const segments = strippedTopic.split('|').map((s) => s.trim()).filter(Boolean);
+              if (segments.length >= 2) {
+                const remaining = segments.slice(1);
+                phaseSteps = remaining.map((s, idx) => s.startsWith('[Phase') || s.startsWith('Phase') ? s : `[Phase ${idx + 1}] ${s}`);
+              }
+            } else if (hasGoalCmd && strippedTopic.includes('|')) {
+              const segments = strippedTopic.split('|').map((s) => s.trim()).filter(Boolean);
+              if (segments.length >= 2) {
+                const remaining = segments.slice(1);
+                const allExplicitPhases = remaining.every((s) => /^(phase|step|milestone|\[phase)/i.test(s));
+                if (allExplicitPhases) {
+                  phaseSteps = remaining.map((s, idx) => s.startsWith('[Phase') || s.startsWith('Phase') ? s : `[Phase ${idx + 1}] ${s}`);
+                }
+              }
+            }
+
+            if (phaseSteps.length === 0) {
+              phaseSteps = [
+                `[Phase 1] Architecture, Specifications & Contracts: ${objective}`,
+                `[Phase 2] Core Implementation & Refinements: ${objective}`,
+                `[Phase 3] Verification, Stress Testing & Edge Cases: ${objective}`,
+              ];
+            }
 
             phaseSteps.forEach((stepTitle, idx) => {
               const taskId = `task-${now}-${idx + 1}`;
@@ -2467,6 +2501,22 @@ export class CoreServer {
             }
           }
 
+          // If /routine is part of compound command, parse and schedule routine
+          if (hasRoutineCmd && !scheduledTimerInfo) {
+            const schedParse = this.parseScheduleDurationAndPrompt(strippedTopic);
+            if (schedParse) {
+              const sched = this.scheduler.createOneShotTimer({
+                projectId: targetProjectId,
+                channelId,
+                targetAgentId: boss?.id,
+                prompt: schedParse.prompt || 'Proactive workforce routine',
+                durationSeconds: schedParse.durationSeconds,
+              });
+              this.broadcastEvent('schedule:created', sched);
+              scheduledTimerInfo = `Proactive routine scheduled in ${schedParse.formattedDuration} (${schedParse.durationSeconds}s): "${sched.prompt}" [ID: \`${sched.id}\`]`;
+            }
+          }
+
           // Formulate Unified Master Compound Card with Dynamic Mode Badges
           const engagedModes: string[] = [];
           if (hasTeamworkCmd) engagedModes.push('Teamwork Preview');
@@ -2474,6 +2524,7 @@ export class CoreServer {
           if (hasBoostCmd) engagedModes.push('Boost Autonomy');
           if (hasGoalCmd) engagedModes.push('Goal Milestone');
           if (hasScheduleCmd) engagedModes.push('Scheduled Timer');
+          if (hasRoutineCmd) engagedModes.push('Proactive Routine');
 
           const modesBadges = [
             hasTeamworkCmd ? '👥 `/teamwork-preview`' : null,
@@ -2481,6 +2532,7 @@ export class CoreServer {
             hasBoostCmd ? '🚀 `/boost`' : null,
             hasGoalCmd ? '🎯 `/goal`' : null,
             hasScheduleCmd ? '⏱️ `/schedule`' : null,
+            hasRoutineCmd ? '🔄 `/routine`' : null,
           ].filter(Boolean).join(' | ');
 
           const compoundMsgContent =
@@ -2524,7 +2576,7 @@ export class CoreServer {
             senderType: 'human',
             content: planDirectiveText,
             createdAt: now + 1,
-            taskId: createdTasks[0].id,
+            taskId: createdTasks[0]?.id || undefined,
           };
 
           this.executeSequentialAgents([boss], channelId, compoundExecutionDirective).catch((err) => {
@@ -2856,7 +2908,7 @@ export class CoreServer {
               senderType: 'human',
               content: planDirectiveText,
               createdAt: now + 1,
-              taskId: createdTasks[0].id,
+              taskId: createdTasks[0]?.id || undefined,
             };
             this.executeSequentialAgents([boss], channelId, executionDirective).catch((err) => {
               console.error('[KIN CORE] Plan execution error:', err);
@@ -3048,9 +3100,9 @@ export class CoreServer {
               cronExpression: cronExpr,
             });
           } else {
-            const parts = rawParams.split(/\s+/);
-            const dur = parseInt(parts[0], 10) || 60;
-            const prompt = parts.slice(1).join(' ') || 'Scheduled proactive assistant routine';
+            const parsed = this.parseScheduleDurationAndPrompt(rawParams);
+            const dur = parsed ? parsed.durationSeconds : (parseInt(rawParams.split(/\s+/)[0], 10) || 60);
+            const prompt = parsed ? parsed.prompt : (rawParams.split(/\s+/).slice(1).join(' ') || 'Scheduled proactive assistant routine');
             sched = this.scheduler.createOneShotTimer({
               projectId: targetProjectId,
               channelId,

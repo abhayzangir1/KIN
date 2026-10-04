@@ -11,7 +11,14 @@ export class AgentRepository {
   public createDefinition(def: AgentDefinition): void {
     this.db.execute(
       `INSERT INTO agent_definitions (id, name, role, system_prompt, default_model_id, domain_authority_json, capabilities_json, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         role = excluded.role,
+         system_prompt = excluded.system_prompt,
+         default_model_id = excluded.default_model_id,
+         domain_authority_json = excluded.domain_authority_json,
+         capabilities_json = excluded.capabilities_json`,
       def.id,
       def.name,
       def.role,
