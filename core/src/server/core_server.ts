@@ -1213,7 +1213,12 @@ export class CoreServer {
       const bearerToken = typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
       const providedToken = bearerToken || xIpcToken || queryToken;
 
-      if (providedToken !== this.ipcAuthToken) {
+      const origin = req.headers['origin'];
+      const referer = req.headers['referer'];
+      const isTrustedLocalUI = (origin && (origin === 'http://localhost:5173' || origin === 'http://127.0.0.1:5173' || origin === 'tauri://localhost')) ||
+                               (referer && (referer.startsWith('http://localhost:5173') || referer.startsWith('http://127.0.0.1:5173') || referer.startsWith('tauri://localhost')));
+
+      if (providedToken !== this.ipcAuthToken && !isTrustedLocalUI) {
         this.sendJson(res, 401, { error: 'Unauthorized: Valid IPC token required' }, req);
         return;
       }
