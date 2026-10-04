@@ -7,6 +7,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as vm from 'node:vm';
 import { KinDatabase } from '../storage/db.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -273,6 +274,82 @@ export class SkillEngine {
     );
 
     return row ? this.mapRowToSkill(row) : undefined;
+  }
+
+  /**
+   * Dynamically executes a skill handlerCode in a sandboxed VM context.
+   */
+  public async executeSkill(
+    idOrName: string,
+    params: Record<string, any> = {}
+  ): Promise<{ success: boolean; output?: any; error?: string }> {
+    const skill = this.getSkill(idOrName);
+    if (!skill) {
+      return { success: false, error: `Skill '${idOrName}' not found.` };
+    }
+
+    if (skill.enabled === false || skill.status === 'disabled') {
+      return { success: false, error: `Skill '${skill.name}' is currently disabled.` };
+    }
+
+    if (!skill.handlerCode || skill.handlerCode.trim().length === 0) {
+      return {
+        success: true,
+        output: {
+          name: skill.name,
+          description: skill.description,
+          instructions: skill.instructions,
+          parameters: params,
+        },
+      };
+    }
+
+    try {
+      const sandbox = {
+        params,
+        Buffer,
+        JSON,
+        Math,
+        Date,
+        console: {
+          log: () => {},
+          warn: () => {},
+          error: () => {},
+        },
+        result: undefined as any,
+      };
+
+      const context = vm.createContext(sandbox);
+      const wrappedCode = `
+        (async () => {
+          ${skill.handlerCode}
+          if (typeof handler === 'function') {
+            return await handler(params);
+          }
+          if (typeof execute === 'function') {
+            return await execute(params);
+          }
+          if (typeof run === 'function') {
+            return await run(params);
+          }
+          return typeof result !== 'undefined' ? result : { executed: true };
+        })()
+      `;
+
+      const script = new vm.Script(wrappedCode);
+      const executionPromise = script.runInContext(context, { timeout: 10000 });
+      const output = await executionPromise;
+
+      return {
+        success: true,
+        output,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: `Skill '${skill.name}' execution failed: ${err?.message || String(err)}`,
+      };
+    }
   }
 
   /**
@@ -558,19 +635,10 @@ export class SkillEngine {
     const id = `exp-${uuidv4()}`;
     const now = Date.now();
 
-    // Ensure foreign key constraint for run_id is satisfied
+    // Strictly enforce execution provenance - never fabricate synthetic agent runs
     const existingRun = this.db.queryOne<{ id: string }>('SELECT id FROM agent_runs WHERE id = ?', params.runId);
     if (!existingRun) {
-      const defaultAgent = this.db.queryOne<{ id: string }>('SELECT id FROM agent_identities LIMIT 1');
-      if (defaultAgent) {
-        this.db.execute(
-          `INSERT OR IGNORE INTO agent_runs (id, agent_id, state, heartbeat_at, created_at) VALUES (?, ?, 'completed', ?, ?)`,
-          params.runId,
-          defaultAgent.id,
-          now,
-          now
-        );
-      }
+      throw new Error(`Invalid runId '${params.runId}': Execution run does not exist. Fabricating synthetic agent runs is strictly prohibited.`);
     }
 
     this.db.execute(
@@ -880,13 +948,31 @@ export class SkillEngine {
     // Archive current state before rollback
     this.archiveSkillVersion(current, 'system-rollback', `Rollback to version ${targetVersion.version}`);
 
-    // Restore target snapshot
+    // Restore target snapshot with full manifest
+    let manifest: any = {};
+    if (targetVersion.change_summary) {
+      try {
+        manifest = JSON.parse(targetVersion.change_summary);
+      } catch {}
+    }
+
+    const handlerCode = manifest.handlerCode ?? null;
+    const skillType = manifest.skillType || (handlerCode ? 'tool_extension' : 'prompt_instruction');
+    const enabled = manifest.enabled !== undefined ? (manifest.enabled ? 1 : 0) : 1;
+    const requiredToolsJson = manifest.requiredTools ? JSON.stringify(manifest.requiredTools) : '[]';
+    const paramsJson = manifest.parameters ? (typeof manifest.parameters === 'object' ? JSON.stringify(manifest.parameters) : String(manifest.parameters)) : '{}';
+
     this.db.execute(
-      `UPDATE skills SET version = ?, description = ?, instructions = ?, trigger_patterns_json = ?, status = 'active', updated_at = ? WHERE id = ?`,
+      `UPDATE skills SET version = ?, description = ?, instructions = ?, trigger_patterns_json = ?, required_tools_json = ?, parameters_json = ?, handler_code = ?, skill_type = ?, enabled = ?, status = 'active', updated_at = ? WHERE id = ?`,
       targetVersion.version,
       targetVersion.description,
       targetVersion.instructions,
       targetVersion.trigger_patterns_json,
+      requiredToolsJson,
+      paramsJson,
+      handlerCode,
+      skillType,
+      enabled,
       now,
       skillId
     );
@@ -1418,6 +1504,14 @@ export class SkillEngine {
 
   private archiveSkillVersion(skill: Skill, promotedBy: string, changeSummary?: string): void {
     const versionId = `sver-${uuidv4()}`;
+    const manifest = {
+      changeSummary: changeSummary ?? null,
+      parameters: skill.parameters,
+      handlerCode: skill.handlerCode,
+      requiredTools: skill.requiredTools,
+      skillType: skill.skillType,
+      enabled: skill.enabled,
+    };
     this.db.execute(
       `INSERT INTO skill_versions (id, skill_id, version, description, instructions, trigger_patterns_json, promoted_by, change_summary, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1428,7 +1522,7 @@ export class SkillEngine {
       skill.instructions,
       JSON.stringify(skill.triggerPatterns),
       promotedBy,
-      changeSummary ?? null,
+      JSON.stringify(manifest),
       Date.now()
     );
   }

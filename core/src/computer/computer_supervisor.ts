@@ -10,6 +10,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import puppeteer, { Browser, BrowserContext, Page } from 'puppeteer-core';
 import { BrowserController, WebStepAction, WebStepResult } from '../browser/browser_controller.js';
+import { SecretVault } from '../security/secret_vault.js';
 
 export type ComputerTier = 'TIER_0' | 'TIER_1' | 'TIER_2';
 
@@ -297,12 +298,13 @@ export class ComputerSupervisor {
       const context = await browser.createBrowserContext();
       const page = await context.newPage();
 
-      // 6. Restore persisted cookies if present
+      // 6. Restore persisted cookies if present (encrypted with SecretVault)
       const cookiePath = path.join(agentProfileDir, 'cookies.json');
       if (fs.existsSync(cookiePath)) {
         try {
           const rawCookies = fs.readFileSync(cookiePath, 'utf-8');
-          const cookies = JSON.parse(rawCookies);
+          const decrypted = SecretVault.getInstance().decrypt(rawCookies);
+          const cookies = JSON.parse(decrypted);
           if (Array.isArray(cookies) && cookies.length > 0) {
             await page.setCookie(...cookies);
           }
@@ -369,7 +371,9 @@ export class ComputerSupervisor {
     try {
       const cookies = await session.page.cookies();
       const cookiePath = path.join(session.profileDir, 'cookies.json');
-      fs.writeFileSync(cookiePath, JSON.stringify(cookies, null, 2), 'utf-8');
+      const serialized = JSON.stringify(cookies, null, 2);
+      const encrypted = SecretVault.getInstance().encrypt(serialized);
+      fs.writeFileSync(cookiePath, encrypted, 'utf-8');
     } catch (err) {
       console.warn(`[COMPUTER SUPERVISOR] Failed to flush cookies for agent ${agentId}:`, err);
     }

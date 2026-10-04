@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { HumanTakeoverBanner } from './HumanTakeoverBanner.js';
 import { AutomationsView } from './AutomationsView.js';
+import { DecisionCard } from './DecisionCard.js';
 
 export const CenterView: React.FC = () => {
   const {
@@ -424,6 +425,30 @@ export const CenterView: React.FC = () => {
     });
   };
 
+  const parseDecisionProposal = (content: string) => {
+    const cardMatch = content.match(/\[DECISION_CARD\]([\s\S]*?)\[\/DECISION_CARD\]/);
+    if (cardMatch) {
+      try {
+        return JSON.parse(cardMatch[1]);
+      } catch {}
+    }
+    if (content.includes('### Architectural Tie-Breaker') || content.includes('Tie-Breaker Escalation') || content.includes('Decision Card:')) {
+      const titleMatch = content.match(/(?:### Architectural Tie-Breaker|Proposed Plan Decision|Decision Card:)\s*([^\n]+)/);
+      const optAMatch = content.match(/Option A:\s*([^\n]+)/);
+      const optBMatch = content.match(/Option B:\s*([^\n]+)/);
+      if (optAMatch && optBMatch) {
+        return {
+          title: titleMatch ? titleMatch[1].trim() : 'Architectural Plan Decision',
+          topic: 'Interactive plan review',
+          optionA: { label: optAMatch[1].trim(), pros: 'Primary recommended path', cons: 'May require verification' },
+          optionB: { label: optBMatch[1].trim(), pros: 'Alternative implementation', cons: 'Different trade-offs' },
+          recommendation: 'Evaluate tradeoffs before selection',
+        };
+      }
+    }
+    return null;
+  };
+
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim()) return;
@@ -693,6 +718,7 @@ export const CenterView: React.FC = () => {
 
                 {(() => {
                   const isSideQuery = msg.content.startsWith('/btw') || msg.content.includes('💡 **[Side Query / BTW]**') || (msg.metadata && msg.metadata.isSideQuery);
+                  const decision = parseDecisionProposal(msg.content);
                   return (
                     <div
                       className={`text-[#e2e8f0] text-xs leading-relaxed font-sans p-2.5 rounded-lg border transition ${
@@ -710,6 +736,18 @@ export const CenterView: React.FC = () => {
                         </div>
                       )}
                       {renderMessageContent(msg.content)}
+                      {decision && (
+                        <DecisionCard
+                          title={decision.title}
+                          topic={decision.topic || 'Workforce Plan Review'}
+                          optionA={decision.optionA}
+                          optionB={decision.optionB}
+                          recommendation={decision.recommendation}
+                          onSelect={(opt) => {
+                            sendMessage(`/decisions choose ${opt === 'compromise' ? 'Compromise' : `Option ${opt}`}: ${opt === 'A' ? decision.optionA.label : opt === 'B' ? decision.optionB.label : decision.recommendation || 'Compromise'}`);
+                          }}
+                        />
+                      )}
                     </div>
                   );
                 })()}

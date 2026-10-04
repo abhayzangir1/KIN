@@ -534,6 +534,19 @@ describe('KIN V12: Desktop & Web Control Upgrades', () => {
       expect(importData.imported).toBeGreaterThanOrEqual(8);
 
       // 3. Record an experience and query via GET /api/skills/experiences
+      server.getDatabase().execute(
+        `INSERT INTO agent_runs (id, agent_id, project_id, state, heartbeat_at, allocated_tokens, used_tokens, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        'run-exp-query-1',
+        'agent-boss',
+        'proj-kin',
+        'completed',
+        Date.now(),
+        10000,
+        150,
+        Date.now()
+      );
+
       server.getRecoveryEngine().recordRecoveryExperience({
         runId: 'run-exp-query-1',
         actionName: 'browserClick',

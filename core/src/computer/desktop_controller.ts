@@ -611,7 +611,7 @@ public static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
    */
   public async mouseMove(x: number, y: number): Promise<InteractionResult> {
     if (!this.isWindows) {
-      return { success: true, action: 'mouseMove', details: { x, y } };
+      return { success: false, action: 'mouseMove', error: 'Desktop GUI automation is only supported on Windows host environments.' };
     }
 
     try {
@@ -641,7 +641,7 @@ public static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
     const double = Boolean(options.doubleClick);
 
     if (!this.isWindows) {
-      return { success: true, action: 'mouseClick', details: { x, y, button, double } };
+      return { success: false, action: 'mouseClick', error: 'Desktop GUI automation is only supported on Windows host environments.' };
     }
 
     try {
@@ -690,7 +690,7 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
    */
   public async typeText(text: string): Promise<InteractionResult> {
     if (!this.isWindows) {
-      return { success: true, action: 'typeText', details: { charactersCount: text.length } };
+      return { success: false, action: 'typeText', error: 'Desktop GUI automation is only supported on Windows host environments.' };
     }
 
     try {
@@ -725,7 +725,7 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
    */
   public async sendKey(key: string, modifiers: string[] = []): Promise<InteractionResult> {
     if (!this.isWindows) {
-      return { success: true, action: 'sendKey', details: { key, modifiers } };
+      return { success: false, action: 'sendKey', error: 'Desktop GUI automation is only supported on Windows host environments.' };
     }
 
     try {

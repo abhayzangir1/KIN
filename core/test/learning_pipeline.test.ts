@@ -37,6 +37,14 @@ describe('KIN Learning & Self-Improvement Pipeline (OpenDots + Trans4mers Archit
        VALUES ('agent-boss', 'ws-1', 'proj-1', 'def-1', 'Boss', 'llama3', 1, 1, 1)`
     );
 
+    const testRuns = ['run-101', 'run-102', 'run-201', 'run-202', 'run-w1', 'run-w2', 'r1', 'r2', 'r3', 'run-swarm-1'];
+    for (const rId of testRuns) {
+      db.execute(
+        `INSERT INTO agent_runs (id, agent_id, state, heartbeat_at, created_at) VALUES (?, 'agent-boss', 'completed', 1, 1)`,
+        rId
+      );
+    }
+
     skillEngine = new SkillEngine(db);
     memoryRepo = new MemoryRepository(db);
   });

@@ -13,6 +13,7 @@ export interface ModelMessage {
 
 export interface ModelInvocationParams {
   modelId: string;
+  fallbackModelId?: string;
   messages: ModelMessage[];
   temperature?: number;
   maxTokens?: number;
@@ -53,6 +54,7 @@ export class ModelGateway {
   private geminiApiKey?: string;
   private apiKeyResolver?: (provider: string) => string | undefined;
   private onUsage?: (provider: string, tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }) => void;
+  private customEndpoints: Map<string, { baseUrl: string; apiKey?: string }> = new Map();
 
   constructor(options?: ModelGatewayOptions) {
     this.ollamaHost = options?.ollamaHost || process.env.OLLAMA_HOST || 'http://localhost:11434';
@@ -63,6 +65,10 @@ export class ModelGateway {
     this.geminiApiKey = options?.geminiApiKey || process.env.GEMINI_API_KEY;
     this.apiKeyResolver = options?.apiKeyResolver;
     this.onUsage = options?.onUsage;
+  }
+
+  public registerCustomProvider(name: string, baseUrl: string, apiKey?: string): void {
+    this.customEndpoints.set(name.toLowerCase(), { baseUrl, apiKey });
   }
 
   public setApiKeyResolver(resolver: (provider: string) => string | undefined) {
@@ -126,11 +132,45 @@ export class ModelGateway {
         );
       } else if (provider === 'anthropic') {
         return await this.invokeAnthropic(modelName, params, startTime);
+      } else if (provider === 'gemini') {
+        const apiKey = this.resolveApiKey('gemini');
+        return await this.invokeOpenAiCompatible(
+          'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+          apiKey,
+          modelName,
+          params,
+          startTime,
+          'gemini'
+        );
+      } else if (this.customEndpoints.has(provider)) {
+        const custom = this.customEndpoints.get(provider)!;
+        const apiKey = custom.apiKey || this.resolveApiKey(provider);
+        const url = custom.baseUrl.endsWith('/chat/completions')
+          ? custom.baseUrl
+          : `${custom.baseUrl.replace(/\/$/, '')}/chat/completions`;
+        return await this.invokeOpenAiCompatible(
+          url,
+          apiKey,
+          modelName,
+          params,
+          startTime,
+          provider
+        );
       } else {
         // Check if provider is an OpenRouter namespace or model slug (e.g. meta-llama/..., qwen/...)
         const openRouterKey = this.resolveApiKey('openrouter');
         if (openRouterKey && (modelName.includes('/') || params.modelId.includes(':free') || params.modelId.includes('/'))) {
           return await this.invokeOpenRouter(params.modelId, params, startTime);
+        }
+
+        // Automated fallback failover if configured
+        if (params.fallbackModelId && params.fallbackModelId !== params.modelId) {
+          const fallbackRes = await this.invoke({
+            ...params,
+            modelId: params.fallbackModelId,
+            fallbackModelId: undefined,
+          });
+          if (!fallbackRes.isError) return fallbackRes;
         }
 
         // Fallback for unrecognized provider
@@ -144,6 +184,18 @@ export class ModelGateway {
         };
       }
     } catch (err: any) {
+      if (params.fallbackModelId && params.fallbackModelId !== params.modelId) {
+        try {
+          const fallbackRes = await this.invoke({
+            ...params,
+            modelId: params.fallbackModelId,
+            fallbackModelId: undefined,
+          });
+          if (!fallbackRes.isError) return fallbackRes;
+        } catch {
+          // ignore fallback error and return primary error report
+        }
+      }
       const durationMs = Date.now() - startTime;
       const errorMsg = `[KIN Model Gateway Error] Failed to reach provider "${provider}" for model "${modelName}": ${err?.message || String(err)}`;
       

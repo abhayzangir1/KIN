@@ -102,6 +102,7 @@ export interface AgentExecutionDetails {
   status: 'idle' | 'working' | 'thinking' | 'recovering';
   totalDurationMs: number;
   durationFormatted: string;
+  exploredFiles?: string[];
   metrics: {
     exploredFilesCount: number;
     tasksCount: number;

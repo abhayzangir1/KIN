@@ -21,6 +21,10 @@ import { KinDatabase } from '../storage/db.js';
 import { ComputerSupervisor } from '../computer/computer_supervisor.js';
 import { SkillEngine } from '../skills/skill_engine.js';
 import { McpClientManager } from './mcp_client.js';
+import { Sentinel } from '../security/sentinel.js';
+import { SecretBroker } from '../security/secret_broker.js';
+import { ExecutionNodeRouter, ExecutionNodeInfo } from './execution_node.js';
+import { EventLedger } from '../security/event_ledger.js';
 
 export class StaleWriteConflictError extends Error {
   public code = 'STALE_WRITE_CONFLICT';
@@ -65,6 +69,8 @@ export interface ToolInvocationResult<T = unknown> {
   error?: string;
   requiresApproval?: boolean;
   riskLevel: RiskLevel;
+  executionNode?: ExecutionNodeInfo;
+  degradedNotice?: string;
 }
 
 export class ToolGateway {
@@ -124,20 +130,30 @@ export class ToolGateway {
       runId,
       expiresAt: Date.now() + ttlMs,
     });
+    Sentinel.getInstance().registerApprovalToken(token, toolName, ttlMs, runId);
     return token;
   }
 
   public consumeApprovalToken(token: string, toolName: string, runId?: string): boolean {
     const record = this.singleUseApprovalTokens.get(token);
-    if (!record) return false;
-    if (Date.now() > record.expiresAt) {
-      this.singleUseApprovalTokens.delete(token);
-      return false;
+    const sentinelHasToken = Sentinel.getInstance().hasApprovalToken(token);
+    if (!record && !sentinelHasToken) return false;
+
+    if (record) {
+      if (Date.now() > record.expiresAt) {
+        this.singleUseApprovalTokens.delete(token);
+        return false;
+      }
+      if (record.toolName !== toolName && record.toolName !== '*') return false;
+      if (record.runId && runId && record.runId !== runId) return false;
     }
-    if (record.toolName !== toolName) return false;
-    if (record.runId && runId && record.runId !== runId) return false;
-    this.singleUseApprovalTokens.delete(token);
-    return true;
+
+    const sentinelConsumed = Sentinel.getInstance().consumeApprovalToken(token, toolName, runId);
+    if (record) {
+      this.singleUseApprovalTokens.delete(token);
+      return true;
+    }
+    return sentinelConsumed;
   }
 
   public setSkillEngine(skillEngine: SkillEngine): void {
@@ -564,66 +580,70 @@ export class ToolGateway {
       return res;
     }
 
-    // 1. Single-Use Operator Approval Token Check
-    let approvalBypassed = false;
-    if (context.approvalToken) {
-      approvalBypassed = this.consumeApprovalToken(context.approvalToken, toolName, context.runId);
-    }
-
-    // 2. Granular Capability Tag Enforcement (403 Forbidden on violation)
-    const capCheck = this.checkCapabilityAuthorized(toolName, context.allowedCapabilities);
-    if (!capCheck.authorized) {
-      const err = `FORBIDDEN: Agent '${context.agentId}' lacks required capability '${capCheck.requiredTag}' to execute '${toolName}'. Allowed: [${(context.allowedCapabilities || []).join(', ')}]`;
-      const res: ToolInvocationResult<T> = {
-        success: false,
-        riskLevel: risk,
-        error: err,
-      };
-      this.recordActionRecord(context, toolName, params, res, 'failure', Date.now() - startTime);
-      return res;
-    }
-
-    // 3. Authoritative Policy Engine Gate (capabilities, attenuation, risk, autonomy)
-    const targetPathOrCmd = params?.command || params?.filePath || params?.path || params?.url || (params?.name ? String(params.name) : undefined);
-    const policyResult = this.policyEngine.evaluateAction({
+    // 1. Sentinel Authoritative Evaluation (fail-closed capabilities, destructive action detection, approval tokens, secret resolution)
+    const sentinel = Sentinel.getInstance();
+    const sentinelResult = sentinel.evaluate({
       agentId: context.agentId,
+      runId: context.runId,
       parentRunId: context.parentRunId,
       toolName,
-      commandOrPath: targetPathOrCmd,
+      params,
       riskLevel: risk,
       autonomyMode: context.autonomyMode,
       agentCapabilities: context.allowedCapabilities,
-      parentCapabilities: context.parentCapabilities,
-      subagentApprovedWhitelist: context.subagentWhitelist,
+      authorizationToken: context.approvalToken,
     });
 
-    if (!policyResult.allowed) {
+    if (!sentinelResult.allowed) {
       const res: ToolInvocationResult<T> = {
         success: false,
         riskLevel: risk,
-        error: policyResult.reason || `FORBIDDEN: Action '${toolName}' disallowed by policy.`,
+        error: sentinelResult.reason,
       };
       this.recordActionRecord(context, toolName, params, res, 'failure', Date.now() - startTime);
       return res;
     }
 
-    // 4. Evaluate Autonomy Mode & Risk Gate
-    // If a verified single-use approval token was provided, approval is fulfilled.
-    const approvalRequired = approvalBypassed ? false : (policyResult.requiresInteractiveApproval || this.checkApprovalRequired(risk, context, toolName));
-    if (approvalRequired) {
+    if (sentinelResult.requiresApproval) {
       const res: ToolInvocationResult<T> = {
         success: false,
         requiresApproval: true,
         riskLevel: risk,
-        error: policyResult.reason || `Action '${toolName}' classified as ${risk} risk requires interactive human approval under ${context.autonomyMode} mode.`,
+        error: sentinelResult.reason,
       };
       this.recordActionRecord(context, toolName, params, res, 'requires_approval', Date.now() - startTime);
       return res;
     }
 
-    // 5. Route to native execution handlers
+    const effectiveParams = sentinelResult.sanitizedParams || params;
+
+    // 2. Execution Node Routing with Honest Degradation Reporting
+    const router = ExecutionNodeRouter.getInstance();
+    const node = router.getNodeForTool(toolName, true);
+
     try {
-      const rawResult = await this.dispatchToolExecution<T>(toolName, params, context, risk);
+      const nodeResult = await node.execute<ToolInvocationResult<T>>(toolName, effectiveParams, async (execParams) => {
+        return await this.dispatchToolExecution<T>(toolName, execParams, context, risk);
+      });
+
+      const rawResult: ToolInvocationResult<T> = nodeResult.data || {
+        success: nodeResult.success,
+        error: nodeResult.error,
+        riskLevel: risk,
+      };
+
+      rawResult.executionNode = nodeResult.node;
+      if (nodeResult.degradedNotice) {
+        rawResult.degradedNotice = nodeResult.degradedNotice;
+      }
+
+      // 3. Secret Redaction on Outgoing Observations
+      if (typeof rawResult.output === 'string') {
+        rawResult.output = sentinel.sanitizeObservation(rawResult.output) as unknown as T;
+      } else if (rawResult.output && typeof rawResult.output === 'object') {
+        rawResult.output = SecretBroker.getInstance().sanitizePayload(rawResult.output);
+      }
+
       const durationMs = Date.now() - startTime;
       const status = rawResult.success ? 'success' : 'failure';
       this.recordActionRecord(context, toolName, params, rawResult, status, durationMs);
@@ -634,6 +654,7 @@ export class ToolGateway {
         success: false,
         riskLevel: risk,
         error: e.message,
+        executionNode: node.getInfo(),
       };
       this.recordActionRecord(context, toolName, params, res, 'failure', durationMs);
       return res;
@@ -663,7 +684,35 @@ export class ToolGateway {
       };
     }
 
+    // Dynamic Executable Skill Tool Invocation (skill__<name>)
+    if (toolName.startsWith('skill__')) {
+      if (!this.skillEngine) {
+        throw new Error('SkillEngine is not configured in ToolGateway.');
+      }
+      const skillName = toolName.slice(7);
+      const sRes = await this.skillEngine.executeSkill(skillName, params);
+      return {
+        success: sRes.success,
+        output: sRes.output as T,
+        error: sRes.error,
+        riskLevel: risk,
+      };
+    }
+
     switch (toolName) {
+        case 'execute_skill':
+        case 'executeSkill': {
+          if (!this.skillEngine) {
+            throw new Error('SkillEngine is not configured in ToolGateway.');
+          }
+          const sRes = await this.skillEngine.executeSkill(params.skillId || params.name, params.params || params.arguments || {});
+          return {
+            success: sRes.success,
+            output: sRes.output as T,
+            error: sRes.error,
+            riskLevel: risk,
+          };
+        }
         // Persistent Skills & Dynamic Capability Creation
         case 'create_skill':
         case 'createSkill': {

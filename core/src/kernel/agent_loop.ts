@@ -15,9 +15,11 @@ import { AutonomyMode } from '../domain/types.js';
 import * as path from 'node:path';
 import { OutputSpiller } from '../context/output_spiller.js';
 import { ContextCompactor } from '../context/context_compactor.js';
+import { LoopBreaker } from '../communication/loop_breaker.js';
 
 export interface AgentLoopOptions {
   runId: string;
+  taskId?: string;
   agentId: string;
   modelId: string;
   projectId: string;
@@ -38,6 +40,8 @@ export interface AgentLoopOptions {
   onToolStart?: (toolName: string, params: any) => void;
   onToolEnd?: (toolName: string, output: any, error?: string) => void;
   onTokenUsage?: (tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }) => Promise<{ exceeded: boolean }> | { exceeded: boolean } | void;
+  onHeartbeat?: () => void;
+  onRenewLease?: (taskId: string) => Promise<boolean> | boolean;
   checkTakeoverStatus?: () => 'continue' | 'pause' | 'abort';
   getSteerDirectives?: () => string[];
   getModelId?: () => string;
@@ -73,6 +77,7 @@ export class AgentLoopRunner {
   private financialSafety: FinancialSafetyShield;
   private outputSpiller: OutputSpiller;
   private contextCompactor: ContextCompactor;
+  private loopBreaker: LoopBreaker = new LoopBreaker();
 
   constructor(
     modelGateway: ModelGateway,
@@ -241,6 +246,23 @@ export class AgentLoopRunner {
             content: `⚠️ [PRIORITY MID-EXECUTION STEERING DIRECTIVE FROM HUMAN OPERATOR]:\n${steerNotes}\nThe human operator redirected the active task in real-time. Immediately adapt your plan, acknowledge what was previously being done, and pivot to address this priority instruction.`,
           });
         }
+      }
+
+      // 4c. Active Run Heartbeat & Task Lease Renewal
+      if (options.onHeartbeat) {
+        try { options.onHeartbeat(); } catch {}
+      }
+      if (options.taskId && options.onRenewLease) {
+        try { await options.onRenewLease(options.taskId); } catch {}
+      }
+
+      // 4d. LoopBreaker Action Stagnation Evaluation
+      const loopCheck = this.loopBreaker.evaluateActionRepetition(actions);
+      if (loopCheck.isLoop) {
+        conversationHistory.push({
+          role: 'user',
+          content: `⚠️ [KIN EXECUTION GUARD - ANTI-LOOP INTERVENTION]:\n${loopCheck.reason}\nYou are repeating the same failing action without progress. Pivot immediately to an alternative tool or explain what is blocking you.`,
+        });
       }
 
       // Invoke LLM (dynamically resolves active model if changed mid-execution)
@@ -610,6 +632,10 @@ export class AgentLoopRunner {
 
       if (options.onToolEnd) {
         options.onToolEnd(toolCall.name, toolOutput, toolError);
+      }
+
+      if (options.onHeartbeat) {
+        try { options.onHeartbeat(); } catch {}
       }
 
       // Record empirical action experience into SkillEngine learning pipeline

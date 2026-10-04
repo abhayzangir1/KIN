@@ -48,10 +48,16 @@ export class KinDatabase {
     this.db.exec('PRAGMA foreign_keys = ON;');
   }
 
+  private sleepBuffer = new Int32Array(new SharedArrayBuffer(4));
+
   private sleepSync(ms: number): void {
-    const end = Date.now() + ms;
-    while (Date.now() < end) {
-      // Short spin wait for synchronous lock backoff
+    try {
+      Atomics.wait(this.sleepBuffer, 0, 0, ms);
+    } catch {
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        // Fallback spin wait if Atomics is unavailable
+      }
     }
   }
 

@@ -494,7 +494,7 @@ export const SwarmMap: React.FC = () => {
                     <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                     <span>Thoughts & Reasoning</span>
                     <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300">
-                      14s
+                      {execDetails?.phases?.find((p) => p.id === 'phase-reasoning')?.durationFormatted || execDetails?.durationFormatted || 'Live'}
                     </span>
                   </div>
                   {openAccordion.thoughts ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
@@ -502,16 +502,18 @@ export const SwarmMap: React.FC = () => {
 
                 {openAccordion.thoughts && (
                   <div className="p-3 space-y-2 text-[11px] text-[#cbd5e1] bg-[#070b12] leading-relaxed">
-                    <p className="font-mono text-[#94a3b8]">
-                      Thought for 14s: Evaluated system requirements against SQLite WAL schema invariants.
-                    </p>
-                    <div className="p-2.5 rounded-lg bg-black/40 border border-[#1e293b] text-[#e2e8f0] font-mono text-[10px] whitespace-pre-wrap">
-                      [Agent Invariant Rationale]:
-                      - Verified active workspace path D:\KIN
-                      - Zero mocks detected: state loaded from SQLite WAL tables
-                      - Context compiled with cross-channel memory and domain authority
-                      - Model execution routed to local Ollama instance
-                    </div>
+                    {execDetails?.phases?.find((p) => p.id === 'phase-reasoning')?.items?.map((item: any, idx: number) => (
+                      <div key={item.id || idx} className="p-2.5 rounded-lg bg-black/40 border border-[#1e293b] text-[#e2e8f0] font-mono text-[10px] whitespace-pre-wrap">
+                        {item.summary}
+                        {item.details?.reasoning && (
+                          <div className="mt-1 text-[#94a3b8]">{item.details.reasoning}</div>
+                        )}
+                      </div>
+                    )) || (
+                      <p className="font-mono text-[#94a3b8]">
+                        Selected agent is active and ready in workspace. No past reasoning trace recorded.
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -524,27 +526,28 @@ export const SwarmMap: React.FC = () => {
                 >
                   <div className="flex items-center space-x-2">
                     <FileCode className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Explored Files ({execDetails?.metrics.exploredFilesCount || 4})</span>
+                    <span>Explored Files ({execDetails?.exploredFiles?.length || execDetails?.metrics.exploredFilesCount || 0})</span>
                   </div>
                   {openAccordion.files ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                 </button>
 
                 {openAccordion.files && (
                   <div className="p-2.5 space-y-1.5 bg-[#070b12]">
-                    {[
-                      'core/src/server/core_server.ts #L1050-1200',
-                      'core/src/storage/schema.sql #L30-85',
-                      'ui/src/store/kinStore.ts #L200-340',
-                      'ui/src/components/CenterView.tsx #L110-250',
-                    ].map((f, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-center justify-between px-2 py-1 rounded bg-[#0c1222] border border-[#1e293b] text-[11px] font-mono text-[#94a3b8]"
-                      >
-                        <span className="truncate">{f}</span>
-                        <span className="text-[9px] text-emerald-400 shrink-0">Analyzed</span>
+                    {(execDetails?.exploredFiles && execDetails.exploredFiles.length > 0) ? (
+                      execDetails.exploredFiles.map((f: string, idx: number) => (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between px-2 py-1 rounded bg-[#0c1222] border border-[#1e293b] text-[11px] font-mono text-[#94a3b8]"
+                        >
+                          <span className="truncate">{f}</span>
+                          <span className="text-[9px] text-emerald-400 shrink-0">Analyzed</span>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-[11px] font-mono text-[#64748b] text-center py-2">
+                        No files accessed yet in this session
                       </div>
-                    ))}
+                    )}
                   </div>
                 )}
               </div>
@@ -557,76 +560,46 @@ export const SwarmMap: React.FC = () => {
                 >
                   <div className="flex items-center space-x-2">
                     <Terminal className="w-3.5 h-3.5 text-purple-400" />
-                    <span>Tools & Actions Executed</span>
+                    <span>Tools & Actions Executed ({execDetails?.phases?.find((p) => p.id === 'phase-tools')?.items?.length || execDetails?.metrics.actionsCount || 0})</span>
                   </div>
                   {openAccordion.tools ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                 </button>
 
                 {openAccordion.tools && (
                   <div className="p-2.5 space-y-2 bg-[#070b12]">
-                    {/* Tool 1 */}
-                    <div className="rounded-lg border border-[#1e293b] p-2 bg-[#0c1222] space-y-1.5">
-                      <div
-                        onClick={() => toggleJson('tool-1')}
-                        className="flex items-center justify-between cursor-pointer text-[11px]"
-                      >
-                        <span className="font-mono font-bold text-purple-400">exec_command</span>
-                        <div className="flex items-center space-x-1 text-[10px] text-[#64748b]">
-                          <span>exit: 0</span>
-                          {expandedJson['tool-1'] ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                        </div>
+                    {execDetails?.phases?.find((p) => p.id === 'phase-tools')?.items?.length ? (
+                      execDetails.phases.find((p) => p.id === 'phase-tools')!.items.map((item: any, idx: number) => {
+                        const itemKey = item.id || `tool-${idx}`;
+                        return (
+                          <div key={itemKey} className="rounded-lg border border-[#1e293b] p-2 bg-[#0c1222] space-y-1.5">
+                            <div
+                              onClick={() => toggleJson(itemKey)}
+                              className="flex items-center justify-between cursor-pointer text-[11px]"
+                            >
+                              <span className="font-mono font-bold text-purple-400">{item.summary || item.type}</span>
+                              <div className="flex items-center space-x-1 text-[10px] text-[#64748b]">
+                                {item.details?.exitCode !== undefined && <span>exit: {item.details.exitCode}</span>}
+                                {expandedJson[itemKey] ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                              </div>
+                            </div>
+                            {item.details?.command && (
+                              <div className="text-[10px] text-[#94a3b8] font-mono">
+                                {item.details.command}
+                              </div>
+                            )}
+                            {expandedJson[itemKey] && (
+                              <pre className="p-2 rounded bg-black/60 border border-[#1e293b] text-[10px] font-mono text-emerald-300 overflow-x-auto whitespace-pre-wrap">
+                                {JSON.stringify(item.details || item, null, 2)}
+                              </pre>
+                            )}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="text-[11px] font-mono text-[#64748b] text-center py-2">
+                        No tool actions executed yet
                       </div>
-                      <div className="text-[10px] text-[#94a3b8] font-mono">
-                        git status --porcelain=v1
-                      </div>
-
-                      {expandedJson['tool-1'] && (
-                        <pre className="p-2 rounded bg-black/60 border border-[#1e293b] text-[10px] font-mono text-emerald-300 overflow-x-auto">
-                          {JSON.stringify(
-                            {
-                              command: 'git status --porcelain=v1',
-                              cwd: 'D:\\KIN',
-                              exitCode: 0,
-                              output: 'Clean working tree or tracking modified files',
-                            },
-                            null,
-                            2
-                          )}
-                        </pre>
-                      )}
-                    </div>
-
-                    {/* Tool 2 */}
-                    <div className="rounded-lg border border-[#1e293b] p-2 bg-[#0c1222] space-y-1.5">
-                      <div
-                        onClick={() => toggleJson('tool-2')}
-                        className="flex items-center justify-between cursor-pointer text-[11px]"
-                      >
-                        <span className="font-mono font-bold text-purple-400">model_generate</span>
-                        <div className="flex items-center space-x-1 text-[10px] text-[#64748b]">
-                          <span>tokens: 420</span>
-                          {expandedJson['tool-2'] ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                        </div>
-                      </div>
-                      <div className="text-[10px] text-[#94a3b8] font-mono">
-                        Model: {selectedAgent?.activeModelId}
-                      </div>
-
-                      {expandedJson['tool-2'] && (
-                        <pre className="p-2 rounded bg-black/60 border border-[#1e293b] text-[10px] font-mono text-purple-300 overflow-x-auto">
-                          {JSON.stringify(
-                            {
-                              model: selectedAgent?.activeModelId,
-                              channel: '#general',
-                              temperature: 0.2,
-                              status: 'completed',
-                            },
-                            null,
-                            2
-                          )}
-                        </pre>
-                      )}
-                    </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -639,22 +612,30 @@ export const SwarmMap: React.FC = () => {
                 >
                   <div className="flex items-center space-x-2">
                     <Layers className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Peer Coordination Log</span>
+                    <span>Peer Coordination Log ({execDetails?.peerCoordination?.length || 0})</span>
                   </div>
                   {openAccordion.coordination ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                 </button>
 
                 {openAccordion.coordination && (
                   <div className="p-2.5 space-y-1.5 bg-[#070b12] text-[11px]">
-                    <div className="p-2 rounded bg-[#0c1222] border border-[#1e293b] space-y-1">
-                      <div className="flex items-center justify-between text-[#64748b]">
-                        <span className="font-mono font-semibold text-kin-text">#general</span>
-                        <span>Sequential Turn Routing</span>
+                    {execDetails?.peerCoordination && execDetails.peerCoordination.length > 0 ? (
+                      execDetails.peerCoordination.map((pc: any, idx: number) => (
+                        <div key={idx} className="p-2 rounded bg-[#0c1222] border border-[#1e293b] space-y-1">
+                          <div className="flex items-center justify-between text-[#64748b]">
+                            <span className="font-mono font-semibold text-kin-text">{pc.channelName || '#general'}</span>
+                            <span className="text-emerald-400 font-mono">{pc.targetAgent}</span>
+                          </div>
+                          <p className="text-[#94a3b8] font-mono text-[10px]">
+                            {pc.action}
+                          </p>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-[11px] font-mono text-[#64748b] text-center py-2">
+                        No cross-agent coordination recorded yet
                       </div>
-                      <p className="text-[#94a3b8]">
-                        Coordinated with project peers using Selective Activation. Orchestrator safety net active.
-                      </p>
-                    </div>
+                    )}
                   </div>
                 )}
               </div>

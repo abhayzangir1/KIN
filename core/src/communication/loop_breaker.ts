@@ -93,4 +93,32 @@ export class LoopBreaker {
 
     return { isStagnant: false, stagnantTurns: stagnantCount, action: 'continue' };
   }
+
+  /**
+   * Evaluates action history for identical repetitive tool calls or repeated failing arguments.
+   */
+  public evaluateActionRepetition(actions: Array<{ toolName: string; params?: any; error?: string }>): { isLoop: boolean; reason?: string } {
+    if (actions.length < 3) return { isLoop: false };
+    const recent = actions.slice(-3);
+
+    // 1. Check for 3 consecutive identical failing tool invocations
+    if (recent.every((a) => a.toolName === recent[0].toolName && a.error && a.error === recent[0].error)) {
+      return {
+        isLoop: true,
+        reason: `Tool '${recent[0].toolName}' failed 3 consecutive times with identical error: ${recent[0].error}`,
+      };
+    }
+
+    // 2. Check for 3 consecutive identical calls with identical parameters
+    const params0 = JSON.stringify(recent[0].params || {});
+    if (recent.every((a) => a.toolName === recent[0].toolName && JSON.stringify(a.params || {}) === params0)) {
+      return {
+        isLoop: true,
+        reason: `Tool '${recent[0].toolName}' was invoked 3 consecutive times with identical parameters without progress.`,
+      };
+    }
+
+    return { isLoop: false };
+  }
 }
+
