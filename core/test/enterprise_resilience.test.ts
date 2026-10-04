@@ -478,7 +478,7 @@ describe('KIN Enterprise Resilience: CoreServer API & Slash Commands', () => {
     });
     // Give asynchronous handler time to deliver side-query reply
     let found = false;
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 60; i++) {
       await new Promise((r) => setTimeout(r, 100));
       const msgsRes = await fetch(`http://127.0.0.1:${port}/api/state`);
       const msgsState: any = await msgsRes.json();

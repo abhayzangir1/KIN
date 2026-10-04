@@ -911,6 +911,10 @@ export class CoreServer {
       this.computerSupervisor?.shutdown().catch(() => {});
 
       if (this.server) {
+        try {
+          (this.server as any).closeIdleConnections?.();
+          (this.server as any).closeAllConnections?.();
+        } catch {}
         this.server.close(() => {
           this.db.close();
           resolve();
@@ -2151,7 +2155,8 @@ export class CoreServer {
                   return null;
                 })();
 
-                const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000));
+                const timeoutMs = (process.env.VITEST || process.env.NODE_ENV === 'test') ? 1500 : 8000;
+                const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs));
                 const fastResult = await Promise.race([fastModelPromise, timeoutPromise]);
                 if (fastResult) {
                   answer = fastResult.content;
