@@ -38,6 +38,7 @@ export const SettingsModal: React.FC = () => {
     setActiveRightTab,
     setActiveInspectorTab,
     credentials,
+    availableModels,
   } = useKinStore();
 
   const [activeTab, setActiveTab] = useState<'general' | 'models' | 'credentials' | 'evaluations' | 'database' | 'layout' | 'about'>('general');
@@ -448,10 +449,10 @@ export const SettingsModal: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-[#8b949e] flex items-center space-x-1.5">
                       <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                      <span>OpenRouter 100% Free Cloud Models</span>
+                      <span>Zero Cost Cloud Models & Dynamic Catalog</span>
                     </h4>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20">
-                      Zero Cost • No Quota Burn
+                      {availableModels.length > 0 ? `${availableModels.length} Models Registered` : 'Zero Cost • No Quota Burn'}
                     </span>
                   </div>
 

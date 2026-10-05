@@ -134,6 +134,20 @@ export interface OllamaStatus {
   models: string[];
 }
 
+export interface AvailableModelItem {
+  id: string;
+  name: string;
+  provider: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  supportsTools?: boolean;
+  supportsVision?: boolean;
+  isFree?: boolean;
+  isCustom?: boolean;
+  isInstalled?: boolean;
+  description?: string;
+}
+
 export interface ArtifactItem {
   name: string;
   relativePath: string;
@@ -515,6 +529,11 @@ interface KinState {
   
   // Local LLM & System State
   ollamaStatus: OllamaStatus;
+  availableModels: AvailableModelItem[];
+  isLoadingModels: boolean;
+  fetchAvailableModels: () => Promise<void>;
+  discoverModels: (provider: string, apiKey?: string) => Promise<{ success: boolean; count?: number; error?: string }>;
+  addCustomModel: (modelId: string, name?: string) => Promise<{ success: boolean; model?: AvailableModelItem; error?: string }>;
   isConnected: boolean;
   terminalHistory: Array<{ command: string; output: string; exitCode: number }>;
   
@@ -867,6 +886,10 @@ export const useKinStore = create<KinState>((set, get) => ({
   routines: [],
   isDesktopControlModalOpen: false,
 
+  // Models State
+  availableModels: [],
+  isLoadingModels: false,
+
   fetchState: async (projectId?: string) => {
     try {
       const targetProj = projectId || get().activeProjectId;
@@ -939,6 +962,7 @@ export const useKinStore = create<KinState>((set, get) => ({
       await get().fetchSystemHealth();
       await get().fetchRecoveryState();
       await get().fetchCredentials();
+      await get().fetchAvailableModels();
     } catch (err) {
       console.warn('[KIN UI] Could not connect to Core IPC server, retrying...', err);
       set({ isConnected: false });
@@ -1837,6 +1861,11 @@ export const useKinStore = create<KinState>((set, get) => ({
       // Skills Engine Updates
       sse.addEventListener('skill:created', () => {
         get().fetchSkills();
+      });
+
+      // Models Catalog Updates
+      sse.addEventListener('models:updated', () => {
+        get().fetchAvailableModels();
       });
 
       sse.addEventListener('skill:updated', () => {
@@ -3315,6 +3344,62 @@ export const useKinStore = create<KinState>((set, get) => ({
     } catch (err) {
       console.error('[KIN UI] Failed to submit grill-me answers:', err);
       return { success: false };
+    }
+  },
+
+  fetchAvailableModels: async () => {
+    set({ isLoadingModels: true });
+    try {
+      const res = await fetch('/api/models');
+      if (res.ok) {
+        const data = await res.json();
+        const list: AvailableModelItem[] = data.models || [];
+        set({ availableModels: list, isLoadingModels: false });
+      } else {
+        set({ isLoadingModels: false });
+      }
+    } catch (err) {
+      console.warn('[KIN UI] Failed to fetch available models:', err);
+      set({ isLoadingModels: false });
+    }
+  },
+
+  discoverModels: async (provider: string, apiKey?: string) => {
+    set({ isLoadingModels: true });
+    try {
+      const res = await fetch('/api/models/discover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, apiKey }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        await get().fetchAvailableModels();
+        return { success: true, count: data.count };
+      }
+      set({ isLoadingModels: false });
+      return { success: false, error: data.error || 'Failed to discover models' };
+    } catch (err: any) {
+      set({ isLoadingModels: false });
+      return { success: false, error: err?.message || 'Network error' };
+    }
+  },
+
+  addCustomModel: async (modelId: string, name?: string) => {
+    try {
+      const res = await fetch('/api/models/custom', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelId, name }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        await get().fetchAvailableModels();
+        return { success: true, model: data.model };
+      }
+      return { success: false, error: data.error || 'Failed to add custom model' };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Network error' };
     }
   },
 

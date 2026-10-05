@@ -14,7 +14,7 @@
 [![Rust](https://img.shields.io/badge/Rust-2021-DEA584.svg?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![SQLite](https://img.shields.io/badge/SQLite_3-WAL_Mode-003B57.svg?style=flat-square&logo=sqlite)](https://www.sqlite.org/)
 [![Ollama](https://img.shields.io/badge/Ollama-Local_Inference-white.svg?style=flat-square&logo=ollama)](https://ollama.ai/)
-[![Vitest](https://img.shields.io/badge/Tests-161%2F161_Passed-success.svg?style=flat-square&logo=vitest)](https://vitest.dev/)
+[![Vitest](https://img.shields.io/badge/Tests-165%2F165_Passed-success.svg?style=flat-square&logo=vitest)](https://vitest.dev/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 
 [Architecture](docs/ARCHITECTURE.md) • [API Reference](docs/API.md) • [Skills Guide](docs/SKILLS_GUIDE.md) • [Slash Commands](docs/SLASH_COMMANDS.md) • [Tutorials](docs/TUTORIALS.md) • [Operations](docs/OPERATIONS.md) • [Troubleshooting](docs/TROUBLESHOOTING.md) • [Contributing](docs/CONTRIBUTING.md) • [FAQ](docs/FAQ.md) • [PRD](docs/PRD.md) • [TRD](docs/TRD.md)
@@ -137,9 +137,11 @@ Features are ordered below according to their system hierarchy and architectural
   4. *Context Compaction & Long-Term Memory*: Compacted history, error repair strategies, and institutional skill recipes.
   5. *Dynamic Turn Trajectory & Step Observations*: Active messages, tool outputs, and baseline SHA-256 OCC hashes for file integrity.
 
-### 4. Model Gateway & HTTP 429 Quota Guard
-- **Dual-Engine Inference**: Native local inference via **Ollama** (`qwen2.5-coder`, `llama3.2`) and cloud models via **OpenRouter** (Anthropic, OpenAI, DeepSeek, Google Gemini).
-- **Non-Destructive Quota Pause**: Intercepts HTTP 429 rate-limit responses, checkpoints in-flight progress, displays a live reset countdown in the UI, and enables instant failover to local Ollama with no loss of context.
+### 4. Dynamic Model Gateway, Live Discovery & Quota Guard
+- **Universal Provider Gateway**: Seamlessly routes reasoning requests to local **Ollama** models or external cloud providers (**Anthropic**, **OpenAI**, **Google Gemini**, **DeepSeek**, **Groq**, **OpenRouter**) using encrypted BYOK credentials.
+- **Dynamic Live Model Discovery**: Automatically queries provider APIs upon credential entry or on-demand (`POST /api/models/discover`), surfacing newly released models dynamically without requiring application updates.
+- **Arbitrary Model ID Assignment**: Assign any newly released or custom fine-tuned model ID (e.g. `openai/gpt-4.5-preview`, `anthropic/claude-3-7-sonnet-20250219`, `deepseek/deepseek-r1`) directly to any specialist agent.
+- **Non-Destructive Quota Pause**: Intercepts HTTP 429 rate-limit responses, checkpoints in-flight progress, displays a live reset countdown in the UI, and enables instant failover to local Ollama with zero loss of context.
 
 ### 5. Tool Gateway & Git Worktree Confinement
 - **Optimistic Concurrency Control (OCC)**: Validates SHA-256 file hashes before write operations to prevent stale-write conflicts.

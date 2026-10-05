@@ -521,6 +521,22 @@ export class CoreServer {
       });
     }
 
+    // Ensure default providers exist in providers table for foreign key integrity
+    try {
+      this.db.execute(`
+        INSERT OR IGNORE INTO providers (id, name, provider_type, is_active, created_at)
+        VALUES 
+          ('ollama', 'Ollama (Local)', 'ollama', 1, ?),
+          ('openrouter', 'OpenRouter Gateway', 'custom', 1, ?),
+          ('openai', 'OpenAI', 'openai', 1, ?),
+          ('anthropic', 'Anthropic', 'anthropic', 1, ?),
+          ('gemini', 'Google Gemini', 'gemini', 1, ?),
+          ('deepseek', 'DeepSeek', 'custom', 1, ?),
+          ('groq', 'Groq', 'custom', 1, ?),
+          ('custom', 'Custom Provider', 'custom', 1, ?)
+      `, now, now, now, now, now, now, now, now);
+    } catch {}
+
     // Ensure strictly ONE default agent: @Boss (Orchestrator)
     const existingAgents = this.agentRepo.listIdentitiesByProject('proj-kin');
     let bossIdentity = this.agentRepo.getIdentity('agent-boss') || existingAgents.find((a) => a.displayName.toLowerCase() === '@boss' || a.displayName.toLowerCase() === 'boss');
@@ -1289,10 +1305,131 @@ export class CoreServer {
         });
       }
 
-      // 2. GET /api/system/models — Check installed local models
-      if (req.method === 'GET' && pathname === '/api/system/models') {
+      // 2. GET /api/system/models or GET /api/models — Dynamic Model Catalog
+      if (req.method === 'GET' && (pathname === '/api/system/models' || pathname === '/api/models')) {
         const ollamaInfo = await this.getLocalOllamaModels();
-        return this.sendJson(res, 200, ollamaInfo);
+        const storedModels = this.db.query<any>('SELECT * FROM models ORDER BY created_at DESC');
+        
+        const modelMap = new Map<string, any>();
+        
+        // 1. Ollama models
+        if (ollamaInfo.models) {
+          for (const m of ollamaInfo.models) {
+            if (!m.toLowerCase().includes('embed')) {
+              modelMap.set(`ollama/${m}`, {
+                id: `ollama/${m}`,
+                name: `Ollama ${m}`,
+                provider: 'ollama',
+                contextWindow: 32768,
+                isFree: true,
+                isInstalled: true,
+              });
+            }
+          }
+        }
+        
+        // 2. Stored / discovered provider models
+        for (const sm of storedModels) {
+          modelMap.set(sm.id, {
+            id: sm.id,
+            name: sm.name,
+            provider: sm.provider_id,
+            contextWindow: sm.context_window,
+            maxOutputTokens: sm.max_output_tokens,
+            supportsTools: Boolean(sm.supports_tools),
+            supportsVision: Boolean(sm.supports_vision),
+            isFree: sm.id.includes(':free'),
+            isCustom: sm.provider_id === 'custom',
+          });
+        }
+
+        // 3. Fallback standard models for registered credentials if models table was empty
+        const activeCreds = this.db.query<any>('SELECT DISTINCT provider FROM managed_credentials WHERE is_active = 1');
+        for (const cred of activeCreds) {
+          const providerModels = await this.modelGateway.fetchProviderModels(cred.provider);
+          for (const pm of providerModels) {
+            if (!modelMap.has(pm.id)) {
+              modelMap.set(pm.id, pm);
+            }
+          }
+        }
+
+        // 4. Fallback standard catalog if models list is otherwise empty
+        if (modelMap.size === 0) {
+          const defaultCatalog = await this.modelGateway.fetchProviderModels('openrouter');
+          for (const dm of defaultCatalog) {
+            modelMap.set(dm.id, dm);
+          }
+        }
+
+        const modelsList = Array.from(modelMap.values());
+        return this.sendJson(res, 200, {
+          ...ollamaInfo,
+          models: modelsList,
+          rawOllamaModels: ollamaInfo.models || [],
+        });
+      }
+
+      // 2c. POST /api/models/discover — Live discovery of provider models using API key
+      if (req.method === 'POST' && pathname === '/api/models/discover') {
+        const body = await this.parseJsonBody<{ provider: string; apiKey?: string }>(req);
+        if (!body.provider) {
+          return this.sendJson(res, 400, { error: 'provider is required' });
+        }
+        const discovered = await this.modelGateway.fetchProviderModels(body.provider, body.apiKey);
+        const now = Date.now();
+        for (const m of discovered) {
+          try {
+            this.db.execute(
+              `INSERT OR REPLACE INTO models (id, provider_id, name, context_window, max_output_tokens, supports_tools, supports_vision, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+              m.id,
+              m.provider,
+              m.name,
+              m.contextWindow || 128000,
+              m.maxOutputTokens || 4096,
+              m.supportsTools ? 1 : 0,
+              m.supportsVision ? 1 : 0,
+              now
+            );
+          } catch {}
+        }
+        this.broadcastEvent('models:updated', { provider: body.provider, count: discovered.length });
+        return this.sendJson(res, 200, { success: true, count: discovered.length, models: discovered });
+      }
+
+      // 2d. POST /api/models/custom — User-defined custom model ID registration
+      if (req.method === 'POST' && pathname === '/api/models/custom') {
+        const body = await this.parseJsonBody<{ modelId: string; name?: string; provider?: string; contextWindow?: number }>(req);
+        if (!body.modelId || !body.modelId.trim()) {
+          return this.sendJson(res, 400, { error: 'modelId is required' });
+        }
+        const trimmed = body.modelId.trim();
+        const slashIdx = trimmed.indexOf('/');
+        const detectedProvider = slashIdx !== -1 ? trimmed.substring(0, slashIdx).toLowerCase() : (body.provider || 'custom');
+        const modelName = body.name?.trim() || trimmed;
+        const now = Date.now();
+        this.db.execute(
+          `INSERT OR REPLACE INTO models (id, provider_id, name, context_window, max_output_tokens, supports_tools, supports_vision, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          trimmed,
+          detectedProvider,
+          modelName,
+          body.contextWindow || 128000,
+          4096,
+          1,
+          0,
+          now
+        );
+        const customModel = {
+          id: trimmed,
+          name: modelName,
+          provider: detectedProvider,
+          contextWindow: body.contextWindow || 128000,
+          isCustom: true,
+        };
+        this.broadcastEvent('models:updated', { customModel });
+        return this.sendJson(res, 201, { success: true, model: customModel });
       }
 
       // 2b. POST /api/system/model/invoke — Invoke model directly through ModelGateway for verification & testing
@@ -6187,6 +6324,35 @@ export class CoreServer {
         };
 
         this.broadcastEvent('credential:created', credential);
+
+        // Automatically trigger live model discovery for the newly added provider key
+        (async () => {
+          try {
+            const discovered = await this.modelGateway.fetchProviderModels(provider, apiKey);
+            for (const m of discovered) {
+              try {
+                this.db.execute(
+                  `INSERT OR REPLACE INTO models (id, provider_id, name, context_window, max_output_tokens, supports_tools, supports_vision, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                  m.id,
+                  m.provider,
+                  m.name,
+                  m.contextWindow || 128000,
+                  m.maxOutputTokens || 4096,
+                  m.supportsTools ? 1 : 0,
+                  m.supportsVision ? 1 : 0,
+                  now
+                );
+              } catch {}
+            }
+            if (discovered.length > 0) {
+              this.broadcastEvent('models:updated', { provider, count: discovered.length });
+            }
+          } catch (err) {
+            console.warn('[KIN CORE] Auto-discovery models warning for ' + provider + ':', err);
+          }
+        })();
+
         return this.sendJson(res, 201, { success: true, credential });
       }
 

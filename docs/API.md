@@ -74,6 +74,84 @@ Queries the active hardware memory governor thresholds and real-time host RAM me
 
 ---
 
+## 2b. Dynamic LLM Models & Discovery Endpoints
+
+### `GET /api/models` (or `GET /api/system/models`)
+Returns the dynamic model catalog combining local Ollama models, stored provider models from SQLite, and active external provider catalogs.
+
+**Response `200 OK`**:
+```json
+{
+  "online": true,
+  "models": [
+    {
+      "id": "ollama/qwen2.5-coder:3b",
+      "name": "Ollama qwen2.5-coder:3b",
+      "provider": "ollama",
+      "contextWindow": 32768,
+      "isFree": true,
+      "isInstalled": true
+    },
+    {
+      "id": "openai/gpt-4.5-preview",
+      "name": "OpenAI GPT-4.5 Preview",
+      "provider": "openai",
+      "contextWindow": 128000,
+      "supportsTools": true,
+      "supportsVision": true
+    }
+  ],
+  "rawOllamaModels": ["qwen2.5-coder:3b"]
+}
+```
+
+### `POST /api/models/discover`
+Performs live model discovery against an external provider's API (OpenAI, Anthropic, Google Gemini, DeepSeek, Groq, OpenRouter) and persists the discovered models to SQLite.
+
+**Request Payload**:
+```json
+{
+  "provider": "anthropic",
+  "apiKey": "sk-ant-..."
+}
+```
+
+**Response `200 OK`**:
+```json
+{
+  "success": true,
+  "count": 4,
+  "models": [...]
+}
+```
+
+### `POST /api/models/custom`
+Registers an arbitrary user-specified model identifier without requiring an application update, enabling immediate use of newly released LLMs.
+
+**Request Payload**:
+```json
+{
+  "modelId": "openai/gpt-4.5-preview",
+  "name": "OpenAI GPT-4.5 Preview",
+  "contextWindow": 128000
+}
+```
+
+**Response `201 Created`**:
+```json
+{
+  "success": true,
+  "model": {
+    "id": "openai/gpt-4.5-preview",
+    "name": "OpenAI GPT-4.5 Preview",
+    "provider": "openai",
+    "contextWindow": 128000
+  }
+}
+```
+
+---
+
 ## 3. Persistent Skills Endpoints
 
 ### `GET /api/skills`
@@ -349,3 +427,4 @@ curl -N http://127.0.0.1:54321/api/events
 | `skill:deleted` | Skill removed from storage. |
 | `approval:created` | Consequential action paused awaiting human review. |
 | `quota:paused` | HTTP 429 quota guard activated. |
+| `models:updated` | Provider model discovery or custom model registration completed. |

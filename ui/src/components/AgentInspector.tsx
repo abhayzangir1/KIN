@@ -92,6 +92,10 @@ export const AgentInspector: React.FC = () => {
     fetchCredentials,
     addCredential,
     deleteCredential,
+    availableModels,
+    isLoadingModels,
+    discoverModels,
+    addCustomModel,
   } = useKinStore();
 
   const currentAgent = agents.find((a) => a.id === selectedAgentId) || agents[0];
@@ -103,6 +107,12 @@ export const AgentInspector: React.FC = () => {
     currentAgent?.systemPrompt || 'Optional custom instructions specific to this agent'
   );
   const [isSaved, setIsSaved] = useState(false);
+
+  // Dynamic models & discovery state
+  const [customModelInput, setCustomModelInput] = useState('');
+  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [discoveryProvider, setDiscoveryProvider] = useState('openrouter');
+  const [discoveryFeedback, setDiscoveryFeedback] = useState<string | null>(null);
 
   // Credentials BYOK state
   const [showAddKeyModal, setShowAddKeyModal] = useState(false);
@@ -1434,29 +1444,40 @@ export const AgentInspector: React.FC = () => {
                   />
                 </div>
 
-                <div className="space-y-1">
+                {/* Dynamic LLM Model Selector with Live Discovery & Manual Assignment */}
+                <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="text-[10px] font-medium text-[#64748b] uppercase tracking-wider">
-                      Model Override (Tier 1)
+                      Assigned Model (Tier 1)
                     </label>
-                    <span className="text-[9px] text-emerald-400 font-mono">
+                    <span className="text-[9px] text-emerald-400 font-mono truncate max-w-[150px]">
                       {activeModelId.replace(/^ollama\//, '').toUpperCase()}
                     </span>
                   </div>
+
                   <select
                     value={activeModelId}
                     onChange={(e) => setActiveModelId(e.target.value)}
                     className="w-full bg-[#0a0f1d] border border-[#1e293b] rounded px-2.5 py-1.5 text-kin-text text-xs focus:outline-none focus:border-emerald-500 font-mono"
                   >
+                    {/* 1. Local Ollama Models */}
                     <optgroup label="Local Ollama Models">
-                      {ollamaStatus.models.length > 0 ? (
+                      {availableModels.filter((m) => m.provider === 'ollama').length > 0 ? (
+                        availableModels
+                          .filter((m) => m.provider === 'ollama')
+                          .map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.name || m.id} (Local)
+                            </option>
+                          ))
+                      ) : ollamaStatus.models.length > 0 ? (
                         ollamaStatus.models
                           .filter((m) => !m.toLowerCase().includes('embed'))
                           .map((m) => (
-                          <option key={m} value={`ollama/${m}`}>
-                            ollama/{m} (Local)
-                          </option>
-                        ))
+                            <option key={m} value={`ollama/${m}`}>
+                              ollama/{m} (Local)
+                            </option>
+                          ))
                       ) : (
                         <>
                           <option value="ollama/qwen2.5-coder:3b">ollama/qwen2.5-coder:3b (Local)</option>
@@ -1464,17 +1485,130 @@ export const AgentInspector: React.FC = () => {
                         </>
                       )}
                     </optgroup>
-                    <optgroup label="OpenRouter Free & BYOK Models">
-                      <option value="openrouter/meta-llama/llama-3.3-70b-instruct:free">openrouter/meta-llama/llama-3.3-70b-instruct:free (100% Free)</option>
-                      <option value="openrouter/deepseek/deepseek-r1:free">openrouter/deepseek/deepseek-r1:free (100% Free)</option>
-                      <option value="openrouter/google/gemini-2.0-flash-exp:free">openrouter/google/gemini-2.0-flash-exp:free (100% Free)</option>
-                      <option value="openrouter/mistralai/mistral-7b-instruct:free">openrouter/mistralai/mistral-7b-instruct:free (100% Free)</option>
-                      <option value="openrouter/qwen/qwen-2.5-coder-32b-instruct:free">openrouter/qwen/qwen-2.5-coder-32b-instruct:free (100% Free)</option>
-                      <option value="openrouter/anthropic/claude-3.5-sonnet">openrouter/anthropic/claude-3.5-sonnet (BYOK)</option>
-                      <option value="openrouter/openai/gpt-4o">openrouter/openai/gpt-4o (BYOK)</option>
-                    </optgroup>
+
+                    {/* 2. Discovered External Providers */}
+                    {['anthropic', 'openai', 'gemini', 'deepseek', 'groq', 'openrouter'].map((prov) => {
+                      const provModels = availableModels.filter((m) => m.provider === prov);
+                      if (provModels.length === 0) return null;
+                      const provLabel =
+                        prov === 'anthropic' ? 'Anthropic Cloud Models' :
+                        prov === 'openai' ? 'OpenAI Cloud Models' :
+                        prov === 'gemini' ? 'Google Gemini Models' :
+                        prov === 'deepseek' ? 'DeepSeek Models' :
+                        prov === 'groq' ? 'Groq LPU Models' :
+                        prov === 'openrouter' ? 'OpenRouter Catalog' : `${prov.toUpperCase()} Models`;
+
+                      return (
+                        <optgroup key={prov} label={provLabel}>
+                          {provModels.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.name || m.id} {m.isFree ? '(Zero Cost)' : ''}
+                            </option>
+                          ))}
+                        </optgroup>
+                      );
+                    })}
+
+                    {/* 3. Custom Registered Models */}
+                    {availableModels.filter((m) => m.provider === 'custom' || m.isCustom).length > 0 && (
+                      <optgroup label="Custom User Models">
+                        {availableModels
+                          .filter((m) => m.provider === 'custom' || m.isCustom)
+                          .map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.name || m.id} (Custom)
+                            </option>
+                          ))}
+                      </optgroup>
+                    )}
+
+                    {/* 4. Active Model Fallback if not listed */}
+                    {activeModelId &&
+                      activeModelId !== 'inherit' &&
+                      !availableModels.some((m) => m.id === activeModelId) &&
+                      !ollamaStatus.models.some((m) => `ollama/${m}` === activeModelId) && (
+                        <optgroup label="Active Selected Model">
+                          <option value={activeModelId}>{activeModelId} (Active)</option>
+                        </optgroup>
+                      )}
+
                     <option value="inherit">inherit (Project Default)</option>
                   </select>
+
+                  {/* Manual Model ID Assignment */}
+                  <div className="pt-1 space-y-1">
+                    <div className="flex items-center justify-between text-[10px] text-[#64748b]">
+                      <span>Assign Any Model ID</span>
+                      <span className="text-[9px] font-mono text-[#475569]">e.g. openai/gpt-4.5 or anthropic/claude-3-7-sonnet</span>
+                    </div>
+                    <div className="flex items-center space-x-1.5">
+                      <input
+                        type="text"
+                        placeholder="e.g. openai/gpt-4.5-preview"
+                        value={customModelInput}
+                        onChange={(e) => setCustomModelInput(e.target.value)}
+                        className="flex-1 bg-[#070b14] border border-[#1e293b] rounded px-2 py-1 text-[11px] text-kin-text font-mono placeholder-[#475569] focus:outline-none focus:border-emerald-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!customModelInput.trim()) return;
+                          const modelId = customModelInput.trim();
+                          await addCustomModel(modelId);
+                          setActiveModelId(modelId);
+                          setCustomModelInput('');
+                        }}
+                        className="px-2.5 py-1 rounded bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/40 text-[10px] font-mono font-medium transition cursor-pointer whitespace-nowrap"
+                      >
+                        + Set Model
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Live Provider Models Discovery */}
+                  <div className="pt-1 flex items-center justify-between text-[10px]">
+                    <div className="flex items-center space-x-1 text-[#64748b]">
+                      <span>Discover:</span>
+                      <select
+                        value={discoveryProvider}
+                        onChange={(e) => setDiscoveryProvider(e.target.value)}
+                        className="bg-[#070b14] border border-[#1e293b] rounded px-1.5 py-0.5 text-kin-text font-mono text-[10px] focus:outline-none"
+                      >
+                        <option value="openrouter">OpenRouter</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="anthropic">Anthropic</option>
+                        <option value="gemini">Google Gemini</option>
+                        <option value="deepseek">DeepSeek</option>
+                        <option value="groq">Groq</option>
+                        <option value="ollama">Local Ollama</option>
+                      </select>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={isDiscovering || isLoadingModels}
+                      onClick={async () => {
+                        setIsDiscovering(true);
+                        setDiscoveryFeedback(null);
+                        const res = await discoverModels(discoveryProvider);
+                        setIsDiscovering(false);
+                        if (res.success) {
+                          setDiscoveryFeedback(`Discovered ${res.count || 0} models!`);
+                        } else {
+                          setDiscoveryFeedback(res.error || 'Discovery failed');
+                        }
+                        setTimeout(() => setDiscoveryFeedback(null), 3000);
+                      }}
+                      className="flex items-center space-x-1 px-2 py-0.5 rounded bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/40 font-mono transition cursor-pointer disabled:opacity-40"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isDiscovering ? 'animate-spin' : ''}`} />
+                      <span>{isDiscovering ? 'Querying...' : 'Fetch Models'}</span>
+                    </button>
+                  </div>
+                  {discoveryFeedback && (
+                    <div className="text-[10px] font-mono text-emerald-400 text-right">
+                      {discoveryFeedback}
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-1">

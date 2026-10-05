@@ -34,6 +34,19 @@ export interface ModelInvocationResult {
   isError?: boolean;
 }
 
+export interface DiscoveredModel {
+  id: string;
+  name: string;
+  provider: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  supportsTools?: boolean;
+  supportsVision?: boolean;
+  isFree?: boolean;
+  description?: string;
+  isCustom?: boolean;
+}
+
 export interface ModelGatewayOptions {
   apiKeyResolver?: (provider: string) => string | undefined;
   onUsage?: (provider: string, tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }) => void;
@@ -96,6 +109,268 @@ export class ModelGateway {
       return SecretVault.getInstance().decrypt(rawKey);
     }
     return undefined;
+  }
+
+  /**
+   * Dynamically discovers and fetches available models directly from provider APIs.
+   * Enables zero-hardcoding discovery so newly released models are immediately accessible.
+   */
+  public async fetchProviderModels(provider: string, explicitApiKey?: string): Promise<DiscoveredModel[]> {
+    const normProvider = provider.toLowerCase().trim();
+    const apiKey = explicitApiKey || this.resolveApiKey(normProvider);
+
+    try {
+      if (normProvider === 'ollama') {
+        const res = await fetch(`${this.ollamaHost}/api/tags`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
+        if (res && res.ok) {
+          const data: any = await res.json().catch(() => ({}));
+          const models: any[] = data.models || [];
+          return models
+            .filter((m: any) => !m.name.toLowerCase().includes('embed'))
+            .map((m: any) => ({
+              id: `ollama/${m.name}`,
+              name: `Ollama ${m.name}`,
+              provider: 'ollama',
+              contextWindow: 32768,
+              maxOutputTokens: 8192,
+              supportsTools: true,
+              supportsVision: m.name.includes('vision') || m.name.includes('llava'),
+              isFree: true,
+              description: `Local Ollama model (${(m.size ? (m.size / (1024 * 1024 * 1024)).toFixed(1) : 0)} GB)`,
+            }));
+        }
+        return [
+          { id: 'ollama/qwen2.5-coder:3b', name: 'Ollama qwen2.5-coder:3b', provider: 'ollama', contextWindow: 32768, isFree: true },
+          { id: 'ollama/gemma4:e2b', name: 'Ollama gemma4:e2b', provider: 'ollama', contextWindow: 32768, isFree: true },
+        ];
+      }
+
+      if (normProvider === 'openrouter') {
+        const headers: Record<string, string> = {
+          'HTTP-Referer': 'https://github.com/abhayzangir1/KIN',
+          'X-Title': 'KIN Workforce Platform',
+        };
+        if (apiKey) {
+          headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+        const res = await fetch('https://openrouter.ai/api/v1/models', {
+          headers,
+          signal: AbortSignal.timeout(10000),
+        }).catch(() => null);
+
+        if (res && res.ok) {
+          const data: any = await res.json().catch(() => ({}));
+          const rawList: any[] = data.data || [];
+          if (rawList.length > 0) {
+            return rawList.map((m: any) => {
+              const isZeroCost = m.id.endsWith(':free') ||
+                (m.pricing && parseFloat(m.pricing.prompt) === 0 && parseFloat(m.pricing.completion) === 0);
+              return {
+                id: `openrouter/${m.id}`,
+                name: m.name || m.id,
+                provider: 'openrouter',
+                contextWindow: m.context_length || 128000,
+                maxOutputTokens: m.top_provider?.max_completion_tokens || 4096,
+                supportsTools: true,
+                supportsVision: m.architecture?.modality?.includes('image') || false,
+                isFree: isZeroCost,
+                description: m.description || `OpenRouter model with ${m.context_length || 128000} context window`,
+              };
+            });
+          }
+        }
+        // Fallback curated standard OpenRouter models if offline
+        return [
+          { id: 'openrouter/deepseek/deepseek-r1:free', name: 'DeepSeek R1 (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 64000 },
+          { id: 'openrouter/meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B Instruct (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 128000 },
+          { id: 'openrouter/google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 1048576 },
+          { id: 'openrouter/qwen/qwen-2.5-coder-32b-instruct:free', name: 'Qwen 2.5 Coder 32B (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 32768 },
+          { id: 'openrouter/anthropic/claude-3.5-sonnet', name: 'Anthropic Claude 3.5 Sonnet', provider: 'openrouter', contextWindow: 200000 },
+          { id: 'openrouter/openai/gpt-4o', name: 'OpenAI GPT-4o', provider: 'openrouter', contextWindow: 128000 },
+        ];
+      }
+
+      if (normProvider === 'openai') {
+        const standardOpenAi: DiscoveredModel[] = [
+          { id: 'openai/gpt-4o', name: 'OpenAI GPT-4o', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true },
+          { id: 'openai/gpt-4o-mini', name: 'OpenAI GPT-4o Mini', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true },
+          { id: 'openai/o3-mini', name: 'OpenAI o3-mini (Reasoning)', provider: 'openai', contextWindow: 200000, supportsTools: true },
+          { id: 'openai/o1', name: 'OpenAI o1 (Advanced Reasoning)', provider: 'openai', contextWindow: 200000, supportsTools: true },
+          { id: 'openai/gpt-4.5-preview', name: 'OpenAI GPT-4.5 Preview', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true },
+        ];
+        if (!apiKey) return standardOpenAi;
+
+        const res = await fetch('https://api.openai.com/v1/models', {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(10000),
+        }).catch(() => null);
+
+        if (res && res.ok) {
+          const data: any = await res.json().catch(() => ({}));
+          const list: any[] = data.data || [];
+          const chatRegex = /^(gpt-|o1|o3|chatgpt-)/;
+          const filtered = list.filter((m: any) =>
+            chatRegex.test(m.id) &&
+            !m.id.includes('whisper') &&
+            !m.id.includes('embedding') &&
+            !m.id.includes('tts') &&
+            !m.id.includes('dall-e') &&
+            !m.id.includes('moderation') &&
+            !m.id.includes('realtime') &&
+            !m.id.includes('audio')
+          );
+          if (filtered.length > 0) {
+            filtered.sort((a: any, b: any) => (b.created || 0) - (a.created || 0));
+            return filtered.map((m: any) => ({
+              id: `openai/${m.id}`,
+              name: `OpenAI ${m.id}`,
+              provider: 'openai',
+              contextWindow: m.id.includes('o1') || m.id.includes('o3') ? 200000 : 128000,
+              maxOutputTokens: 16384,
+              supportsTools: true,
+              supportsVision: m.id.includes('4o') || m.id.includes('4.5'),
+            }));
+          }
+        }
+        return standardOpenAi;
+      }
+
+      if (normProvider === 'anthropic') {
+        const standardAnthropic: DiscoveredModel[] = [
+          { id: 'anthropic/claude-3-7-sonnet-20250219', name: 'Claude 3.7 Sonnet (Hybrid Reasoning)', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true },
+          { id: 'anthropic/claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet (v2)', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true },
+          { id: 'anthropic/claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', provider: 'anthropic', contextWindow: 200000, supportsTools: true },
+          { id: 'anthropic/claude-3-opus-20240229', name: 'Claude 3 Opus', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true },
+        ];
+        if (!apiKey) return standardAnthropic;
+
+        try {
+          const res = await fetch('https://api.anthropic.com/v1/models', {
+            headers: {
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+            },
+            signal: AbortSignal.timeout(10000),
+          }).catch(() => null);
+
+          if (res && res.ok) {
+            const data: any = await res.json().catch(() => ({}));
+            const list: any[] = data.data || [];
+            if (list.length > 0) {
+              return list.map((m: any) => ({
+                id: `anthropic/${m.id}`,
+                name: m.display_name || `Anthropic ${m.id}`,
+                provider: 'anthropic',
+                contextWindow: 200000,
+                supportsTools: true,
+                supportsVision: true,
+              }));
+            }
+          }
+        } catch {}
+        return standardAnthropic;
+      }
+
+      if (normProvider === 'gemini') {
+        const standardGemini: DiscoveredModel[] = [
+          { id: 'gemini/gemini-2.5-pro', name: 'Google Gemini 2.5 Pro', provider: 'gemini', contextWindow: 2097152, supportsTools: true, supportsVision: true },
+          { id: 'gemini/gemini-2.0-flash', name: 'Google Gemini 2.0 Flash', provider: 'gemini', contextWindow: 1048576, supportsTools: true, supportsVision: true },
+          { id: 'gemini/gemini-1.5-pro', name: 'Google Gemini 1.5 Pro', provider: 'gemini', contextWindow: 2097152, supportsTools: true, supportsVision: true },
+          { id: 'gemini/gemini-1.5-flash', name: 'Google Gemini 1.5 Flash', provider: 'gemini', contextWindow: 1048576, supportsTools: true, supportsVision: true },
+        ];
+        if (!apiKey) return standardGemini;
+
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`, {
+          signal: AbortSignal.timeout(10000),
+        }).catch(() => null);
+
+        if (res && res.ok) {
+          const data: any = await res.json().catch(() => ({}));
+          const list: any[] = data.models || [];
+          const filtered = list.filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'));
+          if (filtered.length > 0) {
+            return filtered.map((m: any) => {
+              const cleanId = m.name.replace(/^models\//, '');
+              return {
+                id: `gemini/${cleanId}`,
+                name: m.displayName || `Gemini ${cleanId}`,
+                provider: 'gemini',
+                contextWindow: m.inputTokenLimit || 1048576,
+                maxOutputTokens: m.outputTokenLimit || 8192,
+                supportsTools: true,
+                supportsVision: true,
+                description: m.description,
+              };
+            });
+          }
+        }
+        return standardGemini;
+      }
+
+      if (normProvider === 'deepseek') {
+        const standardDeepSeek: DiscoveredModel[] = [
+          { id: 'deepseek/deepseek-chat', name: 'DeepSeek-V3 (Chat)', provider: 'deepseek', contextWindow: 64000, supportsTools: true },
+          { id: 'deepseek/deepseek-reasoner', name: 'DeepSeek-R1 (Reasoner)', provider: 'deepseek', contextWindow: 64000, supportsTools: true },
+        ];
+        if (!apiKey) return standardDeepSeek;
+
+        try {
+          const res = await fetch('https://api.deepseek.com/models', {
+            headers: { Authorization: `Bearer ${apiKey}` },
+            signal: AbortSignal.timeout(10000),
+          }).catch(() => null);
+
+          if (res && res.ok) {
+            const data: any = await res.json().catch(() => ({}));
+            const list: any[] = data.data || [];
+            if (list.length > 0) {
+              return list.map((m: any) => ({
+                id: `deepseek/${m.id}`,
+                name: `DeepSeek ${m.id}`,
+                provider: 'deepseek',
+                contextWindow: 64000,
+                supportsTools: true,
+              }));
+            }
+          }
+        } catch {}
+        return standardDeepSeek;
+      }
+
+      if (normProvider === 'groq') {
+        const standardGroq: DiscoveredModel[] = [
+          { id: 'groq/llama-3.3-70b-versatile', name: 'Groq Llama 3.3 70B Versatile', provider: 'groq', contextWindow: 128000, supportsTools: true },
+          { id: 'groq/deepseek-r1-distill-llama-70b', name: 'Groq DeepSeek R1 Distill 70B', provider: 'groq', contextWindow: 128000, supportsTools: true },
+          { id: 'groq/mixtral-8x7b-32768', name: 'Groq Mixtral 8x7B', provider: 'groq', contextWindow: 32768, supportsTools: true },
+        ];
+        if (!apiKey) return standardGroq;
+
+        const res = await fetch('https://api.groq.com/openai/v1/models', {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(10000),
+        }).catch(() => null);
+
+        if (res && res.ok) {
+          const data: any = await res.json().catch(() => ({}));
+          const list: any[] = data.data || [];
+          const filtered = list.filter((m: any) => !m.id.includes('whisper'));
+          if (filtered.length > 0) {
+            return filtered.map((m: any) => ({
+              id: `groq/${m.id}`,
+              name: `Groq ${m.id}`,
+              provider: 'groq',
+              contextWindow: m.context_window || 128000,
+              supportsTools: true,
+            }));
+          }
+        }
+        return standardGroq;
+      }
+    } catch (err) {
+      console.warn(`[KIN MODEL GATEWAY] Error discovering models for ${provider}:`, err);
+    }
+
+    return [];
   }
 
   /**
