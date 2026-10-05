@@ -58,16 +58,25 @@ Recent industry advancements have introduced persistent "always-on" agent concep
 
 ## 🚀 1-Click Quickstart (Zero Friction)
 
-Get KIN running on your machine with a single click:
+### 📦 Direct Desktop Downloads (Pre-Built Releases)
+Download pre-compiled binaries directly from [GitHub Releases v0.1.0](https://github.com/abhayzangir1/KIN/releases/tag/v0.1.0) with zero build configuration:
+- **Portable Standalone Executable**: [`KIN.exe`](https://github.com/abhayzangir1/KIN/releases/download/v0.1.0/KIN.exe) — Run immediately without installation.
+- **Windows Setup Installer**: [`KIN_Installer.exe`](https://github.com/abhayzangir1/KIN/releases/download/v0.1.0/KIN_Installer.exe) — Standard NSIS setup wizard.
+- **Enterprise Windows MSI**: [`KIN_0.1.0_x64.msi`](https://github.com/abhayzangir1/KIN/releases/download/v0.1.0/KIN_0.1.0_x64.msi) — Windows Installer package.
+- **Clean Source Archive**: [`KIN.zip`](https://github.com/abhayzangir1/KIN/releases/download/v0.1.0/KIN.zip) — Complete clean source code package (64 MB).
 
-### Windows (1-Click Launch)
+---
+
+### Source 1-Click Launch
+
+#### Windows (1-Click Launch)
 Double-click `start.bat` in the repository root, or run in PowerShell:
 ```powershell
 .\start.bat
 ```
 *Automatically verifies Node.js, installs dependencies, builds workspaces, starts Ollama if present, and launches the KIN Core daemon and UI at `http://localhost:5173`.*
 
-### macOS / Linux (1-Click Launch)
+#### macOS / Linux (1-Click Launch)
 Run the launch script in your terminal:
 ```bash
 chmod +x start.sh
