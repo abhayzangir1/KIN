@@ -117,16 +117,16 @@ Features are ordered below according to their system hierarchy and architectural
 - **Crash Recovery Supervisor**: Upon restart after an abnormal shutdown, KIN reconciles stale leases and presents an interactive **Docked Crash Recovery Banner** in the UI with options to **Resume All**, **Inspect State**, or **Discard**.
 
 ### 2. Hardware Resource Governors & Input Mutex
-- **RAM-Aware Process Throttling**: Queries free system memory before allocating browser contexts or shell processes. If available memory drops below 500 MB, execution tasks are queued to avoid host thrashing.
+- **RAM-Aware Process Throttling**: Evaluates free system memory before allocating browser contexts or shell processes using adaptive concurrency tiers: `low` (<2.5 GB free: 1 browser, 1 shell), `medium` (2.5–6.0 GB free: 2 browsers, 2 shells), and `high` (>6.0 GB free: 3 browsers, 4 shells). If free memory falls critically low (<300 MB), execution tasks are delayed to prevent host thrashing.
 - **Win32 `DesktopLock` Mutex**: Serializes mouse and keyboard inputs across agents through a single-flight Promise mutex, preventing conflicting inputs.
 
 ### 3. The 5-Block Context Compiler
-- Synthesizes the active workspace state into an structured prompt before every reasoning turn:
-  1. *Agent Identity*: Specialist role, system prompt, and domain authorities.
-  2. *Goal Ancestry*: `Workspace -> Project -> Goal -> Task -> Run` hierarchy.
-  3. *Project Rules & ADRs*: Invariant rules and architectural decision records.
-  4. *Long-Term Memory*: Relevant semantic memories and continuous learning experiences.
-  5. *Tool Schemas & OCC Hashes*: Tool parameters and baseline SHA-256 hashes for file integrity.
+- Synthesizes the active workspace state into a prefix-stable structured prompt before every reasoning turn:
+  1. *Agent Identity & Goal Ancestry*: Specialist role, system prompt, invariants, and `Workspace -> Project -> Goal -> Task -> Run` hierarchy.
+  2. *Tool Schemas (Cacheable Prefix)*: Tool parameters, names, and required attributes.
+  3. *Project Grounding & ADRs*: Invariant rules, coding conventions, and architectural decision records.
+  4. *Context Compaction & Long-Term Memory*: Compacted history, error repair strategies, and institutional skill recipes.
+  5. *Dynamic Turn Trajectory & Step Observations*: Active messages, tool outputs, and baseline SHA-256 OCC hashes for file integrity.
 
 ### 4. Model Gateway & HTTP 429 Quota Guard
 - **Dual-Engine Inference**: Native local inference via **Ollama** (`qwen2.5-coder`, `llama3.2`) and cloud models via **OpenRouter** (Anthropic, OpenAI, DeepSeek, Google Gemini).

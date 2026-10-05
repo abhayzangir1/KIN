@@ -160,28 +160,29 @@ sequenceDiagram
 ---
 
 ### 3.4 The 5-Block Context Compiler
-Before every reasoning turn, `ContextCompiler` (`core/src/context/context_compiler.ts`) synthesizes active workspace data into an optimized prompt:
+Before every reasoning turn, `ContextCompiler` (`core/src/context/context_compiler.ts`) synthesizes active workspace data into a strict 5-block prompt designed for maximum KV-cache reuse:
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│ BLOCK 1: Agent Identity & Specialist System Prompt          │
-│ Role, domain authorities, behavioral guidelines             │
+│ BLOCK 1: Agent Identity & Strategic Goal Ancestry           │
+│ Role, system prompt, invariants, Project ➔ Goal ➔ Task       │
 ├─────────────────────────────────────────────────────────────┤
-│ BLOCK 2: Goal Ancestry Chain                                │
-│ Workspace ➔ Project ➔ Goal ➔ Task ➔ Run                    │
+│ BLOCK 2: Tool Schemas (Cacheable Prefix)                    │
+│ Parameter specifications, tool names, required attributes   │
 ├─────────────────────────────────────────────────────────────┤
-│ BLOCK 3: Project Rules & Architectural Decision Records     │
+│ BLOCK 3: Project Grounding & Architectural Decision Records  │
 │ Invariant conventions, coding rules, ADR rationale          │
 ├─────────────────────────────────────────────────────────────┤
-│ BLOCK 4: Long-Term Memory & Learned Experience              │
-│ Semantic memories, error patterns, retrieved skill recipes  │
+│ BLOCK 4: Context Compaction & Learned Experiences           │
+│ Compacted history, error repair strategies, skills recipes  │
 ├─────────────────────────────────────────────────────────────┤
-│ BLOCK 5: Tool Schemas & Step Trajectory                     │
-│ Active tools, file hashes (OCC), prior step observations    │
+│ BLOCK 5: Dynamic Turn Trajectory & Step Observations        │
+│ Active messages, tool outputs, baseline SHA-256 OCC hashes  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-- **Goal Ancestry Propagation**: Subagents always receive the full hierarchy `Project -> Goal -> Task -> Run`, preventing objective drift during multi-step execution.
+- **KV Cache Optimization**: Blocks 1 through 3 are static or semi-static prefixes that maximize token cache hit rates on modern providers. Dynamic turn mutations and file observations are strictly isolated to Block 5.
+- **Goal Ancestry Propagation**: Subagents inherit the full hierarchy `Workspace -> Project -> Goal -> Task -> Run`, preventing objective drift during complex multi-agent execution.
 - **Optimistic Concurrency Control (OCC)**: Tool outputs for read operations inject baseline SHA-256 hashes. Subsequent write operations verify hashes before writing, preventing accidental overwrites.
 
 ---
@@ -227,7 +228,7 @@ The computer control subsystem provides safe, hardware-governed desktop and brow
 ```mermaid
 graph TD
     subgraph Governors["Hardware & Safety Governors"]
-        RAMGov["RAM Governor: Inspects Free RAM > 500MB"]
+        RAMGov["RAM Governor: Adaptive Concurrency Tiers (<2.5GB / 2.5-6GB / >6GB)"]
         MutexLock["DesktopLock: Single-Flight Win32 Mutex"]
         RiskShield["Financial Safety Shield (Checkout/Billing Gates)"]
     end
@@ -251,9 +252,12 @@ graph TD
     RiskShield --> BrowserAutomation
 ```
 
-1. **Dynamic RAM Governor**:
-   - `ComputerSupervisor` queries host free memory metrics before allocating browser contexts or child processes.
-   - If available RAM drops below 500 MB, execution tasks queue gracefully instead of triggering host thrashing.
+1. **Adaptive RAM Governor**:
+   - `ComputerSupervisor` continuously evaluates host free memory to enforce adaptive execution tiers:
+     - `low` (< 2.5 GB free RAM): Limits concurrency to 1 active browser context and 1 shell process.
+     - `medium` (2.5 – 6.0 GB free RAM): Limits concurrency to 2 active browser contexts and 2 shell processes.
+     - `high` (> 6.0 GB free RAM): Scales up to 3 active browser contexts and 4 shell processes.
+   - If host memory falls critically low (< 300 MB), `WakeupQueue` automatically injects a 2000ms delay to prevent host lockup and allow garbage collection.
 2. **Win32 `DesktopLock` Single-Flight Mutex**:
    - Physical mouse and keyboard inputs are serialized across concurrent agents.
    - Prevents interleaved keystrokes or clashing mouse clicks during multi-agent workflows.
