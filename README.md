@@ -14,7 +14,7 @@
 [![Rust](https://img.shields.io/badge/Rust-2021-DEA584.svg?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![SQLite](https://img.shields.io/badge/SQLite_3-WAL_Mode-003B57.svg?style=flat-square&logo=sqlite)](https://www.sqlite.org/)
 [![Ollama](https://img.shields.io/badge/Ollama-Local_Inference-white.svg?style=flat-square&logo=ollama)](https://ollama.ai/)
-[![Vitest](https://img.shields.io/badge/Tests-141%2F141_Passed-success.svg?style=flat-square&logo=vitest)](https://vitest.dev/)
+[![Vitest](https://img.shields.io/badge/Tests-161%2F161_Passed-success.svg?style=flat-square&logo=vitest)](https://vitest.dev/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 
 [Architecture](docs/ARCHITECTURE.md) • [API Reference](docs/API.md) • [Skills Guide](docs/SKILLS_GUIDE.md) • [Slash Commands](docs/SLASH_COMMANDS.md) • [Tutorials](docs/TUTORIALS.md) • [Operations](docs/OPERATIONS.md) • [Troubleshooting](docs/TROUBLESHOOTING.md) • [Contributing](docs/CONTRIBUTING.md) • [FAQ](docs/FAQ.md) • [PRD](docs/PRD.md) • [TRD](docs/TRD.md)
@@ -106,8 +106,10 @@ Features are ordered below according to their system hierarchy and architectural
                        └── 6. Multi-Agent Coordination (Atomic Leases + Specialist Routing)
                             └── 7. Computer & Browser Automation (Persistent Profiles + Win32 Lock)
                                  └── 8. Persistent Skills Engine (SKILL.md + Dynamic Creation & Import)
-                                      └── 9. Slash Command Engine (Unified & Compound Pipelines)
-                                           └── 10. Reactive User Interface (SSE Bus + Swarm Map)
+                                      └── 9. Sentinel Security Boundary (Hierarchical Attenuation & Redaction)
+                                           └── 10. Origin-Aware Goals & Replanning (Interactive DecisionCards)
+                                                └── 11. Slash Command Engine (Unified & Compound Pipelines)
+                                                     └── 12. Reactive User Interface (SSE Bus + Swarm Map)
 ```
 
 ### 1. Authoritative State & Turn-by-Turn Checkpointing
@@ -149,7 +151,17 @@ Features are ordered below according to their system hierarchy and architectural
 - **Directory Bundle Import**: Easily import existing skill bundles from local folders via `POST /api/skills/import` or the `/skills import <directoryPath>` slash command.
 - **Continuous Learning Loop**: The `LearningPipeline` records successful execution traces and extracts reusable playbooks into institutional memory.
 
-### 9. Antigravity Slash Command Suite
+### 9. Sentinel Security Boundary & Hierarchical Attenuation
+- **Hierarchical Capability Attenuation**: `@Boss` holds lead platform authority (`*`), while specialist agents are strictly confined to their declared capability sets (e.g. `['fs:read', 'fs:write']`, `['web:browse']`, `['mcp:call']`). `Sentinel` enforces fail-closed authorization, rejecting unauthorized tool calls.
+- **Secret Redaction & Token Authentication**: `SecretBroker` strips and redacts sensitive credentials from action records and operator approval prompts before SQLite storage. The daemon enforces loopback token authentication via `.kin/ipc_auth.token` to guard against unauthorized local browser access.
+- **Execution Boundaries**: MCP server subprocesses receive sanitized host environments stripped of API keys, and browser controllers reject `file:` and `data:` traversal schemes without explicit administrative capability grants.
+
+### 10. Origin-Aware Goals & Interactive Replanning
+- **Enriched Goal Lifecycle**: Goals track deadlines, check-in policies, progress summaries, blocked states, and origin channels in SQLite.
+- **DM Boundary Elevation**: Cross-cutting or shared project objectives initiated in direct messages are elevated to `#general`, where `@Boss` constructs the authoritative Goal and Task DAG.
+- **Interactive DecisionCards**: When agents hit blocked states or propose architectural shifts via `proposePlanAdjustment`, KIN emits an interactive `[DECISION_CARD]` in chat. The operator selects Option A, Option B, or a Compromise, and `/decisions choose` records an authoritative ADR while updating goal progress.
+
+### 11. Antigravity Slash Command Suite
 
 | Command | Syntax / Arguments | Purpose |
 |---|---|---|
@@ -161,7 +173,7 @@ Features are ordered below according to their system hierarchy and architectural
 | `/routine` | `<interval \| cron> [prompt]` | Establish a persistent background recurring routine (e.g. `1h`, `0 9 * * 1-5`). |
 | `/btw` | `<query>` | Ask an ephemeral, non-blocking side query without creating a task in the DAG. |
 | `/grill-me` | `[topic]` | Trigger an architectural interview where the agent interrogates the human and records ADRs. |
-| `/decisions` or `/adr` | `[list \| propose]` | View or propose Architectural Decision Records. |
+| `/decisions` or `/adr` | `[list \| propose \| choose <choice>]` | View, propose, or authoritatively select Architecture Decision Records. |
 | `/skills` | `[list \| create \| import]` | Manage persistent skills. Support dynamic skill creation and directory bundle import. |
 | `/hire` | `<role> [name]` | Register and configure a new specialist agent identity. |
 
@@ -312,7 +324,7 @@ npm run build
 ### 3. Run Automated Vitest Test Suite
 ```bash
 npm test --workspace=core
-# Output: Test Files 11 passed (11) | Tests 139 passed (139)
+# Output: Test Files 13 passed (13) | Tests 161 passed (161)
 ```
 
 ### 4. Launch Core Server Daemon & Web Interface
@@ -337,9 +349,12 @@ Navigate to `http://localhost:5173` to access the workbench.
 ## 🛡️ Security, Privacy & Confinement
 
 1. **Local Data Confinement**: Project databases, task records, and execution logs remain on local storage (`kin_storage.sqlite`). No user data is transmitted to analytics or telemetry endpoints.
-2. **Filesystem Boundaries**: File tools enforce path verification against project directory roots. Path traversal sequences (`../`) are detected and rejected.
-3. **Optimistic Concurrency Control**: SHA-256 baseline hashing prevents concurrent tasks from overwriting modified files.
-4. **Governed Automation**: Potentially destructive terminal commands and sensitive browser actions require operator confirmation.
+2. **Sentinel Security Boundary & Attenuation**: Every tool execution passes through `Sentinel`. While `@Boss` retains platform authority (`*`), specialist agents are strictly confined to their declared capability sets. Unauthorized tool invocations fail closed.
+3. **Secret Vault & Payload Redaction**: Sensitive credentials in `managed_credentials` are encrypted with AES-256-GCM. Tool execution parameters and approval payloads are automatically sanitized by `SecretBroker` before database persistence.
+4. **Loopback IPC Token Authentication**: Port 54321 enforces bearer token authentication via `.kin/ipc_auth.token`, preventing unauthorized scripts or browser tabs from accessing core endpoints.
+5. **Subprocess & Browser Isolation**: Subprocesses spawned by MCP clients run in sanitized environments stripped of host API keys. Browser controllers reject `file:` and `data:` scheme traversals without explicit administrative permission.
+6. **Filesystem Boundaries & OCC**: File tools enforce path verification against project directory roots. Path traversal sequences (`../`) are blocked, and SHA-256 baseline hashing prevents concurrent overwrites.
+7. **Governed Automation & Approval Tokens**: Destructive terminal commands and sensitive browser actions require operator confirmation with single-use authorization tokens.
 
 ---
 

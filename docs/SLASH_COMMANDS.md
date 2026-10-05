@@ -17,7 +17,7 @@ KIN provides a unified slash command interpreter in the Workbench chat interface
 | `/skills import` | `/skills import <path \| json>` | Import an external skill package or directory into storage | `/skills import ./my-external-skills` |
 | `/btw` | `/btw <question>` | Dedicated non-blocking fast-path side inquiry | `/btw What port is the core daemon running on?` |
 | `/grill-me` | `/grill-me [topic]` | Launch interactive architecture stress-testing review | `/grill-me Database Lock Contention & Crash Recovery` |
-| `/decision` | `/decision propose <title> \| <rationale> \| <alts>` | Record an authoritative Architecture Decision Record (ADR) | `/decision propose Use WAL Mode \| High concurrency without locks \| Shared file locks` |
+| `/decision` or `/decisions` | `/decision [propose <title> \| <rationale> \| <alts> \| choose <choice>]` | Record, list, or authoritatively select Architecture Decision Records (ADR) | `/decision choose Option A: Shift from REST to GraphQL` |
 | `/hire` | `/hire <role> [description]` | Register and hire a specialist agent definition | `/hire researcher "Inspects technical documentation and APIs"` |
 | `/assign` | `/assign <agent> <task>` | Assign a task directly to a specific specialist agent | `/assign @researcher Analyze competitor performance metrics` |
 | `/help` | `/help` | Display platform capabilities and command usage | `/help` |
@@ -62,7 +62,7 @@ Asks a question without creating DAG tasks or acquiring agent work leases:
 ```
 The request executes in parallel on a fast path, responding immediately in the channel.
 
-### 5. `/grill-me` & `/decision` (Architecture Hardening)
+### 5. `/grill-me` & `/decision` (Architecture Hardening & Interactive Replanning)
 Launches an adversarial architecture inquiry session:
 ```
 /grill-me Distributed Task Leases and Heartbeat Watchdogs
@@ -71,6 +71,14 @@ Select choices from the interactive **Grill-Me Assessment Card** to forge decisi
 ```
 /decision propose Atomic Task Leases | Watchdogs reclaim expired leases without deadlocks | Redis redlocks, Global mutex
 ```
+
+#### Interactive Replanning & Decision Cards:
+When an agent encounters blocked states or proposes architectural adjustments using `proposePlanAdjustment`, KIN renders an interactive `[DECISION_CARD]` directly in chat.
+Clicking **Choose Option A**, **Choose Option B**, or **Apply Compromise** automatically executes:
+```
+/decisions choose Option A: Shift from REST to GraphQL
+```
+This records an authoritative ADR in the `decisions` table and adopts the direction across active goals.
 
 ### 6. Compound Command Pipelines
 KIN supports chained slash commands executed sequentially in a single invocation:

@@ -47,3 +47,13 @@ On daemon startup, KIN automatically scans `.kin/skills/` to synchronize any dis
 
 ### Q: Can I share a KIN workspace across multiple machines?
 **A**: For project code and files, use standard Git repositories and worktrees. Do not share the active SQLite database file concurrently across network shares (SMB/NFS), as network file locking can conflict with SQLite WAL mode.
+
+---
+
+### Q: How does KIN enforce security between different agent roles?
+**A**: KIN implements a strict **Sentinel Security Boundary** with hierarchical capability attenuation. While the lead orchestrator (`@Boss`) holds platform authority (`*`), specialist agents (`@Frontend`, `@Backend`, `@Researcher`) are strictly confined to their declared capabilities (such as `['fs:read', 'fs:write']` or `['web:browse']`). If a specialist attempts an unauthorized tool invocation (e.g. arbitrary shell execution), Sentinel fails closed with a `403 Security Denial`. Additionally, subprocesses spawned by MCP clients run in sanitized environments stripped of host API keys, and browser controllers disallow `file:` and `data:` traversals.
+
+---
+
+### Q: What happens when an agent hits an obstacle or proposes an architectural change?
+**A**: When an agent detects blocked states or proposes an architectural pivot, it invokes `proposePlanAdjustment`. KIN captures the proposal into the goal's `proposed_replanning_json` and renders an interactive **Decision Card** (`[DECISION_CARD]`) in the channel. The operator can click **Choose Option A**, **Choose Option B**, or **Apply Compromise**. The choice is recorded as an authoritative ADR in the `decisions` table and adopted across active goals without loss of context.

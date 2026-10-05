@@ -8,6 +8,7 @@ KIN operates a local core daemon on `http://127.0.0.1:54321`. This authoritative
 
 - **Base URL**: `http://127.0.0.1:54321`
 - **Content-Type**: `application/json` (for all JSON request/response payloads)
+- **Authentication**: When IPC token authentication is enforced, requests must supply `Authorization: Bearer <token>`, where the token is read from `.kin/ipc_auth.token`.
 - **Local Sovereignty**: All endpoints listen strictly on loopback (`127.0.0.1`). External network connections to these ports are rejected by default.
 - **Event Streaming**: Real-time event notifications stream over Server-Sent Events (`GET /api/events`).
 
@@ -179,7 +180,72 @@ Exports all active skills as a unified portable JSON bundle.
 
 ---
 
-## 4. Agent Runs & Execution Control
+## 4. Goals & Origin-Aware Replanning Endpoints
+
+### `GET /api/projects/:id/goals`
+Lists all goals associated with a project, including enriched lifecycle metadata.
+
+**Response `200 OK`**:
+```json
+{
+  "goals": [
+    {
+      "id": "goal-123",
+      "projectId": "proj-kin",
+      "title": "Shift from REST to GraphQL",
+      "description": "Unify API query surface with schema federation",
+      "acceptanceCriteria": ["Generate GraphQL schema", "Pass backward-compat tests"],
+      "status": "active",
+      "deadline": 1728050000000,
+      "checkInPolicy": "daily_evening",
+      "progressSummary": "Schema generated, verifying resolvers",
+      "blockedState": null,
+      "proposedReplanning": null,
+      "originChannelId": "chan-general",
+      "createdAt": 1728020000000,
+      "updatedAt": 1728025000000
+    }
+  ]
+}
+```
+
+### `POST /api/projects/:id/goals`
+Declares a persistent top-level project goal.
+
+---
+
+## 5. Architectural Decisions (ADR) & Tie-Breaker Endpoints
+
+### `GET /api/projects/:id/decisions`
+Lists authoritative and proposed Architectural Decision Records (ADRs).
+
+**Response `200 OK`**:
+```json
+{
+  "decisions": [
+    {
+      "id": "dec-choice-1791161845397",
+      "projectId": "proj-kin",
+      "decidedById": "agent-boss",
+      "title": "Plan Decision: Option A",
+      "rationale": "Selected by operator via DecisionCard: Option A: Shift from REST to GraphQL",
+      "alternativesConsidered": [],
+      "status": "authoritative",
+      "createdAt": 1791161845397
+    }
+  ]
+}
+```
+
+### `POST /api/projects/:id/decisions`
+Records an Architecture Decision Record directly.
+
+### `PATCH /api/decisions/:id/status`
+Updates an ADR status (`proposed`, `authoritative`, `superseded`, `rejected`).
+
+---
+
+## 6. Agent Runs & Execution Control
 
 ### `POST /api/runs`
 Spawns an agent execution run.
@@ -216,13 +282,13 @@ Immediately aborts an active agent run via its associated `AbortSignal`.
 
 ---
 
-## 5. Channel Messaging & Slash Commands
+## 7. Channel Messaging & Slash Commands
 
 ### `GET /api/channels/:id/messages`
 Retrieves timestamped message history for a channel.
 
 ### `POST /api/channels/:id/messages`
-Dispatches a message from the operator or an agent. Supports slash commands (`/plan`, `/goal`, `/schedule`, `/skills`, `/btw`, `/grill-me`, `/hire`).
+Dispatches a message from the operator or an agent. Supports slash commands (`/plan`, `/goal`, `/schedule`, `/skills`, `/btw`, `/grill-me`, `/hire`, `/decisions`).
 
 **Request Body**:
 ```json
@@ -247,7 +313,7 @@ Dispatches a message from the operator or an agent. Supports slash commands (`/p
 
 ---
 
-## 6. Desktop & Browser Control Endpoints
+## 8. Desktop & Browser Control Endpoints
 
 ### `GET /api/system/apps`
 Discovers installed desktop applications across standard system paths.
@@ -263,7 +329,7 @@ Returns persistent Chromium session details, active target URLs, and web step tr
 
 ---
 
-## 7. Real-Time Event Stream (`GET /api/events`)
+## 9. Real-Time Event Stream (`GET /api/events`)
 
 The daemon exposes a Server-Sent Events (SSE) stream on `/api/events` for real-time frontend synchronization:
 

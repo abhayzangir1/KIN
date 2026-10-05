@@ -293,38 +293,62 @@ The router parses pipe criteria (`|`), sets up goals and tasks, verifies git and
 
 ---
 
+### 3.8 Origin-Aware Goals & Interactive Replanning
+KIN implements a rich goal tracking and replanning protocol:
+1. **Enriched Goal Schema**: Goals in SQLite track `deadline`, `check_in_policy`, `progress_summary`, `blocked_state`, `proposed_replanning_json`, and `origin_channel_id`.
+2. **DM-to-Channel Boundary Elevation**: When cross-cutting or shared project objectives are requested in direct messages, the specialist announces the scope in `#general`, where `@Boss` establishes the authoritative Goal and Task DAG.
+3. **Interactive Plan Decisions (`[DECISION_CARD]`)**: When an agent detects blocker conditions or proposes an architectural change via the `proposePlanAdjustment` tool, KIN formats the proposal into a structured `[DECISION_CARD]` rendered by `DecisionCard.tsx` in the Workbench chat.
+4. **Authoritative ADR Adoption**: When the operator clicks **Choose Option A**, **Choose Option B**, or **Apply Compromise**, `/decisions choose <choice>` records an authoritative Architecture Decision Record and advances active goal progress.
+
+---
+
 ## 4. Security, Isolation & Safety Boundaries
 
 ```mermaid
 flowchart TD
-    Req["Incoming Tool Request (Read / Write / Shell)"] --> JailCheck{"Path inside Project Root?"}
+    Req["Incoming Tool Request (Read / Write / Shell)"] --> SentinelAuth{"Sentinel: Agent Authorized?"}
+    
+    SentinelAuth -->|No: Specialist Exceeds Capabilities| DenySentinel["Reject: 403 Security Denial (FORBIDDEN)"]
+    SentinelAuth -->|Yes: @Boss * or Specialist Allowed| JailCheck{"Path inside Project Root?"}
     
     JailCheck -->|No - Directory Traversal| Reject403["Reject: 403 Forbidden (Path Outside Jail)"]
     JailCheck -->|Yes| AutonomyCheck{"Check Autonomy Mode"}
     
-    AutonomyCheck -->|FULL_AUTONOMY| RiskCheck{"Is Action CRITICAL_RISK?"}
-    AutonomyCheck -->|SEMI_AUTONOMY| TierCheck{"Risk Tier: LOW, MEDIUM, or HIGH?"}
+    AutonomyCheck -->|FULL_ACCESS| RiskCheck{"Is Action CRITICAL_RISK?"}
+    AutonomyCheck -->|AUTO| TierCheck{"Risk Tier: LOW, MEDIUM, or HIGH?"}
     AutonomyCheck -->|ALWAYS_ASK| PromptOperator["Prompt Operator for Interactive Approval"]
     
     TierCheck -->|LOW / MEDIUM| Exec["Execute Tool"]
     TierCheck -->|HIGH / CRITICAL| PromptOperator
     
-    RiskCheck -->|Yes - Payment / Destructive| PromptOperator
+    RiskCheck -->|Yes - Destructive / Security Sensitive| PromptOperator
     RiskCheck -->|No| Exec
     
     PromptOperator --> OperDecision{"Operator Choice"}
-    OperDecision -->|Approve| Exec
+    OperDecision -->|Approve: Single-Use Token Issued| Exec
     OperDecision -->|Reject| Abort["Abort Tool Execution"]
 ```
 
-1. **Strict Project Worktree Jail**:
-   - File system tools resolve all paths relative to the active project root using canonical path evaluation.
-   - Any path traversal (`../`) attempting to navigate outside the project boundary is rejected.
-2. **Git Worktree Isolation**:
+1. **Sentinel Security Boundary & Hierarchical Attenuation**:
+   - Every tool execution passes through `Sentinel.evaluate()`.
+   - **Hierarchical Attenuation**: `@Boss` retains platform authority (`*`), while specialist agents are strictly confined to their declared capability sets (e.g. `['fs:read', 'fs:write']`, `['web:browse']`, `['mcp:call']`).
+   - Unauthorized tool calls are rejected fail-closed with `SECURITY DENIAL: FORBIDDEN`.
+2. **Secret Vault & Parameter Redaction**:
+   - API keys and tokens in `managed_credentials` are encrypted using AES-256-GCM (`SecretVault`).
+   - `SecretBroker.sanitizePayload()` automatically strips passwords, tokens, and secrets from `action_records.params_json` and `approvals.action_payload_json` prior to SQLite storage.
+3. **Loopback IPC Token Authentication**:
+   - Port `54321` enforces bearer token authentication via `.kin/ipc_auth.token`.
+   - Requests from untrusted browser tabs or third-party localhost processes lacking the secret token receive `401 Unauthorized`.
+4. **Subprocess & Browser Isolation**:
+   - Subprocesses spawned by MCP clients run in sanitized environments stripped of host credentials (`*_API_KEY`, `KIN_*`).
+   - Browser automation disallows `file:` and `data:` scheme traversals without explicit administrative capabilities.
+5. **Strict Project Worktree Jail**:
+   - Filesystem tools resolve paths relative to the active project root using canonical path evaluation. Path traversal (`../`) outside the boundary is blocked.
+6. **Git Worktree Isolation**:
    - Concurrent tasks execute in dedicated git worktrees (`.kin/worktrees/<task-id>`), preventing file write conflicts between agents.
-3. **Optimistic Concurrency Control (OCC)**:
+7. **Optimistic Concurrency Control (OCC)**:
    - Tool writes verify SHA-256 hashes recorded during previous reads. If the file has changed on disk, the write is rejected to prevent silent overwrites.
-4. **Financial Safety Shield**:
+8. **Financial Safety Shield**:
    - Desktop and browser actions that encounter checkout, credit card, or payment triggers are blocked until confirmed by the operator.
 
 ---
@@ -339,18 +363,19 @@ KIN/
 │   │   ├── browser/                     # Persistent Headful Browser Controller
 │   │   ├── computer/                    # Desktop Automation & Win32 Mutex Lock
 │   │   ├── context/                     # 5-Block Context Compiler & Goal Ancestry
-│   │   ├── domain/                      # SQLite Repositories (Agents, Tasks, Memory)
+│   │   ├── domain/                      # SQLite Repositories (Agents, Goals, Tasks, Memory)
 │   │   ├── execution/                   # Model Gateway & Tool Gateway with OCC
 │   │   ├── kernel/                      # AgentLoopRunner, AgentKernel & Checkpointing
 │   │   ├── policy/                      # Policy Engine & Financial Safety Shield
 │   │   ├── recovery/                    # Self-Healing & Verification Engine
-│   │   ├── server/                      # CoreServer (REST API, SSE Event Bus)
+│   │   ├── security/                    # Sentinel, SecretVault (AES-256) & SecretBroker
+│   │   ├── server/                      # CoreServer (REST API, SSE Event Bus, IPC Auth)
 │   │   ├── skills/                      # Skill Engine & Experience Harvester
 │   │   └── storage/                     # SQLite 3 Database & Migration Runner
-│   └── test/                            # 11 Unit & Integration Vitest Suites (117 Tests)
+│   └── test/                            # 13 Unit & Integration Vitest Suites (161 Tests)
 ├── ui/                                  # Presentation Layer (React 18 + Vite)
 │   └── src/
-│       ├── components/                  # Workbench, SwarmMap, Inspector, Modals
+│       ├── components/                  # Workbench, SwarmMap, DecisionCard, Modals
 │       └── store/                       # Authoritative Zustand State Store (kinStore.ts)
 ├── src-tauri/                           # Native Desktop Shell (Tauri 2 / Rust)
 │   ├── src/
