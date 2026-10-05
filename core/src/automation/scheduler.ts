@@ -324,6 +324,17 @@ export class SchedulerService {
 
       for (const row of rows) {
         const schedule = this.mapRowToSchedule(row);
+
+        // Check timerCondition for one-shot timers (early cancel if condition was met)
+        if (schedule.type === 'one_shot' && this.shouldCancelTimerCondition(schedule)) {
+          this.db.execute(
+            `UPDATE schedules SET status = 'cancelled', updated_at = ? WHERE id = ?`,
+            now,
+            schedule.id
+          );
+          continue;
+        }
+
         const newIterations = (schedule.currentIterations ?? 0) + 1;
 
         if (schedule.type === 'one_shot') {
@@ -366,6 +377,27 @@ export class SchedulerService {
       return fired;
     } finally {
       this.isEvaluating = false;
+    }
+  }
+
+  public shouldCancelTimerCondition(schedule: Schedule): boolean {
+    if (!schedule.timerCondition || schedule.timerCondition === 'never') return false;
+    const condition = schedule.timerCondition.trim();
+    if (condition === 'any') {
+      const recent = this.db.queryOne<{ id: string }>(
+        `SELECT id FROM messages WHERE channel_id = ? AND created_at > ? LIMIT 1`,
+        schedule.channelId,
+        schedule.createdAt
+      );
+      return !!recent;
+    } else {
+      const senderMatch = this.db.queryOne<{ id: string }>(
+        `SELECT id FROM messages WHERE channel_id = ? AND sender_id = ? AND created_at > ? LIMIT 1`,
+        schedule.channelId,
+        condition,
+        schedule.createdAt
+      );
+      return !!senderMatch;
     }
   }
 

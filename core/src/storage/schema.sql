@@ -109,6 +109,12 @@ CREATE TABLE IF NOT EXISTS goals (
     description TEXT NOT NULL,
     acceptance_criteria_json TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('draft', 'active', 'completed', 'failed', 'cancelled')),
+    deadline INTEGER,
+    check_in_policy TEXT,
+    progress_summary TEXT,
+    blocked_state TEXT,
+    proposed_replanning_json TEXT,
+    origin_channel_id TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );

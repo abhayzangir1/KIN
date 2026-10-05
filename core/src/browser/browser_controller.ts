@@ -255,11 +255,16 @@ export class BrowserController {
   /**
    * Navigates to target URL with session cookies intact.
    */
-  public async navigate(url: string, options: { recordStep?: boolean } = {}): Promise<{ url: string; title: string; status: number; timeout?: boolean }> {
+  public async navigate(url: string, options: { recordStep?: boolean; allowLocalFileNavigation?: boolean } = {}): Promise<{ url: string; title: string; status: number; timeout?: boolean }> {
     const startTime = Date.now();
-    const { page } = await this.ensureBrowser();
     const trimmedUrl = url.trim();
     const lower = trimmedUrl.toLowerCase();
+
+    if ((lower.startsWith('file:') || lower.startsWith('data:')) && !options.allowLocalFileNavigation) {
+      throw new Error(`ACCESS_DENIED: Scheme navigation to '${lower.split(':')[0]}:' is prohibited without explicit allowLocalFileNavigation capability.`);
+    }
+
+    const { page } = await this.ensureBrowser();
     const isLocalHost = lower.startsWith('localhost') || lower.startsWith('127.0.0.1') || lower.startsWith('::1') || lower.startsWith('[::1]');
     const formattedUrl = (
       lower.startsWith('http://') ||

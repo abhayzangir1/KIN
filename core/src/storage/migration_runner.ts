@@ -125,6 +125,29 @@ export class MigrationRunner {
         }
       }
 
+      // Pre-migration: goals table enriched fields
+      if (existingTables.includes('goals')) {
+        const goalCols = this.db.query<{ name: string }>("PRAGMA table_info(goals);").map((c) => c.name);
+        if (!goalCols.includes('deadline')) {
+          this.db.exec('ALTER TABLE goals ADD COLUMN deadline INTEGER;');
+        }
+        if (!goalCols.includes('check_in_policy')) {
+          this.db.exec('ALTER TABLE goals ADD COLUMN check_in_policy TEXT;');
+        }
+        if (!goalCols.includes('progress_summary')) {
+          this.db.exec('ALTER TABLE goals ADD COLUMN progress_summary TEXT;');
+        }
+        if (!goalCols.includes('blocked_state')) {
+          this.db.exec('ALTER TABLE goals ADD COLUMN blocked_state TEXT;');
+        }
+        if (!goalCols.includes('proposed_replanning_json')) {
+          this.db.exec('ALTER TABLE goals ADD COLUMN proposed_replanning_json TEXT;');
+        }
+        if (!goalCols.includes('origin_channel_id')) {
+          this.db.exec('ALTER TABLE goals ADD COLUMN origin_channel_id TEXT;');
+        }
+      }
+
       // Pre-migration: agent_runs table channel_id, trigger_message_id, quota_paused state & columns
       if (existingTables.includes('agent_runs')) {
         const agentRunsSql = this.db.queryOne<{ sql: string }>(

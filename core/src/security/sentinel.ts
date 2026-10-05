@@ -146,7 +146,8 @@ export class Sentinel {
       case 'listSchedules':
         return { primary: 'schedule:cron', aliases: ['schedule:cron', 'schedule', 'cron'] };
       case 'delegateToAgent':
-        return { primary: 'agent:delegate', aliases: ['agent:delegate', 'delegate', 'agent'] };
+      case 'proposePlanAdjustment':
+        return { primary: 'agent:delegate', aliases: ['agent:delegate', 'delegate', 'agent', 'proposePlanAdjustment', '*'] };
       default:
         return { primary: 'fs:read', aliases: ['fs:read', 'fs_read', 'read', 'fs'] };
     }

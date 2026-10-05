@@ -34,6 +34,8 @@ import { FinancialSafetyShield } from '../policy/financial_safety.js';
 import { MemoryRepository } from '../domain/memory_repository.js';
 import { ComputerSupervisor } from '../computer/computer_supervisor.js';
 import { SecretVault } from '../security/secret_vault.js';
+import { SecretBroker } from '../security/secret_broker.js';
+import { GoalRepository } from '../domain/goal_repository.js';
 import { WorktreeManager } from '../execution/worktree_manager.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -52,6 +54,7 @@ export class CoreServer {
   private workspaceRepo: WorkspaceRepository;
   private agentRepo: AgentRepository;
   private taskRepo: TaskRepository;
+  private goalRepo: GoalRepository;
   private memoryRepo: MemoryRepository;
   private channelService: ChannelService;
   private activationEngine: ActivationEngine;
@@ -146,19 +149,24 @@ export class CoreServer {
     this.workspaceRepo = new WorkspaceRepository(this.db);
     this.agentRepo = new AgentRepository(this.db);
     this.taskRepo = new TaskRepository(this.db);
+    this.goalRepo = new GoalRepository(this.db);
     this.memoryRepo = new MemoryRepository(this.db);
     this.channelService = new ChannelService(this.db);
     this.activationEngine = new ActivationEngine();
     this.kernel = new AgentKernel(this.db);
     this.policyEngine = new PolicyEngine();
+    const lastResolvedCredIdByProvider = new Map<string, string>();
     this.modelGateway = new ModelGateway({
       apiKeyResolver: (provider: string) => {
         try {
           const row = this.db.queryOne<any>(
-            'SELECT secret_hash FROM managed_credentials WHERE provider = ? AND is_active = 1 ORDER BY updated_at DESC LIMIT 1',
+            'SELECT id, secret_hash FROM managed_credentials WHERE provider = ? AND is_active = 1 ORDER BY updated_at DESC LIMIT 1',
             provider
           );
-          if (row && row.secret_hash) return row.secret_hash;
+          if (row && row.secret_hash) {
+            lastResolvedCredIdByProvider.set(provider, row.id);
+            return row.secret_hash;
+          }
         } catch {}
         if (provider === 'openrouter') return process.env.OPENROUTER_API_KEY;
         if (provider === 'openai') return process.env.OPENAI_API_KEY;
@@ -169,12 +177,22 @@ export class CoreServer {
       },
       onUsage: (provider: string, tokensUsed: { totalTokens: number }) => {
         try {
-          this.db.execute(
-            'UPDATE managed_credentials SET current_spend_tokens = current_spend_tokens + ?, updated_at = ? WHERE provider = ? AND is_active = 1',
-            tokensUsed.totalTokens,
-            Date.now(),
-            provider
-          );
+          const credId = lastResolvedCredIdByProvider.get(provider);
+          if (credId) {
+            this.db.execute(
+              'UPDATE managed_credentials SET current_spend_tokens = current_spend_tokens + ?, updated_at = ? WHERE id = ?',
+              tokensUsed.totalTokens,
+              Date.now(),
+              credId
+            );
+          } else {
+            this.db.execute(
+              'UPDATE managed_credentials SET current_spend_tokens = current_spend_tokens + ?, updated_at = ? WHERE id = (SELECT id FROM managed_credentials WHERE provider = ? AND is_active = 1 ORDER BY updated_at DESC LIMIT 1)',
+              tokensUsed.totalTokens,
+              Date.now(),
+              provider
+            );
+          }
         } catch {}
       },
     });
@@ -218,10 +236,12 @@ export class CoreServer {
     this.desktopController = this.toolGateway.getDesktopController();
     this.browserController = this.toolGateway.getBrowserController();
     this.financialSafety = this.toolGateway.getFinancialSafety();
-    this.skillEngine = new SkillEngine(this.db);
+    const initialProject = this.workspaceRepo.getProject(this.activeProjectId);
+    const repoRoot = initialProject?.repoPath || process.env.KIN_PROJECT_ROOT || process.cwd();
+    this.skillEngine = new SkillEngine(this.db, { repoRoot });
     this.toolGateway.setSkillEngine(this.skillEngine);
     this.recoveryEngine = new RecoveryEngine(this.skillEngine);
-    this.mcpClient = new McpClientManager(process.cwd());
+    this.mcpClient = new McpClientManager(repoRoot);
     this.toolGateway.setMcpClient(this.mcpClient);
     this.agentLoopRunner = new AgentLoopRunner(
       this.modelGateway,
@@ -2458,6 +2478,64 @@ export class CoreServer {
         const hasGoalCmd = /\/goal\b/i.test(cleanForCompound);
         const hasScheduleCmd = /\/(schedule|timer)\b/i.test(cleanForCompound);
         const hasRoutineCmd = /\/routine\b/i.test(cleanForCompound);
+
+        // DM-to-Channel Boundary Elevation: Elevate cross-cutting or shared project work requested in DM to #general with @Boss
+        const isDmChannel = channelId.startsWith('dm-');
+        const isCrossCuttingScope = (hasPlanCmd || hasGoalCmd || hasBoostCmd || hasTeamworkCmd || /cross[- ]cutting|shared project/i.test(cleanForCompound));
+        if (isDmChannel && isCrossCuttingScope && boss) {
+          const dmAgent = routing.targetAgents[0] || allProjectAgents.find((a) => a.id === channelId.replace(/^dm-/, '')) || boss;
+          const dmElevateMsg = this.channelService.sendMessage({
+            channelId,
+            senderId: dmAgent.id,
+            senderType: 'agent',
+            content: `Scope encompasses shared workforce activities. Elevating this request to #general so that @Boss can establish the authoritative Goal and milestone DAG.`,
+            productivityScore: 100,
+          });
+          this.broadcastEvent('message:created', {
+            id: dmElevateMsg.id,
+            channelId: dmElevateMsg.channelId,
+            senderId: dmElevateMsg.senderId,
+            senderName: dmAgent.displayName.replace(/^@/, ''),
+            senderType: 'agent',
+            content: dmElevateMsg.content,
+            createdAt: dmElevateMsg.createdAt,
+            productivityScore: 100,
+          });
+
+          const generalChan = this.workspaceRepo.listChannels(targetProjectId).find((c) => c.name === 'general') || { id: 'chan-general' };
+          const generalAnnouncement = this.channelService.sendMessage({
+            channelId: generalChan.id,
+            senderId: dmAgent.id,
+            senderType: 'agent',
+            content: `📢 **[DM Elevation from ${dmAgent.displayName}]**: Cross-cutting scope requested by operator in DM: "${contentTrimmed}". Elevating to shared project channel.`,
+            productivityScore: 100,
+          });
+          this.broadcastEvent('message:created', {
+            id: generalAnnouncement.id,
+            channelId: generalChan.id,
+            senderId: generalAnnouncement.senderId,
+            senderName: dmAgent.displayName.replace(/^@/, ''),
+            senderType: 'agent',
+            content: generalAnnouncement.content,
+            createdAt: generalAnnouncement.createdAt,
+            productivityScore: 100,
+          });
+
+          const elevatedDirective = {
+            id: `msg-elevated-${Date.now()}`,
+            channelId: generalChan.id,
+            senderId: 'user-operator',
+            senderType: 'human' as const,
+            content: cleanForCompound,
+            createdAt: Date.now(),
+            originChannelId: channelId,
+          };
+          this.executeSequentialAgents([boss], generalChan.id, elevatedDirective as any).catch((err) => {
+            console.error('[KIN CORE] Elevated DM execution notice:', err);
+          });
+          return;
+        }
+
         const compoundCount = (hasPlanCmd ? 1 : 0) + (hasBoostCmd ? 1 : 0) + (hasTeamworkCmd ? 1 : 0) + (hasGoalCmd ? 1 : 0) + (hasScheduleCmd ? 1 : 0) + (hasRoutineCmd ? 1 : 0);
 
         if (compoundCount >= 2 && boss) {
@@ -2565,6 +2643,7 @@ export class CoreServer {
               description: planDesc,
               acceptanceCriteria,
               status: 'active',
+              originChannelId: (userMsg as any)?.originChannelId || (channelId.startsWith('dm-') ? channelId : undefined),
               createdAt: existingPlanGoal ? existingPlanGoal.createdAt : now,
               updatedAt: now,
             };
@@ -2827,6 +2906,7 @@ export class CoreServer {
             description: goalDesc,
             acceptanceCriteria: criteria,
             status: 'active',
+            originChannelId: channelId,
             createdAt: existingGoal ? existingGoal.createdAt : now,
             updatedAt: now,
           };
@@ -4246,6 +4326,7 @@ export class CoreServer {
           this.kernel.transitionState(runId, 'waiting_for_approval', 'Requires interactive human approval');
         }
 
+        const sanitizedPayload = SecretBroker.getInstance().sanitizePayload(body.actionPayload || {});
         this.db.execute(
           `INSERT INTO approvals (id, run_id, agent_id, tool_name, action_payload_json, risk_level, status, expires_at, created_at)
            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
@@ -4253,7 +4334,7 @@ export class CoreServer {
           runId,
           agentId,
           body.toolName,
-          JSON.stringify(body.actionPayload || {}),
+          JSON.stringify(sanitizedPayload),
           riskLevel,
           now + 86400000,
           now
@@ -6973,6 +7054,7 @@ export class CoreServer {
         const details = loopResult.pendingApprovalDetails || {};
         const approvalId = `appr-${Date.now()}`;
         const now = Date.now();
+        const sanitizedParams = SecretBroker.getInstance().sanitizePayload(details.params || {});
         this.db.execute(
           `INSERT INTO approvals (id, run_id, agent_id, tool_name, action_payload_json, risk_level, status, expires_at, created_at)
            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
@@ -6980,7 +7062,7 @@ export class CoreServer {
           run.id,
           freshIdentity.id,
           details.toolName || 'action',
-          JSON.stringify(details.params || {}),
+          JSON.stringify(sanitizedParams),
           details.riskLevel || 'CRITICAL',
           now + 86400000,
           now
@@ -7051,20 +7133,27 @@ export class CoreServer {
 
                   const nextWorker = (nextReady.assignedAgentId ? this.agentRepo.getIdentity(nextReady.assignedAgentId) : null) || freshIdentity;
                   if (nextWorker) {
-                    const taskTrigger = {
-                      id: `task-advance-${Date.now()}-${nextReady.id}`,
-                      channelId,
-                      senderId: 'system-dag-advancer',
-                      senderType: 'system' as const,
-                      content: `[Automated DAG Dispatch] Initiating promoted task: "${nextReady.title}". ${nextReady.description || ''}`,
+                    const activation = this.activationEngine.evaluateActivation(nextWorker, {
+                      type: 'task_dependency_ready',
                       taskId: nextReady.id,
-                      createdAt: Date.now(),
-                    };
-                    this.enqueueChannelExecution(channelId, () =>
-                      this.enqueueAgentExecution(nextWorker.id, () =>
-                        this.executeAgentResponse(nextWorker, channelId, taskTrigger, 0)
-                      )
-                    );
+                      readyTaskAssignedAgentId: nextWorker.id,
+                    });
+                    if (activation.shouldActivate) {
+                      const taskTrigger = {
+                        id: `task-advance-${Date.now()}-${nextReady.id}`,
+                        channelId,
+                        senderId: 'system-dag-advancer',
+                        senderType: 'system' as const,
+                        content: `[Automated DAG Dispatch] Initiating promoted task: "${nextReady.title}". ${nextReady.description || ''}`,
+                        taskId: nextReady.id,
+                        createdAt: Date.now(),
+                      };
+                      this.enqueueChannelExecution(channelId, () =>
+                        this.enqueueAgentExecution(nextWorker.id, () =>
+                          this.executeAgentResponse(nextWorker, channelId, taskTrigger, 0)
+                        )
+                      );
+                    }
                   }
                 }
 
@@ -7137,11 +7226,6 @@ export class CoreServer {
             (p) => p.displayName.replace(/^@/, '').toLowerCase() === targetRaw || p.id.toLowerCase() === targetRaw
           );
           if (targetPeer && targetPeer.id !== freshIdentity.id) {
-            const currentMembers = this.workspaceRepo.listChannelMemberIds(channelId);
-            if (!currentMembers.includes(targetPeer.id)) {
-              this.workspaceRepo.addChannelMember(channelId, targetPeer.id);
-              this.broadcastEvent('channel:member_added', { channelId, agentId: targetPeer.id });
-            }
             const peerTrigger = {
               id: `peer-del-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
               channelId,
@@ -7158,38 +7242,36 @@ export class CoreServer {
           }
         }
 
-        // (2) Check for conversational peer @mentions in reply content
+        // (2) Check for structured peer delegation directives in reply content
         if (delegations.length === 0) {
-          const mentions = [...agentReply.content.matchAll(/@([a-zA-Z0-9_-]+)/g)].map((m) => m[1]);
-          const selfDisplay = freshIdentity.displayName.replace(/^@/, '').toLowerCase();
-          const uniqueMentions = Array.from(new Set(mentions)).filter(
-            (m) => m.toLowerCase() !== selfDisplay && m.toLowerCase() !== 'channel' && m.toLowerCase() !== 'here'
-          );
-
-          for (const mention of uniqueMentions) {
-            const peerAgent = allProjectAgents.find(
-              (p) => p.displayName.replace(/^@/, '').toLowerCase() === mention.toLowerCase() || p.id.toLowerCase() === mention.toLowerCase()
+          const hasDirective = /\[(DELEGATION_DIRECTIVE|HANDOVER_DIRECTIVE)\]/i.test(agentReply.content);
+          if (hasDirective) {
+            const mentions = [...agentReply.content.matchAll(/@([a-zA-Z0-9_-]+)/g)].map((m) => m[1]);
+            const selfDisplay = freshIdentity.displayName.replace(/^@/, '').toLowerCase();
+            const uniqueMentions = Array.from(new Set(mentions)).filter(
+              (m) => m.toLowerCase() !== selfDisplay && m.toLowerCase() !== 'channel' && m.toLowerCase() !== 'here'
             );
-            if (peerAgent && peerAgent.id !== freshIdentity.id) {
-              const currentMembers = this.workspaceRepo.listChannelMemberIds(channelId);
-              if (!currentMembers.includes(peerAgent.id)) {
-                this.workspaceRepo.addChannelMember(channelId, peerAgent.id);
-                this.broadcastEvent('channel:member_added', { channelId, agentId: peerAgent.id });
-              }
-              const peerTrigger = {
-                id: `peer-handover-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-                channelId,
-                senderId: freshIdentity.id,
-                senderType: 'agent',
-                content: agentReply.content,
-                createdAt: Date.now(),
-              };
-              this.enqueueChannelExecution(channelId, () =>
-                this.enqueueAgentExecution(peerAgent.id, () =>
-                  this.executeAgentResponse(peerAgent, channelId, peerTrigger, recursionDepth + 1)
-                )
+
+            for (const mention of uniqueMentions) {
+              const peerAgent = allProjectAgents.find(
+                (p) => p.displayName.replace(/^@/, '').toLowerCase() === mention.toLowerCase() || p.id.toLowerCase() === mention.toLowerCase()
               );
-              break; // Coordinate with first mentioned peer per turn to maintain orderly conversation flow
+              if (peerAgent && peerAgent.id !== freshIdentity.id) {
+                const peerTrigger = {
+                  id: `peer-handover-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                  channelId,
+                  senderId: freshIdentity.id,
+                  senderType: 'agent',
+                  content: agentReply.content,
+                  createdAt: Date.now(),
+                };
+                this.enqueueChannelExecution(channelId, () =>
+                  this.enqueueAgentExecution(peerAgent.id, () =>
+                    this.executeAgentResponse(peerAgent, channelId, peerTrigger, recursionDepth + 1)
+                  )
+                );
+                break; // Coordinate with first mentioned peer per turn to maintain orderly conversation flow
+              }
             }
           }
         }

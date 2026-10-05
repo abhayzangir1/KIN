@@ -37,6 +37,43 @@ export class McpClientManager {
     this.projectRoot = path.resolve(projectRoot);
   }
 
+  public setProjectRoot(projectRoot: string): void {
+    this.projectRoot = path.resolve(projectRoot);
+  }
+
+  public getProjectRoot(): string {
+    return this.projectRoot;
+  }
+
+  /**
+   * Constructs a sanitized environment for MCP subprocesses, stripping all host API keys and KIN secrets.
+   */
+  public static sanitizeMcpEnv(configEnv?: Record<string, string>): Record<string, string> {
+    const safeOsKeys = [
+      'PATH', 'Path', 'path',
+      'HOME', 'USERPROFILE',
+      'TEMP', 'TMP',
+      'SYSTEMROOT', 'SystemRoot',
+      'COMSPEC', 'SHELL',
+      'TERM', 'LANG', 'LC_ALL'
+    ];
+    const safeEnv: Record<string, string> = {};
+    for (const key of safeOsKeys) {
+      if (process.env[key] !== undefined) {
+        safeEnv[key] = process.env[key]!;
+      }
+    }
+    const cleanEnv: Record<string, string> = { ...safeEnv, ...(configEnv || {}) };
+    for (const key of Object.keys(cleanEnv)) {
+      if (!configEnv || !(key in configEnv)) {
+        if (/api_key|secret|token|kin_/i.test(key)) {
+          delete cleanEnv[key];
+        }
+      }
+    }
+    return cleanEnv;
+  }
+
   /**
    * Loads configured MCP servers from .kin/mcp_servers.json.
    */
@@ -80,9 +117,11 @@ export class McpClientManager {
       return this.activeServers.get(config.name)!.tools;
     }
 
+    const cleanEnv = McpClientManager.sanitizeMcpEnv(config.env);
+
     const proc = spawn(config.command, config.args || [], {
       cwd: this.projectRoot,
-      env: { ...process.env, ...config.env },
+      env: cleanEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 

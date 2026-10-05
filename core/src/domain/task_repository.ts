@@ -10,14 +10,20 @@ export class TaskRepository {
 
   public createGoal(goal: Goal): void {
     this.db.execute(
-      `INSERT INTO goals (id, project_id, title, description, acceptance_criteria_json, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO goals (id, project_id, title, description, acceptance_criteria_json, status, deadline, check_in_policy, progress_summary, blocked_state, proposed_replanning_json, origin_channel_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       goal.id,
       goal.projectId,
       goal.title,
       goal.description,
-      JSON.stringify(goal.acceptanceCriteria),
+      JSON.stringify(goal.acceptanceCriteria || []),
       goal.status,
+      goal.deadline ?? null,
+      goal.checkInPolicy ?? null,
+      goal.progressSummary ?? null,
+      goal.blockedState ?? null,
+      goal.proposedReplanning ? JSON.stringify(goal.proposedReplanning) : null,
+      goal.originChannelId ?? null,
       goal.createdAt,
       goal.updatedAt
     );
@@ -31,6 +37,12 @@ export class TaskRepository {
       description: string;
       acceptance_criteria_json: string;
       status: string;
+      deadline: number | null;
+      check_in_policy: string | null;
+      progress_summary: string | null;
+      blocked_state: string | null;
+      proposed_replanning_json: string | null;
+      origin_channel_id: string | null;
       created_at: number;
       updated_at: number;
     }>('SELECT * FROM goals WHERE id = ?', id);
@@ -44,6 +56,13 @@ export class TaskRepository {
       acceptanceCriteria = [];
     }
 
+    let proposedReplanning: any = undefined;
+    if (row.proposed_replanning_json) {
+      try {
+        proposedReplanning = JSON.parse(row.proposed_replanning_json);
+      } catch {}
+    }
+
     return {
       id: row.id,
       projectId: row.project_id,
@@ -51,6 +70,12 @@ export class TaskRepository {
       description: row.description,
       acceptanceCriteria,
       status: row.status as Goal['status'],
+      deadline: row.deadline ?? undefined,
+      checkInPolicy: row.check_in_policy ?? undefined,
+      progressSummary: row.progress_summary ?? undefined,
+      blockedState: row.blocked_state ?? undefined,
+      proposedReplanning,
+      originChannelId: row.origin_channel_id ?? undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -323,20 +348,40 @@ export class TaskRepository {
       description: string;
       acceptance_criteria_json: string;
       status: string;
+      deadline: number | null;
+      check_in_policy: string | null;
+      progress_summary: string | null;
+      blocked_state: string | null;
+      proposed_replanning_json: string | null;
+      origin_channel_id: string | null;
       created_at: number;
       updated_at: number;
     }>('SELECT * FROM goals WHERE project_id = ? ORDER BY updated_at DESC, created_at DESC', projectId);
 
-    const goals = rows.map((r) => ({
-      id: r.id,
-      projectId: r.project_id,
-      title: r.title,
-      description: r.description,
-      acceptanceCriteria: JSON.parse(r.acceptance_criteria_json || '[]'),
-      status: r.status as Goal['status'],
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
-    }));
+    const goals = rows.map((r) => {
+      let proposedReplanning: any = undefined;
+      if (r.proposed_replanning_json) {
+        try {
+          proposedReplanning = JSON.parse(r.proposed_replanning_json);
+        } catch {}
+      }
+      return {
+        id: r.id,
+        projectId: r.project_id,
+        title: r.title,
+        description: r.description,
+        acceptanceCriteria: JSON.parse(r.acceptance_criteria_json || '[]'),
+        status: r.status as Goal['status'],
+        deadline: r.deadline ?? undefined,
+        checkInPolicy: r.check_in_policy ?? undefined,
+        progressSummary: r.progress_summary ?? undefined,
+        blockedState: r.blocked_state ?? undefined,
+        proposedReplanning,
+        originChannelId: r.origin_channel_id ?? undefined,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      };
+    });
 
     if (!deduplicate) return goals;
 
@@ -453,12 +498,30 @@ export class TaskRepository {
 
   public updateGoal(goal: Goal): void {
     this.db.execute(
-      `UPDATE goals SET title = ?, description = ?, acceptance_criteria_json = ?, status = ?, updated_at = ? WHERE id = ?`,
+      `UPDATE goals
+       SET title = ?,
+           description = ?,
+           acceptance_criteria_json = ?,
+           status = ?,
+           deadline = ?,
+           check_in_policy = ?,
+           progress_summary = ?,
+           blocked_state = ?,
+           proposed_replanning_json = ?,
+           origin_channel_id = ?,
+           updated_at = ?
+       WHERE id = ?`,
       goal.title,
       goal.description,
-      JSON.stringify(goal.acceptanceCriteria),
+      JSON.stringify(goal.acceptanceCriteria || []),
       goal.status,
-      goal.updatedAt,
+      goal.deadline ?? null,
+      goal.checkInPolicy ?? null,
+      goal.progressSummary ?? null,
+      goal.blockedState ?? null,
+      goal.proposedReplanning ? JSON.stringify(goal.proposedReplanning) : null,
+      goal.originChannelId ?? null,
+      goal.updatedAt || Date.now(),
       goal.id
     );
   }

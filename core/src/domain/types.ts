@@ -154,6 +154,12 @@ export interface Goal {
   description: string;
   acceptanceCriteria: string[];
   status: GoalStatus;
+  deadline?: number;
+  checkInPolicy?: string;
+  progressSummary?: string;
+  blockedState?: string;
+  proposedReplanning?: any;
+  originChannelId?: string;
   createdAt: number;
   updatedAt: number;
 }

@@ -55,7 +55,7 @@ export class WakeupQueue {
    */
   public enqueue(event: WakeupEvent): WakeupDisposition {
     this.totalEnqueued++;
-    const key = `${event.agentId}:${event.channelId}`;
+    const key = `${event.agentId}:${event.channelId}:${event.source}`;
     const now = Date.now();
 
     // Check system memory governor: if free memory is under 300MB, log telemetry
@@ -128,29 +128,49 @@ export class WakeupQueue {
   }
 
   /**
-   * Immediately dispatches any pending wakeup for the specified key.
+   * Immediately dispatches any pending wakeup for the specified key or agent/channel pair.
    */
-  public async flush(agentId: string, channelId: string): Promise<boolean> {
-    const key = `${agentId}:${channelId}`;
-    const entry = this.pendingEntries.get(key);
-    if (!entry) return false;
-
-    clearTimeout(entry.timer);
-    await this.dispatch(key);
-    return true;
+  public async flush(agentId: string, channelId: string, source?: string): Promise<boolean> {
+    if (source) {
+      const key = `${agentId}:${channelId}:${source}`;
+      const entry = this.pendingEntries.get(key);
+      if (!entry) return false;
+      clearTimeout(entry.timer);
+      await this.dispatch(key);
+      return true;
+    }
+    let flushed = false;
+    for (const [key, entry] of Array.from(this.pendingEntries.entries())) {
+      if (key.startsWith(`${agentId}:${channelId}:`) || key === `${agentId}:${channelId}`) {
+        clearTimeout(entry.timer);
+        await this.dispatch(key);
+        flushed = true;
+      }
+    }
+    return flushed;
   }
 
   /**
    * Cancels a pending wakeup.
    */
-  public cancel(agentId: string, channelId: string): boolean {
-    const key = `${agentId}:${channelId}`;
-    const entry = this.pendingEntries.get(key);
-    if (!entry) return false;
-
-    clearTimeout(entry.timer);
-    this.pendingEntries.delete(key);
-    return true;
+  public cancel(agentId: string, channelId: string, source?: string): boolean {
+    if (source) {
+      const key = `${agentId}:${channelId}:${source}`;
+      const entry = this.pendingEntries.get(key);
+      if (!entry) return false;
+      clearTimeout(entry.timer);
+      this.pendingEntries.delete(key);
+      return true;
+    }
+    let cancelled = false;
+    for (const [key, entry] of Array.from(this.pendingEntries.entries())) {
+      if (key.startsWith(`${agentId}:${channelId}:`) || key === `${agentId}:${channelId}`) {
+        clearTimeout(entry.timer);
+        this.pendingEntries.delete(key);
+        cancelled = true;
+      }
+    }
+    return cancelled;
   }
 
   /**

@@ -303,7 +303,7 @@ describe('KIN Enterprise Resilience & Crash Recovery Suite', () => {
       lastCoalescedCount = coalesced;
     });
 
-    // Enqueue 5 rapid events for the same agent & channel
+    // Enqueue rapid events for the same agent, channel & source
     queue.enqueue({
       id: 'evt-1',
       agentId: 'agent-worker',
@@ -322,7 +322,7 @@ describe('KIN Enterprise Resilience & Crash Recovery Suite', () => {
       id: 'evt-3',
       agentId: 'agent-worker',
       channelId: 'chan-general',
-      source: 'message',
+      source: 'file_change',
       timestamp: Date.now(),
     });
 
@@ -334,6 +334,23 @@ describe('KIN Enterprise Resilience & Crash Recovery Suite', () => {
     expect(dispatchCount).toBe(1);
     expect(lastCoalescedCount).toBe(3);
     expect(queue.getQueueSize()).toBe(0);
+
+    // Verify distinct event sources do NOT overwrite each other
+    queue.enqueue({
+      id: 'evt-4',
+      agentId: 'agent-worker',
+      channelId: 'chan-general',
+      source: 'schedule',
+      timestamp: Date.now(),
+    });
+    queue.enqueue({
+      id: 'evt-5',
+      agentId: 'agent-worker',
+      channelId: 'chan-general',
+      source: 'manual',
+      timestamp: Date.now(),
+    });
+    expect(queue.getQueueSize()).toBe(2);
   });
 
   it('persists and retrieves formal agent evaluations and managed credentials', () => {

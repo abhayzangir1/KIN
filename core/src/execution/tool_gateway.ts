@@ -531,7 +531,8 @@ export class ToolGateway {
     if (!this.db) return;
     try {
       const id = uuidv4();
-      const paramsJson = JSON.stringify(params || {});
+      const sanitizedParams = SecretBroker.getInstance().sanitizePayload(params || {});
+      const paramsJson = JSON.stringify(sanitizedParams);
       let outputSnippet: string | undefined;
       if (result.output) {
         const raw = typeof result.output === 'string' ? result.output : JSON.stringify(result.output);
@@ -1046,7 +1047,8 @@ export class ToolGateway {
           switch (action) {
             case 'navigate':
             case 'goto': {
-              const res = await bc.navigate(params.url);
+              const allowLocal = context.allowedCapabilities?.includes('browser:local_files') || params.allowLocalFileNavigation === true;
+              const res = await bc.navigate(params.url, { allowLocalFileNavigation: allowLocal });
               return { success: true, output: res as T, riskLevel: risk };
             }
             case 'click': {
@@ -1167,7 +1169,8 @@ export class ToolGateway {
         // Persistent Controllable Browser Sessions
         case 'browserNavigate': {
           const bc = await this.getEffectiveBrowserController(context);
-          const res = await bc.navigate(params.url);
+          const allowLocal = context.allowedCapabilities?.includes('browser:local_files') || params.allowLocalFileNavigation === true;
+          const res = await bc.navigate(params.url, { allowLocalFileNavigation: allowLocal });
           return { success: true, output: res as T, riskLevel: risk };
         }
 
@@ -1237,6 +1240,32 @@ export class ToolGateway {
               directive,
               channelId: params.channelId,
               message: `Delegation directive dispatched to ${target}: "${directive}"`,
+            } as T,
+            riskLevel: risk,
+          };
+        }
+
+        case 'proposePlanAdjustment': {
+          const goalId = params.goalId;
+          const proposal = params.proposal || params;
+          if (!goalId) {
+            throw new Error("proposePlanAdjustment requires 'goalId' parameter");
+          }
+          if (this.db) {
+            this.db.execute(
+              `UPDATE goals SET proposed_replanning_json = ?, updated_at = ? WHERE id = ?`,
+              JSON.stringify(proposal),
+              Date.now(),
+              goalId
+            );
+          }
+          return {
+            success: true,
+            output: {
+              proposed: true,
+              goalId,
+              proposal,
+              message: `Plan adjustment proposal recorded for goal ${goalId}. Proposal card dispatched to channel.`,
             } as T,
             riskLevel: risk,
           };

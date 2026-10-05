@@ -90,11 +90,16 @@ export class SkillEngine {
   private db: KinDatabase;
   private skillsDir: string;
 
-  constructor(db: KinDatabase, options?: { skillsDir?: string }) {
+  constructor(db: KinDatabase, options?: { skillsDir?: string; repoRoot?: string }) {
     this.db = db;
-    this.skillsDir = options?.skillsDir || path.resolve(process.cwd(), '.kin', 'skills');
+    const baseDir = options?.repoRoot || (options?.skillsDir ? undefined : (process.env.KIN_PROJECT_ROOT || process.cwd()));
+    this.skillsDir = options?.skillsDir || path.resolve(baseDir || process.cwd(), '.kin', 'skills');
     this.seedDefaultSkills();
     this.loadSkillsFromDirectory();
+  }
+
+  public setSkillsDir(dir: string): void {
+    this.skillsDir = path.resolve(dir);
   }
 
   public getSkillsDir(): string {
@@ -785,6 +790,7 @@ export class SkillEngine {
       // Require at least 1 verified recovery strategy or 2 repeated errors
       const count = exps.length;
       const strategies = Array.from(new Set(exps.map((e) => e.repair_strategy).filter(Boolean)));
+      if (strategies.length < 1 && count < 2) continue;
       const sampleReasons = Array.from(new Set(exps.map((e) => e.failure_reason).filter(Boolean))).slice(0, 3);
 
       const candidateName = `candidate-recovery-${clusterKey}`;

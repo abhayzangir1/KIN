@@ -22,6 +22,8 @@ export interface AgentLoopOptions {
   taskId?: string;
   agentId: string;
   modelId: string;
+  fallbackModelId?: string;
+  allowedCapabilities?: string[];
   projectId: string;
   channelId: string;
   userPrompt: string;
@@ -271,6 +273,7 @@ export class AgentLoopRunner {
       try {
         response = await this.modelGateway.invoke({
           modelId: currentModelId,
+          fallbackModelId: options.fallbackModelId,
           messages: conversationHistory,
         });
 
@@ -420,108 +423,50 @@ export class AgentLoopRunner {
       let toolOutput: any = null;
       let toolError: string | undefined = undefined;
 
-      // Check if it's the schedule tool
-      if (toolCall.name === 'schedule') {
-        try {
-          const type = toolCall.params.type === 'cron' ? 'cron' : 'one_shot';
-          let sched;
-          if (type === 'cron') {
-            sched = this.scheduler.createCronSchedule({
-              projectId: options.projectId,
-              channelId: options.channelId,
-              targetAgentId: options.agentId,
-              prompt: toolCall.params.prompt || options.userPrompt,
-              cronExpression: toolCall.params.cronExpression || '*/5 * * * *',
-              maxIterations: toolCall.params.maxIterations,
-            });
-          } else {
-            sched = this.scheduler.createOneShotTimer({
-              projectId: options.projectId,
-              channelId: options.channelId,
-              targetAgentId: options.agentId,
-              prompt: toolCall.params.prompt || options.userPrompt,
-              durationSeconds: Number(toolCall.params.durationSeconds || 10),
-              timerCondition: toolCall.params.timerCondition,
-            });
-          }
-          toolOutput = { success: true, scheduleId: sched.id, status: sched.status, nextRunAt: sched.nextRunAt };
-        } catch (err: any) {
-          toolError = err.message;
-        }
-      } else {
-        // 0. Pre-Execution Financial / Destructive Zero-Trust Check
-        const finCheck = this.financialSafety.evaluateFinancialRisk(toolCall.name, toolCall.params);
-        if (finCheck.requiresHardStop) {
-          return {
-            finalContent: `🚨 ZERO-TRUST FINANCIAL / DESTRUCTIVE STOP: Action '${toolCall.name}' triggered critical safety gate (${finCheck.reasons.join('; ')}). Interactive human authorization is required.`,
-            turnCount: currentTurn,
-            actions,
-            requiresApproval: true,
-            pendingApprovalDetails: { toolName: toolCall.name, params: toolCall.params, riskLevel: 'CRITICAL', reasons: finCheck.reasons },
-          };
-        }
-
-        // Capture pre-action observation snapshot for Observe-Act-Observe-Verify loop
-        let preState: any = null;
-        if (toolCall.name.startsWith('browser')) {
-          const status = this.toolGateway.getBrowserController().getStatus();
-          preState = {
-            timestamp: Date.now(),
-            type: 'browser',
-            url: status.currentUrl,
-            title: status.pageTitle,
-          };
-        } else if (toolCall.name.startsWith('desktop')) {
-          preState = {
-            timestamp: Date.now(),
-            type: 'desktop',
-          };
-        }
-
-        // Route to ToolGateway
-        const toolCtx: ToolExecutionContext = {
-          runId: options.runId,
-          agentId: options.agentId,
-          projectId: options.projectId,
-          channelId: options.channelId,
-          worktreeRoot: options.worktreeRoot,
-          autonomyMode: options.autonomyMode,
-          allowedCapabilities: [
-            'readFile',
-            'writeFile',
-            'listDirectory',
-            'executeShell',
-            'schedule',
-            'cancelSchedule',
-            'listSchedules',
-            'computer',
-            'application',
-            'browser',
-            'desktopScreenshot',
-            'desktopDiscoverApps',
-            'desktopLaunchApp',
-            'desktopListWindows',
-            'desktopFocusWindow',
-            'desktopCloseWindow',
-            'desktopMouseMove',
-            'desktopMouseClick',
-            'desktopType',
-            'desktopSendKey',
-            'browserNavigate',
-            'browserClick',
-            'browserType',
-            'browserInspect',
-            'browserScreenshot',
-            'browserEvaluate',
-            'browserStep',
-            'browserClose',
-            'delegateToAgent',
-            'create_skill',
-            'createSkill',
-            'import_skill',
-            'importSkill',
-          ],
+      // 0. Pre-Execution Financial / Destructive Zero-Trust Check
+      const finCheck = this.financialSafety.evaluateFinancialRisk(toolCall.name, toolCall.params);
+      if (finCheck.requiresHardStop) {
+        return {
+          finalContent: `🚨 ZERO-TRUST FINANCIAL / DESTRUCTIVE STOP: Action '${toolCall.name}' triggered critical safety gate (${finCheck.reasons.join('; ')}). Interactive human authorization is required.`,
+          turnCount: currentTurn,
+          actions,
+          requiresApproval: true,
+          pendingApprovalDetails: { toolName: toolCall.name, params: toolCall.params, riskLevel: 'CRITICAL', reasons: finCheck.reasons },
         };
+      }
+
+      // Capture pre-action observation snapshot for Observe-Act-Observe-Verify loop
+      let preState: any = null;
+      if (toolCall.name.startsWith('browser')) {
+        const status = this.toolGateway.getBrowserController().getStatus();
+        preState = {
+          timestamp: Date.now(),
+          type: 'browser',
+          url: status.currentUrl,
+          title: status.pageTitle,
+        };
+      } else if (toolCall.name.startsWith('desktop')) {
+        preState = {
+          timestamp: Date.now(),
+          type: 'desktop',
+        };
+      }
+
+      // Compute Effective Capabilities: @Boss retains full platform authority (*); specialists strictly inherit definition capabilities
+      const effectiveCapabilities = options.allowedCapabilities && options.allowedCapabilities.length > 0
+        ? options.allowedCapabilities
+        : (options.agentId === 'agent-boss' ? ['*'] : ['fs:read', 'fs:write']);
+
+      // Route to ToolGateway
+      const toolCtx: ToolExecutionContext = {
+        runId: options.runId,
+        agentId: options.agentId,
+        projectId: options.projectId,
+        channelId: options.channelId,
+        worktreeRoot: options.worktreeRoot,
+        autonomyMode: options.autonomyMode,
+        allowedCapabilities: effectiveCapabilities,
+      };
 
         let res;
         try {
@@ -619,7 +564,6 @@ export class AgentLoopRunner {
         if (recoveryNote) {
           toolOutput = (toolOutput ? JSON.stringify(toolOutput) : '') + recoveryNote;
         }
-      }
 
       const durationMs = Date.now() - startTime;
       actions.push({
