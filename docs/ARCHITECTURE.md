@@ -118,22 +118,32 @@ flowchart LR
 ---
 
 ### 3.2 Authoritative Core Server & IPC Protocol
-The Core Server (`core/src/server/core_server.ts`) acts as the single source of truth:
-- **REST Endpoints**: CRUD operations for agents, goals, tasks, channels, messages, schedules, decisions, skills, and system health.
-- **Server-Sent Events (SSE)**: Streams events (`message:created`, `task:updated`, `agent:step`, `system:governor`, `quota:paused`) to connected UI clients.
-- **Dynamic Port Selection**: Defaults to port `54321` with automatic fallback to ephemeral ports during test runs.
+The Core Server (`core/src/server/core_server.ts`) acts as the single source of truth across the platform:
+- **Master State Aggregation (`GET /api/state`)**: Provides unified workspace reconciliation for frontend mounting, bundling active projects, channels, agent analytics, active tasks, goals, decisions, pending approvals, and system telemetry in a single atomic payload.
+- **REST Endpoints**: Comprehensive CRUD operations for projects, agents, channels, messages, goals, tasks, schedules, decisions, skills, and system health diagnostics (`/api/system/health`).
+- **Server-Sent Events (`/api/events`)**: Streams live events (`message:created`, `task:updated`, `agent:step`, `system:governor`, `quota:paused`) over HTTP with an initial `: connected` handshake and persistent keep-alives.
+- **Port Management & Loopback Security**: Binds to loopback `127.0.0.1:54321` guarded by bearer token authentication (`.kin/ipc_auth.token`) and strict CORS origins.
 
 ---
 
 ### 3.3 Authoritative State & Turn-by-Turn Checkpointing
-All platform state resides in `kin_storage.sqlite` configured with Write-Ahead Logging (`PRAGMA journal_mode = WAL;`) and immediate consistency (`PRAGMA synchronous = NORMAL;`).
+All platform state resides in `kin_storage.sqlite` managed through Node.js's native built-in `node:sqlite` (`DatabaseSync`), requiring zero external C++ build toolchains or node-gyp bindings. The database is initialized with Write-Ahead Logging (`PRAGMA journal_mode = WAL;`), immediate write consistency (`PRAGMA synchronous = NORMAL;`), 10-second busy timeout (`PRAGMA busy_timeout = 10000;`), and foreign key enforcement (`PRAGMA foreign_keys = ON;`).
+
+#### Production Schema Architecture (30 Tables):
+- **Workspaces & Routing**: `workspaces`, `projects`, `channels`, `channel_members`, `messages`, `event_journal`.
+- **Agent Workforce**: `agent_definitions`, `agent_identities`, `agent_runs`, `agent_evaluations`, `checkpoints`.
+- **Goals & Execution DAG**: `goals`, `tasks`, `task_dependencies`, `decisions`, `evidence`.
+- **Security & Governed Operations**: `approvals`, `action_records`, `managed_credentials`, `file_revisions`.
+- **Skills & Institutional Memory**: `skills`, `skill_experiences`, `skill_versions`, `memories`, `memory_versions`.
+- **Automation & Telemetry**: `schedules`, `models`, `providers`, `sqlite_sequence`, `sqlite_stat1`.
 
 #### Turn-by-Turn Checkpoint Lifecycle:
 1. When an agent receives an execution turn in `agent_loop.ts`, it compiles active context and queries the Model Gateway.
-2. After the model responds with reasoning and proposed tool calls, the runner saves an immutable record in `agent_checkpoints`:
-   - `run_id`, `step_index`, `turn_type`, `model_input`, `model_output`, `tool_invocations`, `timestamp`.
-3. If an unhandled exception, power outage, or external process termination occurs, the database retains the last completed turn.
-4. On startup, `CoreServer` inspects `agent_runs` for records with status `running`. Interrupted runs trigger the **Docked Crash Recovery Banner** in the user interface.
+2. After the model responds with reasoning and proposed tool calls, the runner writes an immutable record into `checkpoints`:
+   - `id`, `run_id`, `snapshot_json`, `worktree_commit_sha`, `created_at`.
+3. Concurrently, `agent_runs` updates its `heartbeat_at`, `used_tokens`, and `state` (`running`, `completed`, `quota_paused`, `failed`).
+4. If an unhandled exception, power outage, or external process termination occurs, the database retains the last completed turn.
+5. On startup, `CoreServer` inspects `agent_runs` for records with state `running`. Stale runs trigger the **Docked Crash Recovery Banner** in the user interface.
 
 ```mermaid
 sequenceDiagram

@@ -113,7 +113,7 @@ Features are ordered below according to their system hierarchy and architectural
 ```
 
 ### 1. Authoritative State & Turn-by-Turn Checkpointing
-- **Immutable Turn Snapshots**: Every tool call and reasoning step in `agent_loop.ts` commits an atomic snapshot to the SQLite `agent_checkpoints` table.
+- **Immutable Turn Snapshots**: Every tool call and reasoning step in `agent_loop.ts` commits an atomic snapshot to the SQLite `checkpoints` table.
 - **Crash Recovery Supervisor**: Upon restart after an abnormal shutdown, KIN reconciles stale leases and presents an interactive **Docked Crash Recovery Banner** in the UI with options to **Resume All**, **Inspect State**, or **Discard**.
 
 ### 2. Hardware Resource Governors & Input Mutex
