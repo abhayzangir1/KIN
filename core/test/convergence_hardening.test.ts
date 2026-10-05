@@ -276,4 +276,81 @@ describe('KIN Convergence & Hardening Verification Suite', () => {
     const res2 = skillEngine.harvestCandidateLessons();
     expect(res2.createdCount).toBeGreaterThanOrEqual(1);
   });
+
+  it('7. ToolGateway registers proposePlanAdjustment and updates goal proposed_replanning_json', async () => {
+    const tg = new ToolGateway({ db });
+    const schemas = tg.getToolSchemas();
+    const planSchema = schemas.find((s) => s.name === 'proposePlanAdjustment');
+    expect(planSchema).toBeDefined();
+    expect(planSchema?.parameters.properties.goalId).toBeDefined();
+
+    const now = Date.now();
+    // Insert parent workspace, project, and goal
+    db.execute(
+      `INSERT INTO workspaces (id, name, root_path, default_autonomy_mode, created_at, updated_at)
+       VALUES (?, ?, ?, 'ALWAYS_ASK', ?, ?)`,
+      'ws-plan',
+      'Plan Workspace',
+      '/tmp/plan',
+      now,
+      now
+    );
+    db.execute(
+      `INSERT INTO projects (id, workspace_id, name, repo_path, settings_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, '{}', ?, ?)`,
+      'proj-plan',
+      'ws-plan',
+      'Plan Project',
+      '/tmp/plan',
+      now,
+      now
+    );
+    db.execute(
+      `INSERT INTO goals (id, project_id, title, description, acceptance_criteria_json, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, '[]', 'active', ?, ?)`,
+      'goal-plan-1',
+      'proj-plan',
+      'Initial Plan Goal',
+      'Test replanning tool execution',
+      now,
+      now
+    );
+
+    const context = {
+      runId: 'run-plan-1',
+      agentId: 'agent-boss',
+      projectId: 'proj-plan',
+      channelId: 'chan-general',
+      allowedCapabilities: ['*'],
+      autonomyMode: 'AUTO' as const,
+      worktreeRoot: os.tmpdir(),
+    };
+
+    const res = await tg.executeTool(
+      'proposePlanAdjustment',
+      {
+        goalId: 'goal-plan-1',
+        proposal: {
+          title: 'Shift from REST to GraphQL',
+          topic: 'API contract realignment',
+          optionA: { label: 'Adopt GraphQL Schema', pros: 'Unified query surface', cons: 'Requires client upgrade' },
+          optionB: { label: 'Maintain REST API', pros: 'Zero breaking changes', cons: 'Multiple roundtrips' },
+          recommendation: 'Adopt GraphQL Schema with compatibility adapter',
+        },
+      },
+      context
+    );
+
+    expect(res.success).toBe(true);
+    expect(res.output.proposed).toBe(true);
+    expect(res.output.goalId).toBe('goal-plan-1');
+
+    const updatedGoal = db.queryOne<{ proposed_replanning_json: string }>(
+      'SELECT proposed_replanning_json FROM goals WHERE id = ?',
+      'goal-plan-1'
+    );
+    expect(updatedGoal).toBeDefined();
+    expect(updatedGoal!.proposed_replanning_json).toContain('Shift from REST to GraphQL');
+    expect(updatedGoal!.proposed_replanning_json).toContain('Adopt GraphQL Schema');
+  });
 });

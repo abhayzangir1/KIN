@@ -3695,6 +3695,53 @@ export class CoreServer {
               return;
             }
 
+            if (rawParams.startsWith('choose ') || rawParams.startsWith('select ')) {
+              const choiceText = rawParams.replace(/^(choose|select)\s*/i, '').trim();
+              const decId = `dec-choice-${Date.now()}`;
+              const newDec: Decision = {
+                id: decId,
+                projectId: targetProjectId,
+                decidedById: boss.id,
+                title: `Plan Decision: ${choiceText.split(':')[0] || 'Selected Plan'}`,
+                rationale: `Selected by operator via DecisionCard: ${choiceText}`,
+                alternativesConsidered: [],
+                status: 'authoritative',
+                createdAt: Date.now(),
+              };
+              this.taskRepo.createDecision(newDec);
+              this.broadcastEvent('decision:created', newDec);
+
+              // Clear proposed_replanning_json and advance status on active goals
+              const activeGoals = this.taskRepo.listGoals(targetProjectId).filter((g) => g.proposedReplanning);
+              for (const ag of activeGoals) {
+                this.taskRepo.updateGoal({
+                  ...ag,
+                  proposedReplanning: undefined,
+                  progressSummary: `Operator confirmed plan choice: ${choiceText}`,
+                  updatedAt: Date.now(),
+                });
+              }
+
+              const decReply = this.channelService.sendMessage({
+                channelId,
+                senderId: boss.id,
+                senderType: 'agent',
+                content: `✅ **Authoritative Plan Decision Recorded**: ${choiceText}\n- **ADR ID**: \`${decId}\`\n- **Status**: \`authoritative\`\n\nThe workforce has adopted this direction for active goals.`,
+                productivityScore: 100,
+              });
+              this.broadcastEvent('message:created', {
+                id: decReply.id,
+                channelId: decReply.channelId,
+                senderId: decReply.senderId,
+                senderName: boss.displayName.replace(/^@/, ''),
+                senderType: 'agent',
+                content: decReply.content,
+                createdAt: decReply.createdAt,
+                productivityScore: decReply.productivityScore,
+              });
+              return;
+            }
+
             const projectDecisions = this.taskRepo.listDecisionsByProject(targetProjectId);
             let decListText = `⚖️ **Project Architectural Decisions (ADR) (${projectDecisions.length})**\n\n`;
             if (projectDecisions.length === 0) {
@@ -7240,6 +7287,39 @@ export class CoreServer {
               )
             );
           }
+        }
+
+        // (1b) Check for interactive plan adjustment proposals via proposePlanAdjustment
+        const planProposals = (loopResult.actions || []).filter(
+          (a) => a.toolName === 'proposePlanAdjustment' && a.output && (a.output as any).proposed
+        );
+        for (const prop of planProposals) {
+          const out = prop.output as any;
+          const p = out.proposal || {};
+          const cardPayload = {
+            title: p.title || `Plan Adjustment for Goal ${out.goalId}`,
+            topic: p.topic || 'Interactive workforce replanning review',
+            optionA: p.optionA || { label: 'Adopt Proposed Plan', pros: 'Aligns with new constraints and findings', cons: 'Revises planned task order' },
+            optionB: p.optionB || { label: 'Keep Current Plan', pros: 'Maintains current execution path', cons: 'May hit identified blockage' },
+            recommendation: p.recommendation || 'Evaluate tradeoffs before selection',
+          };
+          const proposalMsg = this.channelService.sendMessage({
+            channelId,
+            senderId: freshIdentity.id,
+            senderType: 'agent',
+            content: `### Proposed Plan Decision: ${cardPayload.title}\n\n[DECISION_CARD]${JSON.stringify(cardPayload)}[/DECISION_CARD]`,
+            productivityScore: 100,
+          });
+          this.broadcastEvent('message:created', {
+            id: proposalMsg.id,
+            channelId: proposalMsg.channelId,
+            senderId: proposalMsg.senderId,
+            senderName: freshIdentity.displayName.replace(/^@/, ''),
+            senderType: 'agent',
+            content: proposalMsg.content,
+            createdAt: proposalMsg.createdAt,
+            productivityScore: 100,
+          });
         }
 
         // (2) Check for structured peer delegation directives in reply content

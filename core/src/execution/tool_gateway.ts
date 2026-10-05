@@ -425,6 +425,21 @@ export class ToolGateway {
           },
         },
       },
+      {
+        name: 'proposePlanAdjustment',
+        description: 'Propose an architectural or milestone plan adjustment to a goal for interactive operator review via a decision card.',
+        parameters: {
+          type: 'object',
+          properties: {
+            goalId: { type: 'string', description: 'ID of the goal to adjust' },
+            proposal: {
+              type: 'object',
+              description: 'Structured proposal containing title, topic, optionA, optionB, and recommendation',
+            },
+          },
+          required: ['goalId'],
+        },
+      },
     ];
 
     const mcp = this.mcpClient;
