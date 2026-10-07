@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # =====================================================================
-# KIN — Local-First Autonomous AI Workforce Platform (macOS / Linux)
-# Zero-Cloud • Persistent Agents • Turn Checkpointing • Full Autonomy
+# KIN — Local-First AI Workspace (macOS / Linux)
 # =====================================================================
 
 set -e
 
 echo "====================================================================="
-echo " KIN — Local-First Autonomous AI Workforce Platform"
-echo " Zero-Cloud • Persistent Agents • Turn Checkpointing • Full Autonomy"
+echo " KIN — Local-First AI Workspace"
+echo " Chats • Projects • Agent Workflows"
 echo "====================================================================="
 echo ""
 

@@ -2,7 +2,7 @@
   "name": "@kin/core",
   "version": "1.0.0",
   "private": true,
-  "description": "KIN Core — Local-first Agent Kernel & Workforce Engine",
+  "description": "KIN Core — Local service for chats, projects, and agent workflows",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

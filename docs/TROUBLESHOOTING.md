@@ -1,164 +1,79 @@
 # KIN Troubleshooting Guide
 
-This guide covers solutions for common operational challenges, recovery procedures, and performance adjustments in KIN.
+This guide covers common local development and runtime issues. KIN is under active development, so check the current logs and API response before relying on a recovery or provider status shown by the UI.
 
----
+## SQLite reports `SQLITE_BUSY` or a database lock
 
-## 1. Database Locked (`SQLITE_BUSY: database is locked`)
+Close the KIN desktop app and stop the core daemon before attempting a backup or maintenance operation. Check Task Manager or the terminal that started the daemon for another KIN/Node process. Avoid stopping every `node` process on the machine, deleting SQLite WAL files, or copying the database while KIN is running; those actions can interrupt unrelated programs or leave a backup incomplete.
 
-### Symptom
-The daemon logs: `SQLITE_BUSY: database is locked` or queries time out when executing concurrent operations.
+After confirming that no KIN process is using the database, restart KIN. If the lock persists, preserve a copy of the database files and logs before attempting recovery. See [Operations](OPERATIONS.md) for backup guidance.
 
-### Cause
-SQLite operates in Write-Ahead Logging (`WAL`) mode with atomic transaction leases. If an external tool or an orphaned daemon process holds an exclusive lock without releasing it, subsequent write operations will block.
+## A run appears stuck
 
-### Resolution Steps
-1. **Stop active KIN processes**:
-   Close any open KIN desktop windows or terminal daemon processes.
-2. **Inspect lingering processes**:
-   On Windows PowerShell:
-   ```powershell
-   Get-Process -Name "node", "KIN" -ErrorAction SilentlyContinue | Stop-Process -Force
-   ```
-   On macOS / Linux:
-   ```bash
-   pkill -f "kin_storage.sqlite" || true
-   pkill -f "start_daemon" || true
-   ```
-3. **Inspect the WAL checkpoint**:
-   If `kin_storage.sqlite-wal` remains large (>10MB), launch KIN in checkpoint mode to fold WAL pages back into the main database:
-   ```bash
-   node -e "const { KinDatabase } = require('./core/dist/storage/db.js'); const db = new KinDatabase(); db.pragma('wal_checkpoint(TRUNCATE)'); db.close();"
-   ```
-4. **Restart KIN**:
-   Restart the daemon via `./start.sh` or `start.bat`.
+Check the run state, latest channel message, daemon log, and task status. A run can be waiting for a model response, tool approval, a provider retry, or another agent. The UI status alone does not identify which condition applies.
 
----
+Use the app’s pause or abort action if it is available for that run. The core also exposes `POST /api/runs/abort`; send the run ID as JSON:
 
-## 2. Agent Stuck in Running State
+```bash
+curl -X POST http://127.0.0.1:54321/api/runs/abort \
+  -H "Content-Type: application/json" \
+  -d '{"runId":"<RUN_ID>"}'
+```
 
-### Symptom
-An agent run in the Workbench shows status `running`, but no messages or tool executions appear in the channel.
+Restart recovery and checkpoint behavior depend on the run state and the work already completed. Review the run and project files after a restart; do not assume every interrupted action was resumed or rolled back.
 
-### Cause
-An external command execution (such as an interactive prompt or non-terminating shell loop) has stalled, or the process died without updating its heartbeat timestamp.
+## Ollama or a model is unavailable
 
-### Resolution Steps
-1. **Heartbeat & Lease Timeout**:
-   KIN automatically monitors agent runs. Heartbeats update every 15 seconds. If a run misses heartbeats for longer than the lease expiration window (default: 60 seconds), the supervisor reclaims the task lease.
-2. **Instant Human Takeover**:
-   In the workbench header or drawer, click **Pause** or **Abort** to issue an immediate `AbortSignal` to cancel the hung execution turn.
-3. **Manual Reset via REST API**:
-   You can abort an active run directly using the core server endpoint:
-   ```bash
-   curl -X POST http://127.0.0.1:54321/api/runs/abort -H "Content-Type: application/json" -d '{"runId": "<RUN_ID>"}'
-   ```
-4. **Restart & Crash Recovery**:
-   Restarting the daemon triggers the startup recovery sweep. Interrupted runs are frozen at their last checkpoint and presented in the Docked Crash Recovery Banner for review or resumption.
+First check whether Ollama is running and whether the model is installed:
 
----
+```bash
+curl http://127.0.0.1:11434/api/tags
+ollama list
+```
 
-## 3. Local Ollama Inference Issues
+If needed, install a model supported by your machine, for example:
 
-### Symptom
-Agent fails with `Error: Failed to fetch from Ollama` or model responses return empty text.
+```bash
+ollama pull llama3.2
+```
 
-### Diagnosis & Resolution
-1. **Verify Ollama daemon status**:
-   Ensure Ollama is running on `http://127.0.0.1:11434`:
-   ```bash
-   curl http://127.0.0.1:11434/api/tags
-   ```
-2. **Verify installed models**:
-   Check if the model configured for the agent is installed:
-   ```bash
-   ollama list
-   ```
-   If missing, pull the required model:
-   ```bash
-   ollama pull llama3.2
-   ```
-3. **Verify via KIN API**:
-   Query the core server to inspect Ollama connectivity:
-   ```bash
-   curl http://127.0.0.1:54321/api/system/models
-   ```
-   The response contains `{ online: true, models: [...] }`.
-4. **Cloud BYOK Fallback**:
-   If Ollama is offline, add an API key for OpenRouter, Anthropic, OpenAI, or Gemini in the **Settings & Credential Vault**. KIN will automatically route requests to the available provider.
+KIN exposes `GET /api/system/models` and `GET /api/system/models/readiness`. Treat those responses as application-reported discovery/readiness, not proof that a model call will succeed; provider readiness currently has known accuracy gaps. Select a configured model and retry. KIN does not guarantee automatic fallback from a hosted provider to Ollama.
 
----
+For hosted providers, check that the relevant credential is configured and accepted by that provider. A saved key or a model appearing in a dropdown does not by itself prove that the account can use the model.
 
-## 4. High Workstation Memory & RAM Governor Pauses
+## A provider returns HTTP 429 or a quota error
 
-### Symptom
-Runs pause with warning: `Governor paused execution: Free RAM below minimum threshold`.
+The run may enter a quota-paused state and the app may show a reset time or resume controls. Retry timing and resume behavior depend on the provider response and the run path. Inspect the run state and provider response before retrying; do not assume a countdown, automatic failover, or lossless continuation. To continue locally, choose an installed Ollama model explicitly and start or resume the run if the UI permits it.
 
-### Cause
-KIN includes a dynamic hardware governor that inspects free workstation memory via system memory metrics before scheduling heavy operations. By default, execution pauses if available memory drops below 256 MB.
+## The daemon port is already in use
 
-### Resolution Steps
-1. **Check current memory status**:
-   ```bash
-   curl http://127.0.0.1:54321/api/system/governor
-   ```
-2. **Tune threshold via environment variable**:
-   Set a custom minimum free memory threshold (in megabytes) before starting KIN:
-   ```bash
-   # Windows PowerShell
-   $env:KIN_RAM_MIN_MB = "128"
+The core daemon defaults to `127.0.0.1:54321`. Find the process using that port before stopping anything:
 
-   # Bash
-   export KIN_RAM_MIN_MB=128
-   ```
-3. **Close background heavy applications**:
-   Free workstation memory to allow the governor to automatically unpause paused runs.
+```powershell
+netstat -ano | findstr :54321
+```
 
----
+The daemon reads `KIN_PORT`. From the repository root, after building the core, start it on a different port:
 
-## 5. HTTP 429 Quota Pauses
+```powershell
+npm run build --workspace=core
+$env:KIN_PORT = "54322"
+npm run daemon --workspace=core
+```
 
-### Symptom
-A docked banner appears: `API Quota Reached (HTTP 429). Execution paused.`
+On macOS or Linux:
 
-### Mechanism
-When a cloud provider returns HTTP 429, KIN freezes turn state into an atomic SQLite checkpoint, begins an automatic countdown, and displays options to:
-- Wait for the countdown to expire and auto-resume.
-- Click **Resume Now** if quotas have reset.
-- Click **Failover to Local Model** to switch to an installed Ollama model with zero data loss.
+```bash
+npm run build --workspace=core
+KIN_PORT=54322 npm run daemon --workspace=core
+```
 
----
+The server binds to loopback (`127.0.0.1`); changing the port does not expose it to the local network.
 
-## 6. Port Conflicts (54321 or 5173)
+## A filesystem tool rejects a path
 
-### Symptom
-Error on startup: `EADDRINUSE: address already in use 127.0.0.1:54321`.
+Use a path relative to the active project root where the tool expects one, and check for typos or `..` segments. These application-level checks are not an operating-system sandbox and do not prove that every route, integration, or process is confined to the project directory. Avoid placing credentials or unrelated private files in a project that agents can access.
 
-### Resolution Steps
-1. **Identify the process using the port**:
-   On Windows:
-   ```powershell
-   netstat -ano | findstr :54321
-   ```
-2. **Terminate the conflicting process**:
-   ```powershell
-   taskkill /PID <PID> /F
-   ```
-3. **Custom daemon port**:
-   You can start the daemon on an alternative port by passing the `PORT` environment variable:
-   ```bash
-   PORT=54322 npm run dev:daemon
-   ```
+## The UI or desktop shell does not start
 
----
-
-## 7. Worktree Confinement & Directory Traversal Violations
-
-### Symptom
-Tool error: `FORBIDDEN: Path traversal outside project worktree root is rejected`.
-
-### Cause
-KIN enforces strict boundary confinement on all filesystem tools (`readFile`, `writeFile`, `listDirectory`). Relative paths with `../` attempting to escape the project workspace directory are rejected.
-
-### Resolution
-Ensure all file paths passed to tools are relative to the active project workspace root (e.g. `src/index.ts` instead of `../../etc/passwd`).
+Use the repository setup instructions in the [README](../README.md), then inspect the terminal output from the command that failed. Core, UI, and Tauri packaging have separate setup and runtime requirements. A successful development launch does not establish that a packaged desktop build works on a clean machine.

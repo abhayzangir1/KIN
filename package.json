@@ -2,7 +2,7 @@
   "name": "kin-workforce",
   "version": "1.0.0",
   "private": true,
-  "description": "KIN — Local-first Autonomous AI Workforce & Multi-Agent Coordination Platform",
+  "description": "KIN — Local-first workspace for AI chats, projects, and agent workflows",
   "workspaces": [
     "core",
     "ui"

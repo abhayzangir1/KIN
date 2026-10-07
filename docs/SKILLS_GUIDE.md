@@ -1,6 +1,8 @@
 # KIN Skills & Capabilities Guide
 
-Skills in KIN provide structured procedural knowledge, workflow guidelines, and tool extensions that equip autonomous agents to execute complex tasks predictably. Skills persist across application restarts in both local SQLite storage and human-readable files in the `.kin/skills/` directory.
+> This guide describes the skill format and intended workflow. Executable skills are not OS-sandboxed, and a timeout does not necessarily cancel asynchronous work already started. Review and trust a skill before importing it. Current implementation gaps are listed in the [audit](../KIN_AUDIT_2026-10-07.md).
+
+The codebase includes a structured skill format, local persistence paths, and an optional execution path. Skills can contain instructions or executable handlers; their presence does not establish that a workflow is reliable or safe. Review each skill and its required permissions before use.
 
 ---
 
@@ -19,7 +21,7 @@ Every skill in KIN is defined with metadata, trigger patterns, required tool dep
        └── skill.json           # Machine-readable portable specification
    ```
 
-On daemon startup, KIN automatically scans `.kin/skills/` and synchronizes any discovered skill files with SQLite.
+Startup code scans `.kin/skills/` and contains logic to synchronize discovered skill files with SQLite. This source path was not exercised end to end in the current audit.
 
 ---
 

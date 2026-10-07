@@ -1,14 +1,16 @@
 # KIN — FINAL MASTER TECHNICAL REQUIREMENTS DOCUMENT
 ## Version 12.0 — System Architecture, IPC Contracts & Engineering Specification
 
-**Date:** 2026-10-01  
-**Document Version:** 12.0  
-**Status:** Authoritative technical baseline (V12)  
-**Platform:** Tauri 2 desktop — Windows, macOS, Linux  
-**Runtime model:** Tauri shell + Rust native boundary + local TypeScript/Node core (Modular Local Monolith)  
-**Target Runtimes:** Node.js v20+, TypeScript 5.8+, SQLite 3 (WAL Mode), React 18, Vite 6, Tauri 2, Ollama  
-**Persistence:** SQLite 3 (WAL mode) + local filesystem  
-**Source strategy:** Native KIN domain, selective reuse/adapters for external runtime patterns  
+**Date:** 2026-10-01
+**Document Version:** 12.0
+**Status:** Technical target specification; not a verified implementation inventory
+**Platform:** Tauri 2 desktop — Windows, macOS, Linux
+**Runtime model:** Tauri shell + Rust native boundary + local TypeScript/Node core (Modular Local Monolith)
+**Target Runtimes:** Node.js v20+, TypeScript 5.8+, SQLite 3 (WAL Mode), React 18, Vite 6, Tauri 2, Ollama
+**Persistence:** SQLite 3 (WAL mode) + local filesystem
+**Source strategy:** Native KIN domain, selective reuse/adapters for external runtime patterns
+
+> This TRD documents intended interfaces and technical requirements. It does not prove that every listed runtime, security, recovery, or packaging behavior exists in the current checkout. See the [2026-10-07 audit](../KIN_AUDIT_2026-10-07.md) for code-level findings and verification limits.
 
 ---
 
@@ -1011,7 +1013,7 @@ Do not let content redefine:
 2. **Financial Safety Shield**: Sensitive operations (`stripe`, `billing`, checkout buttons) trigger the Human Authorization Protocol and halt execution until explicit operator signoff.
 3. **Opt-in Computer Automation**: Desktop mouse/keyboard control is guarded by a serialized single-flight execution queue with native window focus management preventing conflicting inputs.
 4. **Bring Your Own Key (BYOK) Encryption**: Provider API keys are encrypted at rest with scoped grants and daily spending caps.
-5. **Zero Cloud Telemetry**: All messages, tasks, goals, decisions, and turn checkpoints reside in local SQLite storage.
+5. **Local application state and explicit network boundaries**: Messages, tasks, goals, decisions, and checkpoints are stored in local SQLite. Hosted model requests, browser navigation, and connected MCP tools can send data to external services; local storage does not mean network traffic is disabled.
 
 ---
 

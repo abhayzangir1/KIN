@@ -1489,7 +1489,7 @@ export const AgentInspector: React.FC = () => {
                         <optgroup key={prov} label={provLabel}>
                           {provModels.map((m) => (
                             <option key={m.id} value={m.id}>
-                              {m.name || m.id} {m.isFree ? '(Zero Cost)' : ''}
+                              {m.name || m.id} {m.isFree ? '(Provider lists as free)' : ''}
                             </option>
                           ))}
                         </optgroup>

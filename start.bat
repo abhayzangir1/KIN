@@ -1,10 +1,10 @@
 @echo off
 setlocal enabledelayedexpansion
-title KIN — Autonomous AI Workforce Platform
+title KIN — Local-First AI Workspace
 
 echo =====================================================================
-echo  KIN — Local-First Autonomous AI Workforce Platform
-echo  Zero-Cloud • Persistent Agents • Turn Checkpointing • Full Autonomy
+echo  KIN — Local-First AI Workspace
+echo  Chats • Projects • Agent Workflows
 echo =====================================================================
 echo.
 

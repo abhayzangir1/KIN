@@ -2,7 +2,7 @@
 name: daily-briefing-bot
 version: 1.0.0
 description: >
-  Compiles daily workspace summaries, active goal milestones, pending tasks, and system health status.
+  Example scaffold; its included handler returns fixed sample counts and does not query workspace state.
 skill_type: workflow
 enabled: true
 required_tools:
@@ -22,6 +22,8 @@ parameters:
 ---
 
 # Daily Briefing Bot Skill
+
+> Example only. The included implementation returns canned values such as two active goals, five pending tasks, and “All services operational.” It does not collect live workspace or health data.
 
 Automates compiling proactive morning briefings and executive workspace digests without operator prompting.
 

@@ -1,13 +1,15 @@
 # KIN — FINAL MASTER PRODUCT REQUIREMENTS DOCUMENT
 ## Version 12.0 — Autonomous Scheduler, Computer Use & Proactive Routines Evolution
 
-**Date:** 2026-10-01  
-**Status:** Authoritative product baseline (V12)  
-**Product:** KIN  
-**Category:** Local-first autonomous AI workforce and multi-agent coordination platform  
-**Platforms:** Windows, macOS, Linux  
-**Distribution:** Open source  
-**Primary UX:** Message-first collaborative workspace with Antigravity-Style Timed Autonomy  
+**Date:** 2026-10-01
+**Status:** Product requirements and target behavior; not a verified implementation inventory
+**Product:** KIN
+**Intended category:** Local-first AI workspace with agent and multi-agent workflow goals
+**Platforms:** Windows, macOS, Linux
+**Distribution:** Open source
+**Primary UX:** Message-first collaborative workspace with Antigravity-Style Timed Autonomy
+
+> This PRD is a target specification. A requirement written here is not evidence that the current application implements or has tested it. For current source findings and verification limits, see the [2026-10-07 audit](../KIN_AUDIT_2026-10-07.md).
 
 ---
 
@@ -146,7 +148,7 @@ Dream-RSI is retained as a future research pattern for suitable long-horizon dis
 
 # 1. Vision
 
-KIN is a local-first desktop environment where a human can describe an outcome in ordinary language and a persistent AI workforce autonomously plans, communicates, executes, verifies, learns from experience, and recovers from failures while keeping the user in control.
+KIN's target experience is a local-first desktop workspace where a human can describe an outcome and receive help from agents, tasks, tools, and automation while retaining control. The requirements below describe intended behavior; current implementation and verification status are documented separately in the audit.
 
 The product combines:
 
@@ -160,7 +162,7 @@ The product combines:
 - adaptive delegation and temporary specialist workers;
 - durable tasks, artifacts, decisions, evidence and audit history.
 
-KIN stands as the sovereign, local-first alternative to cloud-locked persistent agent products such as **ChatGPT Dots** (OpenAI), **Grok Bots** (xAI), and **OpenDots**. While those offerings bind users to expensive monthly cloud subscriptions ($200+/month) and store all proprietary context on third-party cloud servers, KIN delivers persistent multi-agent swarms directly on local workstations with complete local SQLite WAL persistence, zero telemetry, turn-by-turn crash recovery, and native support for offline models (Ollama) alongside Bring-Your-Own-Key (BYOK) cloud providers.
+KIN's product direction is a local-first workspace for chats and agent workflows, with local persistence and optional connections to model providers. When a hosted provider is selected, prompts and related context are sent to that provider. The current application does not claim exact crash recovery, zero network activity, or complete feature parity with other products.
 
 ### Product promise
 
@@ -1286,6 +1288,6 @@ The resulting product is intentionally **simpler internally than the sum of its 
 
 # 33. Final product statement
 
-> **KIN is a local-first autonomous AI workforce platform: one human-facing orchestrator, persistent coworkers, temporary specialists, visible collaboration, durable work state, managed context, governed tools, adaptive skills, verified execution, and system-level recovery — with the ability to improve its reusable capabilities over time without silently weakening user control.**
+> **Target positioning:** a local-first workspace aiming to bring together a general assistant, specialist agents, visible collaboration, durable work state, managed context, tools, reusable skills, and recovery controls while preserving user oversight. This statement describes product direction, not verified current capability.
 
 

@@ -1,6 +1,8 @@
 # KIN Core IPC REST & SSE Protocol Reference
 
-KIN operates a local core daemon on `http://127.0.0.1:54321`. This authoritative local server manages SQLite persistence, hardware governors, agent execution loops, and desktop automation primitives.
+KIN exposes a local core daemon at http://127.0.0.1:54321 by default. The API surface changes with the source; endpoint presence does not mean a workflow has been verified end to end.
+
+> Examples in this reference are illustrative. The core binds to loopback by default. Hosted model calls, browser navigation, and MCP integrations may send data to external services. See the [current audit](../KIN_AUDIT_2026-10-07.md) for known implementation limits.
 
 ---
 
@@ -9,7 +11,7 @@ KIN operates a local core daemon on `http://127.0.0.1:54321`. This authoritative
 - **Base URL**: `http://127.0.0.1:54321`
 - **Content-Type**: `application/json` (for all JSON request/response payloads)
 - **Authentication**: When IPC token authentication is enforced, requests must supply `Authorization: Bearer <token>`, where the token is read from `.kin/ipc_auth.token`.
-- **Local Sovereignty**: All endpoints listen strictly on loopback (`127.0.0.1`). External network connections to these ports are rejected by default.
+- **Binding**: The current daemon listens on loopback (127.0.0.1) by default.
 - **Event Streaming**: Real-time event notifications stream over Server-Sent Events (`GET /api/events`).
 
 ---

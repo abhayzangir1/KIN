@@ -1,146 +1,75 @@
 # Contributing to KIN
 
-Thank you for your interest in contributing to KIN. KIN is an open-source, local-first multi-agent workforce coordination platform designed for local sovereignty, crash resilience, and desktop automation.
+KIN is an open-source, local-first workspace for AI chats and agent workflows. It is under active development; some reliability, security, and desktop behaviors remain incomplete.
 
-This guide outlines our development workflow, coding standards, testing requirements, and contribution process.
+## Contribution principles
 
----
+1. **Local-first data handling:** keep application state on the user's machine by default. Make hosted model, browser, and MCP data flows explicit; do not claim data remains local when an integration sends it elsewhere.
+2. **Durability as an engineering goal:** persist important state and add recovery coverage for changes to SQLite, runs, tasks, or checkpoints. Describe recovery guarantees only when they have been demonstrated.
+3. **Bounded execution:** document the actual limits of concurrency, worktree separation, and desktop control. A worktree or Node VM is not an operating-system sandbox.
+4. **Evidence-based communication:** separate source presence from tested behavior and avoid unsupported claims in product copy and documentation.
 
-## Code of Conduct & Core Philosophy
+## Development setup
 
-When contributing to KIN, adhere to the platform's core architectural tenets:
-1. **Local Sovereignty First**: All state, credentials, memories, goals, and tasks remain strictly on the user's local workstation. Never transmit telemetry or user workspace files to external cloud servers.
-2. **Crash Resilience Without Data Loss**: Every significant turn, message, and action record must persist to SQLite in Write-Ahead Logging (`WAL`) mode with atomic checkpoints.
-3. **Hardware-Aware Safety**: Concurrency and heavy tasks must honor system memory governors, and desktop interactions must be serialized through mutex locks to prevent collision.
-4. **Transparent Communication**: Do not use unverified claims or exaggerated promises. Be accurate and verifiable in documentation.
+### Requirements
 
----
+- Node.js 20 or later
+- npm
+- Rust and Cargo only when building the Tauri shell
+- Ollama only when testing local inference
 
-## Development Setup
+### Install, build, and run
 
-### Prerequisites
-- **Node.js**: v20.x or higher
-- **npm**: v10.x or higher
-- **Rust & Cargo**: (Only required if building Tauri desktop binaries)
-- **Ollama**: (Optional for local offline LLM testing)
-
-### Initial Setup
-```bash
-# 1. Clone repository
+~~~sh
 git clone https://github.com/abhayzangir1/KIN.git
 cd KIN
-
-# 2. Install workspace dependencies
 npm install
+npm run build
+~~~
 
-# 3. Verify the core test suite
+Start the core daemon and UI in separate terminals:
+
+~~~sh
+npm run daemon --workspace=core
+~~~
+
+~~~sh
+npm run dev --workspace=ui
+~~~
+
+The core binds to 127.0.0.1 by default. Do not expose it to a network without reviewing the authentication and origin policy.
+
+## Reporting issues
+
+Before filing, search existing issues. Include:
+
+- A concise summary and reproducible steps
+- Expected and actual behavior
+- Operating system, Node version, and relevant app commit
+- Whether inference used Ollama or a hosted provider
+- Relevant logs with API keys, bearer tokens, private URLs, and workspace secrets removed
+
+## Pull requests
+
+- Keep changes focused and explain the user problem they address.
+- Include tests for changed behavior where practical; do not remove or skip tests to make a change pass.
+- Describe exactly what you ran and what remains unverified.
+- For documentation, distinguish product requirements from implemented behavior.
+- For security-sensitive changes, trace the full path from UI/API input through authorization, execution, persistence, and events.
+
+## Engineering expectations
+
+- Preserve strict TypeScript checking and use explicit types where practical.
+- Use parameterized database operations and backward-compatible migrations.
+- Route tool actions through the intended authorization boundary and make empty capabilities deny access.
+- Treat skill, MCP, browser, and shell inputs as untrusted; do not describe them as sandboxed unless a real isolation boundary exists.
+- Do not claim an operation succeeded based only on a UI event or generated evidence row.
+
+## Useful commands
+
+~~~sh
+npm run build
 npm test --workspace=core
+~~~
 
-# 4. Start the development environment (two terminals)
-# Terminal 1: Core Daemon
-npm run dev:daemon
-
-# Terminal 2: Vite User Interface
-npm run dev:ui
-```
-
----
-
-## Reporting Issues (Bug vs. Feature Triage)
-
-Before opening a new issue on GitHub, search existing open and closed issues to avoid duplicate filings.
-
-### Bug Reports
-When reporting a bug, include:
-1. **Summary**: A concise description of the unexpected behavior or failure.
-2. **Reproduction Steps**: Step-by-step instructions or test script that triggers the issue.
-3. **Expected vs. Actual Behavior**: Concrete input, expected output, and actual outcome.
-4. **Environment Telemetry**: Node.js version, platform (Windows, macOS, Linux), and inference model (local Ollama model or cloud BYOK provider).
-5. **Daemon & Server Logs**: Relevant stack traces from terminal logs.
-
-### Feature Requests & RFCs
-When proposing enhancements or new agent capabilities:
-1. **Problem Statement**: What real-world user or agent workflow is currently difficult or unsupported?
-2. **Proposed Solution**: High-level design, proposed tool schema, REST route, or slash command syntax.
-3. **Architectural Tier**: Clarify which system layer is impacted (Storage, Hardware Governor, Model Gateway, Tool Gateway, Kernel Loop, or User Interface).
-4. **Backward Compatibility**: Ensure proposed changes preserve existing SQLite WAL schema and test invariants.
-
----
-
-## Branching & Commit Guidelines
-
-### Branch Naming Conventions
-- `feature/<short-description>`: New capabilities or platform enhancements.
-- `fix/<issue-number>-<short-description>`: Bug repairs and regressions.
-- `docs/<short-description>`: Documentation additions and audits.
-- `test/<short-description>`: New test suites or benchmarking additions.
-
-### Conventional Commit Format
-All commit messages must adhere to conventional commit formatting:
-```
-<type>(<scope>): <concise description in imperative tense>
-```
-
-**Common Types**:
-- `feat`: A new user-facing or agent-facing feature
-- `fix`: A bug fix
-- `docs`: Documentation updates
-- `test`: Adding or refactoring tests
-- `refactor`: Code restructure without behavioral alterations
-- `perf`: Performance or memory governor optimizations
-
-**Examples**:
-- `feat(skills): add dynamic skill creation and import with disk persistence`
-- `fix(daemon): release desktop mutex lock upon process abort`
-- `docs(api): document REST endpoints and SSE event schema`
-
----
-
-## Code Style & Engineering Standards
-
-1. **TypeScript Strict Mode**:
-   - All code in `core/` and `ui/` is compiled with strict TypeScript checking.
-   - Avoid `any` whenever possible; prefer explicit types and descriptive interfaces.
-
-2. **No Stubs or Mocked Placeholders**:
-   - Implement functional logic for all exported methods. Do not commit empty stubs or placeholder functions.
-
-3. **Storage & Database Migrations**:
-   - Database operations use parameterized queries to prevent injection.
-   - When modifying schema in `core/src/storage/schema.sql`, add backward-compatible pre-migration checks in `core/src/storage/migration_runner.ts` using `ALTER TABLE ... ADD COLUMN`.
-
-4. **Security Boundaries**:
-   - File access must be confined to the project worktree root.
-   - Commands executed through `ToolGateway` must pass through capability checks and autonomy gates (`AUTO`, `ALWAYS_ASK`, `FULL_ACCESS`).
-   - Financial transactions and destructive actions must escalate to interactive human review.
-
----
-
-## Testing Expectations
-
-All pull requests must pass the existing test suite without regressions.
-
-### Running Tests
-```bash
-# Run entire core test suite
-npm test --workspace=core
-
-# Run specific test file
-npx vitest run test/learning_pipeline.test.ts --workspace=core
-```
-
-### Adding New Tests
-- When introducing new capabilities (e.g. tools, endpoints, slash commands), add corresponding test cases in `core/test/`.
-- Ensure tests clean up temporary files and ephemeral SQLite database files in `afterEach` or `afterAll` hooks.
-- Avoid weakening, skipping, or removing existing tests to force a build to pass.
-
----
-
-## Submitting Pull Requests
-
-1. **Verify Formatting & Tests**:
-   Ensure `npm test --workspace=core` passes cleanly before pushing.
-2. **Push to Your Fork**:
-   Push your branch and open a PR against the `main` branch of `abhayzangir1/KIN`.
-3. **PR Description**:
-   Provide a clear summary of what was changed, why the change was made, and the test commands executed to verify the behavior.
+Report test results from the exact checkout and environment used. A successful type check or unit test suite does not by itself establish a provider call, desktop interaction, recovery flow, or packaged installation.

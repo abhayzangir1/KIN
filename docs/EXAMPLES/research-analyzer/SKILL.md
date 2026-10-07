@@ -2,7 +2,7 @@
 name: research-analyzer
 version: 1.0.0
 description: >
-  Investigates technical documentation, extracts structured API contracts, and synthesizes architectural trade-offs.
+  Example scaffold; its included handler returns canned analysis and does not fetch or inspect sources.
 skill_type: tool_extension
 enabled: true
 required_tools:
@@ -19,6 +19,8 @@ trigger_patterns:
 ---
 
 # Research Analyzer Skill
+
+> Example only. The included implementation returns fixed “verified” findings without fetching or analyzing a source. Do not present its output as research evidence.
 
 This skill guides specialist agents through systematic web research, specification extraction, and executive synthesis.
 

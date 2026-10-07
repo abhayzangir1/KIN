@@ -2,7 +2,7 @@
 name: github-triage-bot
 version: 1.0.0
 description: >
-  Triages pull requests, analyzes git diffs, inspects test coverage, and enforces architectural boundaries.
+  Example scaffold; its included handler returns a fixed approval-style result and does not inspect a GitHub pull request.
 skill_type: tool_extension
 enabled: true
 required_tools:
@@ -21,6 +21,8 @@ parameters:
 ---
 
 # GitHub Triage Bot Skill
+
+> Example only. The included implementation returns a fixed approval verdict and claims checks passed without inspecting a diff or running tests. Do not use its output as a code review.
 
 This skill guides automated agents through evaluating pull requests, reviewing git diffs, and checking architectural regressions.
 

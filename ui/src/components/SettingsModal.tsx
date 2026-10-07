@@ -449,19 +449,19 @@ export const SettingsModal: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-[#8b949e] flex items-center space-x-1.5">
                       <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                      <span>Zero Cost Cloud Models & Dynamic Catalog</span>
+                      <span>OpenRouter model examples</span>
                     </h4>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20">
-                      {availableModels.length > 0 ? `${availableModels.length} Models Registered` : 'Zero Cost • No Quota Burn'}
+                      Static list — verify current pricing and availability
                     </span>
                   </div>
 
                   <div className="grid grid-cols-1 gap-2">
                     {[
-                      { id: 'openrouter/deepseek/deepseek-r1:free', name: 'DeepSeek R1 (Free)', desc: 'Reasoning model with thinking tokens extraction' },
-                      { id: 'openrouter/meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B Instruct (Free)', desc: 'Meta 70B parameter general reasoning model' },
-                      { id: 'openrouter/google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Free)', desc: 'Ultra-fast multimodal 1M context model' },
-                      { id: 'openrouter/qwen/qwen-2.5-coder-32b-instruct:free', name: 'Qwen 2.5 Coder 32B (Free)', desc: 'Advanced coding & syntax comprehension' },
+                      { id: 'openrouter/deepseek/deepseek-r1:free', name: 'DeepSeek R1', desc: 'Static example ID; check the provider for current availability, pricing, and limits.' },
+                      { id: 'openrouter/meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B Instruct', desc: 'Static example ID; check the provider for current availability, pricing, and limits.' },
+                      { id: 'openrouter/google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash', desc: 'Static example ID; check the provider for current availability, pricing, and limits.' },
+                      { id: 'openrouter/qwen/qwen-2.5-coder-32b-instruct:free', name: 'Qwen 2.5 Coder 32B', desc: 'Static example ID; check the provider for current availability, pricing, and limits.' },
                     ].map((m) => (
                       <div
                         key={m.id}
@@ -471,7 +471,7 @@ export const SettingsModal: React.FC = () => {
                           <div className="font-bold text-kin-text font-mono flex items-center space-x-2">
                             <span>{m.name}</span>
                             <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 font-sans">
-                              Free
+                              Example
                             </span>
                           </div>
                           <p className="text-[11px] text-[#8b949e] mt-0.5">{m.desc}</p>
@@ -768,8 +768,8 @@ export const SettingsModal: React.FC = () => {
 
                 <div className="p-4 rounded-lg bg-[#161b22] border border-[#30363d] space-y-3 text-xs font-mono">
                   <div className="flex justify-between py-1 border-b border-[#21262d]">
-                    <span className="text-[#8b949e]">Workforce Platform Engine</span>
-                    <span className="text-kin-text font-bold">KIN Autonomous Workforce Kernel</span>
+                    <span className="text-[#8b949e]">Core service</span>
+                    <span className="text-kin-text font-bold">KIN Agent Workflow Core</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-[#21262d]">
                     <span className="text-[#8b949e]">Host Platform</span>

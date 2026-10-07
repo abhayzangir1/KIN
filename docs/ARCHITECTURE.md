@@ -1,22 +1,24 @@
-# KIN Architecture Specification
+# KIN Architecture and Design Intent
 
-**Authoritative Technical Blueprint • Multi-Agent Autonomous Workforce Platform**
+**Architecture notes for a local-first AI workspace**
+
+> This document mixes current architecture with target design. It is not a runtime verification record or a guarantee that every described control is implemented. See the [current audit](../KIN_AUDIT_2026-10-07.md) for source findings and verification limits.
 
 ---
 
 ## 1. Product Core, Vision & Real-World Use Cases
 
 ### 1.1 Product Core
-**KIN** is a sovereign, local-first autonomous AI workforce and multi-agent coordination platform. Rather than functioning as a remote chatbot wrapper or relying on ephemeral cloud infrastructure, KIN enables users to **swarm custom autonomous agents for any workload** directly on their physical workstations — including deep research, daily operational routines, web automation, data analysis, and software engineering.
+KIN is a local-first AI workspace with project, chat, agent, task, model, and automation features. The source includes a TypeScript core, React UI, SQLite persistence, provider adapters, and a Tauri/Rust shell. Some integrations and reliability controls remain partial or unverified.
 
-KIN operates with **authoritative local state**, **turn-by-turn crash recovery**, **hardware-aware resource governors**, and **governed desktop/browser automation**. It stands as a private, local-first alternative to closed cloud ecosystems like **ChatGPT Dots** (OpenAI) and **Grok Bots** (xAI), providing persistent agentic teammates with zero monthly subscriptions, zero cloud lock-in, and zero telemetry.
+This specification describes intended architecture and product direction. Local persistence does not prevent data from leaving the machine when a hosted model, browser destination, or MCP server is used.
 
 ### 1.2 Vision & Principles
-- **Universal Multi-Domain Swarms**: Users can spawn and orchestrate specialist agent teams across any discipline — research analysts, operations managers, social media coordinators, executive assistants, or software engineers.
-- **Local Sovereignty**: All code, tasks, goals, memories, checkpoints, and credentials reside on the host machine in SQLite with Write-Ahead Logging (WAL). Zero telemetry is transmitted to third parties.
-- **Turn-by-Turn Crash Resilience**: Every reasoning step and tool invocation records an immutable checkpoint. Following unexpected power loss or process termination, interrupted runs resume from their exact recorded state.
-- **Hardware-Governed Autonomy**: Dynamic memory governors and input mutex locks serialize access to physical resources, preventing out-of-memory lockups and concurrent input contention.
-- **Deterministic Multi-Agent Coordination**: Agents operate within strict domain boundaries, claim tasks via atomic distributed leases, work in isolated git worktrees, and communicate over structured channels.
+- **Multi-agent workflows**: Support specialist teams for scoped tasks as each agent, tool, and provider path is validated.
+- **Local-first storage**: Store application state locally by default and explain when a hosted model, browser destination, or MCP server receives data.
+- **Recoverability**: Persist run state and test recovery paths. Treat exact replay and lossless recovery as goals until demonstrated.
+- **Bounded resource use**: Define and measure concurrency and host-resource limits rather than implying a governor prevents all resource failures.
+- **Coordination**: Use tasks, leases, channels, and Git worktrees where appropriate. Worktrees separate directories; they do not provide process or network isolation.
 
 ### 1.3 Real-World Use Cases
 1. **Deep Research & Intelligence Swarms**:
@@ -308,7 +310,7 @@ The router parses pipe criteria (`|`), sets up goals and tasks, verifies git and
 ---
 
 ### 3.8 Origin-Aware Goals & Interactive Replanning
-KIN implements a rich goal tracking and replanning protocol:
+The target design describes a goal tracking and replanning protocol. Current implementation status is mixed; see the audit before treating these flows as available:
 1. **Enriched Goal Schema**: Goals in SQLite track `deadline`, `check_in_policy`, `progress_summary`, `blocked_state`, `proposed_replanning_json`, and `origin_channel_id`.
 2. **DM-to-Channel Boundary Elevation**: When cross-cutting or shared project objectives are requested in direct messages, the specialist announces the scope in `#general`, where `@Boss` establishes the authoritative Goal and Task DAG.
 3. **Interactive Plan Decisions (`[DECISION_CARD]`)**: When an agent detects blocker conditions or proposes an architectural change via the `proposePlanAdjustment` tool, KIN formats the proposal into a structured `[DECISION_CARD]` rendered by `DecisionCard.tsx` in the Workbench chat.
