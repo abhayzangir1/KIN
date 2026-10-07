@@ -14,7 +14,7 @@
 [![Rust](https://img.shields.io/badge/Rust-2021-DEA584.svg?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![SQLite](https://img.shields.io/badge/SQLite_3-WAL_Mode-003B57.svg?style=flat-square&logo=sqlite)](https://www.sqlite.org/)
 [![Ollama](https://img.shields.io/badge/Ollama-Local_Inference-white.svg?style=flat-square&logo=ollama)](https://ollama.ai/)
-[![Vitest](https://img.shields.io/badge/Tests-165%2F165_Passed-success.svg?style=flat-square&logo=vitest)](https://vitest.dev/)
+[![Vitest](https://img.shields.io/badge/Tests-206%2F206_Passed-success.svg?style=flat-square&logo=vitest)](https://vitest.dev/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 
 [Architecture](docs/ARCHITECTURE.md) • [API Reference](docs/API.md) • [Skills Guide](docs/SKILLS_GUIDE.md) • [Slash Commands](docs/SLASH_COMMANDS.md) • [Tutorials](docs/TUTORIALS.md) • [Operations](docs/OPERATIONS.md) • [Troubleshooting](docs/TROUBLESHOOTING.md) • [Contributing](docs/CONTRIBUTING.md) • [FAQ](docs/FAQ.md) • [PRD](docs/PRD.md) • [TRD](docs/TRD.md)
@@ -63,7 +63,7 @@ Download pre-compiled binaries directly from [GitHub Releases v0.1.0](https://gi
 - **Portable Standalone Executable**: [`KIN.exe`](https://github.com/abhayzangir1/KIN/releases/download/v0.1.0/KIN.exe) — Run immediately without installation.
 - **Windows Setup Installer**: [`KIN_Installer.exe`](https://github.com/abhayzangir1/KIN/releases/download/v0.1.0/KIN_Installer.exe) — Standard NSIS setup wizard.
 - **Enterprise Windows MSI**: [`KIN_0.1.0_x64.msi`](https://github.com/abhayzangir1/KIN/releases/download/v0.1.0/KIN_0.1.0_x64.msi) — Windows Installer package.
-- **Clean Source Archive**: [`KIN.zip`](https://github.com/abhayzangir1/KIN/releases/download/v0.1.0/KIN.zip) — Complete clean source code package (64 MB).
+- **Clean Source Archive**: [`KIN.zip`](https://github.com/abhayzangir1/KIN/releases/download/v0.1.0/KIN.zip) — Complete clean source code package (4.5 MB).
 
 ---
 
