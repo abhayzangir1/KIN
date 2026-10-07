@@ -101,6 +101,34 @@ export class ChannelService {
     }));
   }
 
+  public getMessage(messageId: string): Message | undefined {
+    const r = this.db.queryOne<{
+      id: string;
+      channel_id: string;
+      sender_id: string;
+      sender_type: string;
+      content: string;
+      parent_message_id: string | null;
+      mentions_json: string;
+      productivity_score: number;
+      created_at: number;
+    }>('SELECT * FROM messages WHERE id = ?', messageId);
+
+    if (!r) return undefined;
+
+    return {
+      id: r.id,
+      channelId: r.channel_id,
+      senderId: r.sender_id,
+      senderType: r.sender_type as SenderType,
+      content: r.content,
+      parentMessageId: r.parent_message_id ?? undefined,
+      mentions: JSON.parse(r.mentions_json || '[]'),
+      productivityScore: r.productivity_score,
+      createdAt: r.created_at,
+    };
+  }
+
   public extractMentions(content: string): string[] {
     const mentionRegex = /@([a-zA-Z0-9_-]+)/g;
     const matches = content.match(mentionRegex);

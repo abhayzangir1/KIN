@@ -28,6 +28,37 @@ export interface PolicyEvaluationResult {
 
 export class PolicyEngine {
   /**
+   * Convenience evaluation method supporting partial context and tool parameters.
+   */
+  public evaluate(request: {
+    toolName: string;
+    params?: Record<string, any>;
+    autonomyMode?: AutonomyMode;
+    agentId?: string;
+    agentCapabilities?: string[];
+    riskLevel?: RiskLevel;
+    parentRunId?: string;
+    parentCapabilities?: string[];
+  }): { allowed: boolean; requiresApproval: boolean; reason: string } {
+    const riskLevel = request.riskLevel || (request.toolName === 'executeShell' && request.params?.command?.includes('rm -rf') ? 'CRITICAL' : 'LOW');
+    const res = this.evaluateAction({
+      agentId: request.agentId || 'default',
+      toolName: request.toolName,
+      commandOrPath: request.params?.command || request.params?.path,
+      riskLevel,
+      autonomyMode: request.autonomyMode || 'AUTO',
+      agentCapabilities: request.agentCapabilities || ['*'],
+      parentRunId: request.parentRunId,
+      parentCapabilities: request.parentCapabilities,
+    });
+    return {
+      allowed: res.allowed,
+      requiresApproval: res.requiresInteractiveApproval,
+      reason: res.reason,
+    };
+  }
+
+  /**
    * Evaluates an agent action against capability attenuation and autonomy mode.
    */
   public evaluateAction(request: ActionEvaluationRequest): PolicyEvaluationResult {

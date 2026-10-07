@@ -98,8 +98,8 @@ export interface AgentRun {
   heartbeatAt: number;
   allocatedTokens: number;
   usedTokens: number;
-  quotaResetsAt?: number;
-  interruptedTurn?: number;
+  quotaResetsAt?: number | null;
+  interruptedTurn?: number | null;
   createdAt: number;
   completedAt?: number;
 }
@@ -175,12 +175,12 @@ export interface Task {
   goalId: string;
   title: string;
   description: string;
-  assignedAgentId?: string;
+  assignedAgentId?: string | null;
   status: TaskStatus;
   verificationSpec: VerificationSpec;
-  evidenceBundleId?: string;
-  claimedByRunId?: string;
-  leaseExpiresAt?: number;
+  evidenceBundleId?: string | null;
+  claimedByRunId?: string | null;
+  leaseExpiresAt?: number | null;
   retryCount?: number;
   createdAt: number;
   updatedAt: number;

@@ -4,6 +4,8 @@
 // with honest degradation reporting when requested isolation is unavailable.
 // ============================================================================
 
+import * as path from 'node:path';
+
 export type ExecutionNodeType = 'HOST' | 'SANDBOX' | 'BROWSER' | 'APPLICATION' | 'PRIVATE_SERVER' | 'REMOTE_CLOUD';
 export type ExecutionNodeStatus = 'active' | 'degraded' | 'unavailable';
 
@@ -85,7 +87,7 @@ export class HostExecutionNode extends ExecutionNode {
 
 /**
  * SandboxWorktreeNode: Executes coding tasks within an isolated Git worktree or jailed directory.
- * If container isolation is not supported on host OS, honestly reports degraded status.
+ * If container isolation is not supported on host environment, honestly reports degraded status.
  */
 export class SandboxWorktreeNode extends ExecutionNode {
   public readonly id = 'node-sandbox-worktree';
@@ -104,8 +106,20 @@ export class SandboxWorktreeNode extends ExecutionNode {
       this.status = 'active';
     } else {
       this.status = 'degraded';
-      this.statusReason = 'OS containerization (Docker/bubblewrap) unavailable on host; operating in isolated Git worktree jail.';
+      this.statusReason = 'Containerization (Docker/bubblewrap) unavailable on host; operating in isolated Git worktree jail.';
     }
+  }
+
+  public sanitizeEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+    const sanitized: NodeJS.ProcessEnv = {};
+    const sensitiveKeys = [/api[-_]?key/i, /secret/i, /token/i, /password/i, /auth/i];
+    for (const [key, value] of Object.entries(env)) {
+      if (sensitiveKeys.some((p) => p.test(key))) {
+        continue;
+      }
+      sanitized[key] = value;
+    }
+    return sanitized;
   }
 
   public async execute<T = any>(
@@ -114,7 +128,23 @@ export class SandboxWorktreeNode extends ExecutionNode {
     executor: (params: Record<string, any>) => Promise<T>
   ): Promise<NodeExecutionResult<T>> {
     try {
-      const data = await executor(params);
+      // Process isolation: sanitize environment variables to prevent secret leakage
+      const isolatedParams = { ...params };
+      if (isolatedParams.env) {
+        isolatedParams.env = this.sanitizeEnvironment(isolatedParams.env);
+      }
+
+      // Restrict command execution environments to worktree directory boundaries
+      if (isolatedParams.worktreeRoot && isolatedParams.cwd) {
+        const resolvedCwd = path.resolve(isolatedParams.cwd);
+        const resolvedRoot = path.resolve(isolatedParams.worktreeRoot);
+        const relative = path.relative(resolvedRoot, resolvedCwd);
+        if (relative.startsWith('..') || path.isAbsolute(relative)) {
+          throw new Error(`Process isolation violation: Working directory '${isolatedParams.cwd}' escapes worktree boundary '${isolatedParams.worktreeRoot}'`);
+        }
+      }
+
+      const data = await executor(isolatedParams);
       return {
         success: true,
         node: this.getInfo(),

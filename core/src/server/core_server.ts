@@ -19,7 +19,9 @@ import { TaskRepository } from '../domain/task_repository.js';
 import { ChannelService } from '../communication/channel_service.js';
 import { ActivationEngine } from '../communication/activation_engine.js';
 import { AgentKernel } from '../kernel/agent_kernel.js';
-import { PolicyEngine } from '../policy/policy_engine.js';
+import { EventLedger } from '../security/event_ledger.js';
+import { Sentinel } from '../security/sentinel.js';
+import { LoopBreaker } from '../communication/loop_breaker.js';
 import { ModelGateway } from '../execution/model_gateway.js';
 import { ContextCompiler } from '../context/context_compiler.js';
 import { ToolGateway } from '../execution/tool_gateway.js';
@@ -59,7 +61,7 @@ export class CoreServer {
   private channelService: ChannelService;
   private activationEngine: ActivationEngine;
   private kernel: AgentKernel;
-  private policyEngine: PolicyEngine;
+  private loopBreaker: LoopBreaker = new LoopBreaker();
   private modelGateway: ModelGateway;
   private contextCompiler: ContextCompiler;
   private toolGateway: ToolGateway;
@@ -143,8 +145,10 @@ export class CoreServer {
     }
     
     // Ensure migrations have executed
-    const migrationRunner = new MigrationRunner(this.db);
-    migrationRunner.runMigrations();
+    new MigrationRunner(this.db).runMigrations();
+    // Authoritative Unified EventLedger wiring (Fix 14)
+    EventLedger.initialize(this.db);
+    SecretBroker.getInstance(this.db);
 
     this.workspaceRepo = new WorkspaceRepository(this.db);
     this.agentRepo = new AgentRepository(this.db);
@@ -154,7 +158,6 @@ export class CoreServer {
     this.channelService = new ChannelService(this.db);
     this.activationEngine = new ActivationEngine();
     this.kernel = new AgentKernel(this.db);
-    this.policyEngine = new PolicyEngine();
     const lastResolvedCredIdByProvider = new Map<string, string>();
     this.modelGateway = new ModelGateway({
       apiKeyResolver: (provider: string) => {
@@ -197,6 +200,23 @@ export class CoreServer {
       },
     });
 
+    // Reconcile custom providers from SQLite providers table on startup (Fix 17)
+    try {
+      const customProviders = this.db.query<{ id: string; name: string; base_url: string; api_key_ref?: string }>(
+        `SELECT id, name, base_url, api_key_ref FROM providers WHERE is_active = 1 AND base_url IS NOT NULL`
+      );
+      for (const prov of customProviders) {
+        if (prov.base_url) {
+          this.modelGateway.registerCustomProvider(prov.id, prov.base_url, prov.api_key_ref);
+          if (prov.name && prov.name !== prov.id) {
+            this.modelGateway.registerCustomProvider(prov.name, prov.base_url, prov.api_key_ref);
+          }
+        }
+      }
+    } catch (provErr) {
+      console.warn('[KIN CORE] Notice reconciling custom providers from SQLite:', provErr);
+    }
+
     // Auto-seed active OpenRouter credential from browser/environment if not yet registered
     try {
       const existingOpenRouter = this.db.queryOne<any>(
@@ -235,14 +255,19 @@ export class CoreServer {
     });
     this.desktopController = this.toolGateway.getDesktopController();
     this.browserController = this.toolGateway.getBrowserController();
-    this.financialSafety = this.toolGateway.getFinancialSafety();
-    const initialProject = this.workspaceRepo.getProject(this.activeProjectId);
-    const repoRoot = initialProject?.repoPath || process.env.KIN_PROJECT_ROOT || process.cwd();
+    let repoRoot = process.env.KIN_PROJECT_ROOT || process.cwd();
+    try {
+      const initialProject = this.workspaceRepo.getProject(this.activeProjectId);
+      if (initialProject?.repoPath) {
+        repoRoot = initialProject.repoPath;
+      }
+    } catch {}
     this.skillEngine = new SkillEngine(this.db, { repoRoot });
     this.toolGateway.setSkillEngine(this.skillEngine);
     this.recoveryEngine = new RecoveryEngine(this.skillEngine);
     this.mcpClient = new McpClientManager(repoRoot);
     this.toolGateway.setMcpClient(this.mcpClient);
+    this.financialSafety = new FinancialSafetyShield();
     this.agentLoopRunner = new AgentLoopRunner(
       this.modelGateway,
       this.toolGateway,
@@ -1146,13 +1171,14 @@ export class CoreServer {
       riskLevel: risk,
       description,
       target,
-      paramsSummary: params,
+      paramsSummary: SecretBroker.getInstance().sanitizePayload(params || {}),
       requiresApproval,
     };
   }
 
   private broadcastEvent(eventType: string, data: any): void {
-    const payload = `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`;
+    const sanitizedData = SecretBroker.getInstance().sanitizePayload(data);
+    const payload = `event: ${eventType}\ndata: ${JSON.stringify(sanitizedData)}\n\n`;
     for (const client of Array.from(this.sseClients)) {
       try {
         if (client.writableEnded || client.destroyed) {
@@ -1488,7 +1514,26 @@ export class CoreServer {
         const workingDir = body.cwd || project?.repoPath || process.cwd();
         const timeoutMs = Math.min(Math.max(body.timeoutMs || 60000, 1000), 600000);
 
+        const sentinel = Sentinel.getInstance();
+        const decision = sentinel.evaluate({
+          agentId: 'operator',
+          toolName: 'executeShell',
+          params: { command: body.command, cwd: workingDir },
+          riskLevel: 'HIGH',
+          autonomyMode: 'FULL_ACCESS',
+          agentCapabilities: ['*'],
+        });
+        if (!decision.allowed) {
+          return this.sendJson(res, 403, { error: decision.reason });
+        }
+
         const result = await this.execCommand(body.command, workingDir, timeoutMs);
+        EventLedger.getInstance().record({
+          eventType: 'TOOL_COMPLETED',
+          entityType: 'system',
+          entityId: 'terminal',
+          payload: { command: body.command, cwd: workingDir, exitCode: result.exitCode },
+        });
         // Safe display truncation: maximum 500,000 characters to prevent browser freezes
         const maxDisplayChars = 500000;
         const stdout = result.stdout.length > maxDisplayChars
@@ -4228,6 +4273,10 @@ export class CoreServer {
           ? `Coordinating execution for run '${latestRun.id.slice(0, 8)}' using assigned model '${identity.activeModelId}'.`
           : `Active specialist listening for directives on channel with model '${identity.activeModelId}'.`;
 
+        const toolsDurationMs = realActions.reduce((acc: number, a: any) => acc + (Number(a.durationMs) || 0), 0);
+        const coordinationDurationMs = peerCoordination.length > 0 ? peerCoordination.length * 500 : 0;
+        const reasoningDurationMs = Math.max(0, durationMs - toolsDurationMs - coordinationDurationMs);
+
         const executionDetails = {
           agentId,
           displayName: identity.displayName,
@@ -4248,15 +4297,15 @@ export class CoreServer {
             {
               id: 'phase-reasoning',
               title: `Explored ${exploredFiles.length} file(s) • ${decisions.length} architectural decision(s)`,
-              durationMs: Math.round(durationMs * 0.4),
-              durationFormatted: `${Math.round((durationMs * 0.4) / 1000)}s`,
+              durationMs: reasoningDurationMs,
+              durationFormatted: `${Math.round(reasoningDurationMs / 1000)}s`,
               items: [
                 {
                   id: 'item-thought-1',
                   type: 'thought',
                   summary: latestThought,
                   timestamp: latestRun ? latestRun.created_at : identity.createdAt,
-                  durationFormatted: `${Math.round((durationMs * 0.4) / 1000)}s`,
+                  durationFormatted: `${Math.round(reasoningDurationMs / 1000)}s`,
                   details: {
                     reasoning: `Identified active project '${project?.name || 'KIN'}'. Verified database WAL mode and ensured no mock fallbacks exist. Evaluated model routing for '${identity.activeModelId}'.`,
                   },
@@ -4273,15 +4322,15 @@ export class CoreServer {
             {
               id: 'phase-tools',
               title: `Executed ${realActions.length} recorded action(s)`,
-              durationMs: Math.round(durationMs * 0.4),
-              durationFormatted: `${Math.round((durationMs * 0.4) / 1000)}s`,
+              durationMs: toolsDurationMs,
+              durationFormatted: `${Math.round(toolsDurationMs / 1000)}s`,
               items: toolItems,
             },
             {
               id: 'phase-coordination',
               title: 'Workforce Coordination & Peer Alignment',
-              durationMs: Math.round(durationMs * 0.2),
-              durationFormatted: `${Math.round((durationMs * 0.2) / 1000)}s`,
+              durationMs: coordinationDurationMs,
+              durationFormatted: `${Math.round(coordinationDurationMs / 1000)}s`,
               items: peerCoordination.map((pc: any, idx: number) => ({
                 id: `item-coord-${idx}`,
                 type: 'peer_coordination',
@@ -5718,7 +5767,25 @@ export class CoreServer {
         const body = await this.parseJsonBody<{ appNameOrPath?: string; name?: string; args?: string[] }>(req);
         const target = body.appNameOrPath || body.name;
         if (!target) return this.sendJson(res, 400, { error: 'appNameOrPath is required' });
+        const sentinel = Sentinel.getInstance();
+        const decision = sentinel.evaluate({
+          agentId: 'operator',
+          toolName: 'launchApp',
+          params: { target, args: body.args || [] },
+          riskLevel: 'MEDIUM',
+          autonomyMode: 'FULL_ACCESS',
+          agentCapabilities: ['*'],
+        });
+        if (!decision.allowed) {
+          return this.sendJson(res, 403, { error: decision.reason });
+        }
         const result = await this.desktopController.launchApp(target, body.args || []);
+        EventLedger.getInstance().record({
+          eventType: 'TOOL_COMPLETED',
+          entityType: 'system',
+          entityId: 'app_launch',
+          payload: { target, success: result.success },
+        });
         this.broadcastEvent('system:app_launched', result);
         return this.sendJson(res, result.success ? 200 : 400, result);
       }
@@ -5779,7 +5846,25 @@ export class CoreServer {
       if (req.method === 'POST' && pathname === '/api/browser/navigate') {
         const body = await this.parseJsonBody<{ url: string }>(req);
         if (!body.url) return this.sendJson(res, 400, { error: 'URL is required' });
+        const sentinel = Sentinel.getInstance();
+        const decision = sentinel.evaluate({
+          agentId: 'operator',
+          toolName: 'browser',
+          params: { action: 'navigate', url: body.url },
+          riskLevel: 'LOW',
+          autonomyMode: 'FULL_ACCESS',
+          agentCapabilities: ['*'],
+        });
+        if (!decision.allowed) {
+          return this.sendJson(res, 403, { error: decision.reason });
+        }
         const result = await this.browserController.navigate(body.url);
+        EventLedger.getInstance().record({
+          eventType: 'TOOL_COMPLETED',
+          entityType: 'tool',
+          entityId: 'navigate',
+          payload: { url: body.url, status: result.status },
+        });
         this.broadcastEvent('browser:navigated', result);
         return this.sendJson(res, 200, result);
       }
@@ -5787,7 +5872,25 @@ export class CoreServer {
       // 45. POST /api/browser/act — Execute web step action
       if (req.method === 'POST' && pathname === '/api/browser/act') {
         const body = await this.parseJsonBody<any>(req);
+        const sentinel = Sentinel.getInstance();
+        const decision = sentinel.evaluate({
+          agentId: 'operator',
+          toolName: 'browser',
+          params: body,
+          riskLevel: 'LOW',
+          autonomyMode: 'FULL_ACCESS',
+          agentCapabilities: ['*'],
+        });
+        if (!decision.allowed) {
+          return this.sendJson(res, 403, { error: decision.reason });
+        }
         const result = await this.browserController.executeStep(body);
+        EventLedger.getInstance().record({
+          eventType: 'TOOL_COMPLETED',
+          entityType: 'tool',
+          entityId: 'step',
+          payload: { action: body?.action, success: result.success },
+        });
         this.broadcastEvent('browser:step', result);
         return this.sendJson(res, result.success ? 200 : 400, result);
       }
@@ -6755,7 +6858,8 @@ export class CoreServer {
     recursionDepth: number = 0,
     resumeCheckpoint?: any,
     existingRunId?: string,
-    modelOverride?: string
+    modelOverride?: string,
+    parentRunId?: string
   ): Promise<void> {
     const def = this.agentRepo.getDefinition(agent.definitionId);
     const channel = this.workspaceRepo.getChannel(channelId);
@@ -6779,14 +6883,34 @@ export class CoreServer {
         }
       }
       if (!run) {
-        run = this.kernel.spawnRun({
-          agentId: agent.id,
-          projectId: targetProjectId,
-          channelId,
-          triggerMessageId: triggerMsg?.id,
-          taskId: triggerMsg?.taskId || undefined,
-          allocatedTokens: 50000,
-        });
+        try {
+          run = this.kernel.spawnRun({
+            agentId: agent.id,
+            projectId: targetProjectId,
+            channelId,
+            triggerMessageId: triggerMsg?.id,
+            taskId: triggerMsg?.taskId || undefined,
+            parentRunId: parentRunId || triggerMsg?.parentRunId || undefined,
+            allocatedTokens: 50000,
+          });
+        } catch (spawnErr: any) {
+          if (spawnErr?.message?.includes('QUOTA EXCEEDED: Maximum active concurrent runs')) {
+            run = this.kernel.queueRun({
+              agentId: agent.id,
+              projectId: targetProjectId,
+              channelId,
+              triggerMessageId: triggerMsg?.id,
+              taskId: triggerMsg?.taskId || undefined,
+              parentRunId: parentRunId || triggerMsg?.parentRunId || undefined,
+              allocatedTokens: 50000,
+            });
+            this.broadcastEvent('run:queued', { runId: run.id, agentId: agent.id, channelId });
+            this.activeAgentExecutions.delete(agent.id);
+            this.broadcastEvent('agent:state', { agentId: agent.id, channelId, status: 'idle' });
+            return;
+          }
+          throw spawnErr;
+        }
       }
 
       // Claim atomic task lease if task is associated
@@ -6921,9 +7045,34 @@ export class CoreServer {
 
       // 4. Construct complete trajectory messages for model invocation
       const trajectory = this.channelService.getMessages(channelId, 10);
+      const loopCheck = this.loopBreaker.evaluateThread(trajectory);
+      if (loopCheck.action === 'halt_and_escalate') {
+        const warningMsg = `🛑 Stagnation Guard: Circular or stagnant discussion detected (${loopCheck.stagnantTurns} turns). Halting automated loop and escalating to human operator.`;
+        this.channelService.sendMessage({
+          channelId,
+          senderId: agent.id,
+          senderType: 'agent',
+          content: warningMsg,
+          productivityScore: 0,
+        });
+        if (run?.id) {
+          try { this.kernel.transitionState(run.id, 'waiting_for_approval', 'Halted due to stagnant discussion'); } catch {}
+        }
+        this.activeAgentExecutions.delete(agent.id);
+        this.broadcastEvent('agent:state', { agentId: agent.id, channelId, status: 'idle' });
+        return;
+      }
+
       const modelMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
         { role: 'system', content: compiled.fullAssembledPrompt },
       ];
+
+      if (loopCheck.action === 'warn') {
+        modelMessages.push({
+          role: 'user',
+          content: `⚠️ [LOOP WARNING]: ${loopCheck.warningMessage || 'Repeated or unproductive discourse detected. Pivot immediately to concrete action or state resolution.'}`,
+        });
+      }
 
       for (const m of trajectory) {
         if (m.senderId === agent.id) {
@@ -6960,21 +7109,39 @@ export class CoreServer {
 
       // 5. Execute Autonomous Multi-Turn ReAct Loop (with Tool Gateway, Native File/Shell/Schedule, Skills & MCP)
       const freshIdentity = this.agentRepo.getIdentity(agent.id) || agent;
+      const agentDef = this.agentRepo.getDefinition(freshIdentity.definitionId) || def;
+      const defCapabilities = agentDef?.capabilities || [];
       const project = this.workspaceRepo.getProject(targetProjectId);
       const repoRoot = project?.repoPath || process.cwd();
 
       // Check if coding task to provision isolated git worktree
       let worktreeInfo: { worktreePath: string; branch: string; isShadowRepo: boolean } | null = null;
       let effectiveWorktreeRoot = repoRoot;
-      const isCoding = !!(activeTaskId || freshIdentity.capabilities?.includes('worktree') || triggerMsg?.content?.toLowerCase().includes('code') || triggerMsg?.content?.toLowerCase().includes('refactor') || triggerMsg?.content?.toLowerCase().includes('implement') || triggerMsg?.content?.toLowerCase().includes('fix') || triggerMsg?.content?.toLowerCase().includes('bug'));
+      const isCoding = !!(activeTaskId || defCapabilities.includes('worktree') || triggerMsg?.content?.toLowerCase().includes('code') || triggerMsg?.content?.toLowerCase().includes('refactor') || triggerMsg?.content?.toLowerCase().includes('implement') || triggerMsg?.content?.toLowerCase().includes('fix') || triggerMsg?.content?.toLowerCase().includes('bug'));
       if (isCoding) {
         try {
           const worktreeManager = new WorktreeManager(repoRoot);
           worktreeInfo = await worktreeManager.provisionWorktree(run.id, freshIdentity.displayName?.replace(/^@/, '') || 'worker');
           effectiveWorktreeRoot = worktreeInfo.worktreePath;
           this.kernel.updateWorktreePath(run.id, effectiveWorktreeRoot);
-        } catch (wtErr) {
-          console.warn('[KIN CORE] Worktree provision notice (falling back to repoRoot):', wtErr);
+        } catch (wtErr: any) {
+          console.warn('[KIN CORE] Worktree provision failure - failing closed:', wtErr);
+          if (activeTaskId) {
+            try { this.taskRepo.updateTaskStatus(activeTaskId, 'blocked'); } catch {}
+          }
+          if (run?.id) {
+            try { this.kernel.transitionState(run.id, 'failed', `Worktree isolation setup failed: ${wtErr?.message || wtErr}`); } catch {}
+          }
+          this.channelService.sendMessage({
+            channelId,
+            senderId: freshIdentity.id,
+            senderType: 'agent',
+            content: `⚠️ Task blocked: Failed to provision an isolated git worktree (${wtErr?.message || 'unknown error'}). Execution aborted to preserve repository isolation.`,
+            productivityScore: 0,
+          });
+          this.activeAgentExecutions.delete(freshIdentity.id);
+          this.broadcastEvent('agent:state', { agentId: freshIdentity.id, channelId, status: 'idle' });
+          return;
         }
       }
 
@@ -7001,6 +7168,7 @@ export class CoreServer {
         taskId: run.taskId,
         agentId: freshIdentity.id,
         modelId: modelOverride || freshIdentity.activeModelId,
+        fallbackModelId: freshIdentity.fallbackModelId,
         projectId: targetProjectId,
         channelId,
         userPrompt: triggerMsg?.content || '',
@@ -7008,6 +7176,7 @@ export class CoreServer {
         worktreeRoot: effectiveWorktreeRoot,
         autonomyMode: this.workspaceRepo.getWorkspace('ws-default')?.defaultAutonomyMode ?? 'AUTO',
         maxTurns: 6,
+        allowedCapabilities: freshIdentity.isOrchestrator ? ['*'] : defCapabilities,
         onHeartbeat: () => {
           try {
             this.kernel.heartbeat(run.id);
@@ -7099,7 +7268,8 @@ export class CoreServer {
           return matchingSteers.map((s) => s.directive);
         },
         onToolStart: (toolName, params) => {
-          const preview = this.generateActionPreview(toolName, params);
+          const sanitizedParams = SecretBroker.getInstance().sanitizePayload(params || {});
+          const preview = this.generateActionPreview(toolName, sanitizedParams);
           const existing = this.takeoverStates.get(run.id);
           this.takeoverStates.set(run.id, {
             runId: run.id,
@@ -7123,7 +7293,7 @@ export class CoreServer {
             agentId: freshIdentity.id,
             channelId,
             toolName,
-            params,
+            params: sanitizedParams,
           });
         },
         onToolEnd: (toolName, output, error) => {
@@ -7222,10 +7392,11 @@ export class CoreServer {
               worktreeInfo.worktreePath,
               `KIN agent ${freshIdentity.displayName} automated task ${run.id}`
             );
+            const defaultBranch = (typeof project?.settings?.defaultBranch === 'string' && project.settings.defaultBranch) ? project.settings.defaultBranch : 'main';
             const mergeRes = await worktreeManager.verifyAndMerge(
               worktreeInfo.worktreePath,
               worktreeInfo.branch,
-              'main'
+              defaultBranch
             );
             if (!mergeRes.success && mergeRes.error) {
               console.warn('[KIN CORE] Worktree merge conflict/error:', mergeRes.error);
@@ -7286,17 +7457,21 @@ export class CoreServer {
           agentId: freshIdentity.id,
           agentName: freshIdentity.displayName,
           toolName: details.toolName || 'action',
-          actionSummary: details.params?.command || details.params?.url || details.params?.path || JSON.stringify(details.params || {}),
+          actionSummary: sanitizedParams?.command || sanitizedParams?.url || sanitizedParams?.path || JSON.stringify(sanitizedParams || {}),
           riskLevel: details.riskLevel || 'CRITICAL',
-          actionPayload: details.params || {},
+          actionPayload: sanitizedParams,
         });
         this.kernel.transitionState(run.id, 'waiting_for_approval', 'Requires interactive human approval');
       } else if (loopResult.isAborted) {
-        this.kernel.transitionState(run.id, 'cancelled', 'Aborted via human takeover kill switch');
+        const currentRun = this.kernel.getRun(run.id);
+        const wasAlreadyFailed = currentRun?.state === 'failed';
+        if (!wasAlreadyFailed) {
+          this.kernel.transitionState(run.id, 'cancelled', 'Aborted via human takeover kill switch');
+        }
         const activeTaskId = triggerMsg?.taskId || run?.taskId;
         if (activeTaskId) {
           try {
-            this.taskRepo.releaseTaskLease(activeTaskId, run.id, false);
+            this.taskRepo.releaseTaskLease(activeTaskId, run.id, wasAlreadyFailed);
           } catch {}
         }
       } else {
@@ -7306,11 +7481,21 @@ export class CoreServer {
         const activeTaskId = triggerMsg?.taskId || run?.taskId;
         if (activeTaskId) {
           try {
-            this.taskRepo.releaseTaskLease(activeTaskId, run.id, false);
             const currentTask = this.taskRepo.getTask(activeTaskId);
             if (currentTask && (currentTask.status === 'running' || currentTask.status === 'ready' || currentTask.status === 'review')) {
+              if (currentTask.status === 'ready') {
+                this.taskRepo.updateTaskStatus(activeTaskId, 'running');
+              }
               // Generate verifiable evidence record to gate task completion
               const evidenceId = `ev-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+              const evidenceType = 'artifact_hash';
+              const contentUri = worktreeCommitSha
+                ? `git://commit/${worktreeCommitSha}`
+                : `sha256:${crypto.createHash('sha256').update(loopResult.finalContent || run.id).digest('hex')}`;
+              const isVerified = worktreeCommitSha
+                ? 1
+                : (loopResult.actions && loopResult.actions.length > 0 && loopResult.actions.every((a: any) => !a.error) ? 1 : 0);
+
               try {
                 this.db.execute(
                   `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at)
@@ -7318,20 +7503,38 @@ export class CoreServer {
                   evidenceId,
                   activeTaskId,
                   run.id,
-                  'artifact_hash',
-                  `evidence://run/${run.id}`,
-                  1,
+                  evidenceType,
+                  contentUri,
+                  isVerified,
                   Date.now()
                 );
+
+                EventLedger.getInstance().record({
+                  eventType: 'EVIDENCE_RECORDED',
+                  entityType: 'task',
+                  entityId: activeTaskId,
+                  payload: {
+                    evidenceId,
+                    type: evidenceType,
+                    contentUri,
+                    runId: run.id,
+                    agentId: freshIdentity.id,
+                  },
+                });
               } catch (evErr) {
                 console.warn('[KIN CORE] Evidence record creation notice:', evErr);
               }
 
-              this.taskRepo.completeTask(activeTaskId, evidenceId);
+              const promotedTaskIds = this.taskRepo.completeTask(activeTaskId, evidenceId) || [];
+              EventLedger.getInstance().record({
+                eventType: 'TASK_COMPLETED',
+                entityType: 'task',
+                entityId: activeTaskId,
+                payload: { runId: run.id, evidenceId, promotedTaskIds },
+              });
               this.broadcastEvent('task:updated', { taskId: activeTaskId, status: 'completed', evidenceBundleId: evidenceId });
 
               // Promote dependent tasks whose dependencies are now satisfied
-              const promotedTaskIds = this.taskRepo.promoteDependentTasks(activeTaskId);
               for (const pId of promotedTaskIds) {
                 this.broadcastEvent('task:updated', { taskId: pId, status: 'ready' });
               }
@@ -7341,8 +7544,7 @@ export class CoreServer {
                 const siblingTasks = this.taskRepo.listTasksByGoal(currentTask.goalId);
                 const nextReady = siblingTasks.find((t) => t.id !== activeTaskId && t.status === 'ready');
                 if (nextReady) {
-                  this.taskRepo.updateTaskStatus(nextReady.id, 'running');
-                  this.broadcastEvent('task:updated', { taskId: nextReady.id, status: 'running' });
+                  this.broadcastEvent('task:updated', { taskId: nextReady.id, status: 'ready' });
 
                   const nextWorker = (nextReady.assignedAgentId ? this.agentRepo.getIdentity(nextReady.assignedAgentId) : null) || freshIdentity;
                   if (nextWorker) {
@@ -7363,7 +7565,7 @@ export class CoreServer {
                       };
                       this.enqueueChannelExecution(channelId, () =>
                         this.enqueueAgentExecution(nextWorker.id, () =>
-                          this.executeAgentResponse(nextWorker, channelId, taskTrigger, 0)
+                          this.executeAgentResponse(nextWorker, channelId, taskTrigger, 0, undefined, undefined, undefined, run.id)
                         )
                       );
                     }
@@ -7422,7 +7624,7 @@ export class CoreServer {
           createdAt: Date.now(),
         };
         // Re-execute pivot turn with fresh context
-        await this.executeAgentResponse(freshIdentity, channelId, pivotTrigger, recursionDepth + 1);
+        await this.executeAgentResponse(freshIdentity, channelId, pivotTrigger, recursionDepth + 1, undefined, undefined, undefined, run.id);
         return;
       }
 
@@ -7449,7 +7651,7 @@ export class CoreServer {
             };
             this.enqueueChannelExecution(channelId, () =>
               this.enqueueAgentExecution(targetPeer.id, () =>
-                this.executeAgentResponse(targetPeer, channelId, peerTrigger, recursionDepth + 1)
+                this.executeAgentResponse(targetPeer, channelId, peerTrigger, recursionDepth + 1, undefined, undefined, undefined, run.id)
               )
             );
           }
@@ -7513,7 +7715,7 @@ export class CoreServer {
                 };
                 this.enqueueChannelExecution(channelId, () =>
                   this.enqueueAgentExecution(peerAgent.id, () =>
-                    this.executeAgentResponse(peerAgent, channelId, peerTrigger, recursionDepth + 1)
+                    this.executeAgentResponse(peerAgent, channelId, peerTrigger, recursionDepth + 1, undefined, undefined, undefined, run.id)
                   )
                 );
                 break; // Coordinate with first mentioned peer per turn to maintain orderly conversation flow
@@ -7566,6 +7768,25 @@ export class CoreServer {
     } finally {
       if (recursionDepth === 0) {
         this.activeAgentExecutions.delete(agent.id);
+      }
+      try {
+        const admittedRun = this.kernel.admitNextQueuedRun();
+        if (admittedRun) {
+          const admittedAgent = this.agentRepo.getIdentity(admittedRun.agentId);
+          if (admittedAgent) {
+            this.broadcastEvent('run:admitted', { runId: admittedRun.id, agentId: admittedAgent.id });
+            const trigger = admittedRun.triggerMessageId
+              ? this.channelService.getMessage(admittedRun.triggerMessageId)
+              : undefined;
+            this.enqueueChannelExecution(admittedRun.channelId || channelId, () =>
+              this.enqueueAgentExecution(admittedAgent.id, () =>
+                this.executeAgentResponse(admittedAgent, admittedRun.channelId || channelId, trigger, 0, undefined, admittedRun.id)
+              )
+            );
+          }
+        }
+      } catch (admitErr) {
+        console.warn('[KIN CORE] Notice admitting next queued run:', admitErr);
       }
     }
   }

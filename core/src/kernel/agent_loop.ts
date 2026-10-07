@@ -20,6 +20,7 @@ import { LoopBreaker } from '../communication/loop_breaker.js';
 export interface AgentLoopOptions {
   runId: string;
   taskId?: string;
+  goalId?: string;
   agentId: string;
   modelId: string;
   fallbackModelId?: string;
@@ -171,9 +172,6 @@ export class AgentLoopRunner {
       actions.push(...options.resumeFromTurnCheckpoint.actions);
     }
     let finalContent = '';
-    const spillDir = path.join(options.worktreeRoot || process.cwd(), '.kin', 'spill');
-    const outputSpiller = new OutputSpiller({ spillDir, thresholdBytes: 4000 });
-    const compactor = new ContextCompactor();
 
     while (currentTurn < maxTurns) {
       // Check instant human takeover status
@@ -212,22 +210,37 @@ export class AgentLoopRunner {
             createdAt: Date.now() - (conversationHistory.length - idx) * 1000,
           }));
 
-          const compactionResult = this.contextCompactor.evaluateAndCompact({
-            messages: compMessages,
-            currentTokens: estimatedTokens,
-            maxTokens,
-            compactionThresholdRatio: 0.75,
-            snapshotState: {
-              goalId: options.runId,
-              primaryObjective: options.userPrompt,
-              completedTasks: actions.filter((a) => !a.error).map((a, i) => ({ id: `act-${i}`, title: a.toolName })),
-              activeTask: { id: `turn-${currentTurn}`, title: `Turn ${currentTurn} execution` },
-              modifiedFiles: [],
-              encounteredErrorsAndResolutions: actions.filter((a) => a.error).map((a) => ({ error: a.error || '', fixApplied: 'Handled in loop' })),
-              immutableDecisions: [],
-              pendingTaskDag: [],
-            },
-          });
+            const realModifiedFiles = Array.from(
+              new Set(
+                actions
+                  .filter((a) => a.toolName === 'writeFile' && !a.error)
+                  .map((a) => a.params?.filePath || a.params?.path)
+                  .filter((f): f is string => typeof f === 'string' && f.length > 0)
+              )
+            );
+
+            const compactionResult = this.contextCompactor.evaluateAndCompact({
+              messages: compMessages,
+              currentTokens: estimatedTokens,
+              maxTokens,
+              compactionThresholdRatio: 0.75,
+              snapshotState: {
+                goalId: options.goalId || options.taskId || options.runId,
+                primaryObjective: options.userPrompt,
+                completedTasks: actions
+                  .filter((a) => !a.error)
+                  .map((a, i) => ({ id: `act-${i}`, title: `${a.toolName} completed` })),
+                activeTask: options.taskId
+                  ? { id: options.taskId, title: `Active Task ${options.taskId} (Turn ${currentTurn})` }
+                  : { id: `turn-${currentTurn}`, title: `Turn ${currentTurn} execution` },
+                modifiedFiles: realModifiedFiles.map((p) => ({ path: p })),
+                encounteredErrorsAndResolutions: actions
+                  .filter((a) => a.error)
+                  .map((a) => ({ error: a.error || '', fixApplied: 'Addressed during turn execution' })),
+                immutableDecisions: [],
+                pendingTaskDag: [],
+              },
+            });
 
           if (compactionResult.didCompact) {
             conversationHistory = compactionResult.compactedMessages.map((m) => ({
@@ -270,7 +283,34 @@ export class AgentLoopRunner {
       // Invoke LLM (dynamically resolves active model if changed mid-execution)
       const currentModelId = options.getModelId ? options.getModelId() : options.modelId;
       let response;
+      const watchdogIntervalMs = 15000;
+      const maxCeilingMs = 10 * 60 * 1000; // 10 minutes maximum ceiling
+      const invokeStartTime = Date.now();
+      let watchdogTimer: NodeJS.Timeout | null = null;
+
       try {
+        watchdogTimer = setInterval(async () => {
+          if (Date.now() - invokeStartTime > maxCeilingMs) {
+            if (watchdogTimer) {
+              clearInterval(watchdogTimer);
+              watchdogTimer = null;
+            }
+            return;
+          }
+          try {
+            options.onHeartbeat?.();
+          } catch {}
+          if (options.taskId && options.onRenewLease) {
+            try {
+              await options.onRenewLease(options.taskId);
+            } catch {}
+          }
+        }, watchdogIntervalMs);
+
+        if (watchdogTimer && typeof (watchdogTimer as any).unref === 'function') {
+          (watchdogTimer as any).unref();
+        }
+
         response = await this.modelGateway.invoke({
           modelId: currentModelId,
           fallbackModelId: options.fallbackModelId,
@@ -318,6 +358,11 @@ export class AgentLoopRunner {
           };
         }
         throw err;
+      } finally {
+        if (watchdogTimer) {
+          clearInterval(watchdogTimer);
+          watchdogTimer = null;
+        }
       }
 
       if (response.isError && this.isQuotaError(response.content)) {
@@ -453,7 +498,7 @@ export class AgentLoopRunner {
       }
 
       // Compute Effective Capabilities: @Boss retains full platform authority (*); specialists strictly inherit definition capabilities
-      const effectiveCapabilities = options.allowedCapabilities && options.allowedCapabilities.length > 0
+      const effectiveCapabilities = options.allowedCapabilities !== undefined
         ? options.allowedCapabilities
         : (options.agentId === 'agent-boss' ? ['*'] : ['fs:read', 'fs:write']);
 

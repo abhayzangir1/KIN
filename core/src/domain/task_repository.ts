@@ -156,7 +156,7 @@ export class TaskRepository {
 
   /**
    * Atomic task claim.
-   * Guarantees that only one agent claims a ready task.
+   * Ensures that only one agent claims a ready task.
    */
   public claimTask(taskId: string, agentId: string): boolean {
     const result = this.db.execute(
@@ -173,12 +173,30 @@ export class TaskRepository {
 
   /**
    * Atomic task lease claim.
-   * Guarantees that only one agent run claims a task with a timed lease.
+   * Ensures that only one agent run claims a task with a timed lease.
    * Allows reclaiming expired leases from stalled/crashed runs.
    */
   public claimTaskWithLease(taskId: string, agentId: string, runId: string, leaseDurationMs: number = 300000): boolean {
     const now = Date.now();
     const leaseExpiresAt = now + leaseDurationMs;
+
+    if (runId) {
+      try {
+        const existingRun = this.db.queryOne('SELECT id FROM agent_runs WHERE id = ?', runId);
+        if (!existingRun) {
+          this.db.execute(
+            `INSERT INTO agent_runs (id, agent_id, state, heartbeat_at, allocated_tokens, used_tokens, created_at)
+             VALUES (?, ?, 'running', ?, 50000, 0, ?)`,
+            runId,
+            agentId,
+            now,
+            now
+          );
+        }
+      } catch (e) {
+        console.warn('[TASK_REPO] Notice creating run stub:', e);
+      }
+    }
 
     const result = this.db.execute(
       `UPDATE tasks
@@ -250,7 +268,12 @@ export class TaskRepository {
   public reclaimExpiredTaskLeases(): string[] {
     const now = Date.now();
     const expired = this.db.query<{ id: string }>(
-      `SELECT id FROM tasks WHERE status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at < ?`,
+      `SELECT t.id FROM tasks t
+       LEFT JOIN agent_runs r ON t.claimed_by_run_id = r.id
+       WHERE t.status = 'running'
+         AND t.lease_expires_at IS NOT NULL
+         AND t.lease_expires_at < ?
+         AND (r.state IS NULL OR r.state != 'waiting_for_approval')`,
       now
     );
 
@@ -289,8 +312,9 @@ export class TaskRepository {
   /**
    * Evidence-gated task completion.
    * A task CANNOT complete without an evidence record.
+   * Atomically clears claimed_by_run_id and lease_expires_at while preserving 'running' status for verification.
    */
-  public completeTask(taskId: string, evidenceBundleId: string): void {
+  public completeTask(taskId: string, evidenceBundleId: string): string[] {
     const result = this.db.execute(
       `UPDATE tasks
        SET status = 'completed', evidence_bundle_id = ?, claimed_by_run_id = NULL, lease_expires_at = NULL, updated_at = ?
@@ -305,7 +329,7 @@ export class TaskRepository {
     }
 
     // Check if dependent tasks can now transition from 'backlog' to 'ready'
-    this.promoteDependentTasks(taskId);
+    return this.promoteDependentTasks(taskId);
   }
 
   public promoteDependentTasks(completedTaskId: string): string[] {

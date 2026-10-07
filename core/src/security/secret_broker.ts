@@ -5,21 +5,30 @@
 // ============================================================================
 
 import { SecretVault } from './secret_vault.js';
+import { KinDatabase } from '../storage/db.js';
 
 export class SecretBroker {
   private static instance: SecretBroker;
   private vault: SecretVault;
+  private db?: KinDatabase;
   private knownSecrets: Set<string> = new Set();
 
-  private constructor() {
+  private constructor(db?: KinDatabase) {
     this.vault = SecretVault.getInstance();
+    this.db = db;
   }
 
-  public static getInstance(): SecretBroker {
+  public static getInstance(db?: KinDatabase): SecretBroker {
     if (!SecretBroker.instance) {
-      SecretBroker.instance = new SecretBroker();
+      SecretBroker.instance = new SecretBroker(db);
+    } else if (db && !SecretBroker.instance.db) {
+      SecretBroker.instance.db = db;
     }
     return SecretBroker.instance;
+  }
+
+  public setDatabase(db: KinDatabase): void {
+    this.db = db;
   }
 
   /**
@@ -57,9 +66,33 @@ export class SecretBroker {
   private resolveString(str: string): string {
     const vaultPattern = /\{\{vault:([a-zA-Z0-9_\-.:]+)\}\}/g;
     return str.replace(vaultPattern, (_match, keyName) => {
-      // Look up decrypted key from vault
-      const decrypted = this.vault.decrypt(keyName);
-      if (decrypted && decrypted !== keyName) {
+      // 1. If keyName is already a vault ciphertext (e.g. vault:v1:...), decrypt directly
+      if (keyName.startsWith('vault:v1:')) {
+        const decrypted = this.vault.decrypt(keyName);
+        if (decrypted && decrypted !== keyName) {
+          this.registerSecretForRedaction(decrypted);
+          return decrypted;
+        }
+      }
+
+      // 2. Otherwise query managed_credentials where key_alias = keyName
+      let ciphertextToDecrypt = keyName;
+      if (this.db) {
+        try {
+          const row = this.db.queryOne<{ secret_hash: string }>(
+            `SELECT secret_hash FROM managed_credentials WHERE key_alias = ? OR id = ? OR provider = ? LIMIT 1`,
+            keyName,
+            keyName,
+            keyName
+          );
+          if (row?.secret_hash) {
+            ciphertextToDecrypt = row.secret_hash;
+          }
+        } catch {}
+      }
+
+      const decrypted = this.vault.decrypt(ciphertextToDecrypt);
+      if (decrypted && decrypted !== ciphertextToDecrypt) {
         this.registerSecretForRedaction(decrypted);
         return decrypted;
       }
@@ -78,14 +111,14 @@ export class SecretBroker {
     // 1. Redact explicit known registered secrets
     for (const secret of this.knownSecrets) {
       if (secret.length >= 4 && sanitized.includes(secret)) {
-        sanitized = sanitized.split(secret).join('[REDACTED_SECRET]');
+        sanitized = sanitized.split(secret).join('[REDACTED][REDACTED_SECRET]');
       }
     }
 
     // 2. Redact typical Bearer tokens and API key patterns
-    sanitized = sanitized.replace(/(Bearer\s+)[a-zA-Z0-9_\-\.]{16,}/gi, '$1[REDACTED_TOKEN]');
-    sanitized = sanitized.replace(/(sk-[a-zA-Z0-9]{20,})/gi, '[REDACTED_KEY]');
-    sanitized = sanitized.replace(/(ghp_[a-zA-Z0-9]{20,})/gi, '[REDACTED_GITHUB_TOKEN]');
+    sanitized = sanitized.replace(/(Bearer\s+)[a-zA-Z0-9_\-\.]{16,}/gi, '$1[REDACTED][REDACTED_TOKEN]');
+    sanitized = sanitized.replace(/(sk-[a-zA-Z0-9_\-]{20,})/gi, '[REDACTED][REDACTED_KEY]');
+    sanitized = sanitized.replace(/(ghp_[a-zA-Z0-9]{20,})/gi, '[REDACTED][REDACTED_GITHUB_TOKEN]');
 
     return sanitized;
   }
@@ -105,8 +138,19 @@ export class SecretBroker {
     if (payload !== null && typeof payload === 'object') {
       const sanitized: Record<string, any> = {};
       for (const [key, value] of Object.entries(payload)) {
-        if (/secret|token|password|auth|apiKey|api_key/i.test(key) && typeof value === 'string' && value.length > 0) {
-          sanitized[key] = '[REDACTED]';
+        if (typeof value === 'string') {
+          const redacted = this.redactSecrets(value);
+          if (redacted !== value) {
+            sanitized[key] = redacted;
+          } else if (/apiKey|api_key/i.test(key)) {
+            sanitized[key] = '[REDACTED][REDACTED_KEY]';
+          } else if (/token|auth/i.test(key)) {
+            sanitized[key] = '[REDACTED][REDACTED_TOKEN]';
+          } else if (/secret|password/i.test(key)) {
+            sanitized[key] = '[REDACTED][REDACTED_SECRET]';
+          } else {
+            sanitized[key] = redacted;
+          }
         } else {
           sanitized[key] = this.sanitizePayload(value);
         }

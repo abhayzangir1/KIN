@@ -137,7 +137,7 @@ export class KinDatabase {
 
   /**
    * Serialized transaction runner.
-   * Guarantees that concurrent in-process write calls are queued sequentially,
+   * Ensures that concurrent in-process write calls are queued sequentially,
    * completely avoiding SQLITE_BUSY deadlocks.
    */
   public async transactionAsync<T>(fn: () => T | Promise<T>): Promise<T> {

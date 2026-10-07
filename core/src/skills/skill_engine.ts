@@ -217,31 +217,33 @@ export class SkillEngine {
       },
     ];
 
-    const now = Date.now();
-    for (const d of defaults) {
-      const id = `skill-${d.name}`;
-      const existing = this.db.queryOne<{ id: string }>('SELECT id FROM skills WHERE id = ?', id);
-      if (!existing) {
-        this.db.execute(
-          `INSERT INTO skills (id, name, version, description, instructions, required_tools_json, trigger_patterns_json, is_built_in, status, evidence_count, success_count, failure_count, parameters_json, handler_code, skill_type, enabled, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', NULL, 'prompt_instruction', 1, ?, ?)`,
-          id,
-          d.name,
-          d.version,
-          d.description,
-          d.instructions,
-          JSON.stringify(d.requiredTools),
-          JSON.stringify(d.triggerPatterns),
-          d.isBuiltIn ? 1 : 0,
-          d.status,
-          d.evidenceCount ?? 10,
-          d.successCount ?? 5,
-          d.failureCount ?? 0,
-          now,
-          now
-        );
+    try {
+      const now = Date.now();
+      for (const d of defaults) {
+        const id = `skill-${d.name}`;
+        const existing = this.db.queryOne<{ id: string }>('SELECT id FROM skills WHERE id = ?', id);
+        if (!existing) {
+          this.db.execute(
+            `INSERT INTO skills (id, name, version, description, instructions, required_tools_json, trigger_patterns_json, is_built_in, status, evidence_count, success_count, failure_count, parameters_json, handler_code, skill_type, enabled, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', NULL, 'prompt_instruction', 1, ?, ?)`,
+            id,
+            d.name,
+            d.version,
+            d.description,
+            d.instructions,
+            JSON.stringify(d.requiredTools),
+            JSON.stringify(d.triggerPatterns),
+            d.isBuiltIn ? 1 : 0,
+            d.status,
+            d.evidenceCount ?? 10,
+            d.successCount ?? 5,
+            d.failureCount ?? 0,
+            now,
+            now
+          );
+        }
       }
-    }
+    } catch {}
   }
 
   /**
@@ -285,12 +287,14 @@ export class SkillEngine {
    * Dynamically executes a skill handlerCode in a sandboxed VM context.
    */
   public async executeSkill(
-    idOrName: string,
+    idOrNameOrSkill: string | Partial<Skill>,
     params: Record<string, any> = {}
   ): Promise<{ success: boolean; output?: any; error?: string }> {
-    const skill = this.getSkill(idOrName);
+    const skill = typeof idOrNameOrSkill === 'object' && idOrNameOrSkill !== null
+      ? (idOrNameOrSkill as Skill)
+      : this.getSkill(idOrNameOrSkill as string);
     if (!skill) {
-      return { success: false, error: `Skill '${idOrName}' not found.` };
+      return { success: false, error: `Skill '${idOrNameOrSkill}' not found.` };
     }
 
     if (skill.enabled === false || skill.status === 'disabled') {
@@ -316,11 +320,16 @@ export class SkillEngine {
         JSON,
         Math,
         Date,
+        Promise,
+        setTimeout,
+        clearTimeout,
         console: {
           log: () => {},
           warn: () => {},
           error: () => {},
         },
+        module: { exports: {} as any },
+        exports: {} as any,
         result: undefined as any,
       };
 
@@ -328,6 +337,9 @@ export class SkillEngine {
       const wrappedCode = `
         (async () => {
           ${skill.handlerCode}
+          if (typeof module !== 'undefined' && typeof module.exports === 'function') {
+            return await module.exports(params);
+          }
           if (typeof handler === 'function') {
             return await handler(params);
           }
@@ -343,7 +355,23 @@ export class SkillEngine {
 
       const script = new vm.Script(wrappedCode);
       const executionPromise = script.runInContext(context, { timeout: 10000 });
-      const output = await executionPromise;
+      const timeoutMs = typeof (params as any)?._timeoutMs === 'number' ? (params as any)._timeoutMs : 15000;
+      let timer: NodeJS.Timeout | null = null;
+      const timeoutPromise = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`Skill execution timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+        if (timer && typeof (timer as any).unref === 'function') {
+          (timer as any).unref();
+        }
+      });
+
+      const output = await Promise.race([
+        executionPromise,
+        timeoutPromise,
+      ]).finally(() => {
+        if (timer) clearTimeout(timer);
+      });
 
       return {
         success: true,

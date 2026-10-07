@@ -213,7 +213,7 @@ export class MigrationRunner {
 
       this.db.exec(schemaSql);
 
-      // Verify and guarantee column and index presence post-schema
+      // Verify and ensure column and index presence post-schema
       const postCols = this.db.query<{ name: string }>("PRAGMA table_info(agent_identities);").map((c) => c.name);
       if (!postCols.includes('project_id')) {
         this.db.exec('ALTER TABLE agent_identities ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE CASCADE;');

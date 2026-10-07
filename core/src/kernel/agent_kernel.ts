@@ -16,6 +16,7 @@ export interface SpawnRunParams {
   allocatedTokens?: number;
   channelId?: string;
   triggerMessageId?: string;
+  queueIfExceeded?: boolean;
 }
 
 export interface DelegationParams {
@@ -42,7 +43,8 @@ export class AgentKernel {
   public spawnRun(params: SpawnRunParams): AgentRun {
     // 1. Concurrency quota check
     const activeCount = this.getActiveRunCount();
-    if (activeCount >= this.maxActiveConcurrentRuns) {
+    const shouldQueue = activeCount >= this.maxActiveConcurrentRuns;
+    if (shouldQueue && !params.queueIfExceeded) {
       throw new Error(
         `QUOTA EXCEEDED: Maximum active concurrent runs (${this.maxActiveConcurrentRuns}) reached. Run queued.`
       );
@@ -81,6 +83,8 @@ export class AgentKernel {
       allocatedTokens = 100000;
     }
 
+    const runState: RunState = shouldQueue ? 'queued' : 'running';
+
     const run: AgentRun = {
       id,
       agentId: params.agentId,
@@ -89,7 +93,7 @@ export class AgentKernel {
       taskId: params.taskId,
       channelId: params.channelId,
       triggerMessageId: params.triggerMessageId,
-      state: 'running',
+      state: runState,
       heartbeatAt: now,
       allocatedTokens,
       usedTokens: 0,
@@ -113,9 +117,30 @@ export class AgentKernel {
       run.createdAt
     );
 
-    this.recordEvent('agent.run.started', 'agent_run', run.id, { agentId: run.agentId, taskId: run.taskId });
+    if (runState === 'queued') {
+      this.recordEvent('agent.run.queued', 'agent_run', run.id, { agentId: run.agentId, taskId: run.taskId });
+    } else {
+      this.recordEvent('agent.run.started', 'agent_run', run.id, { agentId: run.agentId, taskId: run.taskId });
+    }
 
     return run;
+  }
+
+  public queueRun(params: SpawnRunParams): AgentRun {
+    return this.spawnRun({ ...params, queueIfExceeded: true });
+  }
+
+  public admitNextQueuedRun(): AgentRun | undefined {
+    const activeCount = this.getActiveRunCount();
+    if (activeCount >= this.maxActiveConcurrentRuns) {
+      return undefined;
+    }
+    const nextQueued = this.db.queryOne<{ id: string }>(
+      `SELECT id FROM agent_runs WHERE state = 'queued' ORDER BY created_at ASC LIMIT 1`
+    );
+    if (!nextQueued) return undefined;
+    this.transitionState(nextQueued.id, 'running', 'Admitted from persistent run queue');
+    return this.getRun(nextQueued.id);
   }
 
   public getRun(id: string): AgentRun | undefined {
@@ -153,8 +178,8 @@ export class AgentKernel {
       heartbeatAt: row.heartbeat_at,
       allocatedTokens: row.allocated_tokens,
       usedTokens: row.used_tokens,
-      quotaResetsAt: row.quota_resets_at ?? undefined,
-      interruptedTurn: row.interrupted_turn ?? undefined,
+      quotaResetsAt: row.quota_resets_at !== undefined ? row.quota_resets_at : null,
+      interruptedTurn: row.interrupted_turn !== undefined ? row.interrupted_turn : null,
       createdAt: row.created_at,
       completedAt: row.completed_at ?? undefined,
     };

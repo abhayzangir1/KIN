@@ -123,18 +123,18 @@ export class ToolGateway {
     return this.mcpClient;
   }
 
-  public generateApprovalToken(toolName: string, runId?: string, ttlMs: number = 60000): string {
+  public generateApprovalToken(toolName: string, runId?: string, ttlMs: number = 60000, params?: Record<string, any>): string {
     const token = `appr-tok-${Date.now()}-${crypto.randomBytes(16).toString('hex')}`;
     this.singleUseApprovalTokens.set(token, {
       toolName,
       runId,
       expiresAt: Date.now() + ttlMs,
     });
-    Sentinel.getInstance().registerApprovalToken(token, toolName, ttlMs, runId);
+    Sentinel.getInstance().registerApprovalToken(token, toolName, ttlMs, runId, params);
     return token;
   }
 
-  public consumeApprovalToken(token: string, toolName: string, runId?: string): boolean {
+  public consumeApprovalToken(token: string, toolName: string, runId?: string, params?: Record<string, any>): boolean {
     const record = this.singleUseApprovalTokens.get(token);
     const sentinelHasToken = Sentinel.getInstance().hasApprovalToken(token);
     if (!record && !sentinelHasToken) return false;
@@ -148,12 +148,17 @@ export class ToolGateway {
       if (record.runId && runId && record.runId !== runId) return false;
     }
 
-    const sentinelConsumed = Sentinel.getInstance().consumeApprovalToken(token, toolName, runId);
+    if (sentinelHasToken) {
+      const sentinelConsumed = Sentinel.getInstance().consumeApprovalToken(token, toolName, runId, params);
+      if (!sentinelConsumed) {
+        return false;
+      }
+    }
+
     if (record) {
       this.singleUseApprovalTokens.delete(token);
-      return true;
     }
-    return sentinelConsumed;
+    return true;
   }
 
   public setSkillEngine(skillEngine: SkillEngine): void {
@@ -522,7 +527,10 @@ export class ToolGateway {
 
   public checkCapabilityAuthorized(toolName: string, allowedCapabilities?: string[]): { authorized: boolean; requiredTag: string } {
     const capInfo = this.getRequiredCapability(toolName);
-    if (!allowedCapabilities || allowedCapabilities.length === 0 || allowedCapabilities.includes('*')) {
+    if (!allowedCapabilities || allowedCapabilities.length === 0) {
+      return { authorized: false, requiredTag: capInfo.primary };
+    }
+    if (allowedCapabilities.includes('*')) {
       return { authorized: true, requiredTag: capInfo.primary };
     }
 

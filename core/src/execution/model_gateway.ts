@@ -660,6 +660,7 @@ export class ModelGateway {
       throw new Error('API key for OPENROUTER is not set in managed credentials or environment.');
     }
 
+    const stream = !!params.onToken;
     const url = 'https://openrouter.ai/api/v1/chat/completions';
     const res = await fetch(url, {
       method: 'POST',
@@ -674,6 +675,7 @@ export class ModelGateway {
         messages: params.messages,
         temperature: params.temperature ?? 0.2,
         max_tokens: params.maxTokens ?? 2048,
+        stream,
       }),
     });
 
@@ -694,17 +696,57 @@ export class ModelGateway {
       throw new Error(`OpenRouter HTTP ${res.status}: ${errText}`);
     }
 
-    const data: any = await res.json();
-    const choiceMsg = data?.choices?.[0]?.message;
-    const content = (choiceMsg?.content || choiceMsg?.reasoning || data?.choices?.[0]?.text || '').trim();
-    if (params.onToken && content) {
-      params.onToken(content);
+    let content = '';
+    let promptTokens = 0;
+    let completionTokens = 0;
+    let totalTokens = 0;
+
+    if (stream && res.body && typeof (res.body as any).getReader === 'function') {
+      const reader = (res.body as any).getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('data:')) continue;
+          const dataStr = trimmed.slice(5).trim();
+          if (dataStr === '[DONE]') continue;
+          try {
+            const parsed = JSON.parse(dataStr);
+            const delta = parsed?.choices?.[0]?.delta?.content || parsed?.choices?.[0]?.delta?.reasoning || '';
+            if (delta) {
+              content += delta;
+              params.onToken!(delta);
+            }
+            if (parsed.usage) {
+              promptTokens = parsed.usage.prompt_tokens || promptTokens;
+              completionTokens = parsed.usage.completion_tokens || completionTokens;
+              totalTokens = parsed.usage.total_tokens || totalTokens;
+            }
+          } catch {}
+        }
+      }
+    } else {
+      const data: any = await res.json();
+      const choiceMsg = data?.choices?.[0]?.message;
+      content = (choiceMsg?.content || choiceMsg?.reasoning || data?.choices?.[0]?.text || '').trim();
+      promptTokens = data?.usage?.prompt_tokens || 0;
+      completionTokens = data?.usage?.completion_tokens || 0;
+      totalTokens = data?.usage?.total_tokens || 0;
+      if (params.onToken && content) {
+        params.onToken(content);
+      }
     }
 
     const tokensUsed = {
-      promptTokens: data?.usage?.prompt_tokens || 0,
-      completionTokens: data?.usage?.completion_tokens || 0,
-      totalTokens: data?.usage?.total_tokens || 0,
+      promptTokens,
+      completionTokens,
+      totalTokens: totalTokens || (promptTokens + completionTokens),
     };
 
     if (this.onUsage) {
@@ -732,6 +774,7 @@ export class ModelGateway {
       throw new Error(`API key for ${provider.toUpperCase()} is not set in environment or managed credentials.`);
     }
 
+    const stream = !!params.onToken;
     const res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -743,6 +786,7 @@ export class ModelGateway {
         messages: params.messages,
         temperature: params.temperature ?? 0.2,
         max_tokens: params.maxTokens ?? 2048,
+        stream,
       }),
     });
 
@@ -751,16 +795,56 @@ export class ModelGateway {
       throw new Error(`${provider.toUpperCase()} HTTP ${res.status}: ${errText}`);
     }
 
-    const data: any = await res.json();
-    const content = data?.choices?.[0]?.message?.content || '';
-    if (params.onToken && content) {
-      params.onToken(content);
+    let content = '';
+    let promptTokens = 0;
+    let completionTokens = 0;
+    let totalTokens = 0;
+
+    if (stream && res.body && typeof (res.body as any).getReader === 'function') {
+      const reader = (res.body as any).getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('data:')) continue;
+          const dataStr = trimmed.slice(5).trim();
+          if (dataStr === '[DONE]') continue;
+          try {
+            const parsed = JSON.parse(dataStr);
+            const delta = parsed?.choices?.[0]?.delta?.content || parsed?.choices?.[0]?.delta?.reasoning || '';
+            if (delta) {
+              content += delta;
+              params.onToken!(delta);
+            }
+            if (parsed.usage) {
+              promptTokens = parsed.usage.prompt_tokens || promptTokens;
+              completionTokens = parsed.usage.completion_tokens || completionTokens;
+              totalTokens = parsed.usage.total_tokens || totalTokens;
+            }
+          } catch {}
+        }
+      }
+    } else {
+      const data: any = await res.json();
+      content = data?.choices?.[0]?.message?.content || '';
+      promptTokens = data?.usage?.prompt_tokens || 0;
+      completionTokens = data?.usage?.completion_tokens || 0;
+      totalTokens = data?.usage?.total_tokens || 0;
+      if (params.onToken && content) {
+        params.onToken(content);
+      }
     }
 
     const tokensUsed = {
-      promptTokens: data?.usage?.prompt_tokens || 0,
-      completionTokens: data?.usage?.completion_tokens || 0,
-      totalTokens: data?.usage?.total_tokens || 0,
+      promptTokens,
+      completionTokens,
+      totalTokens: totalTokens || (promptTokens + completionTokens),
     };
 
     if (this.onUsage) {
@@ -791,6 +875,7 @@ export class ModelGateway {
       .filter((m) => m.role !== 'system')
       .map((m) => ({ role: m.role, content: m.content }));
 
+    const stream = !!params.onToken;
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -804,6 +889,7 @@ export class ModelGateway {
         messages: userAndAssistantMsgs,
         max_tokens: params.maxTokens ?? 2048,
         temperature: params.temperature ?? 0.2,
+        stream,
       }),
     });
 
@@ -812,16 +898,53 @@ export class ModelGateway {
       throw new Error(`Anthropic HTTP ${res.status}: ${errText}`);
     }
 
-    const data: any = await res.json();
-    const content = data?.content?.[0]?.text || '';
-    if (params.onToken && content) {
-      params.onToken(content);
+    let content = '';
+    let promptTokens = 0;
+    let completionTokens = 0;
+
+    if (stream && res.body && typeof (res.body as any).getReader === 'function') {
+      const reader = (res.body as any).getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('data:')) continue;
+          const dataStr = trimmed.slice(5).trim();
+          try {
+            const parsed = JSON.parse(dataStr);
+            if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+              content += parsed.delta.text;
+              params.onToken!(parsed.delta.text);
+            }
+            if (parsed.type === 'message_start' && parsed.message?.usage?.input_tokens) {
+              promptTokens = parsed.message.usage.input_tokens;
+            }
+            if (parsed.type === 'message_delta' && parsed.usage?.output_tokens) {
+              completionTokens = parsed.usage.output_tokens;
+            }
+          } catch {}
+        }
+      }
+    } else {
+      const data: any = await res.json();
+      content = data?.content?.[0]?.text || '';
+      promptTokens = data?.usage?.input_tokens || 0;
+      completionTokens = data?.usage?.output_tokens || 0;
+      if (params.onToken && content) {
+        params.onToken(content);
+      }
     }
 
     const tokensUsed = {
-      promptTokens: data?.usage?.input_tokens || 0,
-      completionTokens: data?.usage?.output_tokens || 0,
-      totalTokens: (data?.usage?.input_tokens || 0) + (data?.usage?.output_tokens || 0),
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
     };
 
     if (this.onUsage) {
