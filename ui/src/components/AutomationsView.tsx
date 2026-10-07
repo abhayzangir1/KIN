@@ -16,13 +16,18 @@ import {
   Search,
   Activity,
   Zap,
+  AlertTriangle,
+  X,
 } from 'lucide-react';
+import type { ScheduleAttemptItem } from '../store/kinStore.js';
 
 export const AutomationsView: React.FC = () => {
   const {
     schedules,
     fetchSchedules,
     triggerScheduleNow,
+    retrySchedule,
+    fetchScheduleAttempts,
     cancelSchedule,
     createSchedule,
     agents,
@@ -35,11 +40,14 @@ export const AutomationsView: React.FC = () => {
 
   const [now, setNow] = useState(Date.now());
   const [filterType, setFilterType] = useState<'all' | 'one_shot' | 'cron'>('all');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'completed' | 'cancelled'>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'completed' | 'cancelled' | 'failed'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [attemptsScheduleId, setAttemptsScheduleId] = useState<string | null>(null);
+  const [attemptsList, setAttemptsList] = useState<ScheduleAttemptItem[]>([]);
+  const [loadingAttempts, setLoadingAttempts] = useState(false);
 
   // Form State
   const [schedType, setSchedType] = useState<'one_shot' | 'cron'>('one_shot');
@@ -122,6 +130,26 @@ export const AutomationsView: React.FC = () => {
     setActionFeedback('Cancelled schedule.');
     fetchSchedules();
     setTimeout(() => setActionFeedback(null), 3000);
+  };
+
+  const handleRetry = async (id: string) => {
+    setActionFeedback(null);
+    const res = await retrySchedule(id);
+    if (res.success) {
+      setActionFeedback('Failed schedule reset and triggered successfully.');
+      fetchSchedules();
+      setTimeout(() => setActionFeedback(null), 3000);
+    } else {
+      setActionFeedback(`Retry failed: ${res.error || 'Unknown error'}`);
+    }
+  };
+
+  const handleViewAttempts = async (id: string) => {
+    setAttemptsScheduleId(id);
+    setLoadingAttempts(true);
+    const attempts = await fetchScheduleAttempts(id);
+    setAttemptsList(attempts);
+    setLoadingAttempts(false);
   };
 
   const filteredSchedules = schedules.filter((s) => {
@@ -479,6 +507,14 @@ export const AutomationsView: React.FC = () => {
             >
               Completed
             </button>
+            <button
+              onClick={() => setFilterStatus('failed')}
+              className={`px-2.5 py-1 text-[11px] font-mono ${
+                filterStatus === 'failed' ? 'bg-[#1e293b] text-red-400 font-bold' : 'bg-[#0f172a] text-[#94a3b8]'
+              }`}
+            >
+              Failed
+            </button>
           </div>
         </div>
 
@@ -500,6 +536,8 @@ export const AutomationsView: React.FC = () => {
               className={`p-3.5 rounded-xl border transition-all ${
                 s.status === 'active'
                   ? 'bg-[#0d1424] border-[#1e293b] hover:border-cyan-500/50 shadow-md'
+                  : s.status === 'failed'
+                  ? 'bg-[#180d12] border-red-900/40 shadow-md'
                   : 'bg-[#070b14]/70 border-[#1a2234] opacity-75'
               }`}
             >
@@ -523,7 +561,9 @@ export const AutomationsView: React.FC = () => {
                           ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                           : s.status === 'completed'
                           ? 'bg-blue-500/20 text-blue-300'
-                          : 'bg-red-500/20 text-red-300'
+                          : s.status === 'failed'
+                          ? 'bg-red-500/20 text-red-300 border border-red-500/30'
+                          : 'bg-zinc-500/20 text-zinc-300'
                       }`}
                     >
                       {s.status}
@@ -546,6 +586,13 @@ export const AutomationsView: React.FC = () => {
                   <div className="text-white text-xs font-medium font-sans leading-relaxed break-words">
                     {s.prompt}
                   </div>
+
+                  {s.lastError && (
+                    <div className="bg-red-950/40 border border-red-800/40 rounded px-2.5 py-1 text-[11px] text-red-300 font-mono flex items-center space-x-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                      <span className="truncate">Last Error: {s.lastError}</span>
+                    </div>
+                  )}
 
                   <div className="flex flex-wrap items-center gap-3 text-[11px] text-[#94a3b8]">
                     <span className="flex items-center space-x-1">
@@ -573,13 +620,34 @@ export const AutomationsView: React.FC = () => {
 
                 {/* Right: Actions */}
                 <div className="flex items-center space-x-2 shrink-0">
+                  {s.status === 'failed' && (
+                    <button
+                      onClick={() => handleRetry(s.id)}
+                      className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 text-xs font-medium transition cursor-pointer"
+                      title="Reset failure state and retry immediately"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Retry</span>
+                    </button>
+                  )}
+
+                  {s.status === 'active' && (
+                    <button
+                      onClick={() => handleTrigger(s.id)}
+                      className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 text-xs font-medium transition cursor-pointer"
+                      title="Trigger this automation immediately right now"
+                    >
+                      <Play className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Trigger Now</span>
+                    </button>
+                  )}
+
                   <button
-                    onClick={() => handleTrigger(s.id)}
-                    className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 text-xs font-medium transition cursor-pointer"
-                    title="Trigger this automation immediately right now"
+                    onClick={() => handleViewAttempts(s.id)}
+                    className="p-1.5 rounded-lg bg-[#1e293b] hover:bg-[#283548] text-[#94a3b8] hover:text-white border border-[#2d3748] transition cursor-pointer"
+                    title="View execution attempt history"
                   >
-                    <Play className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Trigger Now</span>
+                    <Activity className="w-3.5 h-3.5 text-purple-400" />
                   </button>
 
                   {s.status === 'active' && (
@@ -607,6 +675,75 @@ export const AutomationsView: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Execution Attempts History Modal */}
+      {attemptsScheduleId && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0e1628] border border-[#1e293b] rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+            <div className="px-5 py-3.5 border-b border-[#1e293b] flex items-center justify-between bg-[#0a0f1d]">
+              <div className="flex items-center space-x-2">
+                <Activity className="w-4 h-4 text-purple-400" />
+                <h3 className="text-sm font-semibold text-white">Execution Attempts History</h3>
+              </div>
+              <button
+                onClick={() => setAttemptsScheduleId(null)}
+                className="p-1 text-[#94a3b8] hover:text-white rounded-lg hover:bg-[#1e293b] transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto space-y-2.5 flex-1">
+              {loadingAttempts ? (
+                <div className="py-8 text-center text-xs text-[#64748b]">Loading attempts...</div>
+              ) : attemptsList.length === 0 ? (
+                <div className="py-8 text-center text-xs text-[#64748b]">
+                  No execution attempts recorded yet for this schedule.
+                </div>
+              ) : (
+                attemptsList.map((att) => (
+                  <div
+                    key={att.id}
+                    className="p-3 rounded-xl border border-[#1e293b] bg-[#070b14] flex flex-col space-y-1 text-xs"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-mono text-[#94a3b8]">Attempt #{att.attemptNumber}</span>
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
+                            att.status === 'success'
+                              ? 'bg-emerald-500/20 text-emerald-300'
+                              : 'bg-red-500/20 text-red-300'
+                          }`}
+                        >
+                          {att.status}
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-[#64748b] font-mono">
+                        {new Date(att.executedAt).toLocaleTimeString()}
+                      </span>
+                    </div>
+                    {att.errorMessage && (
+                      <div className="text-red-300 text-[11px] font-mono bg-red-950/40 p-2 rounded border border-red-800/40 break-words">
+                        {att.errorMessage}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="px-5 py-3 border-t border-[#1e293b] bg-[#0a0f1d] flex justify-end">
+              <button
+                onClick={() => setAttemptsScheduleId(null)}
+                className="px-3 py-1.5 rounded-lg bg-[#1e293b] hover:bg-[#283548] text-[#94a3b8] text-xs font-medium"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 };

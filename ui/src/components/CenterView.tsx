@@ -29,6 +29,7 @@ import {
   Flame,
   Lightbulb,
   Info,
+  Compass,
 } from 'lucide-react';
 import { HumanTakeoverBanner } from './HumanTakeoverBanner.js';
 import { AutomationsView } from './AutomationsView.js';
@@ -42,6 +43,7 @@ export const CenterView: React.FC = () => {
     agents,
     messages,
     schedules,
+    latestRoutingByChannel,
     cancelSchedule,
     sendMessage,
     removeChannelMember,
@@ -130,6 +132,7 @@ export const CenterView: React.FC = () => {
   const [chatUploadStatus, setChatUploadStatus] = useState<string | null>(null);
   const [expandedBackgroundTurns, setExpandedBackgroundTurns] = useState<Record<string, boolean>>({});
   const [dismissHealthBanner, setDismissHealthBanner] = useState(false);
+  const [dismissedRoutingChannels, setDismissedRoutingChannels] = useState<Record<string, boolean>>({});
   const [grillMeAnswers, setGrillMeAnswers] = useState<Record<string, string>>({});
   const [inspectingRecovery, setInspectingRecovery] = useState<any | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -566,6 +569,36 @@ export const CenterView: React.FC = () => {
             <button
               onClick={() => setDismissHealthBanner(true)}
               className="text-amber-400 hover:text-amber-200 p-0.5 cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Dynamic Agent Routing Observability Banner */}
+      {latestRoutingByChannel[activeChannelId] && !dismissedRoutingChannels[activeChannelId] && (
+        <div className="mx-4 mt-2 px-3 py-1.5 rounded-lg bg-[#0e1628] border border-cyan-800/40 text-[11px] text-cyan-300 flex items-center justify-between shadow-sm">
+          <div className="flex items-center space-x-2 truncate">
+            <Compass className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <span className="font-semibold text-white">Agent Routing:</span>
+            <span className="truncate">
+              {latestRoutingByChannel[activeChannelId].routing.reason}
+              {latestRoutingByChannel[activeChannelId].routing.matchReason && (
+                <span className="ml-1.5 px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 font-mono text-[10px] border border-cyan-700/50">
+                  {latestRoutingByChannel[activeChannelId].routing.matchReason}
+                </span>
+              )}
+            </span>
+          </div>
+          <div className="flex items-center space-x-2 shrink-0 ml-2">
+            <span className="text-[#64748b] text-[10px] font-mono">
+              {latestRoutingByChannel[activeChannelId].routing.action}
+            </span>
+            <button
+              onClick={() => setDismissedRoutingChannels((prev) => ({ ...prev, [activeChannelId]: true }))}
+              className="text-[#64748b] hover:text-white p-0.5 cursor-pointer"
+              title="Dismiss routing info"
             >
               ✕
             </button>

@@ -341,6 +341,35 @@ export interface GrillMeSession {
   createdAt: number;
 }
 
+export interface ScheduleAttemptItem {
+  id: string;
+  scheduleId: string;
+  attemptNumber: number;
+  status: 'success' | 'failure';
+  errorMessage?: string;
+  executedAt: number;
+}
+
+export interface RoutingDecisionInfo {
+  channelId: string;
+  messageId?: string;
+  routing: {
+    action: string;
+    targetAgents: Array<{ id: string; displayName: string }>;
+    reason: string;
+    matchReason?: string;
+    matchedKeywords?: string[];
+    matchedSpecialists?: Array<{
+      agentId: string;
+      displayName: string;
+      matchReason: string;
+      matchedKeywords: string[];
+    }>;
+    fallbackOrchestrator?: { id: string; displayName: string };
+    fallbackReason?: string;
+  };
+}
+
 export interface ScheduleItem {
   id: string;
   projectId: string;
@@ -353,9 +382,10 @@ export interface ScheduleItem {
   timerCondition?: string;
   maxIterations?: number;
   currentIterations?: number;
-  status: 'active' | 'completed' | 'cancelled';
+  status: 'active' | 'completed' | 'cancelled' | 'failed';
   nextRunAt: number;
   lastRunAt?: number;
+  lastError?: string;
   createdAt: number;
   updatedAt?: number;
 }
@@ -506,6 +536,7 @@ interface KinState {
   channelMessagesCache: Record<string, MessageItem[]>;
   pendingApprovals: ApprovalItem[];
   autonomyMode: 'AUTO' | 'ALWAYS_ASK' | 'FULL_ACCESS';
+  latestRoutingByChannel: Record<string, RoutingDecisionInfo>;
 
   // Instant Human Takeover State
   activeTakeover: TakeoverState | null;
@@ -657,6 +688,8 @@ interface KinState {
     channelId?: string;
   }) => Promise<{ success: boolean; schedule?: ScheduleItem; error?: string }>;
   triggerScheduleNow: (scheduleId: string) => Promise<{ success: boolean; schedule?: ScheduleItem; error?: string }>;
+  retrySchedule: (scheduleId: string) => Promise<{ success: boolean; schedule?: ScheduleItem; error?: string }>;
+  fetchScheduleAttempts: (scheduleId: string) => Promise<ScheduleAttemptItem[]>;
 
   // Actions
   queueMessage: (channelId: string, content: string) => void;
@@ -793,6 +826,7 @@ export const useKinStore = create<KinState>((set, get) => ({
   isNewTaskModalOpen: false,
   projectAnalytics: undefined,
   autonomyMode: 'AUTO',
+  latestRoutingByChannel: {},
   ollamaStatus: { online: false, models: [] },
   isConnected: false,
   terminalHistory: [],
@@ -1050,6 +1084,42 @@ export const useKinStore = create<KinState>((set, get) => ({
     } catch (err: any) {
       console.error('[KIN UI] Failed to trigger schedule:', err);
       return { success: false, error: err.message };
+    }
+  },
+
+  retrySchedule: async (scheduleId: string) => {
+    try {
+      const res = await fetch(`/api/schedules/${scheduleId}/retry`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Failed to retry schedule' }));
+        return { success: false, error: err.error || 'Failed to retry schedule' };
+      }
+      const data = await res.json();
+      if (data.schedule) {
+        set((state) => ({
+          schedules: state.schedules.map((s) => (s.id === scheduleId ? { ...s, ...data.schedule } : s)),
+        }));
+      }
+      return { success: true, schedule: data.schedule };
+    } catch (err: any) {
+      console.error('[KIN UI] Failed to retry schedule:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  fetchScheduleAttempts: async (scheduleId: string): Promise<ScheduleAttemptItem[]> => {
+    try {
+      const res = await fetch(`/api/schedules/${scheduleId}/attempts`);
+      if (res.ok) {
+        const data = await res.json();
+        return data.attempts || [];
+      }
+      return [];
+    } catch (err) {
+      console.error('[KIN UI] Failed to fetch schedule attempts:', err);
+      return [];
     }
   },
 
@@ -1681,7 +1751,7 @@ export const useKinStore = create<KinState>((set, get) => ({
         try {
           const sched: ScheduleItem = JSON.parse(e.data);
           set((state) => ({
-            schedules: state.schedules.map((s) => (s.id === sched.id ? { ...s, ...sched, status: sched.type === 'one_shot' ? 'completed' : s.status } : s)),
+            schedules: state.schedules.map((s) => (s.id === sched.id ? { ...s, ...sched, status: sched.status || (sched.type === 'one_shot' ? 'completed' : s.status) } : s)),
           }));
         } catch {}
       });
@@ -1693,6 +1763,22 @@ export const useKinStore = create<KinState>((set, get) => ({
             schedules: state.schedules.filter((s) => s.id !== scheduleId),
           }));
         } catch {}
+      });
+
+      sse.addEventListener('channel:routing', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.channelId && data.routing) {
+            set((state) => ({
+              latestRoutingByChannel: {
+                ...state.latestRoutingByChannel,
+                [data.channelId]: data,
+              },
+            }));
+          }
+        } catch (err) {
+          console.error('[KIN UI] Failed to parse channel:routing event', err);
+        }
       });
 
       sse.addEventListener('routine:created', (e) => {

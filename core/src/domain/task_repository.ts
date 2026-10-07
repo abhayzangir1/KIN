@@ -198,7 +198,7 @@ export class TaskRepository {
           );
         }
       } catch (e) {
-        console.warn('[TASK_REPO] Notice creating run stub:', e);
+        console.warn('[TASK_REPO] Notice ensuring agent run record:', e);
       }
     }
 
