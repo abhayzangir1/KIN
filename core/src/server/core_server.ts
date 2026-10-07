@@ -1149,16 +1149,19 @@ export class CoreServer {
     });
   }
 
-  public start(): Promise<number> {
-    return new Promise((resolve) => {
-      // Dynamically load configured MCP servers
-      this.mcpClient.loadConfiguredServers().catch((err) => {
-        console.warn('[KIN CORE] MCP server auto-load notice:', err);
-      });
+  public async start(): Promise<number> {
+    // Await configured MCP tools discovery before opening listener so early turns have full tools
+    try {
+      await this.mcpClient.loadServersFromConfig();
+    } catch (err) {
+      console.warn('[KIN CORE] MCP server auto-load notice:', err);
+    }
 
+    return new Promise((resolve, reject) => {
       this.server = http.createServer((req, res) => this.handleRequest(req, res));
       this.server.on('error', (err) => {
         console.error('[KIN CORE DAEMON HTTP ERROR]', err);
+        reject(err);
       });
       this.server.listen(this.port, '127.0.0.1', () => {
         const addr = this.server?.address();
@@ -1269,6 +1272,14 @@ export class CoreServer {
 
   public getToolGateway(): ToolGateway {
     return this.toolGateway;
+  }
+
+  public getScheduler(): SchedulerService {
+    return this.scheduler;
+  }
+
+  public getMcpClient(): McpClientManager {
+    return this.mcpClient;
   }
 
   public getTakeoverStatus(runId: string): 'continue' | 'pause' | 'abort' {
@@ -1892,6 +1903,19 @@ export class CoreServer {
           return this.sendJson(res, 404, { error: `Project '${projectId}' not found` });
         }
         this.activeProjectId = projectId;
+        const targetRepoRoot = (proj as any).repoRoot || proj.repoPath;
+        if (targetRepoRoot) {
+          try {
+            await this.mcpClient.reloadProject(targetRepoRoot);
+            const projectSkillsDir = path.join(targetRepoRoot, '.kin', 'skills');
+            if (fs.existsSync(projectSkillsDir)) {
+              this.skillEngine.setSkillsDir(projectSkillsDir);
+              this.skillEngine.loadSkillsFromDirectory(projectSkillsDir);
+            }
+          } catch (mcpErr) {
+            console.warn(`[KIN CORE] Failed to reload MCP servers or skills for project ${projectId}:`, mcpErr);
+          }
+        }
         this.broadcastEvent('project:activated', { projectId });
         return this.sendJson(res, 200, { success: true, activeProjectId: this.activeProjectId });
       }
@@ -2905,7 +2929,8 @@ export class CoreServer {
         }
 
         const triggeredCount = routing.targetAgents.length;
-        this.sendJson(res, 201, { message: formattedUserMsg, triggeredCount });
+        this.broadcastEvent('channel:routing', { channelId, messageId: userMsg.id, routing });
+        this.sendJson(res, 201, { message: formattedUserMsg, triggeredCount, routing });
 
         const isExplicitCommand = contentLower.startsWith('/') || contentLower.includes('hire') || contentLower.includes('assign');
         if (isSteer && !isExplicitCommand) {
@@ -5882,24 +5907,28 @@ export class CoreServer {
         const body = await this.parseJsonBody<any>(req);
         const { type, cronExpression, durationSeconds, targetAgentId, channelId, prompt, timerCondition } = body;
         let schedule;
-        if (type === 'cron') {
-          schedule = this.scheduler.createCronSchedule({
-            projectId,
-            channelId: channelId || 'chan-general',
-            targetAgentId,
-            prompt: prompt || 'Periodic autonomous check',
-            cronExpression: cronExpression || '*/5 * * * *',
-            maxIterations: body.maxIterations,
-          });
-        } else {
-          schedule = this.scheduler.createOneShotTimer({
-            projectId,
-            channelId: channelId || 'chan-general',
-            targetAgentId,
-            prompt: prompt || 'Scheduled wakeup check',
-            durationSeconds: Number(durationSeconds) || 5,
-            timerCondition: timerCondition || 'never',
-          });
+        try {
+          if (type === 'cron') {
+            schedule = this.scheduler.createCronSchedule({
+              projectId,
+              channelId: channelId || 'chan-general',
+              targetAgentId,
+              prompt: prompt || 'Periodic autonomous check',
+              cronExpression: cronExpression || '*/5 * * * *',
+              maxIterations: body.maxIterations,
+            });
+          } else {
+            schedule = this.scheduler.createOneShotTimer({
+              projectId,
+              channelId: channelId || 'chan-general',
+              targetAgentId,
+              prompt: prompt || 'Scheduled wakeup check',
+              durationSeconds: Number(durationSeconds) || 5,
+              timerCondition: timerCondition || 'never',
+            });
+          }
+        } catch (schedErr: any) {
+          return this.sendJson(res, 400, { error: schedErr.message });
         }
         this.broadcastEvent('schedule:created', schedule);
         return this.sendJson(res, 201, { schedule });
@@ -5918,12 +5947,44 @@ export class CoreServer {
       const scheduleTriggerMatch = pathname.match(/^\/api\/schedules\/([^/]+)\/trigger$/);
       if (req.method === 'POST' && scheduleTriggerMatch) {
         const scheduleId = scheduleTriggerMatch[1];
-        const triggered = await this.scheduler.triggerScheduleNow(scheduleId);
-        if (!triggered) {
+        try {
+          const triggered = await this.scheduler.triggerScheduleNow(scheduleId);
+          if (!triggered) {
+            return this.sendJson(res, 404, { error: `Schedule '${scheduleId}' not found` });
+          }
+          this.broadcastEvent('schedule:fired', triggered);
+          return this.sendJson(res, 200, { success: true, schedule: triggered });
+        } catch (err: any) {
+          return this.sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // 31c. POST /api/schedules/:id/retry — Explicitly retry a failed schedule
+      const scheduleRetryMatch = pathname.match(/^\/api\/schedules\/([^/]+)\/retry$/);
+      if (req.method === 'POST' && scheduleRetryMatch) {
+        const scheduleId = scheduleRetryMatch[1];
+        try {
+          const retried = await this.scheduler.retrySchedule(scheduleId);
+          if (!retried) {
+            return this.sendJson(res, 404, { error: `Schedule '${scheduleId}' not found` });
+          }
+          this.broadcastEvent('schedule:fired', retried);
+          return this.sendJson(res, 200, { success: true, schedule: retried });
+        } catch (err: any) {
+          return this.sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // 31d. GET /api/schedules/:id/attempts — Retrieve execution attempt history
+      const scheduleAttemptsMatch = pathname.match(/^\/api\/schedules\/([^/]+)\/attempts$/);
+      if (req.method === 'GET' && scheduleAttemptsMatch) {
+        const scheduleId = scheduleAttemptsMatch[1];
+        const sched = this.scheduler.getSchedule(scheduleId);
+        if (!sched) {
           return this.sendJson(res, 404, { error: `Schedule '${scheduleId}' not found` });
         }
-        this.broadcastEvent('schedule:fired', triggered);
-        return this.sendJson(res, 200, { success: true, schedule: triggered });
+        const attempts = this.scheduler.getScheduleAttempts(scheduleId);
+        return this.sendJson(res, 200, { scheduleId, attempts });
       }
 
       // 32. GET /api/skills (supports ?status=all|active|candidate|deprecated)
@@ -6523,23 +6584,27 @@ export class CoreServer {
         const projectId = routinesMatch[1];
         const body = await this.parseJsonBody<any>(req);
         let routine;
-        if (body.type === 'cron') {
-          routine = this.scheduler.createCronSchedule({
-            projectId,
-            channelId: body.channelId || 'chan-general',
-            targetAgentId: body.targetAgentId,
-            prompt: body.prompt || 'Proactive routine check',
-            cronExpression: body.cronExpression || '*/15 * * * *',
-            maxIterations: body.maxIterations,
-          });
-        } else {
-          routine = this.scheduler.createOneShotTimer({
-            projectId,
-            channelId: body.channelId || 'chan-general',
-            targetAgentId: body.targetAgentId,
-            prompt: body.prompt || 'Proactive routine check',
-            durationSeconds: Number(body.durationSeconds) || 60,
-          });
+        try {
+          if (body.type === 'cron') {
+            routine = this.scheduler.createCronSchedule({
+              projectId,
+              channelId: body.channelId || 'chan-general',
+              targetAgentId: body.targetAgentId,
+              prompt: body.prompt || 'Proactive routine check',
+              cronExpression: body.cronExpression || '*/15 * * * *',
+              maxIterations: body.maxIterations,
+            });
+          } else {
+            routine = this.scheduler.createOneShotTimer({
+              projectId,
+              channelId: body.channelId || 'chan-general',
+              targetAgentId: body.targetAgentId,
+              prompt: body.prompt || 'Proactive routine check',
+              durationSeconds: Number(body.durationSeconds) || 60,
+            });
+          }
+        } catch (schedErr: any) {
+          return this.sendJson(res, 400, { error: schedErr.message });
         }
         this.broadcastEvent('routine:created', routine);
         this.broadcastEvent('schedule:created', routine);
@@ -6687,30 +6752,34 @@ export class CoreServer {
         return this.sendJson(res, 200, { automations, schedules: rawSchedules });
       }
 
-      // 59b. POST /api/automations — Unified Create Automation Route
-      if (req.method === 'POST' && pathname === '/api/automations') {
+      // 59b. POST /api/automations or /api/schedules — Unified Create Automation Route
+      if (req.method === 'POST' && (pathname === '/api/automations' || pathname === '/api/schedules')) {
         const body = await this.parseJsonBody<any>(req);
         const { type, cronExpression, durationSeconds, targetAgentId, channelId, prompt, timerCondition } = body;
         const targetProjId = body.projectId || this.workspaceRepo.listProjects('ws-default')[0]?.id || 'proj-kin';
         let schedule;
-        if (type === 'cron') {
-          schedule = this.scheduler.createCronSchedule({
-            projectId: targetProjId,
-            channelId: channelId || 'chan-general',
-            targetAgentId,
-            prompt: prompt || 'Periodic autonomous check',
-            cronExpression: cronExpression || '*/5 * * * *',
-            maxIterations: body.maxIterations,
-          });
-        } else {
-          schedule = this.scheduler.createOneShotTimer({
-            projectId: targetProjId,
-            channelId: channelId || 'chan-general',
-            targetAgentId,
-            prompt: prompt || 'Scheduled wakeup check',
-            durationSeconds: Number(durationSeconds) || 5,
-            timerCondition: timerCondition || 'never',
-          });
+        try {
+          if (type === 'cron') {
+            schedule = this.scheduler.createCronSchedule({
+              projectId: targetProjId,
+              channelId: channelId || 'chan-general',
+              targetAgentId,
+              prompt: prompt || 'Periodic autonomous check',
+              cronExpression: cronExpression || '*/5 * * * *',
+              maxIterations: body.maxIterations,
+            });
+          } else {
+            schedule = this.scheduler.createOneShotTimer({
+              projectId: targetProjId,
+              channelId: channelId || 'chan-general',
+              targetAgentId,
+              prompt: prompt || 'Scheduled wakeup check',
+              durationSeconds: Number(durationSeconds) || 5,
+              timerCondition: timerCondition || 'never',
+            });
+          }
+        } catch (schedErr: any) {
+          return this.sendJson(res, 400, { error: schedErr.message });
         }
         this.broadcastEvent('schedule:created', schedule);
         return this.sendJson(res, 201, { success: true, schedule });
@@ -6720,12 +6789,15 @@ export class CoreServer {
       const triggerMatch = pathname.match(/^\/api\/(?:automations|schedules)\/([^/]+)\/trigger$/);
       if (req.method === 'POST' && triggerMatch) {
         const scheduleId = triggerMatch[1];
-        const triggered = await this.scheduler.triggerSchedule(scheduleId);
-        if (!triggered) {
-          return this.sendJson(res, 404, { error: `Automation schedule '${scheduleId}' not found.` });
+        try {
+          const triggered = await this.scheduler.triggerScheduleNow(scheduleId);
+          if (!triggered) {
+            return this.sendJson(res, 404, { error: `Automation schedule '${scheduleId}' not found.` });
+          }
+          return this.sendJson(res, 200, { success: true, scheduleId, schedule: triggered, message: 'Automation triggered immediately.' });
+        } catch (err: any) {
+          return this.sendJson(res, 400, { error: err.message });
         }
-        const updated = this.scheduler.getSchedule(scheduleId);
-        return this.sendJson(res, 200, { success: true, scheduleId, schedule: updated, message: 'Automation triggered immediately.' });
       }
 
       // 61. DELETE /api/automations/:id or /api/schedules/:id — Cancel automation / schedule

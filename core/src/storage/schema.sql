@@ -306,9 +306,10 @@ CREATE TABLE IF NOT EXISTS schedules (
     timer_condition TEXT DEFAULT 'never',
     max_iterations INTEGER,
     current_iterations INTEGER DEFAULT 0,
-    status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'cancelled', 'expired')),
+    status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'cancelled', 'expired', 'failed', 'paused')),
     next_run_at INTEGER NOT NULL,
     last_run_at INTEGER,
+    last_error TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );

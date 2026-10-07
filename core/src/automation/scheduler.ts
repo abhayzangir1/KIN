@@ -5,7 +5,8 @@
 // ============================================================================
 
 import { KinDatabase } from '../storage/db.js';
-import { Schedule, ScheduleType, ScheduleStatus } from '../domain/types.js';
+import { Schedule, ScheduleType, ScheduleStatus, ScheduleAttempt } from '../domain/types.js';
+import { validateCronExpression, getNextCronOccurrence } from './cron_calendar.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface CreateOneShotParams {
@@ -115,14 +116,18 @@ export class SchedulerService {
   }
 
   /**
-   * Creates a recurring cron schedule.
+   * Creates a recurring cron schedule with real calendar validation and scheduling.
    */
   public createCronSchedule(params: CreateCronParams): Schedule {
+    const validation = validateCronExpression(params.cronExpression);
+    if (!validation.valid) {
+      throw new Error(`Invalid cron expression '${params.cronExpression}': ${validation.error}`);
+    }
+
     const id = `sched-${uuidv4()}`;
     const now = Date.now();
-    // Simple interval parser: */N * * * * or fallback to 60s
-    const intervalSec = this.parseCronIntervalSeconds(params.cronExpression);
-    const nextRunAt = now + intervalSec * 1000;
+    const nextRunDate = getNextCronOccurrence(params.cronExpression, now);
+    const nextRunAt = nextRunDate.getTime();
 
     const schedule: Schedule = {
       id,
@@ -174,78 +179,27 @@ export class SchedulerService {
    * Lists all schedules for a project.
    */
   public listSchedules(projectId: string): Schedule[] {
-    const rows = this.db.query<{
-      id: string;
-      project_id: string;
-      channel_id: string;
-      target_agent_id: string | null;
-      type: string;
-      prompt: string;
-      duration_seconds: number | null;
-      cron_expression: string | null;
-      timer_condition: string | null;
-      max_iterations: number | null;
-      current_iterations: number;
-      status: string;
-      next_run_at: number;
-      last_run_at: number | null;
-      created_at: number;
-      updated_at: number;
-    }>(
+    const rows = this.db.query<any>(
       `SELECT * FROM schedules WHERE project_id = ? ORDER BY created_at DESC`,
       projectId
     );
 
-    return rows.map(this.mapRowToSchedule);
+    return rows.map((r) => this.mapRowToSchedule(r));
   }
 
   /**
    * Lists all schedules across all projects.
    */
   public listAllSchedules(): Schedule[] {
-    const rows = this.db.query<{
-      id: string;
-      project_id: string;
-      channel_id: string;
-      target_agent_id: string | null;
-      type: string;
-      prompt: string;
-      duration_seconds: number | null;
-      cron_expression: string | null;
-      timer_condition: string | null;
-      max_iterations: number | null;
-      current_iterations: number;
-      status: string;
-      next_run_at: number;
-      last_run_at: number | null;
-      created_at: number;
-      updated_at: number;
-    }>(
+    const rows = this.db.query<any>(
       `SELECT * FROM schedules ORDER BY created_at DESC`
     );
 
-    return rows.map(this.mapRowToSchedule);
+    return rows.map((r) => this.mapRowToSchedule(r));
   }
 
   public getSchedule(id: string): Schedule | undefined {
-    const row = this.db.queryOne<{
-      id: string;
-      project_id: string;
-      channel_id: string;
-      target_agent_id: string | null;
-      type: string;
-      prompt: string;
-      duration_seconds: number | null;
-      cron_expression: string | null;
-      timer_condition: string | null;
-      max_iterations: number | null;
-      current_iterations: number;
-      status: string;
-      next_run_at: number;
-      last_run_at: number | null;
-      created_at: number;
-      updated_at: number;
-    }>(
+    const row = this.db.queryOne<any>(
       `SELECT * FROM schedules WHERE id = ?`,
       id
     );
@@ -257,37 +211,24 @@ export class SchedulerService {
    * Manually fires a schedule immediately.
    */
   public async triggerSchedule(id: string): Promise<boolean> {
-    const res = await this.triggerScheduleNow(id);
-    return !!res;
+    try {
+      const res = await this.triggerScheduleNow(id);
+      return !!res;
+    } catch {
+      return false;
+    }
   }
 
   /**
    * Returns active timers/cron for a project.
    */
   public getActiveSchedules(projectId: string): Schedule[] {
-    const rows = this.db.query<{
-      id: string;
-      project_id: string;
-      channel_id: string;
-      target_agent_id: string | null;
-      type: string;
-      prompt: string;
-      duration_seconds: number | null;
-      cron_expression: string | null;
-      timer_condition: string | null;
-      max_iterations: number | null;
-      current_iterations: number;
-      status: string;
-      next_run_at: number;
-      last_run_at: number | null;
-      created_at: number;
-      updated_at: number;
-    }>(
+    const rows = this.db.query<any>(
       `SELECT * FROM schedules WHERE project_id = ? AND status = 'active' ORDER BY next_run_at ASC`,
       projectId
     );
 
-    return rows.map(this.mapRowToSchedule);
+    return rows.map((r) => this.mapRowToSchedule(r));
   }
 
   /**
@@ -298,24 +239,7 @@ export class SchedulerService {
     this.isEvaluating = true;
     try {
       const now = Date.now();
-      const rows = this.db.query<{
-        id: string;
-        project_id: string;
-        channel_id: string;
-        target_agent_id: string | null;
-        type: string;
-        prompt: string;
-        duration_seconds: number | null;
-        cron_expression: string | null;
-        timer_condition: string | null;
-        max_iterations: number | null;
-        current_iterations: number;
-        status: string;
-        next_run_at: number;
-        last_run_at: number | null;
-        created_at: number;
-        updated_at: number;
-      }>(
+      const rows = this.db.query<any>(
         `SELECT * FROM schedules WHERE status = 'active' AND next_run_at <= ? ORDER BY next_run_at ASC`,
         now
       );
@@ -335,25 +259,75 @@ export class SchedulerService {
           continue;
         }
 
-        const newIterations = (schedule.currentIterations ?? 0) + 1;
+        const attemptNumber = (schedule.currentIterations ?? 0) + 1;
+        let dispatchError: Error | null = null;
+
+        // Await dispatch callback BEFORE marking completed or advancing iterations
+        if (this.onFireCallback) {
+          try {
+            await this.onFireCallback(schedule);
+          } catch (err: any) {
+            dispatchError = err instanceof Error ? err : new Error(String(err));
+            console.error(`[KIN SCHEDULER] Error firing schedule ${schedule.id}:`, err);
+          }
+        }
+
+        if (dispatchError) {
+          // Record failed attempt in durable audit history
+          this.recordAttempt(schedule.id, attemptNumber, 'failure', dispatchError.message, now);
+
+          if (schedule.type === 'one_shot') {
+            // Leave one-shot in 'failed' status for explicit failure tracking and retry
+            this.db.execute(
+              `UPDATE schedules SET status = 'failed', last_error = ?, updated_at = ? WHERE id = ?`,
+              dispatchError.message,
+              now,
+              schedule.id
+            );
+            schedule.status = 'failed';
+            schedule.lastError = dispatchError.message;
+          } else {
+            // For recurring cron, record failure and error, do not increment iterations, advance next run
+            const nextRunDate = getNextCronOccurrence(schedule.cronExpression || '*/1 * * * *', now);
+            const nextRun = nextRunDate.getTime();
+            this.db.execute(
+              `UPDATE schedules SET next_run_at = ?, last_error = ?, updated_at = ? WHERE id = ?`,
+              nextRun,
+              dispatchError.message,
+              now,
+              schedule.id
+            );
+            schedule.nextRunAt = nextRun;
+            schedule.lastError = dispatchError.message;
+          }
+          continue;
+        }
+
+        // Dispatch succeeded! Record attempt and advance state
+        this.recordAttempt(schedule.id, attemptNumber, 'success', undefined, now);
+        const newIterations = attemptNumber;
 
         if (schedule.type === 'one_shot') {
           this.db.execute(
-            `UPDATE schedules SET status = 'completed', current_iterations = ?, last_run_at = ?, updated_at = ? WHERE id = ?`,
+            `UPDATE schedules SET status = 'completed', current_iterations = ?, last_run_at = ?, last_error = NULL, updated_at = ? WHERE id = ?`,
             newIterations,
             now,
             now,
             schedule.id
           );
+          schedule.status = 'completed';
+          schedule.currentIterations = newIterations;
+          schedule.lastRunAt = now;
+          schedule.lastError = undefined;
         } else {
           // Recurring cron
-          const hasReachedLimit = schedule.maxIterations && newIterations >= schedule.maxIterations;
-          const newStatus = hasReachedLimit ? 'completed' : 'active';
-          const intervalSec = this.parseCronIntervalSeconds(schedule.cronExpression || '*/1 * * * *');
-          const nextRun = hasReachedLimit ? now : now + intervalSec * 1000;
+          const hasReachedLimit = schedule.maxIterations !== undefined && newIterations >= schedule.maxIterations;
+          const newStatus: ScheduleStatus = hasReachedLimit ? 'completed' : 'active';
+          const nextRunDate = getNextCronOccurrence(schedule.cronExpression || '*/1 * * * *', now);
+          const nextRun = hasReachedLimit ? now : nextRunDate.getTime();
 
           this.db.execute(
-            `UPDATE schedules SET status = ?, current_iterations = ?, last_run_at = ?, next_run_at = ?, updated_at = ? WHERE id = ?`,
+            `UPDATE schedules SET status = ?, current_iterations = ?, last_run_at = ?, next_run_at = ?, last_error = NULL, updated_at = ? WHERE id = ?`,
             newStatus,
             newIterations,
             now,
@@ -361,17 +335,14 @@ export class SchedulerService {
             now,
             schedule.id
           );
+          schedule.status = newStatus;
+          schedule.currentIterations = newIterations;
+          schedule.lastRunAt = now;
+          schedule.nextRunAt = nextRun;
+          schedule.lastError = undefined;
         }
 
         fired.push(schedule);
-
-        if (this.onFireCallback) {
-          try {
-            await this.onFireCallback(schedule);
-          } catch (err) {
-            console.error(`[KIN SCHEDULER] Error firing schedule ${schedule.id}:`, err);
-          }
-        }
       }
 
       return fired;
@@ -401,6 +372,9 @@ export class SchedulerService {
     }
   }
 
+  /**
+   * Retained for backward-compatibility with interval helper tests.
+   */
   public parseCronIntervalSeconds(expr: string): number {
     const trimmed = expr.trim();
     // Bare seconds or seconds notation: '30', '30s', '45s', '*/30s', or '*/30'
@@ -436,48 +410,175 @@ export class SchedulerService {
   }
 
   /**
-   * Manually triggers an active or existing schedule immediately without waiting for nextRunAt.
+   * Manually triggers an active schedule immediately without waiting for nextRunAt.
+   * Enforces that the schedule is active and has not reached its maxIterations limit.
    */
   public async triggerScheduleNow(id: string): Promise<Schedule | null> {
     const row = this.db.queryOne<any>(`SELECT * FROM schedules WHERE id = ?`, id);
     if (!row) return null;
     const schedule = this.mapRowToSchedule(row);
+
+    // Verify schedule is active
+    if (schedule.status !== 'active') {
+      throw new Error(`Cannot trigger schedule '${id}': status is '${schedule.status}', expected 'active'.`);
+    }
+
+    // Enforce maxIterations limit
+    if (schedule.maxIterations !== undefined && (schedule.currentIterations ?? 0) >= schedule.maxIterations) {
+      throw new Error(`Cannot trigger schedule '${id}': maxIterations limit of ${schedule.maxIterations} reached.`);
+    }
+
     const now = Date.now();
-    const newIterations = (schedule.currentIterations ?? 0) + 1;
+    const attemptNumber = (schedule.currentIterations ?? 0) + 1;
+
+    let dispatchError: Error | null = null;
+    if (this.onFireCallback) {
+      try {
+        await this.onFireCallback(schedule);
+      } catch (err: any) {
+        dispatchError = err instanceof Error ? err : new Error(String(err));
+        console.error(`[KIN SCHEDULER] Error manually triggering schedule ${schedule.id}:`, err);
+      }
+    }
+
+    if (dispatchError) {
+      this.recordAttempt(schedule.id, attemptNumber, 'failure', dispatchError.message, now);
+      if (schedule.type === 'one_shot') {
+        this.db.execute(
+          `UPDATE schedules SET status = 'failed', last_error = ?, updated_at = ? WHERE id = ?`,
+          dispatchError.message,
+          now,
+          schedule.id
+        );
+        schedule.status = 'failed';
+        schedule.lastError = dispatchError.message;
+      } else {
+        this.db.execute(
+          `UPDATE schedules SET last_error = ?, updated_at = ? WHERE id = ?`,
+          dispatchError.message,
+          now,
+          schedule.id
+        );
+        schedule.lastError = dispatchError.message;
+      }
+      throw dispatchError;
+    }
+
+    // Dispatch succeeded!
+    this.recordAttempt(schedule.id, attemptNumber, 'success', undefined, now);
+    const newIterations = attemptNumber;
 
     if (schedule.type === 'one_shot') {
       this.db.execute(
-        `UPDATE schedules SET status = 'completed', current_iterations = ?, last_run_at = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE schedules SET status = 'completed', current_iterations = ?, last_run_at = ?, last_error = NULL, updated_at = ? WHERE id = ?`,
         newIterations,
         now,
         now,
         schedule.id
       );
       schedule.status = 'completed';
+      schedule.currentIterations = newIterations;
+      schedule.lastRunAt = now;
+      schedule.lastError = undefined;
     } else {
-      const intervalSec = this.parseCronIntervalSeconds(schedule.cronExpression || '*/1 * * * *');
-      const nextRun = now + intervalSec * 1000;
+      const hasReachedLimit = schedule.maxIterations !== undefined && newIterations >= schedule.maxIterations;
+      const newStatus: ScheduleStatus = hasReachedLimit ? 'completed' : 'active';
+      const nextRunDate = getNextCronOccurrence(schedule.cronExpression || '*/1 * * * *', now);
+      const nextRun = hasReachedLimit ? now : nextRunDate.getTime();
+
       this.db.execute(
-        `UPDATE schedules SET current_iterations = ?, last_run_at = ?, next_run_at = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE schedules SET status = ?, current_iterations = ?, last_run_at = ?, next_run_at = ?, last_error = NULL, updated_at = ? WHERE id = ?`,
+        newStatus,
         newIterations,
         now,
         nextRun,
         now,
         schedule.id
       );
+      schedule.status = newStatus;
+      schedule.currentIterations = newIterations;
+      schedule.lastRunAt = now;
       schedule.nextRunAt = nextRun;
+      schedule.lastError = undefined;
     }
-    schedule.lastRunAt = now;
-    schedule.currentIterations = newIterations;
 
-    if (this.onFireCallback) {
-      try {
-        await this.onFireCallback(schedule);
-      } catch (err) {
-        console.error(`[KIN SCHEDULER] Error manually triggering schedule ${schedule.id}:`, err);
-      }
-    }
     return schedule;
+  }
+
+  /**
+   * Explicitly retries a failed schedule by resetting status to active and triggering it immediately.
+   */
+  public async retrySchedule(id: string): Promise<Schedule | null> {
+    const row = this.db.queryOne<any>(`SELECT * FROM schedules WHERE id = ?`, id);
+    if (!row) return null;
+    const schedule = this.mapRowToSchedule(row);
+    if (schedule.status !== 'failed') {
+      throw new Error(`Cannot retry schedule '${id}': status is '${schedule.status}', expected 'failed'.`);
+    }
+
+    const now = Date.now();
+    this.db.execute(
+      `UPDATE schedules SET status = 'active', last_error = NULL, updated_at = ? WHERE id = ?`,
+      now,
+      id
+    );
+    return await this.triggerScheduleNow(id);
+  }
+
+  /**
+   * Records a durable attempt record in SQLite event_journal.
+   */
+  private recordAttempt(
+    scheduleId: string,
+    attemptNumber: number,
+    status: 'success' | 'failure',
+    errorMessage: string | undefined,
+    executedAt: number
+  ): void {
+    try {
+      const payload = JSON.stringify({ attemptNumber, status, errorMessage });
+      this.db.execute(
+        `INSERT INTO event_journal (event_type, entity_type, entity_id, run_id, payload_json, created_at)
+         VALUES ('schedule_attempt', 'schedule', ?, NULL, ?, ?)`,
+        scheduleId,
+        payload,
+        executedAt
+      );
+    } catch (err) {
+      console.warn('[KIN SCHEDULER] Failed to record schedule attempt:', err);
+    }
+  }
+
+  /**
+   * Retrieves durable attempt execution history for a schedule from event_journal.
+   */
+  public getScheduleAttempts(scheduleId: string): ScheduleAttempt[] {
+    try {
+      const rows = this.db.query<{
+        id: number;
+        payload_json: string;
+        created_at: number;
+      }>(
+        `SELECT id, payload_json, created_at FROM event_journal WHERE entity_type = 'schedule' AND entity_id = ? AND event_type = 'schedule_attempt' ORDER BY id ASC`,
+        scheduleId
+      );
+      return rows.map((r) => {
+        let payload: any = {};
+        try {
+          payload = JSON.parse(r.payload_json);
+        } catch {}
+        return {
+          id: `att-${r.id}`,
+          scheduleId,
+          attemptNumber: payload.attemptNumber ?? 1,
+          status: (payload.status as 'success' | 'failure') ?? 'failure',
+          errorMessage: payload.errorMessage ?? undefined,
+          executedAt: r.created_at,
+        };
+      });
+    } catch {
+      return [];
+    }
   }
 
   private mapRowToSchedule(row: any): Schedule {
@@ -496,6 +597,7 @@ export class SchedulerService {
       status: row.status as ScheduleStatus,
       nextRunAt: row.next_run_at,
       lastRunAt: row.last_run_at ?? undefined,
+      lastError: row.last_error ?? undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

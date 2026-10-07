@@ -27,9 +27,16 @@ export interface McpToolCallResult {
   isError?: boolean;
 }
 
+interface PendingRequestEntry {
+  serverName: string;
+  timeout: NodeJS.Timeout;
+  resolve: (res: any) => void;
+  reject: (err: any) => void;
+}
+
 export class McpClientManager {
   private activeServers: Map<string, { process: ChildProcess; tools: McpToolDefinition[] }> = new Map();
-  private pendingRequests: Map<number, { resolve: (res: any) => void; reject: (err: any) => void }> = new Map();
+  private pendingRequests: Map<number, PendingRequestEntry> = new Map();
   private requestIdCounter = 1;
   private projectRoot: string;
 
@@ -46,10 +53,10 @@ export class McpClientManager {
   }
 
   /**
-   * Constructs a sanitized environment for MCP subprocesses, stripping all host API keys and KIN secrets.
+   * Constructs a sanitized environment for MCP subprocesses, stripping host secrets.
    */
   public static sanitizeMcpEnv(configEnv?: Record<string, string>): Record<string, string> {
-    const safeOsKeys = [
+    const safeSystemKeys = [
       'PATH', 'Path', 'path',
       'HOME', 'USERPROFILE',
       'TEMP', 'TMP',
@@ -58,7 +65,7 @@ export class McpClientManager {
       'TERM', 'LANG', 'LC_ALL'
     ];
     const safeEnv: Record<string, string> = {};
-    for (const key of safeOsKeys) {
+    for (const key of safeSystemKeys) {
       if (process.env[key] !== undefined) {
         safeEnv[key] = process.env[key]!;
       }
@@ -110,7 +117,23 @@ export class McpClientManager {
   }
 
   /**
-   * Spawns an MCP server and queries tools/list.
+   * Alias for loadConfiguredServers.
+   */
+  public async loadServersFromConfig(): Promise<McpToolDefinition[]> {
+    return this.loadConfiguredServers();
+  }
+
+  /**
+   * Switches project root, shutting down previous MCP servers and loading new ones.
+   */
+  public async reloadProject(projectRoot: string): Promise<McpToolDefinition[]> {
+    this.shutdown();
+    this.setProjectRoot(projectRoot);
+    return await this.loadConfiguredServers();
+  }
+
+  /**
+   * Spawns an MCP server, handles supervision lifecycle, and queries tools/list.
    */
   public async startServer(config: McpServerConfig): Promise<McpToolDefinition[]> {
     if (this.activeServers.has(config.name)) {
@@ -136,12 +159,13 @@ export class McpClientManager {
         try {
           const json = JSON.parse(line);
           if (json.id && this.pendingRequests.has(json.id)) {
-            const { resolve, reject } = this.pendingRequests.get(json.id)!;
+            const req = this.pendingRequests.get(json.id)!;
+            clearTimeout(req.timeout);
             this.pendingRequests.delete(json.id);
             if (json.error) {
-              reject(new Error(json.error.message || 'JSON-RPC Error'));
+              req.reject(new Error(json.error.message || 'JSON-RPC Error'));
             } else {
-              resolve(json.result);
+              req.resolve(json.result);
             }
           }
         } catch (e) {
@@ -150,10 +174,35 @@ export class McpClientManager {
       }
     });
 
+    const cleanupServer = (reason: string) => {
+      const active = this.activeServers.get(config.name);
+      if (active && active.process === proc) {
+        this.activeServers.delete(config.name);
+      }
+      for (const [id, req] of Array.from(this.pendingRequests.entries())) {
+        if (req.serverName === config.name) {
+          clearTimeout(req.timeout);
+          this.pendingRequests.delete(id);
+          req.reject(new Error(`MCP server '${config.name}' terminated: ${reason}`));
+        }
+      }
+    };
+
     proc.on('error', (err) => {
       console.error(`[KIN MCP] Server '${config.name}' error:`, err);
+      cleanupServer(`Process error: ${err.message}`);
     });
 
+    proc.stdin?.on('error', (err) => {
+      console.warn(`[KIN MCP] Stdin error on '${config.name}':`, err);
+    });
+
+    proc.on('exit', (code, signal) => {
+      console.warn(`[KIN MCP] Server '${config.name}' exited (code ${code}, signal ${signal})`);
+      cleanupServer(`Process exited (code ${code}, signal ${signal})`);
+    });
+
+    // Temporarily record proc so sendRequest can communicate with it during handshake
     this.activeServers.set(config.name, { process: proc, tools: [] });
 
     // 1. Initialize
@@ -163,6 +212,9 @@ export class McpClientManager {
         capabilities: {},
         clientInfo: { name: 'kin-core', version: '1.0.0' },
       });
+
+      // Complete protocol initialization with initialized notification
+      this.sendNotification(config.name, 'notifications/initialized');
 
       // 2. Query tools/list
       const listRes = await this.sendRequest(config.name, 'tools/list', {});
@@ -174,10 +226,14 @@ export class McpClientManager {
         serverName: config.name,
       }));
 
-      this.activeServers.get(config.name)!.tools = tools;
+      this.activeServers.set(config.name, { process: proc, tools });
       return tools;
     } catch (err) {
       console.warn(`[KIN MCP] Handshake with '${config.name}' failed or timed out:`, err);
+      try {
+        proc.kill();
+      } catch {}
+      cleanupServer('Handshake failed');
       return [];
     }
   }
@@ -191,6 +247,26 @@ export class McpClientManager {
       arguments: args,
     });
     return res as McpToolCallResult;
+  }
+
+  /**
+   * Sends a JSON-RPC notification (without expecting a response) over stdio.
+   */
+  public sendNotification(serverName: string, method: string, params?: Record<string, any>): void {
+    const entry = this.activeServers.get(serverName);
+    if (!entry || !entry.process.stdin) return;
+    const payload: Record<string, any> = {
+      jsonrpc: '2.0',
+      method,
+    };
+    if (params) {
+      payload.params = params;
+    }
+    try {
+      entry.process.stdin.write(JSON.stringify(payload) + '\n');
+    } catch (err) {
+      console.warn(`[KIN MCP] Failed to send notification '${method}' to '${serverName}':`, err);
+    }
   }
 
   /**
@@ -217,6 +293,8 @@ export class McpClientManager {
       }, 10000);
 
       this.pendingRequests.set(id, {
+        serverName,
+        timeout,
         resolve: (val) => {
           clearTimeout(timeout);
           resolve(val);
@@ -243,15 +321,31 @@ export class McpClientManager {
   }
 
   /**
+   * Stops a specific MCP server process and cleans up registrations and pending requests.
+   */
+  public stopServer(name: string): void {
+    const entry = this.activeServers.get(name);
+    if (entry) {
+      try {
+        entry.process.kill();
+      } catch {}
+      this.activeServers.delete(name);
+      for (const [id, req] of Array.from(this.pendingRequests.entries())) {
+        if (req.serverName === name) {
+          clearTimeout(req.timeout);
+          this.pendingRequests.delete(id);
+          req.reject(new Error(`MCP server '${name}' stopped`));
+        }
+      }
+    }
+  }
+
+  /**
    * Stops all active MCP server processes.
    */
   public shutdown(): void {
-    for (const [name, entry] of this.activeServers.entries()) {
-      try {
-        entry.process.kill();
-      } catch (err) {
-        console.error(`[KIN MCP] Error killing ${name}:`, err);
-      }
+    for (const name of Array.from(this.activeServers.keys())) {
+      this.stopServer(name);
     }
     this.activeServers.clear();
   }

@@ -211,6 +211,45 @@ export class MigrationRunner {
         }
       }
 
+      // Pre-migration: schedules table status constraint and last_error column
+      if (existingTables.includes('schedules')) {
+        const schedCols = this.db.query<{ name: string }>("PRAGMA table_info(schedules);").map((c) => c.name);
+        if (!schedCols.includes('last_error')) {
+          this.db.exec('ALTER TABLE schedules ADD COLUMN last_error TEXT;');
+        }
+        const schedSql = this.db.queryOne<{ sql: string }>(
+          "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'schedules';"
+        )?.sql || '';
+        if (!schedSql.includes("'failed'")) {
+          this.db.exec(`
+            CREATE TABLE schedules_dg_tmp (
+              id TEXT PRIMARY KEY,
+              project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+              channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+              target_agent_id TEXT REFERENCES agent_identities(id) ON DELETE SET NULL,
+              type TEXT NOT NULL CHECK (type IN ('one_shot', 'cron')),
+              prompt TEXT NOT NULL,
+              duration_seconds INTEGER,
+              cron_expression TEXT,
+              timer_condition TEXT DEFAULT 'never',
+              max_iterations INTEGER,
+              current_iterations INTEGER DEFAULT 0,
+              status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'cancelled', 'expired', 'failed', 'paused')),
+              next_run_at INTEGER NOT NULL,
+              last_run_at INTEGER,
+              last_error TEXT,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL
+            );
+            INSERT INTO schedules_dg_tmp (id, project_id, channel_id, target_agent_id, type, prompt, duration_seconds, cron_expression, timer_condition, max_iterations, current_iterations, status, next_run_at, last_run_at, last_error, created_at, updated_at)
+            SELECT id, project_id, channel_id, target_agent_id, type, prompt, duration_seconds, cron_expression, timer_condition, max_iterations, current_iterations, status, next_run_at, last_run_at, last_error, created_at, updated_at
+            FROM schedules;
+            DROP TABLE schedules;
+            ALTER TABLE schedules_dg_tmp RENAME TO schedules;
+          `);
+        }
+      }
+
       this.db.exec(schemaSql);
 
       // Verify and ensure column and index presence post-schema

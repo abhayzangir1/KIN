@@ -271,7 +271,7 @@ export interface ProjectAnalytics {
 }
 
 export type ScheduleType = 'one_shot' | 'cron';
-export type ScheduleStatus = 'active' | 'completed' | 'cancelled' | 'expired';
+export type ScheduleStatus = 'active' | 'completed' | 'cancelled' | 'expired' | 'failed' | 'paused';
 
 export interface Schedule {
   id: string;
@@ -288,8 +288,18 @@ export interface Schedule {
   status: ScheduleStatus;
   nextRunAt: number;
   lastRunAt?: number;
+  lastError?: string;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface ScheduleAttempt {
+  id: string;
+  scheduleId: string;
+  attemptNumber: number;
+  status: 'success' | 'failure';
+  errorMessage?: string;
+  executedAt: number;
 }
 
 export interface AgentEvaluation {

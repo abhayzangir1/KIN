@@ -2,6 +2,7 @@
 // KIN SELECTIVE ACTIVATION ENGINE
 // Decides which agents wake for inference upon incoming messages and events.
 // Enforces zero-bot-storm invariant: channel messages do NOT wake members by default.
+// Exposes observable match reasons and explicit fallback behavior.
 // ============================================================================
 
 import { AgentDefinition, AgentIdentity, Message } from '../domain/types.js';
@@ -12,19 +13,35 @@ export interface ActivationEvent {
   taskId?: string;
   assignedAgentId?: string;
   readyTaskAssignedAgentId?: string;
+  definition?: AgentDefinition;
+  isOrchestratorFallback?: boolean;
 }
 
 export interface ActivationDecision {
   shouldActivate: boolean;
   agentId: string;
   triggerReason?: string;
+  matchReason?: string;
+  matchedKeywords?: string[];
+  explanation?: string;
+}
+
+export interface SpecialistMatchInfo {
+  agentId: string;
+  displayName: string;
+  matchReason: string;
+  matchedKeywords: string[];
 }
 
 export interface ChannelRoutingResult {
   action: 'direct_response' | 'sequential_specialists' | 'orchestrator_fallback';
   targetAgents: AgentIdentity[];
   reason: string;
+  matchReason?: string;
+  matchedKeywords?: string[];
+  matchedSpecialists?: SpecialistMatchInfo[];
   fallbackOrchestrator?: AgentIdentity;
+  fallbackReason?: string;
 }
 
 export interface ChannelRoutingInput {
@@ -39,14 +56,21 @@ export interface ChannelRoutingInput {
 export class ActivationEngine {
   /**
    * Evaluates if a given agent should be woken for inference by the incoming event.
+   * Records and returns the exact match reason for complete routing observability.
    */
-  public evaluateActivation(agent: AgentIdentity, event: ActivationEvent): ActivationDecision {
+  public evaluateActivation(
+    agent: AgentIdentity,
+    event: ActivationEvent,
+    definition?: AgentDefinition
+  ): ActivationDecision {
     // 1. Direct Human Prompt to this specific agent
     if (event.type === 'human_direct_prompt' && event.assignedAgentId === agent.id) {
       return {
         shouldActivate: true,
         agentId: agent.id,
         triggerReason: 'human_direct_prompt',
+        matchReason: 'direct_mention',
+        explanation: 'Direct human prompt targeting this agent',
       };
     }
 
@@ -56,6 +80,8 @@ export class ActivationEngine {
         shouldActivate: true,
         agentId: agent.id,
         triggerReason: `task_assigned:${event.taskId}`,
+        matchReason: 'task_assigned',
+        explanation: `Assigned task ${event.taskId}`,
       };
     }
 
@@ -65,16 +91,19 @@ export class ActivationEngine {
         shouldActivate: true,
         agentId: agent.id,
         triggerReason: `task_dependency_ready:${event.taskId}`,
+        matchReason: 'task_dependency_ready',
+        explanation: `Task dependency cleared for task ${event.taskId}`,
       };
     }
 
-    // 4. Message Event: Check explicit @mentions
+    // 4. Message Event
     if (event.type === 'message' && event.message) {
       // An agent NEVER wakes up from its own messages
       if (event.message.senderId === agent.id) {
         return { shouldActivate: false, agentId: agent.id };
       }
 
+      // 4a. Explicit @mentions
       const cleanDisplayName = agent.displayName.replace(/^@/, '');
       const isMentioned = event.message.mentions.some(
         (m) =>
@@ -88,11 +117,62 @@ export class ActivationEngine {
           shouldActivate: true,
           agentId: agent.id,
           triggerReason: `explicit_mention:${event.message.id}`,
+          matchReason: 'direct_mention',
+          explanation: `Explicitly mentioned by user or peer: @${cleanDisplayName}`,
         };
+      }
+
+      // 4b. Orchestrator fallback check
+      if (event.isOrchestratorFallback && agent.isOrchestrator) {
+        return {
+          shouldActivate: true,
+          agentId: agent.id,
+          triggerReason: 'orchestrator_fallback',
+          matchReason: 'orchestrator_fallback',
+          explanation: 'No specialist matched channel query; orchestrator stepped in as safety net',
+        };
+      }
+
+      // 4c. Domain authority & role keyword match (if definition is provided)
+      const def = definition || event.definition;
+      if (def) {
+        const contentLower = event.message.content.toLowerCase();
+
+        // Check domain authority first
+        const domainMatches = (def.domainAuthority || []).filter(
+          (d) => d.length > 2 && contentLower.includes(d.toLowerCase())
+        );
+        if (domainMatches.length > 0) {
+          return {
+            shouldActivate: true,
+            agentId: agent.id,
+            triggerReason: 'domain_authority_match',
+            matchReason: 'domain_authority_match',
+            matchedKeywords: domainMatches,
+            explanation: `Matched domain authority: ${domainMatches.join(', ')}`,
+          };
+        }
+
+        // Check role keywords
+        const roleWords = (def.role || '')
+          .toLowerCase()
+          .split(/\s+/)
+          .filter((w) => w.length > 2);
+        const roleMatches = roleWords.filter((w) => contentLower.includes(w));
+        if (roleMatches.length > 0) {
+          return {
+            shouldActivate: true,
+            agentId: agent.id,
+            triggerReason: `role_keyword_match: ${roleMatches.join(', ')}`,
+            matchReason: `role_keyword_match: ${roleMatches.join(', ')}`,
+            matchedKeywords: roleMatches,
+            explanation: `Matched role keywords: ${roleMatches.join(', ')}`,
+          };
+        }
       }
     }
 
-    // Default: INACTIVE. Messages without explicit mentions DO NOT wake agents.
+    // Default: INACTIVE. Messages without explicit mentions or domain matches DO NOT wake agents.
     return {
       shouldActivate: false,
       agentId: agent.id,
@@ -118,6 +198,7 @@ export class ActivationEngine {
           action: 'direct_response',
           targetAgents: [targetAgent],
           reason: 'direct_message',
+          matchReason: 'direct_mention',
         };
       }
     }
@@ -139,6 +220,7 @@ export class ActivationEngine {
           action: 'sequential_specialists',
           targetAgents: matchedAgents,
           reason: 'explicit_mentions',
+          matchReason: 'direct_mention',
         };
       }
     }
@@ -146,25 +228,51 @@ export class ActivationEngine {
     // 3. Condition 3: Domain relevance for channel members
     const specialists = channelMembers.filter((a) => !a.isOrchestrator && a.id !== message.senderId);
     const contentLower = message.content.toLowerCase();
+    const matchedSpecialists: SpecialistMatchInfo[] = [];
+    const relevantSpecialists: AgentIdentity[] = [];
 
-    const relevantSpecialists = specialists.filter((agent) => {
+    for (const agent of specialists) {
       const def = definitionsMap.get(agent.definitionId);
-      if (!def) return false;
+      if (!def) continue;
 
-      // Extract domain keywords from role and domain authority
-      const keywords: string[] = [
-        ...def.role.toLowerCase().split(/\s+/),
-        ...def.domainAuthority.map((d) => d.toLowerCase()),
-      ];
+      const domainMatches = (def.domainAuthority || []).filter(
+        (d) => d.length > 2 && contentLower.includes(d.toLowerCase())
+      );
+      if (domainMatches.length > 0) {
+        relevantSpecialists.push(agent);
+        matchedSpecialists.push({
+          agentId: agent.id,
+          displayName: agent.displayName,
+          matchReason: 'domain_authority_match',
+          matchedKeywords: domainMatches,
+        });
+        continue;
+      }
 
-      return keywords.some((k) => k.length > 2 && contentLower.includes(k));
-    });
+      const roleWords = (def.role || '')
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((w) => w.length > 2);
+      const roleMatches = roleWords.filter((w) => contentLower.includes(w));
+      if (roleMatches.length > 0) {
+        relevantSpecialists.push(agent);
+        matchedSpecialists.push({
+          agentId: agent.id,
+          displayName: agent.displayName,
+          matchReason: `role_keyword_match: ${roleMatches.join(', ')}`,
+          matchedKeywords: roleMatches,
+        });
+      }
+    }
 
     if (relevantSpecialists.length > 0) {
       return {
         action: 'sequential_specialists',
         targetAgents: relevantSpecialists,
         reason: 'domain_relevance',
+        matchReason: matchedSpecialists[0].matchReason,
+        matchedKeywords: matchedSpecialists[0].matchedKeywords,
+        matchedSpecialists,
       };
     }
 
@@ -179,7 +287,9 @@ export class ActivationEngine {
       action: 'orchestrator_fallback',
       targetAgents: boss ? [boss] : [],
       reason: 'orchestrator_safety_net',
+      matchReason: 'orchestrator_fallback',
       fallbackOrchestrator: boss,
+      fallbackReason: 'No channel specialists matched request keywords; routing to lead orchestrator',
     };
   }
 }
