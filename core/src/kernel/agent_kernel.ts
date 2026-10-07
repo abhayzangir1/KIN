@@ -6,6 +6,7 @@
 
 import { KinDatabase } from '../storage/db.js';
 import { AgentRun, RunState } from '../domain/types.js';
+import { EventLedger } from '../security/event_ledger.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface SpawnRunParams {
@@ -141,6 +142,16 @@ export class AgentKernel {
     if (!nextQueued) return undefined;
     this.transitionState(nextQueued.id, 'running', 'Admitted from persistent run queue');
     return this.getRun(nextQueued.id);
+  }
+
+  public admitAllQueuedRuns(): AgentRun[] {
+    const admitted: AgentRun[] = [];
+    while (this.getActiveRunCount() < this.maxActiveConcurrentRuns) {
+      const next = this.admitNextQueuedRun();
+      if (!next) break;
+      admitted.push(next);
+    }
+    return admitted;
   }
 
   public getRun(id: string): AgentRun | undefined {
@@ -306,6 +317,7 @@ export class AgentKernel {
     };
   }> {
     const cutoff = Date.now() - staleThresholdMs;
+    const approvalCutoff = staleThresholdMs === 0 ? Date.now() : Date.now() - 24 * 60 * 60 * 1000;
 
     const staleRuns = this.db.query<{
       id: string;
@@ -314,8 +326,11 @@ export class AgentKernel {
       task_id: string | null;
       interrupted_turn: number | null;
     }>(
-      `SELECT id, agent_id, project_id, task_id, interrupted_turn FROM agent_runs WHERE state IN ('running', 'waiting_for_tool', 'waiting_for_agent', 'waiting_for_model') AND heartbeat_at < ?`,
-      cutoff
+      `SELECT id, agent_id, project_id, task_id, interrupted_turn FROM agent_runs
+       WHERE (state IN ('running', 'waiting_for_tool', 'waiting_for_agent', 'waiting_for_model') AND heartbeat_at < ?)
+          OR (state = 'waiting_for_approval' AND heartbeat_at < ?)`,
+      cutoff,
+      approvalCutoff
     );
 
     const recovered: Array<{
@@ -425,15 +440,25 @@ export class AgentKernel {
     };
   }
 
-  private recordEvent(eventType: string, entityType: string, entityId: string, payload: Record<string, unknown>): void {
-    this.db.execute(
-      `INSERT INTO event_journal (event_type, entity_type, entity_id, payload_json, created_at)
-       VALUES (?, ?, ?, ?, ?)`,
-      eventType,
-      entityType,
-      entityId,
-      JSON.stringify(payload),
-      Date.now()
-    );
+  private recordEvent(eventType: string, entityType: string, entityId: string, payload: Record<string, unknown>, runId?: string): void {
+    try {
+      EventLedger.getInstance().record({
+        eventType,
+        entityType,
+        entityId,
+        runId,
+        payload,
+      });
+    } catch {
+      this.db.execute(
+        `INSERT INTO event_journal (event_type, entity_type, entity_id, payload_json, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        eventType,
+        entityType,
+        entityId,
+        JSON.stringify(payload),
+        Date.now()
+      );
+    }
   }
 }

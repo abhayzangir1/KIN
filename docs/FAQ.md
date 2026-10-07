@@ -41,7 +41,7 @@ On daemon startup, KIN automatically scans `.kin/skills/` to synchronize any dis
 ---
 
 ### Q: What prevents agents from interfering with my mouse and keyboard during desktop control?
-**A**: KIN uses an internal Win32 `DesktopLock` mutex. When an agent requests mouse movements or keyboard input, it must acquire the desktop lock, execute its action, observe the display mutation, and immediately release the lock. Furthermore, the **Instant Human Takeover** banner allows operators to pause or abort automated desktop actions at any moment.
+**A**: KIN uses an internal serialized single-flight execution queue with native window focus management. When an agent requests mouse movements or keyboard input, it must acquire execution access, execute its action, observe the display mutation, and immediately release access. Furthermore, the **Instant Human Takeover** banner allows operators to pause or abort automated desktop actions at any moment.
 
 ---
 

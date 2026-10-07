@@ -90,8 +90,8 @@ In **Settings & Credential Vault**, configure monthly or daily token spend caps 
 1. **Filesystem Jail Path Confinement**:
    All filesystem tool invocations (`readFile`, `writeFile`, `listDirectory`) verify that resolved file targets reside strictly within the project worktree root. Symbolic links and `../` path traversal attempts are rejected.
 
-2. **Physical Desktop Mutual Exclusion (DesktopLock)**:
-   When multiple agents execute computer-use tasks (mouse clicks, typing, window focus), KIN uses an internal Win32 mutex lock to serialize input events. This prevents competing agents from clicking concurrently on the workstation screen.
+2. **Physical Desktop Serialized Single-Flight Execution Queue**:
+   When multiple agents execute computer-use tasks (mouse clicks, typing, window focus), KIN uses an internal serialized single-flight execution queue with native window focus management to serialize input events. This prevents competing agents from clicking concurrently on the workstation screen.
 
 3. **Financial Hard Stops**:
    Operations matching commerce, checkout, or billing patterns trigger mandatory approval gates (`RiskLevel: CRITICAL`), requiring explicit human operator authorization regardless of active autonomy mode.

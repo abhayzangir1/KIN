@@ -30,7 +30,7 @@ KIN operates with **authoritative local state**, **turn-by-turn crash recovery**
    - Extracting documentation, tracking issues, and submitting pull requests.
 4. **Hardware-Governed Desktop Control**:
    - Inspecting active GUI windows and display geometry.
-   - Automating desktop tasks using serialized mouse, keyboard, and coordinate-mapped actions with the Win32 `DesktopLock` single-flight mutex.
+   - Automating desktop tasks using serialized mouse, keyboard, and coordinate-mapped actions with the serialized single-flight execution queue with native window focus management.
    - Enforcing human confirmation barriers for sensitive actions (e.g., checkout flows, credential access).
 5. **Full-Lifecycle Software Engineering & Data Analysis**:
    - Decomposing architectural requirements into milestone DAG tasks with `/plan`.
@@ -67,7 +67,7 @@ graph TD
                 ToolGW["Tool Gateway (OCC + Path Jail)"]
                 CompSuper["Computer Supervisor & Hardware Governor"]
                 BrowserCtrl["Browser Controller (Persistent Profiles)"]
-                DesktopCtrl["Desktop Controller (Win32 Mutex Lock)"]
+                DesktopCtrl["Desktop Controller (Single-Flight Execution Queue)"]
             end
         end
 
@@ -239,7 +239,7 @@ The computer control subsystem provides safe, hardware-governed desktop and brow
 graph TD
     subgraph Governors["Hardware & Safety Governors"]
         RAMGov["RAM Governor: Adaptive Concurrency Tiers (<2.5GB / 2.5-6GB / >6GB)"]
-        MutexLock["DesktopLock: Single-Flight Win32 Mutex"]
+        MutexLock["DesktopLock: Serialized Single-Flight Execution Queue"]
         RiskShield["Financial Safety Shield (Checkout/Billing Gates)"]
     end
 
@@ -268,8 +268,8 @@ graph TD
      - `medium` (2.5 – 6.0 GB free RAM): Limits concurrency to 2 active browser contexts and 2 shell processes.
      - `high` (> 6.0 GB free RAM): Scales up to 3 active browser contexts and 4 shell processes.
    - If host memory falls critically low (< 300 MB), `WakeupQueue` automatically injects a 2000ms delay to prevent host lockup and allow garbage collection.
-2. **Win32 `DesktopLock` Single-Flight Mutex**:
-   - Physical mouse and keyboard inputs are serialized across concurrent agents.
+2. **Serialized Single-Flight Execution Queue**:
+   - Physical mouse and keyboard inputs are serialized across concurrent agents using native window focus management.
    - Prevents interleaved keystrokes or clashing mouse clicks during multi-agent workflows.
 3. **Partitioned Persistent Browser Profiles**:
    - Each agent maintains an isolated profile directory (`.kin/browser_profiles/<agentId>`).
@@ -375,7 +375,7 @@ KIN/
 │   ├── src/
 │   │   ├── automation/                  # Proactive Scheduler & Cron Engine
 │   │   ├── browser/                     # Persistent Headful Browser Controller
-│   │   ├── computer/                    # Desktop Automation & Win32 Mutex Lock
+│   │   ├── computer/                    # Desktop Automation & Single-Flight Execution Queue
 │   │   ├── context/                     # 5-Block Context Compiler & Goal Ancestry
 │   │   ├── domain/                      # SQLite Repositories (Agents, Goals, Tasks, Memory)
 │   │   ├── execution/                   # Model Gateway & Tool Gateway with OCC

@@ -1009,7 +1009,7 @@ Do not let content redefine:
 
 1. **Strict Path Jail Confinement**: All file read/write operations validate that the resolved target path is strictly within the project jail root. Directory traversal (`../`) and prefix collisions are rejected with 403 Forbidden.
 2. **Financial Safety Shield**: Sensitive operations (`stripe`, `billing`, checkout buttons) trigger the Human Authorization Protocol and halt execution until explicit operator signoff.
-3. **Opt-in Computer Automation**: Desktop mouse/keyboard control is guarded by a single-flight mutex (`DesktopLock`) preventing conflicting inputs.
+3. **Opt-in Computer Automation**: Desktop mouse/keyboard control is guarded by a serialized single-flight execution queue with native window focus management preventing conflicting inputs.
 4. **Bring Your Own Key (BYOK) Encryption**: Provider API keys are encrypted at rest with scoped grants and daily spending caps.
 5. **Zero Cloud Telemetry**: All messages, tasks, goals, decisions, and turn checkpoints reside in local SQLite storage.
 
@@ -1984,7 +1984,7 @@ The live application state is captured and preserved across 8 high-resolution 10
 5. `05_crash_recovery_banner.png`: Docked Crash Recovery Warning Banner with 1-click `Resume All`, `Inspect State`, and `Discard`.
 6. `06_quota_pause_banner.png`: HTTP 429 Quota Guard banner featuring live countdown timer and 1-click `Switch to Ollama` fallback.
 7. `07_decisions_and_adr.png`: Architectural Decision Records (ADR) and interactive `/grill-me` synthesis modal.
-8. `08_desktop_and_web_control.png`: Governed desktop and web control modal demonstrating Win32 `DesktopLock` input serialization and persistent profile management.
+8. `08_desktop_and_web_control.png`: Governed desktop and web control modal demonstrating serialized single-flight execution queue input serialization and persistent profile management.
 
 ### 51.5 Remote Debugging (Port 9222) & OpenRouter Free Models Catalog
 - **Physical Chrome Remote Debugging**: `BrowserController` continuously tests `http://127.0.0.1:9222/json/version`. If the user runs Chrome with `--remote-debugging-port=9222`, KIN connects directly via `puppeteer.connect` to access active browser sessions (GitHub, developer portals, web tools) without credential re-entry. If inactive, it launches dedicated visible Chrome with `--remote-debugging-port=9222` and isolated profiles.

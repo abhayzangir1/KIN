@@ -12,7 +12,7 @@ export const AddAgentModal: React.FC = () => {
     channelMembers,
     addChannelMember,
     hireAgent,
-    ollamaStatus,
+    availableModels,
   } = useKinStore();
 
   const [tab, setTab] = useState<'assign' | 'hire'>('assign');
@@ -200,22 +200,68 @@ export const AddAgentModal: React.FC = () => {
                 onChange={(e) => setActiveModelId(e.target.value)}
                 className="w-full bg-[#090d16] border border-[#2d3748] rounded px-2.5 py-1.5 text-kin-text focus:outline-none focus:border-blue-500 cursor-pointer font-mono"
               >
-                <optgroup label="Local Ollama Models">
-                  {ollamaStatus.models.length > 0 ? (
-                    ollamaStatus.models.map((m) => (
-                      <option key={`ollama/${m}`} value={`ollama/${m}`}>
-                        {m}
-                      </option>
-                    ))
-                  ) : (
-                    <option value="ollama/qwen2.5-coder:3b">qwen2.5-coder:3b</option>
-                  )}
-                </optgroup>
-                <optgroup label="Cloud Providers">
-                  <option value="anthropic/claude-3-5-sonnet">Claude 3.5 Sonnet</option>
-                  <option value="openai/gpt-4o">GPT-4o</option>
-                  <option value="deepseek/deepseek-chat">DeepSeek V3</option>
-                </optgroup>
+                {/* 1. Local Ollama Models */}
+                {availableModels.filter((m) => m.provider === 'ollama').length > 0 && (
+                  <optgroup label="Local Ollama Models">
+                    {availableModels
+                      .filter((m) => m.provider === 'ollama')
+                      .map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name || m.id} (Local)
+                        </option>
+                      ))}
+                  </optgroup>
+                )}
+
+                {/* 2. Discovered External Providers */}
+                {['anthropic', 'openai', 'gemini', 'deepseek', 'groq', 'openrouter'].map((prov) => {
+                  const provModels = availableModels.filter((m) => m.provider === prov && m.configured !== false);
+                  if (provModels.length === 0) return null;
+                  const provLabel =
+                    prov === 'anthropic' ? 'Anthropic Cloud Models' :
+                    prov === 'openai' ? 'OpenAI Cloud Models' :
+                    prov === 'gemini' ? 'Google Gemini Models' :
+                    prov === 'deepseek' ? 'DeepSeek Models' :
+                    prov === 'groq' ? 'Groq LPU Models' :
+                    prov === 'openrouter' ? 'OpenRouter Catalog' : `${prov.toUpperCase()} Models`;
+
+                  return (
+                    <optgroup key={prov} label={provLabel}>
+                      {provModels.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name || m.id} {m.isFree ? '(Zero Cost)' : ''}
+                        </option>
+                      ))}
+                    </optgroup>
+                  );
+                })}
+
+                {/* 3. Custom Registered Models */}
+                {availableModels.filter((m) => (m.provider === 'custom' || m.isCustom) && m.configured !== false).length > 0 && (
+                  <optgroup label="Custom User Models">
+                    {availableModels
+                      .filter((m) => (m.provider === 'custom' || m.isCustom) && m.configured !== false)
+                      .map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name || m.id} (Custom)
+                        </option>
+                      ))}
+                  </optgroup>
+                )}
+
+                {/* 4. Active Selected Model if not in list */}
+                {activeModelId && !availableModels.some((m) => m.id === activeModelId) && (
+                  <optgroup label="Active Selected Model">
+                    <option value={activeModelId}>{activeModelId}</option>
+                  </optgroup>
+                )}
+
+                {/* 5. Fallback if no models available */}
+                {availableModels.length === 0 && !activeModelId && (
+                  <option value="" disabled>
+                    No models configured (Configure Ollama or BYOK in Settings)
+                  </option>
+                )}
               </select>
             </div>
 

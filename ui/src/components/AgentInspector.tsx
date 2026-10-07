@@ -1461,34 +1461,21 @@ export const AgentInspector: React.FC = () => {
                     className="w-full bg-[#0a0f1d] border border-[#1e293b] rounded px-2.5 py-1.5 text-kin-text text-xs focus:outline-none focus:border-emerald-500 font-mono"
                   >
                     {/* 1. Local Ollama Models */}
-                    <optgroup label="Local Ollama Models">
-                      {availableModels.filter((m) => m.provider === 'ollama').length > 0 ? (
-                        availableModels
+                    {availableModels.filter((m) => m.provider === 'ollama').length > 0 && (
+                      <optgroup label="Local Ollama Models">
+                        {availableModels
                           .filter((m) => m.provider === 'ollama')
                           .map((m) => (
                             <option key={m.id} value={m.id}>
                               {m.name || m.id} (Local)
                             </option>
-                          ))
-                      ) : ollamaStatus.models.length > 0 ? (
-                        ollamaStatus.models
-                          .filter((m) => !m.toLowerCase().includes('embed'))
-                          .map((m) => (
-                            <option key={m} value={`ollama/${m}`}>
-                              ollama/{m} (Local)
-                            </option>
-                          ))
-                      ) : (
-                        <>
-                          <option value="ollama/qwen2.5-coder:3b">ollama/qwen2.5-coder:3b (Local)</option>
-                          <option value="ollama/gemma4:e2b">ollama/gemma4:e2b (Local)</option>
-                        </>
-                      )}
-                    </optgroup>
+                          ))}
+                      </optgroup>
+                    )}
 
                     {/* 2. Discovered External Providers */}
                     {['anthropic', 'openai', 'gemini', 'deepseek', 'groq', 'openrouter'].map((prov) => {
-                      const provModels = availableModels.filter((m) => m.provider === prov);
+                      const provModels = availableModels.filter((m) => m.provider === prov && m.configured !== false);
                       if (provModels.length === 0) return null;
                       const provLabel =
                         prov === 'anthropic' ? 'Anthropic Cloud Models' :
@@ -1510,10 +1497,10 @@ export const AgentInspector: React.FC = () => {
                     })}
 
                     {/* 3. Custom Registered Models */}
-                    {availableModels.filter((m) => m.provider === 'custom' || m.isCustom).length > 0 && (
+                    {availableModels.filter((m) => (m.provider === 'custom' || m.isCustom) && m.configured !== false).length > 0 && (
                       <optgroup label="Custom User Models">
                         {availableModels
-                          .filter((m) => m.provider === 'custom' || m.isCustom)
+                          .filter((m) => (m.provider === 'custom' || m.isCustom) && m.configured !== false)
                           .map((m) => (
                             <option key={m.id} value={m.id}>
                               {m.name || m.id} (Custom)
@@ -1525,12 +1512,18 @@ export const AgentInspector: React.FC = () => {
                     {/* 4. Active Model Fallback if not listed */}
                     {activeModelId &&
                       activeModelId !== 'inherit' &&
-                      !availableModels.some((m) => m.id === activeModelId) &&
-                      !ollamaStatus.models.some((m) => `ollama/${m}` === activeModelId) && (
+                      !availableModels.some((m) => m.id === activeModelId) && (
                         <optgroup label="Active Selected Model">
                           <option value={activeModelId}>{activeModelId} (Active)</option>
                         </optgroup>
                       )}
+
+                    {/* 5. Fallback if no models available */}
+                    {availableModels.length === 0 && !activeModelId && (
+                      <option value="" disabled>
+                        No models configured (Configure Ollama or BYOK in Settings)
+                      </option>
+                    )}
 
                     <option value="inherit">inherit (Project Default)</option>
                   </select>

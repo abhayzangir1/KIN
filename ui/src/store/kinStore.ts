@@ -145,6 +145,8 @@ export interface AvailableModelItem {
   isFree?: boolean;
   isCustom?: boolean;
   isInstalled?: boolean;
+  configured?: boolean;
+  validated?: boolean;
   description?: string;
 }
 

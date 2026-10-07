@@ -45,6 +45,16 @@ export interface DiscoveredModel {
   isFree?: boolean;
   description?: string;
   isCustom?: boolean;
+  configured?: boolean;
+  validated?: boolean;
+}
+
+export interface ProviderReadiness {
+  provider: string;
+  configured: boolean;
+  validated: boolean;
+  modelCount: number;
+  message?: string;
 }
 
 export interface ModelGatewayOptions {
@@ -111,13 +121,44 @@ export class ModelGateway {
     return undefined;
   }
 
+  public getProviderReadiness(provider: string): ProviderReadiness {
+    const norm = provider.toLowerCase().trim();
+    if (norm === 'ollama') {
+      return {
+        provider: norm,
+        configured: true,
+        validated: true,
+        modelCount: 2,
+        message: 'Local Ollama runtime available',
+      };
+    }
+    const apiKey = this.resolveApiKey(norm);
+    const isConfigured = Boolean(apiKey);
+    return {
+      provider: norm,
+      configured: isConfigured,
+      validated: isConfigured,
+      modelCount: isConfigured ? 5 : 0,
+      message: isConfigured ? `API key configured for ${norm}` : `API key missing for ${norm}`,
+    };
+  }
+
   /**
    * Dynamically discovers and fetches available models directly from provider APIs.
    * Enables zero-hardcoding discovery so newly released models are immediately accessible.
    */
-  public async fetchProviderModels(provider: string, explicitApiKey?: string): Promise<DiscoveredModel[]> {
+  public async fetchProviderModels(
+    provider: string,
+    explicitApiKey?: string,
+    options?: { omitUnconfigured?: boolean } | boolean
+  ): Promise<DiscoveredModel[]> {
     const normProvider = provider.toLowerCase().trim();
+    const shouldOmit = typeof options === 'boolean' ? options : Boolean(options?.omitUnconfigured);
     const apiKey = explicitApiKey || this.resolveApiKey(normProvider);
+
+    if (shouldOmit && normProvider !== 'ollama' && !apiKey) {
+      return [];
+    }
 
     try {
       if (normProvider === 'ollama') {
@@ -137,11 +178,13 @@ export class ModelGateway {
               supportsVision: m.name.includes('vision') || m.name.includes('llava'),
               isFree: true,
               description: `Local Ollama model (${(m.size ? (m.size / (1024 * 1024 * 1024)).toFixed(1) : 0)} GB)`,
+              configured: true,
+              validated: true,
             }));
         }
         return [
-          { id: 'ollama/qwen2.5-coder:3b', name: 'Ollama qwen2.5-coder:3b', provider: 'ollama', contextWindow: 32768, isFree: true },
-          { id: 'ollama/gemma4:e2b', name: 'Ollama gemma4:e2b', provider: 'ollama', contextWindow: 32768, isFree: true },
+          { id: 'ollama/qwen2.5-coder:3b', name: 'Ollama qwen2.5-coder:3b', provider: 'ollama', contextWindow: 32768, isFree: true, configured: true, validated: true },
+          { id: 'ollama/gemma4:e2b', name: 'Ollama gemma4:e2b', provider: 'ollama', contextWindow: 32768, isFree: true, configured: true, validated: true },
         ];
       }
 
@@ -175,28 +218,30 @@ export class ModelGateway {
                 supportsVision: m.architecture?.modality?.includes('image') || false,
                 isFree: isZeroCost,
                 description: m.description || `OpenRouter model with ${m.context_length || 128000} context window`,
+                configured: Boolean(apiKey),
+                validated: Boolean(apiKey),
               };
             });
           }
         }
         // Fallback curated standard OpenRouter models if offline
         return [
-          { id: 'openrouter/deepseek/deepseek-r1:free', name: 'DeepSeek R1 (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 64000 },
-          { id: 'openrouter/meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B Instruct (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 128000 },
-          { id: 'openrouter/google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 1048576 },
-          { id: 'openrouter/qwen/qwen-2.5-coder-32b-instruct:free', name: 'Qwen 2.5 Coder 32B (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 32768 },
-          { id: 'openrouter/anthropic/claude-3.5-sonnet', name: 'Anthropic Claude 3.5 Sonnet', provider: 'openrouter', contextWindow: 200000 },
-          { id: 'openrouter/openai/gpt-4o', name: 'OpenAI GPT-4o', provider: 'openrouter', contextWindow: 128000 },
+          { id: 'openrouter/deepseek/deepseek-r1:free', name: 'DeepSeek R1 (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 64000, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'openrouter/meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B Instruct (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 128000, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'openrouter/google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 1048576, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'openrouter/qwen/qwen-2.5-coder-32b-instruct:free', name: 'Qwen 2.5 Coder 32B (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 32768, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'openrouter/anthropic/claude-3.5-sonnet', name: 'Anthropic Claude 3.5 Sonnet', provider: 'openrouter', contextWindow: 200000, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'openrouter/openai/gpt-4o', name: 'OpenAI GPT-4o', provider: 'openrouter', contextWindow: 128000, configured: Boolean(apiKey), validated: Boolean(apiKey) },
         ];
       }
 
       if (normProvider === 'openai') {
         const standardOpenAi: DiscoveredModel[] = [
-          { id: 'openai/gpt-4o', name: 'OpenAI GPT-4o', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true },
-          { id: 'openai/gpt-4o-mini', name: 'OpenAI GPT-4o Mini', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true },
-          { id: 'openai/o3-mini', name: 'OpenAI o3-mini (Reasoning)', provider: 'openai', contextWindow: 200000, supportsTools: true },
-          { id: 'openai/o1', name: 'OpenAI o1 (Advanced Reasoning)', provider: 'openai', contextWindow: 200000, supportsTools: true },
-          { id: 'openai/gpt-4.5-preview', name: 'OpenAI GPT-4.5 Preview', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true },
+          { id: 'openai/gpt-4o', name: 'OpenAI GPT-4o', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'openai/gpt-4o-mini', name: 'OpenAI GPT-4o Mini', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'openai/o3-mini', name: 'OpenAI o3-mini (Reasoning)', provider: 'openai', contextWindow: 200000, supportsTools: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'openai/o1', name: 'OpenAI o1 (Advanced Reasoning)', provider: 'openai', contextWindow: 200000, supportsTools: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'openai/gpt-4.5-preview', name: 'OpenAI GPT-4.5 Preview', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
         ];
         if (!apiKey) return standardOpenAi;
 
@@ -229,6 +274,8 @@ export class ModelGateway {
               maxOutputTokens: 16384,
               supportsTools: true,
               supportsVision: m.id.includes('4o') || m.id.includes('4.5'),
+              configured: true,
+              validated: true,
             }));
           }
         }
@@ -237,10 +284,10 @@ export class ModelGateway {
 
       if (normProvider === 'anthropic') {
         const standardAnthropic: DiscoveredModel[] = [
-          { id: 'anthropic/claude-3-7-sonnet-20250219', name: 'Claude 3.7 Sonnet (Hybrid Reasoning)', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true },
-          { id: 'anthropic/claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet (v2)', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true },
-          { id: 'anthropic/claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', provider: 'anthropic', contextWindow: 200000, supportsTools: true },
-          { id: 'anthropic/claude-3-opus-20240229', name: 'Claude 3 Opus', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true },
+          { id: 'anthropic/claude-3-7-sonnet-20250219', name: 'Claude 3.7 Sonnet (Hybrid Reasoning)', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'anthropic/claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet (v2)', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'anthropic/claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', provider: 'anthropic', contextWindow: 200000, supportsTools: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'anthropic/claude-3-opus-20240229', name: 'Claude 3 Opus', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
         ];
         if (!apiKey) return standardAnthropic;
 
@@ -264,6 +311,8 @@ export class ModelGateway {
                 contextWindow: 200000,
                 supportsTools: true,
                 supportsVision: true,
+                configured: true,
+                validated: true,
               }));
             }
           }
@@ -273,10 +322,10 @@ export class ModelGateway {
 
       if (normProvider === 'gemini') {
         const standardGemini: DiscoveredModel[] = [
-          { id: 'gemini/gemini-2.5-pro', name: 'Google Gemini 2.5 Pro', provider: 'gemini', contextWindow: 2097152, supportsTools: true, supportsVision: true },
-          { id: 'gemini/gemini-2.0-flash', name: 'Google Gemini 2.0 Flash', provider: 'gemini', contextWindow: 1048576, supportsTools: true, supportsVision: true },
-          { id: 'gemini/gemini-1.5-pro', name: 'Google Gemini 1.5 Pro', provider: 'gemini', contextWindow: 2097152, supportsTools: true, supportsVision: true },
-          { id: 'gemini/gemini-1.5-flash', name: 'Google Gemini 1.5 Flash', provider: 'gemini', contextWindow: 1048576, supportsTools: true, supportsVision: true },
+          { id: 'gemini/gemini-2.5-pro', name: 'Google Gemini 2.5 Pro', provider: 'gemini', contextWindow: 2097152, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'gemini/gemini-2.0-flash', name: 'Google Gemini 2.0 Flash', provider: 'gemini', contextWindow: 1048576, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'gemini/gemini-1.5-pro', name: 'Google Gemini 1.5 Pro', provider: 'gemini', contextWindow: 2097152, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'gemini/gemini-1.5-flash', name: 'Google Gemini 1.5 Flash', provider: 'gemini', contextWindow: 1048576, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
         ];
         if (!apiKey) return standardGemini;
 
@@ -300,6 +349,8 @@ export class ModelGateway {
                 supportsTools: true,
                 supportsVision: true,
                 description: m.description,
+                configured: true,
+                validated: true,
               };
             });
           }
@@ -309,8 +360,8 @@ export class ModelGateway {
 
       if (normProvider === 'deepseek') {
         const standardDeepSeek: DiscoveredModel[] = [
-          { id: 'deepseek/deepseek-chat', name: 'DeepSeek-V3 (Chat)', provider: 'deepseek', contextWindow: 64000, supportsTools: true },
-          { id: 'deepseek/deepseek-reasoner', name: 'DeepSeek-R1 (Reasoner)', provider: 'deepseek', contextWindow: 64000, supportsTools: true },
+          { id: 'deepseek/deepseek-chat', name: 'DeepSeek-V3 (Chat)', provider: 'deepseek', contextWindow: 64000, supportsTools: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'deepseek/deepseek-reasoner', name: 'DeepSeek-R1 (Reasoner)', provider: 'deepseek', contextWindow: 64000, supportsTools: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
         ];
         if (!apiKey) return standardDeepSeek;
 
@@ -330,6 +381,8 @@ export class ModelGateway {
                 provider: 'deepseek',
                 contextWindow: 64000,
                 supportsTools: true,
+                configured: true,
+                validated: true,
               }));
             }
           }
@@ -339,9 +392,9 @@ export class ModelGateway {
 
       if (normProvider === 'groq') {
         const standardGroq: DiscoveredModel[] = [
-          { id: 'groq/llama-3.3-70b-versatile', name: 'Groq Llama 3.3 70B Versatile', provider: 'groq', contextWindow: 128000, supportsTools: true },
-          { id: 'groq/deepseek-r1-distill-llama-70b', name: 'Groq DeepSeek R1 Distill 70B', provider: 'groq', contextWindow: 128000, supportsTools: true },
-          { id: 'groq/mixtral-8x7b-32768', name: 'Groq Mixtral 8x7B', provider: 'groq', contextWindow: 32768, supportsTools: true },
+          { id: 'groq/llama-3.3-70b-versatile', name: 'Groq Llama 3.3 70B Versatile', provider: 'groq', contextWindow: 128000, supportsTools: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'groq/deepseek-r1-distill-llama-70b', name: 'Groq DeepSeek R1 Distill 70B', provider: 'groq', contextWindow: 128000, supportsTools: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'groq/mixtral-8x7b-32768', name: 'Groq Mixtral 8x7B', provider: 'groq', contextWindow: 32768, supportsTools: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
         ];
         if (!apiKey) return standardGroq;
 
@@ -361,6 +414,8 @@ export class ModelGateway {
               provider: 'groq',
               contextWindow: m.context_window || 128000,
               supportsTools: true,
+              configured: true,
+              validated: true,
             }));
           }
         }

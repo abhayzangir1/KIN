@@ -25,11 +25,12 @@ export type LedgerEventType =
   | 'EVIDENCE_RECORDED'
   | 'TASK_COMPLETED'
   | 'RUN_FAILED'
-  | 'RUN_RECOVERED';
+  | 'RUN_RECOVERED'
+  | (string & {});
 
 export interface LedgerEventParams {
   eventType: LedgerEventType;
-  entityType: 'agent' | 'run' | 'task' | 'goal' | 'channel' | 'tool' | 'approval' | 'system';
+  entityType: 'agent' | 'run' | 'task' | 'goal' | 'channel' | 'tool' | 'approval' | 'system' | (string & {});
   entityId: string;
   runId?: string;
   payload: Record<string, any>;

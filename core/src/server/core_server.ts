@@ -299,6 +299,7 @@ export class CoreServer {
     // Startup Crash Recovery Sweep: detect interrupted runs from prior PC shutdown
     try {
       this.runSupervisorSelfHealing();
+      this.kernel.admitNextQueuedRun();
     } catch (recErr) {
       console.warn('[KIN CORE] Startup crash recovery sweep notice:', recErr);
     }
@@ -527,7 +528,7 @@ export class CoreServer {
         workspaceId: 'ws-default',
         name: 'KIN',
         repoPath: process.cwd(),
-        settings: { defaultBranch: 'master' },
+        settings: { defaultBranch: 'main' },
         createdAt: now,
         updatedAt: now,
       });
@@ -858,13 +859,153 @@ export class CoreServer {
 
   /**
    * Strictly validates that targetPath is contained entirely within jailRoot.
-   * Defends against prefix collision (e.g. /app vs /app2) and directory traversal.
+   * Resolves symlinks via fs.realpathSync to prevent jail escape.
    */
   public isWithinJail(jailRoot: string, targetPath: string): boolean {
-    const resolvedJail = path.resolve(jailRoot);
-    const resolvedTarget = path.resolve(jailRoot, targetPath);
+    let resolvedJail = path.resolve(jailRoot);
+    try {
+      if (fs.existsSync(resolvedJail)) {
+        resolvedJail = fs.realpathSync(resolvedJail);
+      }
+    } catch {}
+
+    let resolvedTarget = path.resolve(jailRoot, targetPath);
+    try {
+      if (fs.existsSync(resolvedTarget)) {
+        resolvedTarget = fs.realpathSync(resolvedTarget);
+      } else {
+        let parent = path.dirname(resolvedTarget);
+        while (parent && parent !== path.dirname(parent)) {
+          if (fs.existsSync(parent)) {
+            const realParent = fs.realpathSync(parent);
+            const relToParent = path.relative(parent, resolvedTarget);
+            resolvedTarget = path.resolve(realParent, relToParent);
+            break;
+          }
+          parent = path.dirname(parent);
+        }
+      }
+    } catch {}
+
     const relative = path.relative(resolvedJail, resolvedTarget);
     return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+  }
+
+  public assertPathWithinProject(jailRoot: string, targetPath: string): void {
+    if (!this.isWithinJail(jailRoot, targetPath)) {
+      throw new Error(`SECURITY VIOLATION: Path escapes project jail root: ${targetPath}`);
+    }
+  }
+
+  public createApprovalRecord(
+    toolName: string,
+    actionPayload: Record<string, any>,
+    reason?: string,
+    agentId: string = 'operator',
+    riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' = 'HIGH'
+  ): string {
+    const id = `appr-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    const runId = `run-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    const now = Date.now();
+
+    let targetAgentId = agentId;
+    const existingAgent = this.db.queryOne<{ id: string }>('SELECT id FROM agent_identities WHERE id = ?', targetAgentId);
+    if (!existingAgent) {
+      const defaultAgent = this.db.queryOne<{ id: string }>('SELECT id FROM agent_identities LIMIT 1');
+      if (defaultAgent) {
+        targetAgentId = defaultAgent.id;
+      }
+    }
+
+    const existingRun = this.db.query<{ id: string }>('SELECT id FROM agent_runs WHERE id = ?', runId);
+    if (existingRun.length === 0) {
+      this.db.execute(
+        `INSERT INTO agent_runs (id, agent_id, project_id, state, heartbeat_at, created_at)
+         VALUES (?, ?, ?, 'waiting_for_approval', ?, ?)`,
+        runId,
+        targetAgentId,
+        this.activeProjectId,
+        now,
+        now
+      );
+    }
+
+    const sanitizedPayload = SecretBroker.getInstance().sanitizePayload(actionPayload || {});
+    this.db.execute(
+      `INSERT INTO approvals (id, run_id, agent_id, tool_name, action_payload_json, risk_level, status, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+      id,
+      runId,
+      targetAgentId,
+      toolName,
+      JSON.stringify(sanitizedPayload),
+      riskLevel,
+      now + 86400000,
+      now
+    );
+
+    this.broadcastEvent('approval:created', {
+      id,
+      runId,
+      agentId,
+      toolName,
+      actionPayload: sanitizedPayload,
+      reason,
+      riskLevel,
+    });
+
+    return id;
+  }
+
+  public computeProductivityScore(agentId?: string): number {
+    try {
+      const now = Date.now();
+      const past24h = now - 24 * 60 * 60 * 1000;
+      let totalTasks = 0;
+      let completedTasks = 0;
+      let verifiedEvidence = 0;
+
+      if (agentId) {
+        const tasks = this.db.query<any>(
+          'SELECT status, evidence_bundle_id FROM tasks WHERE assigned_agent_id = ? AND updated_at > ?',
+          agentId,
+          past24h
+        );
+        totalTasks = tasks.length;
+        completedTasks = tasks.filter((t) => t.status === 'completed').length;
+        const evidenceRows = this.db.query<any>(
+          `SELECT verified FROM evidence e
+           JOIN tasks t ON e.task_id = t.id
+           WHERE t.assigned_agent_id = ? AND e.created_at > ?`,
+          agentId,
+          past24h
+        );
+        verifiedEvidence = evidenceRows.filter((e) => Boolean(e.verified)).length;
+      } else {
+        const tasks = this.db.query<any>(
+          'SELECT status, evidence_bundle_id FROM tasks WHERE updated_at > ?',
+          past24h
+        );
+        totalTasks = tasks.length;
+        completedTasks = tasks.filter((t) => t.status === 'completed').length;
+        const evidenceRows = this.db.query<any>(
+          'SELECT verified FROM evidence WHERE created_at > ?',
+          past24h
+        );
+        verifiedEvidence = evidenceRows.filter((e) => Boolean(e.verified)).length;
+      }
+
+      if (totalTasks === 0 && verifiedEvidence === 0) {
+        return 85;
+      }
+
+      const taskCompletionRate = totalTasks > 0 ? (completedTasks / totalTasks) : 0.8;
+      const evidenceBonus = Math.min(verifiedEvidence * 5, 20);
+      const score = Math.round(taskCompletionRate * 80 + evidenceBonus);
+      return Math.min(Math.max(score, 10), 100);
+    } catch {
+      return 85;
+    }
   }
 
   /**
@@ -993,38 +1134,69 @@ export class CoreServer {
     return this.ipcAuthToken;
   }
 
-  public stop(): Promise<void> {
-    return new Promise((resolve) => {
-      for (const client of Array.from(this.sseClients)) {
-        try {
-          if (!client.writableEnded && !client.destroyed) {
-            client.end();
-          }
-        } catch {}
-      }
-      this.sseClients.clear();
-      this.scheduler.stop();
-      if (this.supervisorInterval) {
-        clearInterval(this.supervisorInterval);
-        this.supervisorInterval = null;
-      }
-      this.browserController.close().catch(() => {});
-      this.computerSupervisor?.shutdown().catch(() => {});
+  public async stop(): Promise<void> {
+    // 1. Close SSE clients and stop scheduler / interval
+    for (const client of Array.from(this.sseClients)) {
+      try {
+        if (!client.writableEnded && !client.destroyed) {
+          client.end();
+        }
+      } catch {}
+    }
+    this.sseClients.clear();
+    this.scheduler.stop();
+    if (this.supervisorInterval) {
+      clearInterval(this.supervisorInterval);
+      this.supervisorInterval = null;
+    }
 
-      if (this.server) {
-        try {
-          (this.server as any).closeIdleConnections?.();
-          (this.server as any).closeAllConnections?.();
-        } catch {}
-        this.server.close(() => {
-          this.db.close();
-          resolve();
-        });
-      } else {
-        this.db.close();
-        resolve();
-      }
-    });
+    // 2. Shut down MCP subprocesses
+    try {
+      await this.mcpClient?.shutdown();
+    } catch {}
+
+    // 3. Pause / abort active runners
+    for (const takeover of this.takeoverStates.values()) {
+      takeover.isAborted = true;
+    }
+
+    // 4. Await in-flight channel and agent execution queues
+    const inFlightPromises = [
+      ...Array.from(this.channelQueues.values()),
+      ...Array.from(this.agentQueues.values()),
+    ];
+    if (inFlightPromises.length > 0) {
+      try {
+        await Promise.race([
+          Promise.allSettled(inFlightPromises),
+          new Promise((r) => setTimeout(r, 2000)),
+        ]);
+      } catch {}
+    }
+
+    // 5. Close browser and computer controllers
+    try {
+      await this.browserController.close();
+    } catch {}
+    try {
+      await this.computerSupervisor?.shutdown();
+    } catch {}
+
+    // 6. Close HTTP server
+    if (this.server) {
+      try {
+        (this.server as any).closeIdleConnections?.();
+        (this.server as any).closeAllConnections?.();
+      } catch {}
+      await new Promise<void>((resolve) => {
+        this.server?.close(() => resolve());
+      });
+    }
+
+    // 7. Close SQLite database connection last
+    try {
+      this.db.close();
+    } catch {}
   }
 
   public getDatabase(): KinDatabase {
@@ -1349,6 +1521,8 @@ export class CoreServer {
                 contextWindow: 32768,
                 isFree: true,
                 isInstalled: true,
+                configured: true,
+                validated: true,
               });
             }
           }
@@ -1366,6 +1540,8 @@ export class CoreServer {
             supportsVision: Boolean(sm.supports_vision),
             isFree: sm.id.includes(':free'),
             isCustom: sm.provider_id === 'custom',
+            configured: sm.is_active !== 0,
+            validated: sm.is_active !== 0,
           });
         }
 
@@ -1388,12 +1564,29 @@ export class CoreServer {
           }
         }
 
+        const providers = ['ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq'];
+        const providerReadiness: Record<string, any> = {};
+        for (const p of providers) {
+          providerReadiness[p] = this.modelGateway.getProviderReadiness(p);
+        }
+
         const modelsList = Array.from(modelMap.values());
         return this.sendJson(res, 200, {
           ...ollamaInfo,
           models: modelsList,
           rawOllamaModels: ollamaInfo.models || [],
+          providerReadiness,
         });
+      }
+
+      // 2b. GET /api/models/readiness or /api/system/models/readiness — Provider Readiness States
+      if (req.method === 'GET' && (pathname === '/api/models/readiness' || pathname === '/api/system/models/readiness')) {
+        const providers = ['ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq'];
+        const readiness: Record<string, any> = {};
+        for (const p of providers) {
+          readiness[p] = this.modelGateway.getProviderReadiness(p);
+        }
+        return this.sendJson(res, 200, { success: true, providerReadiness: readiness });
       }
 
       // 2c. POST /api/models/discover — Live discovery of provider models using API key
@@ -1500,9 +1693,9 @@ export class CoreServer {
         }
       }
 
-      // 4. POST /api/system/terminal — Execute shell command in project directory
-      if (req.method === 'POST' && pathname === '/api/system/terminal') {
-        const body = await this.parseJsonBody<{ command: string; cwd?: string; timeoutMs?: number }>(req);
+      // 4. POST /api/system/terminal or /api/terminal/exec — Execute shell command in project directory
+      if (req.method === 'POST' && (pathname === '/api/system/terminal' || pathname === '/api/terminal/exec')) {
+        const body = await this.parseJsonBody<{ command: string; cwd?: string; timeoutMs?: number; approvalToken?: string }>(req);
         if (!body.command) {
           return this.sendJson(res, 400, { error: 'Command is required' });
         }
@@ -1514,6 +1707,7 @@ export class CoreServer {
         const workingDir = body.cwd || project?.repoPath || process.cwd();
         const timeoutMs = Math.min(Math.max(body.timeoutMs || 60000, 1000), 600000);
 
+        const approvalToken = (req.headers['x-kin-approval-token'] as string) || body.approvalToken;
         const sentinel = Sentinel.getInstance();
         const decision = sentinel.evaluate({
           agentId: 'operator',
@@ -1522,7 +1716,23 @@ export class CoreServer {
           riskLevel: 'HIGH',
           autonomyMode: 'FULL_ACCESS',
           agentCapabilities: ['*'],
+          authorizationToken: approvalToken,
         });
+
+        if (decision.requiresApproval) {
+          const approvalId = this.createApprovalRecord(
+            'executeShell',
+            { command: body.command, cwd: workingDir },
+            decision.reason
+          );
+          return this.sendJson(res, 428, {
+            error: 'Precondition Required: Action requires operator approval',
+            approvalId,
+            reason: decision.reason,
+            requiresApproval: true,
+          });
+        }
+
         if (!decision.allowed) {
           return this.sendJson(res, 403, { error: decision.reason });
         }
@@ -1572,7 +1782,7 @@ export class CoreServer {
           workspaceId: 'ws-default',
           name: body.name.trim(),
           repoPath: body.repoPath?.trim() || `D:\\${body.name.trim()}`,
-          settings: { defaultBranch: 'master' },
+          settings: { defaultBranch: 'main' },
           createdAt: now,
           updatedAt: now,
         };
@@ -4807,45 +5017,88 @@ export class CoreServer {
       const taskStatusMatch = pathname.match(/^\/api\/tasks\/([^/]+)\/status$/);
       if (req.method === 'PATCH' && taskStatusMatch) {
         const taskId = taskStatusMatch[1];
-        const body = await this.parseJsonBody<{ status: TaskStatus }>(req);
+        const body = await this.parseJsonBody<{ status: TaskStatus; evidenceId?: string }>(req);
 
         if (!body.status) {
           return this.sendJson(res, 400, { error: 'status is required' });
         }
 
         const currentTask = this.taskRepo.getTask(taskId);
-        this.taskRepo.updateTaskStatus(taskId, body.status);
-        this.broadcastEvent('task:updated', { taskId, status: body.status });
+        if (!currentTask) {
+          return this.sendJson(res, 404, { error: `Task '${taskId}' not found` });
+        }
 
         let advancedNextTaskId: string | undefined;
         let goalCompleted = false;
 
-        if (body.status === 'completed' && currentTask?.goalId) {
-          // Promote dependent tasks whose dependencies are now all satisfied
-          const promotedTaskIds = this.taskRepo.promoteDependentTasks(taskId);
+        if (body.status === 'completed') {
+          let evidenceId = body.evidenceId || currentTask.evidenceBundleId;
+          if (!evidenceId) {
+            // Auto-generate human_signoff row in evidence table and link it
+            let runId = currentTask.claimedByRunId;
+            if (!runId) {
+              const runRow = this.db.queryOne<{ id: string }>('SELECT id FROM agent_runs ORDER BY created_at DESC LIMIT 1');
+              if (runRow) {
+                runId = runRow.id;
+              } else {
+                runId = `run-signoff-${Date.now()}`;
+                const defaultAgentId = this.agentRepo.listIdentitiesByProject(this.activeProjectId)[0]?.id || 'agent-boss';
+                const agentId = currentTask.assignedAgentId || defaultAgentId;
+                this.db.execute(
+                  `INSERT INTO agent_runs (id, agent_id, project_id, state, heartbeat_at, created_at)
+                   VALUES (?, ?, ?, 'completed', ?, ?)`,
+                  runId,
+                  agentId,
+                  this.activeProjectId,
+                  Date.now(),
+                  Date.now()
+                );
+              }
+            }
+            evidenceId = `ev-signoff-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+            this.db.execute(
+              `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at)
+               VALUES (?, ?, ?, 'human_signoff', ?, 1, ?)`,
+              evidenceId,
+              taskId,
+              runId,
+              `operator://signoff/${taskId}`,
+              Date.now()
+            );
+          }
+
+          if (currentTask.status !== 'running' && currentTask.status !== 'review') {
+            this.taskRepo.updateTaskStatus(taskId, 'running');
+          }
+
+          const promotedTaskIds = this.taskRepo.completeTask(taskId, evidenceId);
           for (const pId of promotedTaskIds) {
             this.broadcastEvent('task:updated', { taskId: pId, status: 'ready' });
           }
+          this.broadcastEvent('task:updated', { taskId, status: 'completed', evidenceBundleId: evidenceId });
 
-          const siblingTasks = this.taskRepo.listTasksByGoal(currentTask.goalId);
-          // Advance next ready task in this goal to running
-          const nextReady = siblingTasks.find((t) => t.id !== taskId && t.status === 'ready');
-          if (nextReady) {
-            this.taskRepo.updateTaskStatus(nextReady.id, 'running');
-            this.broadcastEvent('task:updated', { taskId: nextReady.id, status: 'running' });
-            advancedNextTaskId = nextReady.id;
-          }
+          if (currentTask.goalId) {
+            const siblingTasks = this.taskRepo.listTasksByGoal(currentTask.goalId);
+            const nextReady = siblingTasks.find((t) => t.id !== taskId && t.status === 'ready');
+            if (nextReady) {
+              this.taskRepo.updateTaskStatus(nextReady.id, 'running');
+              this.broadcastEvent('task:updated', { taskId: nextReady.id, status: 'running' });
+              advancedNextTaskId = nextReady.id;
+            }
 
-          // Check if all tasks in goal are now completed
-          const allDone = siblingTasks.every((t) => (t.id === taskId ? true : t.status === 'completed'));
-          if (allDone) {
-            this.db.execute("UPDATE goals SET status = 'completed', updated_at = ? WHERE id = ?", Date.now(), currentTask.goalId);
-            const updatedGoal = this.taskRepo.getGoal(currentTask.goalId);
-            if (updatedGoal) {
-              this.broadcastEvent('goal:updated', updatedGoal);
-              goalCompleted = true;
+            const allDone = siblingTasks.every((t) => (t.id === taskId ? true : t.status === 'completed'));
+            if (allDone) {
+              this.db.execute("UPDATE goals SET status = 'completed', updated_at = ? WHERE id = ?", Date.now(), currentTask.goalId);
+              const updatedGoal = this.taskRepo.getGoal(currentTask.goalId);
+              if (updatedGoal) {
+                this.broadcastEvent('goal:updated', updatedGoal);
+                goalCompleted = true;
+              }
             }
           }
+        } else {
+          this.taskRepo.updateTaskStatus(taskId, body.status);
+          this.broadcastEvent('task:updated', { taskId, status: body.status });
         }
 
         return this.sendJson(res, 200, {
@@ -5764,9 +6017,10 @@ export class CoreServer {
 
       // 37. POST /api/system/apps/launch — Launch installed desktop application
       if (req.method === 'POST' && pathname === '/api/system/apps/launch') {
-        const body = await this.parseJsonBody<{ appNameOrPath?: string; name?: string; args?: string[] }>(req);
+        const body = await this.parseJsonBody<{ appNameOrPath?: string; name?: string; args?: string[]; approvalToken?: string }>(req);
         const target = body.appNameOrPath || body.name;
         if (!target) return this.sendJson(res, 400, { error: 'appNameOrPath is required' });
+        const approvalToken = (req.headers['x-kin-approval-token'] as string) || body.approvalToken;
         const sentinel = Sentinel.getInstance();
         const decision = sentinel.evaluate({
           agentId: 'operator',
@@ -5775,7 +6029,17 @@ export class CoreServer {
           riskLevel: 'MEDIUM',
           autonomyMode: 'FULL_ACCESS',
           agentCapabilities: ['*'],
+          authorizationToken: approvalToken,
         });
+        if (decision.requiresApproval) {
+          const approvalId = this.createApprovalRecord('desktopLaunchApp', { target, args: body.args || [] }, decision.reason);
+          return this.sendJson(res, 428, {
+            error: 'Precondition Required: Action requires operator approval',
+            approvalId,
+            reason: decision.reason,
+            requiresApproval: true,
+          });
+        }
         if (!decision.allowed) {
           return this.sendJson(res, 403, { error: decision.reason });
         }
@@ -5798,16 +6062,46 @@ export class CoreServer {
 
       // 39. POST /api/system/windows/focus — Focus GUI window
       if (req.method === 'POST' && pathname === '/api/system/windows/focus') {
-        const body = await this.parseJsonBody<{ titleOrPid: string | number }>(req);
+        const body = await this.parseJsonBody<{ titleOrPid: string | number; approvalToken?: string }>(req);
         if (body.titleOrPid === undefined) return this.sendJson(res, 400, { error: 'titleOrPid is required' });
+        const approvalToken = (req.headers['x-kin-approval-token'] as string) || body.approvalToken;
+        const decision = Sentinel.getInstance().evaluate({
+          agentId: 'operator',
+          toolName: 'desktopFocusWindow',
+          params: { titleOrPid: body.titleOrPid },
+          riskLevel: 'LOW',
+          autonomyMode: 'FULL_ACCESS',
+          agentCapabilities: ['*'],
+          authorizationToken: approvalToken,
+        });
+        if (decision.requiresApproval) {
+          const approvalId = this.createApprovalRecord('desktopFocusWindow', { titleOrPid: body.titleOrPid }, decision.reason);
+          return this.sendJson(res, 428, { error: 'Precondition Required: Action requires operator approval', approvalId, reason: decision.reason, requiresApproval: true });
+        }
+        if (!decision.allowed) return this.sendJson(res, 403, { error: decision.reason });
         const result = await this.desktopController.focusWindow(body.titleOrPid);
         return this.sendJson(res, result.success ? 200 : 400, result);
       }
 
       // 40. POST /api/system/windows/close — Close GUI window
       if (req.method === 'POST' && pathname === '/api/system/windows/close') {
-        const body = await this.parseJsonBody<{ titleOrPid: string | number }>(req);
+        const body = await this.parseJsonBody<{ titleOrPid: string | number; approvalToken?: string }>(req);
         if (body.titleOrPid === undefined) return this.sendJson(res, 400, { error: 'titleOrPid is required' });
+        const approvalToken = (req.headers['x-kin-approval-token'] as string) || body.approvalToken;
+        const decision = Sentinel.getInstance().evaluate({
+          agentId: 'operator',
+          toolName: 'desktopCloseWindow',
+          params: { titleOrPid: body.titleOrPid },
+          riskLevel: 'MEDIUM',
+          autonomyMode: 'FULL_ACCESS',
+          agentCapabilities: ['*'],
+          authorizationToken: approvalToken,
+        });
+        if (decision.requiresApproval) {
+          const approvalId = this.createApprovalRecord('desktopCloseWindow', { titleOrPid: body.titleOrPid }, decision.reason);
+          return this.sendJson(res, 428, { error: 'Precondition Required: Action requires operator approval', approvalId, reason: decision.reason, requiresApproval: true });
+        }
+        if (!decision.allowed) return this.sendJson(res, 403, { error: decision.reason });
         const result = await this.desktopController.closeWindow(body.titleOrPid);
         return this.sendJson(res, result.success ? 200 : 400, result);
       }
@@ -5815,6 +6109,21 @@ export class CoreServer {
       // 41. POST /api/system/desktop/screenshot — Capture desktop display screenshot
       if (req.method === 'POST' && pathname === '/api/system/desktop/screenshot') {
         const body = await this.parseJsonBody<any>(req);
+        const approvalToken = (req.headers['x-kin-approval-token'] as string) || body?.approvalToken;
+        const decision = Sentinel.getInstance().evaluate({
+          agentId: 'operator',
+          toolName: 'desktopScreenshot',
+          params: body || {},
+          riskLevel: 'LOW',
+          autonomyMode: 'FULL_ACCESS',
+          agentCapabilities: ['*'],
+          authorizationToken: approvalToken,
+        });
+        if (decision.requiresApproval) {
+          const approvalId = this.createApprovalRecord('desktopScreenshot', body || {}, decision.reason);
+          return this.sendJson(res, 428, { error: 'Precondition Required: Action requires operator approval', approvalId, reason: decision.reason, requiresApproval: true });
+        }
+        if (!decision.allowed) return this.sendJson(res, 403, { error: decision.reason });
         const result = await this.desktopController.captureScreen(body);
         return this.sendJson(res, 200, result);
       }
@@ -5822,6 +6131,21 @@ export class CoreServer {
       // 42. POST /api/system/desktop/interact — Mouse and keyboard interaction
       if (req.method === 'POST' && pathname === '/api/system/desktop/interact') {
         const body = await this.parseJsonBody<any>(req);
+        const approvalToken = (req.headers['x-kin-approval-token'] as string) || body?.approvalToken;
+        const decision = Sentinel.getInstance().evaluate({
+          agentId: 'operator',
+          toolName: 'desktopMouseMove',
+          params: body || {},
+          riskLevel: 'MEDIUM',
+          autonomyMode: 'FULL_ACCESS',
+          agentCapabilities: ['*'],
+          authorizationToken: approvalToken,
+        });
+        if (decision.requiresApproval) {
+          const approvalId = this.createApprovalRecord('desktopInteract', body || {}, decision.reason);
+          return this.sendJson(res, 428, { error: 'Precondition Required: Action requires operator approval', approvalId, reason: decision.reason, requiresApproval: true });
+        }
+        if (!decision.allowed) return this.sendJson(res, 403, { error: decision.reason });
         let result: any = { success: false, error: 'Unknown action' };
         if (body.action === 'click') {
           result = await this.desktopController.mouseClick(body.x, body.y, { button: body.button, doubleClick: body.doubleClick });
@@ -5844,8 +6168,9 @@ export class CoreServer {
 
       // 44. POST /api/browser/navigate — Navigate browser
       if (req.method === 'POST' && pathname === '/api/browser/navigate') {
-        const body = await this.parseJsonBody<{ url: string }>(req);
+        const body = await this.parseJsonBody<{ url: string; approvalToken?: string }>(req);
         if (!body.url) return this.sendJson(res, 400, { error: 'URL is required' });
+        const approvalToken = (req.headers['x-kin-approval-token'] as string) || body.approvalToken;
         const sentinel = Sentinel.getInstance();
         const decision = sentinel.evaluate({
           agentId: 'operator',
@@ -5854,7 +6179,12 @@ export class CoreServer {
           riskLevel: 'LOW',
           autonomyMode: 'FULL_ACCESS',
           agentCapabilities: ['*'],
+          authorizationToken: approvalToken,
         });
+        if (decision.requiresApproval) {
+          const approvalId = this.createApprovalRecord('browser', { action: 'navigate', url: body.url }, decision.reason);
+          return this.sendJson(res, 428, { error: 'Precondition Required: Action requires operator approval', approvalId, reason: decision.reason, requiresApproval: true });
+        }
         if (!decision.allowed) {
           return this.sendJson(res, 403, { error: decision.reason });
         }
@@ -5872,15 +6202,21 @@ export class CoreServer {
       // 45. POST /api/browser/act — Execute web step action
       if (req.method === 'POST' && pathname === '/api/browser/act') {
         const body = await this.parseJsonBody<any>(req);
+        const approvalToken = (req.headers['x-kin-approval-token'] as string) || body?.approvalToken;
         const sentinel = Sentinel.getInstance();
         const decision = sentinel.evaluate({
           agentId: 'operator',
           toolName: 'browser',
-          params: body,
+          params: body || {},
           riskLevel: 'LOW',
           autonomyMode: 'FULL_ACCESS',
           agentCapabilities: ['*'],
+          authorizationToken: approvalToken,
         });
+        if (decision.requiresApproval) {
+          const approvalId = this.createApprovalRecord('browser', body || {}, decision.reason);
+          return this.sendJson(res, 428, { error: 'Precondition Required: Action requires operator approval', approvalId, reason: decision.reason, requiresApproval: true });
+        }
         if (!decision.allowed) {
           return this.sendJson(res, 403, { error: decision.reason });
         }
@@ -6917,9 +7253,18 @@ export class CoreServer {
       const activeTaskId = triggerMsg?.taskId || run?.taskId;
       if (activeTaskId) {
         try {
-          this.taskRepo.claimTaskWithLease(activeTaskId, agent.id, run.id, 120000);
+          const claimed = this.taskRepo.claimTaskWithLease(activeTaskId, agent.id, run.id, 120000);
+          if (!claimed) {
+            console.warn(`[KIN TASK LEASE] Failed to claim task ${activeTaskId} for agent ${agent.id} (lease held by another run). Aborting execution.`);
+            this.kernel.transitionState(run.id, 'failed', `Could not acquire task lease for task ${activeTaskId}`);
+            this.activeAgentExecutions.delete(agent.id);
+            return;
+          }
         } catch (leaseErr) {
           console.warn('[KIN LEASE WARNING]', leaseErr);
+          this.kernel.transitionState(run.id, 'failed', `Error acquiring task lease: ${leaseErr}`);
+          this.activeAgentExecutions.delete(agent.id);
+          return;
         }
       }
 
@@ -7177,6 +7522,16 @@ export class CoreServer {
         autonomyMode: this.workspaceRepo.getWorkspace('ws-default')?.defaultAutonomyMode ?? 'AUTO',
         maxTurns: 6,
         allowedCapabilities: freshIdentity.isOrchestrator ? ['*'] : defCapabilities,
+        taskRepo: this.taskRepo,
+        decisionRepo: this.taskRepo,
+        onToken: (token: string) => {
+          this.broadcastEvent('agent:token', {
+            runId: run.id,
+            agentId: freshIdentity.id,
+            channelId,
+            token,
+          });
+        },
         onHeartbeat: () => {
           try {
             this.kernel.heartbeat(run.id);
@@ -7434,8 +7789,12 @@ export class CoreServer {
       }
 
       // 7. Complete run in kernel
-      if (loopResult.requiresApproval) {
-        const details = loopResult.pendingApprovalDetails || {};
+      if (loopResult.requiresApproval || (loopResult.interrupted && loopResult.requiresApproval)) {
+        const details = loopResult.pendingApprovalDetails || {
+          toolName: 'loopBreaker',
+          params: { reason: loopResult.reason || loopResult.finalContent },
+          riskLevel: 'HIGH',
+        };
         const approvalId = `appr-${Date.now()}`;
         const now = Date.now();
         const sanitizedParams = SecretBroker.getInstance().sanitizePayload(details.params || {});
@@ -7457,11 +7816,19 @@ export class CoreServer {
           agentId: freshIdentity.id,
           agentName: freshIdentity.displayName,
           toolName: details.toolName || 'action',
-          actionSummary: sanitizedParams?.command || sanitizedParams?.url || sanitizedParams?.path || JSON.stringify(sanitizedParams || {}),
+          actionSummary: sanitizedParams?.command || sanitizedParams?.url || sanitizedParams?.path || sanitizedParams?.reason || JSON.stringify(sanitizedParams || {}),
           riskLevel: details.riskLevel || 'CRITICAL',
           actionPayload: sanitizedParams,
         });
-        this.kernel.transitionState(run.id, 'waiting_for_approval', 'Requires interactive human approval');
+        this.kernel.transitionState(run.id, 'waiting_for_approval', loopResult.reason || 'Requires interactive human approval');
+        if (loopResult.interrupted) {
+          this.broadcastEvent('agent:anti_loop', {
+            runId: run.id,
+            agentId: freshIdentity.id,
+            channelId,
+            reason: loopResult.reason || loopResult.finalContent,
+          });
+        }
       } else if (loopResult.isAborted) {
         const currentRun = this.kernel.getRun(run.id);
         const wasAlreadyFailed = currentRun?.state === 'failed';

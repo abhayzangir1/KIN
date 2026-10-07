@@ -5,6 +5,7 @@
 
 import { KinDatabase } from '../storage/db.js';
 import { Message, SenderType } from '../domain/types.js';
+import { EventLedger } from '../security/event_ledger.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface SendMessageParams {
@@ -55,16 +56,25 @@ export class ChannelService {
       message.createdAt
     );
 
-    // Record event in append-only journal
-    this.db.execute(
-      `INSERT INTO event_journal (event_type, entity_type, entity_id, payload_json, created_at)
-       VALUES (?, ?, ?, ?, ?)`,
-      'message.created',
-      'message',
-      message.id,
-      JSON.stringify({ channelId: message.channelId, senderId: message.senderId, mentions }),
-      now
-    );
+    // Record event in append-only journal through authoritative EventLedger
+    try {
+      EventLedger.getInstance().record({
+        eventType: 'message.created',
+        entityType: 'message',
+        entityId: message.id,
+        payload: { channelId: message.channelId, senderId: message.senderId, mentions },
+      });
+    } catch {
+      this.db.execute(
+        `INSERT INTO event_journal (event_type, entity_type, entity_id, payload_json, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        'message.created',
+        'message',
+        message.id,
+        JSON.stringify({ channelId: message.channelId, senderId: message.senderId, mentions }),
+        now
+      );
+    }
 
     return message;
   }

@@ -214,6 +214,21 @@ describe('KIN Phase 0/1: Domain Repositories & Execution Contracts', () => {
     expect(taskRepo.getTask('task-2')?.status).toBe('backlog');
 
     // 2. Complete Task 1 with verified evidence bundle
+    db.execute(
+      `INSERT OR IGNORE INTO agent_runs (id, agent_id, project_id, state, heartbeat_at, created_at) VALUES ('run-test-1', 'agent-worker-a', 'proj-dag', 'running', ?, ?)`,
+      now,
+      now
+    );
+    db.execute(
+      `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      'evidence-bundle-001',
+      'task-1',
+      'run-test-1',
+      'artifact_hash',
+      'evidence://task-1/bundle-001',
+      1,
+      Date.now()
+    );
     taskRepo.completeTask('task-1', 'evidence-bundle-001');
     expect(taskRepo.getTask('task-1')?.status).toBe('completed');
 
@@ -226,6 +241,21 @@ describe('KIN Phase 0/1: Domain Repositories & Execution Contracts', () => {
     // Now claim and complete Task 2
     expect(taskRepo.claimTask('task-2', 'agent-worker-b')).toBe(true);
     taskRepo.updateTaskStatus('task-2', 'running');
+    db.execute(
+      `INSERT OR IGNORE INTO agent_runs (id, agent_id, project_id, state, heartbeat_at, created_at) VALUES ('run-test-2', 'agent-worker-b', 'proj-dag', 'running', ?, ?)`,
+      now,
+      now
+    );
+    db.execute(
+      `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      'evidence-bundle-002',
+      'task-2',
+      'run-test-2',
+      'artifact_hash',
+      'evidence://task-2/bundle-002',
+      1,
+      Date.now()
+    );
     taskRepo.completeTask('task-2', 'evidence-bundle-002');
     expect(taskRepo.getTask('task-2')?.status).toBe('completed');
 

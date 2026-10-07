@@ -45,6 +45,9 @@ export interface AgentLoopOptions {
   onTokenUsage?: (tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }) => Promise<{ exceeded: boolean }> | { exceeded: boolean } | void;
   onHeartbeat?: () => void;
   onRenewLease?: (taskId: string) => Promise<boolean> | boolean;
+  onToken?: (token: string) => void;
+  taskRepo?: any;
+  decisionRepo?: any;
   checkTakeoverStatus?: () => 'continue' | 'pause' | 'abort';
   getSteerDirectives?: () => string[];
   getModelId?: () => string;
@@ -69,6 +72,10 @@ export interface AgentLoopResult {
   quotaResetAt?: number;
   interruptedTurn?: number;
   checkpointSaved?: boolean;
+  success?: boolean;
+  interrupted?: boolean;
+  reason?: string;
+  history?: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
 }
 
 export class AgentLoopRunner {
@@ -219,6 +226,29 @@ export class AgentLoopRunner {
               )
             );
 
+            let immutableDecisions: Array<{ key: string; decision: string }> = [];
+            let pendingTaskDag: Array<{ id: string; title: string; dependsOn: string[] }> = [];
+            if (options.taskRepo) {
+              try {
+                const allTasks = options.taskRepo.listTasksByProject(options.projectId || 'proj-kin');
+                pendingTaskDag = allTasks
+                  .filter((t: any) => t.status === 'ready' || t.status === 'backlog')
+                  .map((t: any) => ({ id: t.id, title: t.title, dependsOn: t.dependencies || [] }));
+              } catch {}
+            }
+            if (options.decisionRepo || options.taskRepo) {
+              try {
+                const repo = options.decisionRepo || options.taskRepo;
+                const decisions = repo.listDecisionsByProject
+                  ? repo.listDecisionsByProject(options.projectId || 'proj-kin')
+                  : (repo.listDecisions ? repo.listDecisions(options.projectId || 'proj-kin') : []);
+                immutableDecisions = decisions.map((d: any) => ({
+                  key: d.id || d.title,
+                  decision: d.rationale || d.title,
+                }));
+              } catch {}
+            }
+
             const compactionResult = this.contextCompactor.evaluateAndCompact({
               messages: compMessages,
               currentTokens: estimatedTokens,
@@ -237,8 +267,8 @@ export class AgentLoopRunner {
                 encounteredErrorsAndResolutions: actions
                   .filter((a) => a.error)
                   .map((a) => ({ error: a.error || '', fixApplied: 'Addressed during turn execution' })),
-                immutableDecisions: [],
-                pendingTaskDag: [],
+                immutableDecisions,
+                pendingTaskDag,
               },
             });
 
@@ -271,13 +301,19 @@ export class AgentLoopRunner {
         try { await options.onRenewLease(options.taskId); } catch {}
       }
 
-      // 4d. LoopBreaker Action Stagnation Evaluation
+      // 4d. LoopBreaker Action Stagnation Evaluation (Authoritative Halt)
       const loopCheck = this.loopBreaker.evaluateActionRepetition(actions);
       if (loopCheck.isLoop) {
-        conversationHistory.push({
-          role: 'user',
-          content: `⚠️ [KIN EXECUTION GUARD - ANTI-LOOP INTERVENTION]:\n${loopCheck.reason}\nYou are repeating the same failing action without progress. Pivot immediately to an alternative tool or explain what is blocking you.`,
-        });
+        return {
+          finalContent: `Anti-Loop Guard triggered: ${loopCheck.reason}. Execution paused for operator guidance.`,
+          turnCount: currentTurn,
+          actions,
+          success: false,
+          interrupted: true,
+          requiresApproval: true,
+          reason: `Anti-Loop Guard triggered: ${loopCheck.reason}. Execution paused for operator guidance.`,
+          history: conversationHistory,
+        };
       }
 
       // Invoke LLM (dynamically resolves active model if changed mid-execution)
@@ -315,6 +351,7 @@ export class AgentLoopRunner {
           modelId: currentModelId,
           fallbackModelId: options.fallbackModelId,
           messages: conversationHistory,
+          onToken: options.onToken,
         });
 
         // Record token usage and enforce hard run budgets

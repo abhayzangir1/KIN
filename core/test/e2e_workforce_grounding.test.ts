@@ -17,6 +17,8 @@ import { LoopBreaker } from '../src/communication/loop_breaker.js';
 import { ContextCompactor } from '../src/context/context_compactor.js';
 import { OutputSpiller } from '../src/context/output_spiller.js';
 import { Message } from '../src/domain/types.js';
+import { CoreServer } from '../src/server/core_server.js';
+import { AgentLoopRunner } from '../src/kernel/agent_loop.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
@@ -132,6 +134,28 @@ describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () =>
       expect(runningTask?.status).toBe('running');
       expect(runningTask?.claimedByRunId).toBe('run-101');
       expect(runningTask?.leaseExpiresAt).toBeGreaterThan(now);
+
+      // Insert verified evidence for completeTask
+      db.execute(
+        `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        'evidence-bundle-1',
+        'task-1',
+        'run-101',
+        'artifact_hash',
+        'evidence://task-1/bundle-1',
+        1,
+        now
+      );
+      db.execute(
+        `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        'evidence-bundle-2',
+        'task-1',
+        'run-101',
+        'artifact_hash',
+        'evidence://task-1/bundle-2',
+        1,
+        now
+      );
 
       // completeTask called while in running status
       taskRepo.completeTask('task-1', 'evidence-bundle-1');
@@ -259,6 +283,16 @@ describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () =>
       );
 
       expect(taskRepo.claimTaskWithLease('task-root', 'agent-boss', 'run-root')).toBe(true);
+      db.execute(
+        `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        'ev-root',
+        'task-root',
+        'run-root',
+        'artifact_hash',
+        'evidence://task-root/ev-root',
+        1,
+        now
+      );
       taskRepo.completeTask('task-root', 'ev-root');
 
       const promotedTask = taskRepo.getTask('task-dependent');
@@ -993,6 +1027,16 @@ describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () =>
 
       // Claim and complete step 1
       expect(taskRepo.claimTaskWithLease('step-1', 'agent-boss', 'run-s1')).toBe(true);
+      db.execute(
+        `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        'ev-s1',
+        'step-1',
+        'run-s1',
+        'artifact_hash',
+        'evidence://step-1/ev-s1',
+        1,
+        now
+      );
       taskRepo.completeTask('step-1', 'ev-s1');
 
       // Step 2 is now promoted to ready, step 3 remains in backlog
@@ -1001,11 +1045,31 @@ describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () =>
 
       // Claim and complete step 2
       expect(taskRepo.claimTaskWithLease('step-2', 'agent-boss', 'run-s2')).toBe(true);
+      db.execute(
+        `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        'ev-s2',
+        'step-2',
+        'run-s2',
+        'artifact_hash',
+        'evidence://step-2/ev-s2',
+        1,
+        now
+      );
       taskRepo.completeTask('step-2', 'ev-s2');
 
       // Step 3 is now promoted to ready
       expect(taskRepo.getTask('step-3')?.status).toBe('ready');
       expect(taskRepo.claimTaskWithLease('step-3', 'agent-boss', 'run-s3')).toBe(true);
+      db.execute(
+        `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        'ev-s3',
+        'step-3',
+        'run-s3',
+        'artifact_hash',
+        'evidence://step-3/ev-s3',
+        1,
+        now
+      );
       taskRepo.completeTask('step-3', 'ev-s3');
       expect(taskRepo.getTask('step-3')?.status).toBe('completed');
     });
@@ -1260,6 +1324,248 @@ describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () =>
 
       expect(queryResult?.total_ms).toBe(totalEmpiricalMs);
       expect(queryResult?.total_ms).toBe(784); // 42 + 118 + 624 exact
+    });
+  });
+
+  // ==========================================================================
+  // TIER 4: COMPREHENSIVE AUDIT REMEDIATION (36 FORENSIC FINDINGS)
+  // ==========================================================================
+  describe('Tier 4: Comprehensive Audit Remediation Verification', () => {
+    it('Audit Finding 1: POST /api/terminal/exec returns HTTP 428 without approval token for destructive command', async () => {
+      const serverDbPath = path.join(tempDir, 'audit_server1.sqlite');
+      const server = new CoreServer({ port: 0, dbPath: serverDbPath });
+      const port = await server.start();
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/api/terminal/exec`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command: 'rm -rf test' }),
+        });
+        expect(res.status).toBe(428);
+        const data: any = await res.json();
+        expect(data.requiresApproval).toBe(true);
+        expect(data.approvalId).toBeDefined();
+        expect(data.error).toContain('Precondition Required');
+      } finally {
+        await server.stop();
+      }
+    });
+
+    it('Audit Finding 2: POST /api/terminal/exec with valid x-kin-approval-token executes command and consumes token', async () => {
+      const serverDbPath = path.join(tempDir, 'audit_server2.sqlite');
+      const server = new CoreServer({ port: 0, dbPath: serverDbPath });
+      const port = await server.start();
+      try {
+        const token = 'audit-approval-token-' + Date.now();
+        Sentinel.getInstance().registerApprovalToken(token, 'executeShell', 60000);
+        expect(Sentinel.getInstance().hasApprovalToken(token)).toBe(true);
+
+        const res = await fetch(`http://127.0.0.1:${port}/api/terminal/exec`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-kin-approval-token': token,
+          },
+          body: JSON.stringify({ command: 'echo approved_execution' }),
+        });
+        expect(res.status).toBe(200);
+        const data: any = await res.json();
+        expect(data.stdout).toContain('approved_execution');
+
+        // Token must be consumed (single-use)
+        expect(Sentinel.getInstance().hasApprovalToken(token)).toBe(false);
+
+        // Subsequent attempt with consumed token for destructive action must return 428
+        const secondRes = await fetch(`http://127.0.0.1:${port}/api/terminal/exec`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-kin-approval-token': token,
+          },
+          body: JSON.stringify({ command: 'rm -rf test' }),
+        });
+        expect(secondRes.status).toBe(428);
+      } finally {
+        await server.stop();
+      }
+    });
+
+    it('Audit Finding 3: AgentLoopRunner halts and transitions to waiting_for_approval when 3 consecutive repeated actions fail', async () => {
+      const run = kernel.spawnRun({
+        agentId: 'agent-boss',
+        projectId: 'proj-e2e',
+      });
+
+      const mockModelGateway = {
+        invoke: vi.fn().mockResolvedValue({
+          content: '<tool_call>{"name": "readFile", "parameters": {"path": "nonexistent_loop_file.txt"}}</tool_call>',
+          isError: false,
+          modelId: 'mock-model',
+          durationMs: 10,
+        }),
+      } as unknown as ModelGateway;
+
+      const toolGateway = new ToolGateway({ db });
+      const skillEngine = new SkillEngine(db);
+
+      const runner = new AgentLoopRunner(
+        mockModelGateway,
+        toolGateway,
+        {} as any,
+        skillEngine
+      );
+
+      const loopResult = await runner.execute({
+        runId: run.id,
+        agentId: 'agent-boss',
+        modelId: 'mock-model',
+        userPrompt: 'Read the missing file',
+        systemPrompt: 'You are an assistant',
+        worktreeRoot: tempDir,
+        autonomyMode: 'FULL_ACCESS',
+        allowedCapabilities: ['*'],
+        maxTurns: 10,
+      });
+
+      expect(loopResult.interrupted).toBe(true);
+      expect(loopResult.requiresApproval).toBe(true);
+      expect(loopResult.reason).toContain('Anti-Loop Guard triggered');
+
+      kernel.transitionState(run.id, 'waiting_for_approval', loopResult.reason);
+      const updatedRun = kernel.getRun(run.id);
+      expect(updatedRun?.state).toBe('waiting_for_approval');
+    });
+
+    it('Audit Finding 4: TaskRepository.completeTask unconditionally rejects completion without evidence row', () => {
+      const now = Date.now();
+      taskRepo.createGoal({
+        id: 'goal-audit-ev',
+        projectId: 'proj-e2e',
+        title: 'Audit Goal',
+        description: 'Testing evidence gating',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      taskRepo.createTask({
+        id: 'task-audit-ev',
+        goalId: 'goal-audit-ev',
+        title: 'Audit Task',
+        description: 'Evidence verification',
+        status: 'ready',
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      taskRepo.claimTaskWithLease('task-audit-ev', 'agent-boss', 'run-audit-ev');
+
+      expect(() => {
+        taskRepo.completeTask('task-audit-ev', 'non-existent-ev-id');
+      }).toThrow(/Evidence record 'non-existent-ev-id' not found in database/);
+
+      db.execute(
+        `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        'valid-ev-id',
+        'task-audit-ev',
+        'run-audit-ev',
+        'human_signoff',
+        'file://verified-evidence.json',
+        1,
+        now
+      );
+
+      expect(() => {
+        taskRepo.completeTask('task-audit-ev', 'valid-ev-id');
+      }).not.toThrow();
+
+      const task = taskRepo.getTask('task-audit-ev');
+      expect(task?.status).toBe('completed');
+    });
+
+    it('Audit Finding 5: Stale run recovery identifies abandoned waiting_for_approval runs after 24h', () => {
+      const runAbandoned = kernel.spawnRun({
+        agentId: 'agent-boss',
+        projectId: 'proj-e2e',
+      });
+      kernel.transitionState(runAbandoned.id, 'waiting_for_approval', 'Stale approval');
+      const twentyFiveHoursAgo = Date.now() - 25 * 60 * 60 * 1000;
+      db.execute('UPDATE agent_runs SET heartbeat_at = ? WHERE id = ?', twentyFiveHoursAgo, runAbandoned.id);
+
+      const runFresh = kernel.spawnRun({
+        agentId: 'agent-boss',
+        projectId: 'proj-e2e',
+      });
+      kernel.transitionState(runFresh.id, 'waiting_for_approval', 'Recent approval');
+      const oneHourAgo = Date.now() - 1 * 60 * 60 * 1000;
+      db.execute('UPDATE agent_runs SET heartbeat_at = ? WHERE id = ?', oneHourAgo, runFresh.id);
+
+      const recovered = kernel.recoverStaleRunsDetailed(45000);
+      const recoveredIds = recovered.map((r) => r.id);
+
+      expect(recoveredIds).toContain(runAbandoned.id);
+      expect(recoveredIds).not.toContain(runFresh.id);
+
+      expect(kernel.getRun(runAbandoned.id)?.state).toBe('recovering');
+      expect(kernel.getRun(runFresh.id)?.state).toBe('waiting_for_approval');
+    });
+
+    it('Audit Finding 6: modelGateway.fetchProviderModels with omitUnconfigured returns empty array when unconfigured', async () => {
+      const gateway = new ModelGateway();
+      const originalEnv = process.env.OPENAI_API_KEY;
+      delete process.env.OPENAI_API_KEY;
+      try {
+        const filtered = await gateway.fetchProviderModels('openai', undefined, { omitUnconfigured: true });
+        expect(filtered).toEqual([]);
+
+        const defaultModels = await gateway.fetchProviderModels('openai');
+        expect(defaultModels.length).toBeGreaterThan(0);
+        expect(defaultModels[0].configured).toBe(false);
+      } finally {
+        if (originalEnv) {
+          process.env.OPENAI_API_KEY = originalEnv;
+        }
+      }
+    });
+
+    it('Audit Finding 7: GET /api/models/readiness and GET /api/models expose explicit provider readiness states', async () => {
+      const serverDbPath = path.join(tempDir, 'audit_server7.sqlite');
+      const server = new CoreServer({ port: 0, dbPath: serverDbPath });
+      const serverPort = await server.start();
+      try {
+        const resReadiness = await fetch(`http://127.0.0.1:${serverPort}/api/models/readiness`);
+        expect(resReadiness.status).toBe(200);
+        const dataReadiness: any = await resReadiness.json();
+        expect(dataReadiness.success).toBe(true);
+        expect(dataReadiness.providerReadiness).toBeDefined();
+        expect(dataReadiness.providerReadiness.ollama).toBeDefined();
+        expect(dataReadiness.providerReadiness.ollama.configured).toBe(true);
+        expect(dataReadiness.providerReadiness.openai).toBeDefined();
+
+        const resModels = await fetch(`http://127.0.0.1:${serverPort}/api/models`);
+        expect(resModels.status).toBe(200);
+        const dataModels: any = await resModels.json();
+        expect(dataModels.providerReadiness).toBeDefined();
+      } finally {
+        await server.stop();
+      }
+    });
+
+    it('Audit Finding 8: TaskRepository.listDecisions populates immutable decisions', () => {
+      taskRepo.createDecision({
+        id: 'dec-audit-1',
+        projectId: 'proj-e2e',
+        decidedById: 'agent-boss',
+        title: 'Use WAL Mode',
+        rationale: 'WAL mode enables concurrent read access without write lock starvation.',
+        alternativesConsidered: ['DELETE mode', 'MEMORY mode'],
+        status: 'authoritative',
+        createdAt: Date.now(),
+      });
+
+      const decisions = taskRepo.listDecisions('proj-e2e');
+      expect(decisions.length).toBeGreaterThan(0);
+      expect(decisions[0].title).toBe('Use WAL Mode');
+      expect(decisions[0].rationale).toContain('concurrent read access');
     });
   });
 });

@@ -185,6 +185,7 @@ export class Sentinel {
         return { primary: 'web:browse', aliases: ['web:browse', 'web', 'browser', 'web_browse'] };
       case 'computer':
       case 'application':
+      case 'launchApp':
       case 'desktopScreenshot':
       case 'desktopDiscoverApps':
       case 'desktopLaunchApp':
@@ -195,7 +196,7 @@ export class Sentinel {
       case 'desktopMouseClick':
       case 'desktopType':
       case 'desktopSendKey':
-        return { primary: 'gui:desktop', aliases: ['gui:desktop', 'gui', 'desktop', 'computer', 'gui_desktop'] };
+        return { primary: 'gui:desktop', aliases: ['gui:desktop', 'gui', 'desktop', 'computer', 'launchApp', 'gui_desktop'] };
       case 'schedule':
       case 'cancelSchedule':
       case 'listSchedules':

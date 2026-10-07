@@ -272,8 +272,12 @@ export class TaskRepository {
        LEFT JOIN agent_runs r ON t.claimed_by_run_id = r.id
        WHERE t.status = 'running'
          AND t.lease_expires_at IS NOT NULL
-         AND t.lease_expires_at < ?
-         AND (r.state IS NULL OR r.state != 'waiting_for_approval')`,
+         AND (
+           (t.lease_expires_at < ? AND (r.state IS NULL OR r.state != 'waiting_for_approval'))
+           OR
+           (r.state = 'waiting_for_approval' AND t.lease_expires_at + 86400000 < ?)
+         )`,
+      now,
       now
     );
 
@@ -300,6 +304,10 @@ export class TaskRepository {
     return reclaimedIds;
   }
 
+  public findExpiredLeases(): string[] {
+    return this.reclaimExpiredTaskLeases();
+  }
+
   public updateTaskStatus(taskId: string, status: TaskStatus): void {
     this.db.execute(
       `UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`,
@@ -311,10 +319,21 @@ export class TaskRepository {
 
   /**
    * Evidence-gated task completion.
-   * A task CANNOT complete without an evidence record.
+   * A task CANNOT complete without a valid verified evidence record in the evidence table.
    * Atomically clears claimed_by_run_id and lease_expires_at while preserving 'running' status for verification.
    */
-  public completeTask(taskId: string, evidenceBundleId: string): string[] {
+  public completeTask(
+    taskId: string,
+    evidenceBundleId: string
+  ): string[] {
+    const evidenceRecord = this.db.queryOne<{ id: string }>(
+      'SELECT id FROM evidence WHERE id = ?',
+      evidenceBundleId
+    );
+    if (!evidenceRecord) {
+      throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' not found in database.`);
+    }
+
     const result = this.db.execute(
       `UPDATE tasks
        SET status = 'completed', evidence_bundle_id = ?, claimed_by_run_id = NULL, lease_expires_at = NULL, updated_at = ?
@@ -636,6 +655,10 @@ export class TaskRepository {
       status: r.status as DecisionStatus,
       createdAt: r.created_at,
     }));
+  }
+
+  public listDecisions(projectId: string = 'proj-kin'): Decision[] {
+    return this.listDecisionsByProject(projectId);
   }
 
   public listAllDecisions(): Decision[] {
