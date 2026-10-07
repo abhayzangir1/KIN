@@ -51,6 +51,19 @@ export class EventLedger {
     return EventLedger.instance;
   }
 
+  public static isInitialized(): boolean {
+    return Boolean(EventLedger.instance);
+  }
+
+  public static ensureInitialized(db: KinDatabase): EventLedger {
+    if (!EventLedger.instance) {
+      EventLedger.instance = new EventLedger(db);
+    } else if (db && (EventLedger.instance.db !== db || (EventLedger.instance.db as any).isClosed)) {
+      EventLedger.instance.db = db;
+    }
+    return EventLedger.instance;
+  }
+
   public static getInstance(): EventLedger {
     if (!EventLedger.instance) {
       throw new Error('EventLedger has not been initialized with KinDatabase.');

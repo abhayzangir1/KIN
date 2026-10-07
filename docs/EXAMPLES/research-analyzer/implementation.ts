@@ -1,6 +1,7 @@
 /**
  * Research Analyzer Tool Handler
- * Executable logic supporting automated technical research synthesis.
+ * Illustrative sample scaffold demonstrating research synthesis structure.
+ * This is template code for demonstration purposes and does not perform live network fetching.
  */
 
 export interface ResearchContext {
@@ -11,10 +12,11 @@ export interface ResearchContext {
 
 export interface ResearchResult {
   topic: string;
-  status: 'complete' | 'in_progress' | 'failed';
+  status: 'complete' | 'in_progress' | 'failed' | 'scaffold';
   extractedContracts: string[];
   tradeoffs: string[];
   recommendations: string[];
+  isSampleScaffold: boolean;
 }
 
 export async function execute(context: ResearchContext): Promise<ResearchResult> {
@@ -22,18 +24,16 @@ export async function execute(context: ResearchContext): Promise<ResearchResult>
 
   return {
     topic,
-    status: 'complete',
+    status: 'scaffold',
     extractedContracts: [
-      'Verified REST and WebSocket schema compliance',
-      'Extracted concurrency locking parameters and timeout values',
+      'Sample extracted contract (connect web browser or HTTP client to populate)',
     ],
     tradeoffs: [
-      'Transactional isolation vs throughput latency',
-      'In-memory caching vs durable storage persistence',
+      'Sample tradeoff analysis (connect model analysis to populate)',
     ],
     recommendations: [
-      'Configure WAL checkpoint interval to prevent write starvation',
-      'Enforce strict timeout policies on external network calls',
+      'Sample recommendation (connect reasoning engine to populate)',
     ],
+    isSampleScaffold: true,
   };
 }

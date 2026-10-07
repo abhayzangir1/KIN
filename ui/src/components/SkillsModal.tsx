@@ -1131,7 +1131,7 @@ export const SkillsModal: React.FC = () => {
                     rows={2}
                     value={validationRationale}
                     onChange={(e) => setValidationRationale(e.target.value)}
-                    placeholder="e.g. Verified across 3 automated checkout runs with 100% pass rate."
+                    placeholder="e.g. Verified across 3 automated checkout runs with complete pass rate."
                     className="w-full bg-[#0e1628] border border-[#232f48] rounded p-2 text-white focus:outline-none focus:border-emerald-500"
                   />
                 </div>

@@ -1,6 +1,6 @@
 # Parallel coding with Git worktrees: workflow sketch
 
-This page is a review checklist, not a claim that parallel coding is isolated or merge-safe in every case. A Git worktree gives each task a separate working directory. It does not isolate processes, credentials, network access, or the host operating system.
+This page is a review checklist, not a claim that parallel coding is isolated or merge-safe in every case. A Git worktree gives each task a separate working directory. It does not isolate processes, credentials, network access, or the host platform.
 
 ## Before assigning coding work
 

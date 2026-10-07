@@ -26,4 +26,4 @@ This is a suggested workflow, not a verified end-to-end tutorial. Model calls, b
 - Do important statements distinguish evidence from inference?
 - Did the task finish with evidence that matches the acceptance criteria?
 
-The workflow is useful for exploring the project, but this page does not guarantee a three-agent swarm, persistent browser login, or an authoritative research report.
+The workflow is useful for exploring the project, but this page does not promise a three-agent swarm, persistent browser login, or an authoritative research report.

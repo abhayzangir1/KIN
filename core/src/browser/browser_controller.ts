@@ -219,18 +219,21 @@ export class BrowserController {
 
         const headless = options.headless ?? (process.env.KIN_HEADLESS === 'true' ? true : false);
 
+        const launchArgs = [
+          '--disable-infobars',
+          '--window-size=1280,800',
+          '--remote-debugging-port=9222',
+        ];
+        if (process.env.KIN_BROWSER_NO_SANDBOX === 'true') {
+          launchArgs.push('--no-sandbox', '--disable-setuid-sandbox');
+        }
+
         this.browser = await puppeteer.launch({
           executablePath,
           headless,
           userDataDir: this.profileDir,
           defaultViewport: { width: 1280, height: 800 },
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-infobars',
-            '--window-size=1280,800',
-            '--remote-debugging-port=9222',
-          ],
+          args: launchArgs,
         });
 
         this.browser.on('disconnected', () => {

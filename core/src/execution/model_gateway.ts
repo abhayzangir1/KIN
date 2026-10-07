@@ -78,6 +78,10 @@ export class ModelGateway {
   private apiKeyResolver?: (provider: string) => string | undefined;
   private onUsage?: (provider: string, tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }) => void;
   private customEndpoints: Map<string, { baseUrl: string; apiKey?: string }> = new Map();
+  private validatedProviders: Map<string, boolean> = new Map();
+  private providerModelCounts: Map<string, number> = new Map();
+  private isOllamaOnlineCached?: boolean;
+  private ollamaModelCountCached?: number;
 
   constructor(options?: ModelGatewayOptions) {
     this.ollamaHost = options?.ollamaHost || process.env.OLLAMA_HOST || 'http://localhost:11434';
@@ -124,23 +128,100 @@ export class ModelGateway {
   public getProviderReadiness(provider: string): ProviderReadiness {
     const norm = provider.toLowerCase().trim();
     if (norm === 'ollama') {
+      const isOnline = this.isOllamaOnlineCached ?? false;
       return {
         provider: norm,
-        configured: true,
-        validated: true,
-        modelCount: 2,
-        message: 'Local Ollama runtime available',
+        configured: Boolean(this.ollamaHost),
+        validated: isOnline,
+        modelCount: isOnline ? (this.ollamaModelCountCached ?? 0) : 0,
+        message: isOnline
+          ? `Local Ollama online (${this.ollamaModelCountCached ?? 0} models available)`
+          : 'Local Ollama runtime offline or unverified',
       };
     }
     const apiKey = this.resolveApiKey(norm);
     const isConfigured = Boolean(apiKey);
+    const isValidated = this.validatedProviders.get(norm) ?? false;
+    const count = this.providerModelCounts.get(norm) ?? 0;
     return {
       provider: norm,
       configured: isConfigured,
-      validated: isConfigured,
-      modelCount: isConfigured ? 5 : 0,
-      message: isConfigured ? `API key configured for ${norm}` : `API key missing for ${norm}`,
+      validated: isValidated,
+      modelCount: isValidated ? count : 0,
+      message: !isConfigured
+        ? `API key missing for ${norm}`
+        : (isValidated ? `Validated and reachable (${count} models)` : `API key configured; connection unverified (${norm})`),
     };
+  }
+
+  public async checkProviderReadiness(provider: string): Promise<ProviderReadiness> {
+    const norm = provider.toLowerCase().trim();
+    if (norm === 'ollama') {
+      try {
+        const res = await fetch(`${this.ollamaHost}/api/tags`, { signal: AbortSignal.timeout(3000) }).catch(() => null);
+        if (res && res.ok) {
+          const data: any = await res.json().catch(() => ({}));
+          const models: any[] = data.models || [];
+          this.isOllamaOnlineCached = true;
+          this.ollamaModelCountCached = models.length;
+          return {
+            provider: norm,
+            configured: true,
+            validated: true,
+            modelCount: models.length,
+            message: `Local Ollama online (${models.length} model(s) available)`,
+          };
+        }
+      } catch {}
+      this.isOllamaOnlineCached = false;
+      this.ollamaModelCountCached = 0;
+      return {
+        provider: norm,
+        configured: Boolean(this.ollamaHost),
+        validated: false,
+        modelCount: 0,
+        message: 'Local Ollama runtime unreachable (offline)',
+      };
+    }
+
+    const apiKey = this.resolveApiKey(norm);
+    if (!apiKey) {
+      this.validatedProviders.set(norm, false);
+      this.providerModelCounts.set(norm, 0);
+      return {
+        provider: norm,
+        configured: false,
+        validated: false,
+        modelCount: 0,
+        message: `API key not configured for ${norm}`,
+      };
+    }
+
+    try {
+      const models = await this.fetchProviderModels(norm, apiKey, { omitUnconfigured: true });
+      const reachable = models.length > 0 && models.some((m) => m.validated);
+      this.validatedProviders.set(norm, reachable);
+      this.providerModelCounts.set(norm, models.length);
+      return {
+        provider: norm,
+        configured: true,
+        validated: reachable,
+        modelCount: models.length,
+        message: reachable
+          ? `Validated and reachable (${models.length} model(s) discovered)`
+          : `API key configured, but reachable model verification returned empty catalog`,
+      };
+    } catch (e: any) {
+      this.validatedProviders.set(norm, false);
+      this.providerModelCounts.set(norm, 0);
+      return {
+        provider: norm,
+        configured: true,
+        validated: false,
+        modelCount: 0,
+        message: `Connection validation failed: ${e.message}`,
+      };
+    }
   }
 
   /**
@@ -166,6 +247,8 @@ export class ModelGateway {
         if (res && res.ok) {
           const data: any = await res.json().catch(() => ({}));
           const models: any[] = data.models || [];
+          this.isOllamaOnlineCached = true;
+          this.ollamaModelCountCached = models.length;
           return models
             .filter((m: any) => !m.name.toLowerCase().includes('embed'))
             .map((m: any) => ({
@@ -182,10 +265,9 @@ export class ModelGateway {
               validated: true,
             }));
         }
-        return [
-          { id: 'ollama/qwen2.5-coder:3b', name: 'Ollama qwen2.5-coder:3b', provider: 'ollama', contextWindow: 32768, isFree: true, configured: true, validated: true },
-          { id: 'ollama/gemma4:e2b', name: 'Ollama gemma4:e2b', provider: 'ollama', contextWindow: 32768, isFree: true, configured: true, validated: true },
-        ];
+        this.isOllamaOnlineCached = false;
+        this.ollamaModelCountCached = 0;
+        return [];
       }
 
       if (normProvider === 'openrouter') {
@@ -205,6 +287,8 @@ export class ModelGateway {
           const data: any = await res.json().catch(() => ({}));
           const rawList: any[] = data.data || [];
           if (rawList.length > 0) {
+            this.validatedProviders.set('openrouter', true);
+            this.providerModelCounts.set('openrouter', rawList.length);
             return rawList.map((m: any) => {
               const isZeroCost = m.id.endsWith(':free') ||
                 (m.pricing && parseFloat(m.pricing.prompt) === 0 && parseFloat(m.pricing.completion) === 0);
@@ -224,24 +308,25 @@ export class ModelGateway {
             });
           }
         }
-        // Fallback curated standard OpenRouter models if offline
+        this.validatedProviders.set('openrouter', false);
+        // Fallback standard OpenRouter model templates if offline or unverified
         return [
-          { id: 'openrouter/deepseek/deepseek-r1:free', name: 'DeepSeek R1 (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 64000, configured: Boolean(apiKey), validated: Boolean(apiKey) },
-          { id: 'openrouter/meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B Instruct (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 128000, configured: Boolean(apiKey), validated: Boolean(apiKey) },
-          { id: 'openrouter/google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 1048576, configured: Boolean(apiKey), validated: Boolean(apiKey) },
-          { id: 'openrouter/qwen/qwen-2.5-coder-32b-instruct:free', name: 'Qwen 2.5 Coder 32B (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 32768, configured: Boolean(apiKey), validated: Boolean(apiKey) },
-          { id: 'openrouter/anthropic/claude-3.5-sonnet', name: 'Anthropic Claude 3.5 Sonnet', provider: 'openrouter', contextWindow: 200000, configured: Boolean(apiKey), validated: Boolean(apiKey) },
-          { id: 'openrouter/openai/gpt-4o', name: 'OpenAI GPT-4o', provider: 'openrouter', contextWindow: 128000, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'openrouter/deepseek/deepseek-r1:free', name: 'DeepSeek R1 (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 64000, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'openrouter/meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B Instruct (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 128000, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'openrouter/google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 1048576, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'openrouter/qwen/qwen-2.5-coder-32b-instruct:free', name: 'Qwen 2.5 Coder 32B (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 32768, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'openrouter/anthropic/claude-3.5-sonnet', name: 'Anthropic Claude 3.5 Sonnet', provider: 'openrouter', contextWindow: 200000, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'openrouter/openai/gpt-4o', name: 'OpenAI GPT-4o', provider: 'openrouter', contextWindow: 128000, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
         ];
       }
 
       if (normProvider === 'openai') {
         const standardOpenAi: DiscoveredModel[] = [
-          { id: 'openai/gpt-4o', name: 'OpenAI GPT-4o', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
-          { id: 'openai/gpt-4o-mini', name: 'OpenAI GPT-4o Mini', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
-          { id: 'openai/o3-mini', name: 'OpenAI o3-mini (Reasoning)', provider: 'openai', contextWindow: 200000, supportsTools: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
-          { id: 'openai/o1', name: 'OpenAI o1 (Advanced Reasoning)', provider: 'openai', contextWindow: 200000, supportsTools: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
-          { id: 'openai/gpt-4.5-preview', name: 'OpenAI GPT-4.5 Preview', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'openai/gpt-4o', name: 'OpenAI GPT-4o', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'openai/gpt-4o-mini', name: 'OpenAI GPT-4o Mini', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'openai/o3-mini', name: 'OpenAI o3-mini (Reasoning)', provider: 'openai', contextWindow: 200000, supportsTools: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'openai/o1', name: 'OpenAI o1 (Advanced Reasoning)', provider: 'openai', contextWindow: 200000, supportsTools: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'openai/gpt-4.5-preview', name: 'OpenAI GPT-4.5 Preview', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
         ];
         if (!apiKey) return standardOpenAi;
 
@@ -266,6 +351,8 @@ export class ModelGateway {
           );
           if (filtered.length > 0) {
             filtered.sort((a: any, b: any) => (b.created || 0) - (a.created || 0));
+            this.validatedProviders.set('openai', true);
+            this.providerModelCounts.set('openai', filtered.length);
             return filtered.map((m: any) => ({
               id: `openai/${m.id}`,
               name: `OpenAI ${m.id}`,
@@ -279,15 +366,16 @@ export class ModelGateway {
             }));
           }
         }
+        this.validatedProviders.set('openai', false);
         return standardOpenAi;
       }
 
       if (normProvider === 'anthropic') {
         const standardAnthropic: DiscoveredModel[] = [
-          { id: 'anthropic/claude-3-7-sonnet-20250219', name: 'Claude 3.7 Sonnet (Hybrid Reasoning)', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
-          { id: 'anthropic/claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet (v2)', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
-          { id: 'anthropic/claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', provider: 'anthropic', contextWindow: 200000, supportsTools: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
-          { id: 'anthropic/claude-3-opus-20240229', name: 'Claude 3 Opus', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'anthropic/claude-3-7-sonnet-20250219', name: 'Claude 3.7 Sonnet (Hybrid Reasoning)', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'anthropic/claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet (v2)', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'anthropic/claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', provider: 'anthropic', contextWindow: 200000, supportsTools: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'anthropic/claude-3-opus-20240229', name: 'Claude 3 Opus', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
         ];
         if (!apiKey) return standardAnthropic;
 
@@ -304,6 +392,8 @@ export class ModelGateway {
             const data: any = await res.json().catch(() => ({}));
             const list: any[] = data.data || [];
             if (list.length > 0) {
+              this.validatedProviders.set('anthropic', true);
+              this.providerModelCounts.set('anthropic', list.length);
               return list.map((m: any) => ({
                 id: `anthropic/${m.id}`,
                 name: m.display_name || `Anthropic ${m.id}`,
@@ -317,15 +407,16 @@ export class ModelGateway {
             }
           }
         } catch {}
+        this.validatedProviders.set('anthropic', false);
         return standardAnthropic;
       }
 
       if (normProvider === 'gemini') {
         const standardGemini: DiscoveredModel[] = [
-          { id: 'gemini/gemini-2.5-pro', name: 'Google Gemini 2.5 Pro', provider: 'gemini', contextWindow: 2097152, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
-          { id: 'gemini/gemini-2.0-flash', name: 'Google Gemini 2.0 Flash', provider: 'gemini', contextWindow: 1048576, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
-          { id: 'gemini/gemini-1.5-pro', name: 'Google Gemini 1.5 Pro', provider: 'gemini', contextWindow: 2097152, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
-          { id: 'gemini/gemini-1.5-flash', name: 'Google Gemini 1.5 Flash', provider: 'gemini', contextWindow: 1048576, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'gemini/gemini-2.5-pro', name: 'Google Gemini 2.5 Pro', provider: 'gemini', contextWindow: 2097152, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'gemini/gemini-2.0-flash', name: 'Google Gemini 2.0 Flash', provider: 'gemini', contextWindow: 1048576, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'gemini/gemini-1.5-pro', name: 'Google Gemini 1.5 Pro', provider: 'gemini', contextWindow: 2097152, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'gemini/gemini-1.5-flash', name: 'Google Gemini 1.5 Flash', provider: 'gemini', contextWindow: 1048576, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
         ];
         if (!apiKey) return standardGemini;
 
@@ -338,6 +429,8 @@ export class ModelGateway {
           const list: any[] = data.models || [];
           const filtered = list.filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'));
           if (filtered.length > 0) {
+            this.validatedProviders.set('gemini', true);
+            this.providerModelCounts.set('gemini', filtered.length);
             return filtered.map((m: any) => {
               const cleanId = m.name.replace(/^models\//, '');
               return {
@@ -355,13 +448,14 @@ export class ModelGateway {
             });
           }
         }
+        this.validatedProviders.set('gemini', false);
         return standardGemini;
       }
 
       if (normProvider === 'deepseek') {
         const standardDeepSeek: DiscoveredModel[] = [
-          { id: 'deepseek/deepseek-chat', name: 'DeepSeek-V3 (Chat)', provider: 'deepseek', contextWindow: 64000, supportsTools: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
-          { id: 'deepseek/deepseek-reasoner', name: 'DeepSeek-R1 (Reasoner)', provider: 'deepseek', contextWindow: 64000, supportsTools: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'deepseek/deepseek-chat', name: 'DeepSeek-V3 (Chat)', provider: 'deepseek', contextWindow: 64000, supportsTools: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'deepseek/deepseek-reasoner', name: 'DeepSeek-R1 (Reasoner)', provider: 'deepseek', contextWindow: 64000, supportsTools: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
         ];
         if (!apiKey) return standardDeepSeek;
 
@@ -375,6 +469,8 @@ export class ModelGateway {
             const data: any = await res.json().catch(() => ({}));
             const list: any[] = data.data || [];
             if (list.length > 0) {
+              this.validatedProviders.set('deepseek', true);
+              this.providerModelCounts.set('deepseek', list.length);
               return list.map((m: any) => ({
                 id: `deepseek/${m.id}`,
                 name: `DeepSeek ${m.id}`,
@@ -387,14 +483,15 @@ export class ModelGateway {
             }
           }
         } catch {}
+        this.validatedProviders.set('deepseek', false);
         return standardDeepSeek;
       }
 
       if (normProvider === 'groq') {
         const standardGroq: DiscoveredModel[] = [
-          { id: 'groq/llama-3.3-70b-versatile', name: 'Groq Llama 3.3 70B Versatile', provider: 'groq', contextWindow: 128000, supportsTools: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
-          { id: 'groq/deepseek-r1-distill-llama-70b', name: 'Groq DeepSeek R1 Distill 70B', provider: 'groq', contextWindow: 128000, supportsTools: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
-          { id: 'groq/mixtral-8x7b-32768', name: 'Groq Mixtral 8x7B', provider: 'groq', contextWindow: 32768, supportsTools: true, configured: Boolean(apiKey), validated: Boolean(apiKey) },
+          { id: 'groq/llama-3.3-70b-versatile', name: 'Groq Llama 3.3 70B Versatile', provider: 'groq', contextWindow: 128000, supportsTools: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'groq/deepseek-r1-distill-llama-70b', name: 'Groq DeepSeek R1 Distill 70B', provider: 'groq', contextWindow: 128000, supportsTools: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'groq/mixtral-8x7b-32768', name: 'Groq Mixtral 8x7B', provider: 'groq', contextWindow: 32768, supportsTools: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
         ];
         if (!apiKey) return standardGroq;
 
@@ -408,6 +505,8 @@ export class ModelGateway {
           const list: any[] = data.data || [];
           const filtered = list.filter((m: any) => !m.id.includes('whisper'));
           if (filtered.length > 0) {
+            this.validatedProviders.set('groq', true);
+            this.providerModelCounts.set('groq', filtered.length);
             return filtered.map((m: any) => ({
               id: `groq/${m.id}`,
               name: `Groq ${m.id}`,
@@ -419,6 +518,7 @@ export class ModelGateway {
             }));
           }
         }
+        this.validatedProviders.set('groq', false);
         return standardGroq;
       }
     } catch (err) {

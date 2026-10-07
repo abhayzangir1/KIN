@@ -11,7 +11,7 @@ The CoreServer contains handlers for several slash commands and combinations of 
 5. If a decision is needed, record the options and rationale, then ask a human to choose.
 6. After execution, inspect the changed files, logs, and task evidence instead of relying on a generated summary.
 
-The UI also suggests compound inputs such as /plan /boost /teamwork-preview. Treat each component as a separate action and confirm its result. The presence of a compound handler does not guarantee rollback or all-or-nothing behavior if a step fails.
+The UI also suggests compound inputs such as /plan /boost /teamwork-preview. Treat each component as a separate action and confirm its result. The presence of a compound handler does not provide rollback or all-or-nothing behavior if a step fails.
 
 Architecture decision records preserve a chosen rationale. They do not automatically make every agent follow that decision in every later run; inspect the context and task state where the decision matters.
 

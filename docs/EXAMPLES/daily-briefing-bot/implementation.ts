@@ -1,6 +1,7 @@
 /**
  * Daily Briefing Bot Tool Handler
- * Generates structured morning digest summaries.
+ * Illustrative sample scaffold demonstrating briefing structure.
+ * This is template code for demonstration purposes and does not query live workspace metrics.
  */
 
 export interface BriefingInput {
@@ -13,8 +14,9 @@ export interface BriefingOutput {
   generatedAt: number;
   activeGoalsCount: number;
   pendingTasksCount: number;
-  systemStatus: 'healthy' | 'degraded';
+  systemStatus: 'healthy' | 'degraded' | 'scaffold';
   summaryMarkdown: string;
+  isSampleScaffold: boolean;
 }
 
 export async function execute(input: BriefingInput = {}): Promise<BriefingOutput> {
@@ -24,9 +26,10 @@ export async function execute(input: BriefingInput = {}): Promise<BriefingOutput
   return {
     channel,
     generatedAt: now,
-    activeGoalsCount: 2,
-    pendingTasksCount: 5,
-    systemStatus: 'healthy',
-    summaryMarkdown: `## ☀️ Daily Workspace Briefing\n- **Active Goals**: 2 in progress\n- **Pending Tasks**: 5 assigned\n- **System Status**: All services operational`,
+    activeGoalsCount: 0,
+    pendingTasksCount: 0,
+    systemStatus: 'scaffold',
+    summaryMarkdown: `## ☀️ Daily Workspace Briefing (Sample Scaffold)\n- **Active Goals**: Connect goal repository to populate\n- **Pending Tasks**: Connect task repository to populate\n- **Status**: Illustrative scaffold template`,
+    isSampleScaffold: true,
   };
 }

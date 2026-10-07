@@ -7,6 +7,7 @@
 import { KinDatabase } from '../storage/db.js';
 import { AgentRun, RunState } from '../domain/types.js';
 import { EventLedger } from '../security/event_ledger.js';
+import { SecretBroker } from '../security/secret_broker.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface SpawnRunParams {
@@ -442,23 +443,16 @@ export class AgentKernel {
 
   private recordEvent(eventType: string, entityType: string, entityId: string, payload: Record<string, unknown>, runId?: string): void {
     try {
-      EventLedger.getInstance().record({
+      const ledger = EventLedger.ensureInitialized(this.db);
+      ledger.record({
         eventType,
         entityType,
         entityId,
         runId,
         payload,
       });
-    } catch {
-      this.db.execute(
-        `INSERT INTO event_journal (event_type, entity_type, entity_id, payload_json, created_at)
-         VALUES (?, ?, ?, ?, ?)`,
-        eventType,
-        entityType,
-        entityId,
-        JSON.stringify(payload),
-        Date.now()
-      );
+    } catch (err) {
+      console.warn('[AGENT KERNEL] EventLedger recording failure:', err);
     }
   }
 }

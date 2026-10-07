@@ -38,7 +38,6 @@ export const SettingsModal: React.FC = () => {
     setActiveRightTab,
     setActiveInspectorTab,
     credentials,
-    availableModels,
   } = useKinStore();
 
   const [activeTab, setActiveTab] = useState<'general' | 'models' | 'credentials' | 'evaluations' | 'database' | 'layout' | 'about'>('general');

@@ -43,14 +43,14 @@ To restore, stop the daemon first, restore the database and matching local data/
 ## Runtime limits
 
 - The kernel defaults to eight active runs. Queue recovery across restart has a known dispatch gap.
-- Provider token budgets are not a substitute for provider billing limits; automatic cross-provider fallback is not guaranteed.
+- Provider token budgets are not a substitute for provider billing limits; automatic cross-provider fallback is not expected in all situations.
 - Readiness indicators may not reflect whether a model provider or Ollama is reachable.
 - A Tauri build does not by itself prove that the Node core and runtime are bundled for a clean machine.
 
 ## Security boundary notes
 
 - Core HTTP binds to loopback by default and uses local IPC authentication where enabled.
-- Git worktrees separate file trees but are not OS process, network, or credential sandboxes.
+- Git worktrees separate file trees but are not host-level process, network, or credential sandboxes.
 - Chromium is currently launched with sandboxing disabled.
 - Direct desktop/browser/terminal routes have Sentinel checks, but they do not yet share one canonical action authorization path.
 - Hosted models, browser destinations, and MCP servers can receive data from KIN when those integrations are used.

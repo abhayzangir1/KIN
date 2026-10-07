@@ -233,7 +233,7 @@ export class CoreServer {
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             `cred-${now}-openrouter`,
             'openrouter',
-            'OpenRouter Free Tier (ZDR Compliant)',
+            'OpenRouter Environment Credential',
             encryptedKey,
             JSON.stringify([]),
             5000000,
@@ -299,9 +299,46 @@ export class CoreServer {
     // Startup Crash Recovery Sweep: detect interrupted runs from prior PC shutdown
     try {
       this.runSupervisorSelfHealing();
-      this.kernel.admitNextQueuedRun();
+      this.dispatchQueuedRunsStartup();
     } catch (recErr) {
       console.warn('[KIN CORE] Startup crash recovery sweep notice:', recErr);
+    }
+  }
+
+  private dispatchQueuedRunsStartup(): void {
+    try {
+      let admitted = this.kernel.admitNextQueuedRun();
+      while (admitted) {
+        const admittedRun = admitted;
+        const admittedAgent = this.agentRepo.getIdentity(admittedRun.agentId);
+        if (admittedAgent) {
+          this.broadcastEvent('run:admitted', { runId: admittedRun.id, agentId: admittedAgent.id });
+          const targetChan = admittedRun.channelId || 'chan-general';
+          let trigger = admittedRun.triggerMessageId
+            ? this.channelService.getMessage(admittedRun.triggerMessageId)
+            : undefined;
+          if (!trigger && admittedRun.taskId) {
+            const taskObj = this.taskRepo.getTask(admittedRun.taskId);
+            if (taskObj) {
+              trigger = {
+                id: `trigger-task-${admittedRun.id}`,
+                channelId: targetChan,
+                senderId: 'system',
+                content: `Execute task: ${taskObj.title}\n${taskObj.description || ''}`,
+                taskId: taskObj.id,
+              } as any;
+            }
+          }
+          this.enqueueChannelExecution(targetChan, () =>
+            this.enqueueAgentExecution(admittedAgent.id, () =>
+              this.executeAgentResponse(admittedAgent, targetChan, trigger, 0, undefined, admittedRun.id)
+            )
+          );
+        }
+        admitted = this.kernel.admitNextQueuedRun();
+      }
+    } catch (err) {
+      console.warn('[KIN CORE] Startup queue dispatch notice:', err);
     }
   }
 
@@ -1559,18 +1596,30 @@ export class CoreServer {
         // 4. Fallback standard catalog if models list is otherwise empty
         if (modelMap.size === 0) {
           const defaultCatalog = await this.modelGateway.fetchProviderModels('openrouter');
+          const hasOpenRouter = activeCreds.some((c: any) => c.provider === 'openrouter');
           for (const dm of defaultCatalog) {
-            modelMap.set(dm.id, dm);
+            modelMap.set(dm.id, {
+              ...dm,
+              configured: hasOpenRouter,
+              validated: false,
+            });
           }
         }
 
         const providers = ['ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq'];
         const providerReadiness: Record<string, any> = {};
         for (const p of providers) {
-          providerReadiness[p] = this.modelGateway.getProviderReadiness(p);
+          providerReadiness[p] = await this.modelGateway.checkProviderReadiness(p);
         }
 
-        const modelsList = Array.from(modelMap.values());
+        const urlObj = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
+        const freeOnly = urlObj.searchParams.get('freeOnly') === '1' || urlObj.searchParams.get('freeOnly') === 'true';
+
+        let modelsList = Array.from(modelMap.values());
+        if (freeOnly) {
+          modelsList = modelsList.filter((m) => Boolean(m.isFree));
+        }
+
         return this.sendJson(res, 200, {
           ...ollamaInfo,
           models: modelsList,
@@ -1584,7 +1633,7 @@ export class CoreServer {
         const providers = ['ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq'];
         const readiness: Record<string, any> = {};
         for (const p of providers) {
-          readiness[p] = this.modelGateway.getProviderReadiness(p);
+          readiness[p] = await this.modelGateway.checkProviderReadiness(p);
         }
         return this.sendJson(res, 200, { success: true, providerReadiness: readiness });
       }
@@ -4666,7 +4715,9 @@ export class CoreServer {
               const payload = JSON.parse(approvalRow.action_payload_json || '{}');
               const approvalToken = this.toolGateway.generateApprovalToken(
                 approvalRow.tool_name,
-                approvalRow.run_id
+                approvalRow.run_id,
+                60000,
+                payload
               );
               toolExecutionResult = await this.toolGateway.executeTool(
                 approvalRow.tool_name,
@@ -5017,7 +5068,15 @@ export class CoreServer {
       const taskStatusMatch = pathname.match(/^\/api\/tasks\/([^/]+)\/status$/);
       if (req.method === 'PATCH' && taskStatusMatch) {
         const taskId = taskStatusMatch[1];
-        const body = await this.parseJsonBody<{ status: TaskStatus; evidenceId?: string }>(req);
+        const body = await this.parseJsonBody<{
+          status: TaskStatus;
+          evidenceId?: string;
+          operatorSignoff?: {
+            operatorId: string;
+            signature: string;
+            justification: string;
+          };
+        }>(req);
 
         if (!body.status) {
           return this.sendJson(res, 400, { error: 'status is required' });
@@ -5028,50 +5087,76 @@ export class CoreServer {
           return this.sendJson(res, 404, { error: `Task '${taskId}' not found` });
         }
 
-        let advancedNextTaskId: string | undefined;
         let goalCompleted = false;
 
         if (body.status === 'completed') {
           let evidenceId = body.evidenceId || currentTask.evidenceBundleId;
+
           if (!evidenceId) {
-            // Auto-generate human_signoff row in evidence table and link it
-            let runId = currentTask.claimedByRunId;
-            if (!runId) {
-              const runRow = this.db.queryOne<{ id: string }>('SELECT id FROM agent_runs ORDER BY created_at DESC LIMIT 1');
-              if (runRow) {
-                runId = runRow.id;
-              } else {
-                runId = `run-signoff-${Date.now()}`;
-                const defaultAgentId = this.agentRepo.listIdentitiesByProject(this.activeProjectId)[0]?.id || 'agent-boss';
-                const agentId = currentTask.assignedAgentId || defaultAgentId;
-                this.db.execute(
-                  `INSERT INTO agent_runs (id, agent_id, project_id, state, heartbeat_at, created_at)
-                   VALUES (?, ?, ?, 'completed', ?, ?)`,
-                  runId,
-                  agentId,
-                  this.activeProjectId,
-                  Date.now(),
-                  Date.now()
+            const signoff = body.operatorSignoff;
+            if (signoff?.operatorId && signoff?.signature && signoff?.justification) {
+              let runId = currentTask.claimedByRunId;
+              if (!runId) {
+                const runRow = this.db.queryOne<{ id: string }>(
+                  'SELECT id FROM agent_runs WHERE project_id = ? ORDER BY created_at DESC LIMIT 1',
+                  this.activeProjectId
                 );
+                if (runRow) {
+                  runId = runRow.id;
+                } else {
+                  return this.sendJson(res, 400, {
+                    error: 'Cannot sign off task: no associated run execution record found.',
+                  });
+                }
               }
+              evidenceId = `ev-signoff-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+              const signoffUri = `operator://signoff/${encodeURIComponent(signoff.operatorId)}?sig=${encodeURIComponent(signoff.signature)}&reason=${encodeURIComponent(signoff.justification)}`;
+              this.db.execute(
+                `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at)
+                 VALUES (?, ?, ?, 'human_signoff', ?, 1, ?)`,
+                evidenceId,
+                taskId,
+                runId,
+                signoffUri,
+                Date.now()
+              );
+              EventLedger.getInstance().record({
+                eventType: 'EVIDENCE_RECORDED',
+                entityType: 'task',
+                entityId: taskId,
+                payload: {
+                  evidenceId,
+                  type: 'human_signoff',
+                  contentUri: signoffUri,
+                  operatorId: signoff.operatorId,
+                  runId,
+                  justification: signoff.justification,
+                },
+              });
+            } else {
+              // Refuse synthetic sign-off; task must remain in review until signed off
+              if (currentTask.status !== 'review') {
+                this.taskRepo.updateTaskStatus(taskId, 'review');
+                this.broadcastEvent('task:updated', { taskId, status: 'review' });
+              }
+              return this.sendJson(res, 400, {
+                error: 'Task completion requires verified evidenceId or explicit operator sign-off with operatorId, signature, and justification. Task placed in review status.',
+                status: 'review',
+              });
             }
-            evidenceId = `ev-signoff-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-            this.db.execute(
-              `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at)
-               VALUES (?, ?, ?, 'human_signoff', ?, 1, ?)`,
-              evidenceId,
-              taskId,
-              runId,
-              `operator://signoff/${taskId}`,
-              Date.now()
-            );
           }
 
           if (currentTask.status !== 'running' && currentTask.status !== 'review') {
-            this.taskRepo.updateTaskStatus(taskId, 'running');
+            this.taskRepo.updateTaskStatus(taskId, 'review');
           }
 
-          const promotedTaskIds = this.taskRepo.completeTask(taskId, evidenceId);
+          let promotedTaskIds: string[] = [];
+          try {
+            promotedTaskIds = this.taskRepo.completeTask(taskId, evidenceId);
+          } catch (completeErr: any) {
+            return this.sendJson(res, 400, { error: completeErr.message });
+          }
+
           for (const pId of promotedTaskIds) {
             this.broadcastEvent('task:updated', { taskId: pId, status: 'ready' });
           }
@@ -5079,13 +5164,6 @@ export class CoreServer {
 
           if (currentTask.goalId) {
             const siblingTasks = this.taskRepo.listTasksByGoal(currentTask.goalId);
-            const nextReady = siblingTasks.find((t) => t.id !== taskId && t.status === 'ready');
-            if (nextReady) {
-              this.taskRepo.updateTaskStatus(nextReady.id, 'running');
-              this.broadcastEvent('task:updated', { taskId: nextReady.id, status: 'running' });
-              advancedNextTaskId = nextReady.id;
-            }
-
             const allDone = siblingTasks.every((t) => (t.id === taskId ? true : t.status === 'completed'));
             if (allDone) {
               this.db.execute("UPDATE goals SET status = 'completed', updated_at = ? WHERE id = ?", Date.now(), currentTask.goalId);
@@ -5096,6 +5174,19 @@ export class CoreServer {
               }
             }
           }
+
+          return this.sendJson(res, 200, {
+            success: true,
+            taskId,
+            status: 'completed',
+            evidenceBundleId: evidenceId,
+            promotedTaskIds,
+            goalCompleted,
+          });
+        } else if (body.status === 'running') {
+          return this.sendJson(res, 400, {
+            error: 'Cannot manually force task to running status without worker lease claim.',
+          });
         } else {
           this.taskRepo.updateTaskStatus(taskId, body.status);
           this.broadcastEvent('task:updated', { taskId, status: body.status });
@@ -5105,7 +5196,6 @@ export class CoreServer {
           success: true,
           taskId,
           status: body.status,
-          advancedNextTaskId,
           goalCompleted,
         });
       }
@@ -6024,15 +6114,15 @@ export class CoreServer {
         const sentinel = Sentinel.getInstance();
         const decision = sentinel.evaluate({
           agentId: 'operator',
-          toolName: 'launchApp',
-          params: { target, args: body.args || [] },
+          toolName: 'desktopLaunchApp',
+          params: { appNameOrPath: target, args: body.args || [] },
           riskLevel: 'MEDIUM',
           autonomyMode: 'FULL_ACCESS',
           agentCapabilities: ['*'],
           authorizationToken: approvalToken,
         });
         if (decision.requiresApproval) {
-          const approvalId = this.createApprovalRecord('desktopLaunchApp', { target, args: body.args || [] }, decision.reason);
+          const approvalId = this.createApprovalRecord('desktopLaunchApp', { appNameOrPath: target, args: body.args || [] }, decision.reason);
           return this.sendJson(res, 428, {
             error: 'Precondition Required: Action requires operator approval',
             approvalId,
@@ -6131,18 +6221,45 @@ export class CoreServer {
       // 42. POST /api/system/desktop/interact — Mouse and keyboard interaction
       if (req.method === 'POST' && pathname === '/api/system/desktop/interact') {
         const body = await this.parseJsonBody<any>(req);
+        if (!body || !body.action) {
+          return this.sendJson(res, 400, { error: 'action is required (click, move, type, or key)' });
+        }
         const approvalToken = (req.headers['x-kin-approval-token'] as string) || body?.approvalToken;
+        let toolName = 'desktopMouseMove';
+        let riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' = 'LOW';
+        let params: Record<string, any> = {};
+
+        if (body.action === 'click') {
+          toolName = 'desktopMouseClick';
+          riskLevel = 'MEDIUM';
+          params = { x: body.x, y: body.y, button: body.button || 'left', doubleClick: !!body.doubleClick };
+        } else if (body.action === 'move') {
+          toolName = 'desktopMouseMove';
+          riskLevel = 'LOW';
+          params = { x: body.x, y: body.y };
+        } else if (body.action === 'type') {
+          toolName = 'desktopType';
+          riskLevel = 'MEDIUM';
+          params = { text: body.text || '' };
+        } else if (body.action === 'key') {
+          toolName = 'desktopSendKey';
+          riskLevel = 'MEDIUM';
+          params = { key: body.key, modifiers: body.modifiers || [] };
+        } else {
+          return this.sendJson(res, 400, { error: `Unsupported desktop interaction action: '${body.action}'. Valid: click, move, type, key` });
+        }
+
         const decision = Sentinel.getInstance().evaluate({
           agentId: 'operator',
-          toolName: 'desktopMouseMove',
-          params: body || {},
-          riskLevel: 'MEDIUM',
+          toolName,
+          params,
+          riskLevel,
           autonomyMode: 'FULL_ACCESS',
           agentCapabilities: ['*'],
           authorizationToken: approvalToken,
         });
         if (decision.requiresApproval) {
-          const approvalId = this.createApprovalRecord('desktopInteract', body || {}, decision.reason);
+          const approvalId = this.createApprovalRecord(toolName, params, decision.reason);
           return this.sendJson(res, 428, { error: 'Precondition Required: Action requires operator approval', approvalId, reason: decision.reason, requiresApproval: true });
         }
         if (!decision.allowed) return this.sendJson(res, 403, { error: decision.reason });
@@ -6172,17 +6289,19 @@ export class CoreServer {
         if (!body.url) return this.sendJson(res, 400, { error: 'URL is required' });
         const approvalToken = (req.headers['x-kin-approval-token'] as string) || body.approvalToken;
         const sentinel = Sentinel.getInstance();
+        const toolName = 'browserNavigate';
+        const params = { url: body.url };
         const decision = sentinel.evaluate({
           agentId: 'operator',
-          toolName: 'browser',
-          params: { action: 'navigate', url: body.url },
+          toolName,
+          params,
           riskLevel: 'LOW',
           autonomyMode: 'FULL_ACCESS',
           agentCapabilities: ['*'],
           authorizationToken: approvalToken,
         });
         if (decision.requiresApproval) {
-          const approvalId = this.createApprovalRecord('browser', { action: 'navigate', url: body.url }, decision.reason);
+          const approvalId = this.createApprovalRecord(toolName, params, decision.reason);
           return this.sendJson(res, 428, { error: 'Precondition Required: Action requires operator approval', approvalId, reason: decision.reason, requiresApproval: true });
         }
         if (!decision.allowed) {
@@ -6204,17 +6323,26 @@ export class CoreServer {
         const body = await this.parseJsonBody<any>(req);
         const approvalToken = (req.headers['x-kin-approval-token'] as string) || body?.approvalToken;
         const sentinel = Sentinel.getInstance();
+        let toolName = 'browserStep';
+        let params: Record<string, any> = body || {};
+        if (body?.action === 'click' && body?.selector) {
+          toolName = 'browserClick';
+          params = { selector: body.selector };
+        } else if (body?.action === 'type' && body?.selector) {
+          toolName = 'browserType';
+          params = { selector: body.selector, text: body.text || '' };
+        }
         const decision = sentinel.evaluate({
           agentId: 'operator',
-          toolName: 'browser',
-          params: body || {},
+          toolName,
+          params,
           riskLevel: 'LOW',
           autonomyMode: 'FULL_ACCESS',
           agentCapabilities: ['*'],
           authorizationToken: approvalToken,
         });
         if (decision.requiresApproval) {
-          const approvalId = this.createApprovalRecord('browser', body || {}, decision.reason);
+          const approvalId = this.createApprovalRecord(toolName, params, decision.reason);
           return this.sendJson(res, 428, { error: 'Precondition Required: Action requires operator approval', approvalId, reason: decision.reason, requiresApproval: true });
         }
         if (!decision.allowed) {
@@ -7253,7 +7381,7 @@ export class CoreServer {
       const activeTaskId = triggerMsg?.taskId || run?.taskId;
       if (activeTaskId) {
         try {
-          const claimed = this.taskRepo.claimTaskWithLease(activeTaskId, agent.id, run.id, 120000);
+          const claimed = this.taskRepo.claimTaskWithLease(activeTaskId, agent.id, run.id, 300000);
           if (!claimed) {
             console.warn(`[KIN TASK LEASE] Failed to claim task ${activeTaskId} for agent ${agent.id} (lease held by another run). Aborting execution.`);
             this.kernel.transitionState(run.id, 'failed', `Could not acquire task lease for task ${activeTaskId}`);
@@ -7440,7 +7568,7 @@ export class CoreServer {
       }
 
       // Ensure the trigger message is present if trajectory was empty
-      if (!trajectory.some((m) => m.id === triggerMsg.id)) {
+      if (triggerMsg && !trajectory.some((m) => m.id === triggerMsg.id)) {
         const trigContent = triggerMsg.content || '';
         if (trigContent.includes('> [Quote') || trigContent.includes('> @') || trigContent.startsWith('>') || trigContent.includes('@[Quote]')) {
           modelMessages.push({
@@ -7450,6 +7578,14 @@ export class CoreServer {
         } else {
           modelMessages.push({ role: 'user', content: trigContent });
         }
+      } else if (!triggerMsg && modelMessages.length === 0) {
+        const activeTaskInfo = activeTaskId ? this.taskRepo.getTask(activeTaskId) : null;
+        modelMessages.push({
+          role: 'user',
+          content: activeTaskInfo
+            ? `Execute assigned task: ${activeTaskInfo.title}\n${activeTaskInfo.description || ''}`
+            : 'Resume execution for admitted run.',
+        });
       }
 
       // 5. Execute Autonomous Multi-Turn ReAct Loop (with Tool Gateway, Native File/Shell/Schedule, Skills & MCP)
@@ -7738,6 +7874,8 @@ export class CoreServer {
 
       // Handle isolated git worktree changes: commit diff, verify and merge to base branch
       let worktreeCommitSha: string | null = null;
+      let worktreeMergeFailed = false;
+      let worktreeMergeError: string | null = null;
       if (worktreeInfo) {
         try {
           const worktreeManager = new WorktreeManager(repoRoot);
@@ -7753,15 +7891,46 @@ export class CoreServer {
               worktreeInfo.branch,
               defaultBranch
             );
-            if (!mergeRes.success && mergeRes.error) {
-              console.warn('[KIN CORE] Worktree merge conflict/error:', mergeRes.error);
+            if (!mergeRes.success) {
+              worktreeMergeFailed = true;
+              worktreeMergeError = mergeRes.error || 'Worktree merge failed';
+              worktreeCommitSha = null;
+              console.warn('[KIN CORE] Worktree merge conflict/error:', worktreeMergeError);
+            } else if (mergeRes.commitSha) {
+              worktreeCommitSha = mergeRes.commitSha;
             }
           } else {
             await worktreeManager.removeWorktree(worktreeInfo.worktreePath);
           }
-        } catch (wtMergeErr) {
+        } catch (wtMergeErr: any) {
+          worktreeMergeFailed = true;
+          worktreeMergeError = wtMergeErr?.message || String(wtMergeErr);
           console.warn('[KIN CORE] Worktree merge/cleanup error:', wtMergeErr);
         }
+      }
+
+      if (worktreeMergeFailed) {
+        const diagMsg = `Worktree verification and merge to base branch failed: ${worktreeMergeError || 'Unknown merge conflict/failure'}`;
+        this.kernel.transitionState(run.id, 'failed', diagMsg);
+        const activeTaskId = triggerMsg?.taskId || run?.taskId;
+        if (activeTaskId) {
+          try {
+            this.taskRepo.updateTaskStatus(activeTaskId, 'blocked');
+            this.taskRepo.releaseTaskLease(activeTaskId, run.id, true);
+            EventLedger.getInstance().record({
+              eventType: 'TASK_BLOCKED',
+              entityType: 'task',
+              entityId: activeTaskId,
+              payload: { runId: run.id, reason: diagMsg },
+            });
+            this.broadcastEvent('task:updated', { taskId: activeTaskId, status: 'blocked', reason: diagMsg });
+          } catch (tErr) {
+            console.warn('[KIN CORE] Notice updating task status to blocked on merge failure:', tErr);
+          }
+        }
+        this.activeAgentExecutions.delete(agent.id);
+        this.broadcastEvent('agent:state', { agentId: agent.id, channelId, status: 'idle' });
+        return;
       }
 
       // Record actual loopResult.actions in checkpoints table upon run completion
@@ -7841,6 +8010,29 @@ export class CoreServer {
             this.taskRepo.releaseTaskLease(activeTaskId, run.id, wasAlreadyFailed);
           } catch {}
         }
+      } else if (loopResult.actions && loopResult.actions.some((a: any) => !!a.error)) {
+        const errorList = loopResult.actions.filter((a: any) => !!a.error).map((a: any) => a.error).join('; ');
+        const failMsg = `Agent execution recorded action errors during turn execution: ${errorList}`;
+        this.kernel.transitionState(run.id, 'failed', failMsg);
+        const activeTaskId = triggerMsg?.taskId || run?.taskId;
+        if (activeTaskId) {
+          try {
+            this.taskRepo.updateTaskStatus(activeTaskId, 'review');
+            this.taskRepo.releaseTaskLease(activeTaskId, run.id, true);
+            EventLedger.getInstance().record({
+              eventType: 'TASK_REVIEW_REQUIRED',
+              entityType: 'task',
+              entityId: activeTaskId,
+              payload: { runId: run.id, reason: failMsg },
+            });
+            this.broadcastEvent('task:updated', { taskId: activeTaskId, status: 'review', reason: failMsg });
+          } catch (tErr) {
+            console.warn('[KIN CORE] Notice updating task status to review on action errors:', tErr);
+          }
+        }
+        this.activeAgentExecutions.delete(agent.id);
+        this.broadcastEvent('agent:state', { agentId: agent.id, channelId, status: 'idle' });
+        return;
       } else {
         this.kernel.transitionState(run.id, 'completed');
 
@@ -7855,55 +8047,80 @@ export class CoreServer {
               }
               // Generate verifiable evidence record to gate task completion
               const evidenceId = `ev-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-              const evidenceType = 'artifact_hash';
-              const contentUri = worktreeCommitSha
-                ? `git://commit/${worktreeCommitSha}`
-                : `sha256:${crypto.createHash('sha256').update(loopResult.finalContent || run.id).digest('hex')}`;
-              const isVerified = worktreeCommitSha
-                ? 1
-                : (loopResult.actions && loopResult.actions.length > 0 && loopResult.actions.every((a: any) => !a.error) ? 1 : 0);
+              const expectedType = currentTask.verificationSpec?.expectedArtifactType;
+              let contentUri: string | null = null;
+              let evidenceType = expectedType || 'artifact_hash';
+              let isVerified = 0;
 
-              try {
-                this.db.execute(
-                  `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                  evidenceId,
-                  activeTaskId,
-                  run.id,
-                  evidenceType,
-                  contentUri,
-                  isVerified,
-                  Date.now()
-                );
-
-                EventLedger.getInstance().record({
-                  eventType: 'EVIDENCE_RECORDED',
-                  entityType: 'task',
-                  entityId: activeTaskId,
-                  payload: {
-                    evidenceId,
-                    type: evidenceType,
-                    contentUri,
-                    runId: run.id,
-                    agentId: freshIdentity.id,
-                  },
-                });
-              } catch (evErr) {
-                console.warn('[KIN CORE] Evidence record creation notice:', evErr);
+              if (worktreeCommitSha) {
+                contentUri = `git://commit/${worktreeCommitSha}`;
+                evidenceType = 'artifact_hash';
+                isVerified = 1;
+              } else if (loopResult.finalContent && loopResult.finalContent.trim().length > 0) {
+                contentUri = `sha256:${crypto.createHash('sha256').update(loopResult.finalContent.trim()).digest('hex')}`;
+                evidenceType = expectedType || 'artifact_hash';
+                isVerified = 1;
+              } else if (loopResult.actions && loopResult.actions.length > 0 && loopResult.actions.every((a: any) => !a.error)) {
+                contentUri = `evidence://actions/${run.id}/${crypto.createHash('sha256').update(JSON.stringify(loopResult.actions)).digest('hex')}`;
+                evidenceType = (expectedType === 'test_output' || expectedType === 'build_log') ? expectedType : 'artifact_hash';
+                isVerified = 1;
               }
 
-              const promotedTaskIds = this.taskRepo.completeTask(activeTaskId, evidenceId) || [];
-              EventLedger.getInstance().record({
-                eventType: 'TASK_COMPLETED',
-                entityType: 'task',
-                entityId: activeTaskId,
-                payload: { runId: run.id, evidenceId, promotedTaskIds },
-              });
-              this.broadcastEvent('task:updated', { taskId: activeTaskId, status: 'completed', evidenceBundleId: evidenceId });
+              if (isVerified === 1 && contentUri) {
+                try {
+                  this.db.execute(
+                    `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                    evidenceId,
+                    activeTaskId,
+                    run.id,
+                    evidenceType,
+                    contentUri,
+                    isVerified,
+                    Date.now()
+                  );
 
-              // Promote dependent tasks whose dependencies are now satisfied
-              for (const pId of promotedTaskIds) {
-                this.broadcastEvent('task:updated', { taskId: pId, status: 'ready' });
+                  EventLedger.getInstance().record({
+                    eventType: 'EVIDENCE_RECORDED',
+                    entityType: 'task',
+                    entityId: activeTaskId,
+                    payload: {
+                      evidenceId,
+                      type: evidenceType,
+                      contentUri,
+                      runId: run.id,
+                      agentId: freshIdentity.id,
+                    },
+                  });
+                } catch (evErr) {
+                  console.warn('[KIN CORE] Evidence record creation notice:', evErr);
+                }
+
+                const promotedTaskIds = this.taskRepo.completeTask(activeTaskId, evidenceId, run.id) || [];
+                EventLedger.getInstance().record({
+                  eventType: 'TASK_COMPLETED',
+                  entityType: 'task',
+                  entityId: activeTaskId,
+                  payload: { runId: run.id, evidenceId, promotedTaskIds },
+                });
+                this.broadcastEvent('task:updated', { taskId: activeTaskId, status: 'completed', evidenceBundleId: evidenceId });
+
+                // Promote dependent tasks whose dependencies are now satisfied
+                for (const pId of promotedTaskIds) {
+                  this.broadcastEvent('task:updated', { taskId: pId, status: 'ready' });
+                }
+              } else {
+                // No verifiable proof produced: place task in review, do not mark completed
+                const reviewReason = 'Run completed without generating verified commit, artifact hash, or acceptance evidence.';
+                this.taskRepo.updateTaskStatus(activeTaskId, 'review');
+                this.taskRepo.releaseTaskLease(activeTaskId, run.id, false);
+                EventLedger.getInstance().record({
+                  eventType: 'TASK_REVIEW_REQUIRED',
+                  entityType: 'task',
+                  entityId: activeTaskId,
+                  payload: { runId: run.id, reason: reviewReason },
+                });
+                this.broadcastEvent('task:updated', { taskId: activeTaskId, status: 'review', reason: reviewReason });
               }
 
               // Advance next ready task in this goal to running and dispatch real worker run
@@ -7950,8 +8167,13 @@ export class CoreServer {
                 }
               }
             }
-          } catch (taskErr) {
+          } catch (taskErr: any) {
             console.error('[KIN CORE] Error advancing DAG task status after run:', taskErr);
+            try {
+              this.taskRepo.updateTaskStatus(activeTaskId, 'review');
+              this.taskRepo.releaseTaskLease(activeTaskId, run.id, true);
+              this.broadcastEvent('task:updated', { taskId: activeTaskId, status: 'review', reason: taskErr?.message });
+            } catch {}
           }
         }
       }
@@ -8142,9 +8364,21 @@ export class CoreServer {
           const admittedAgent = this.agentRepo.getIdentity(admittedRun.agentId);
           if (admittedAgent) {
             this.broadcastEvent('run:admitted', { runId: admittedRun.id, agentId: admittedAgent.id });
-            const trigger = admittedRun.triggerMessageId
+            let trigger = admittedRun.triggerMessageId
               ? this.channelService.getMessage(admittedRun.triggerMessageId)
               : undefined;
+            if (!trigger && admittedRun.taskId) {
+              const taskObj = this.taskRepo.getTask(admittedRun.taskId);
+              if (taskObj) {
+                trigger = {
+                  id: `trigger-task-${admittedRun.id}`,
+                  channelId: admittedRun.channelId || channelId,
+                  senderId: 'system',
+                  content: `Execute task: ${taskObj.title}\n${taskObj.description || ''}`,
+                  taskId: taskObj.id,
+                } as any;
+              }
+            }
             this.enqueueChannelExecution(admittedRun.channelId || channelId, () =>
               this.enqueueAgentExecution(admittedAgent.id, () =>
                 this.executeAgentResponse(admittedAgent, admittedRun.channelId || channelId, trigger, 0, undefined, admittedRun.id)

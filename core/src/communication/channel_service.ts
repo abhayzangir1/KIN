@@ -6,6 +6,7 @@
 import { KinDatabase } from '../storage/db.js';
 import { Message, SenderType } from '../domain/types.js';
 import { EventLedger } from '../security/event_ledger.js';
+import { SecretBroker } from '../security/secret_broker.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface SendMessageParams {
@@ -58,22 +59,15 @@ export class ChannelService {
 
     // Record event in append-only journal through authoritative EventLedger
     try {
-      EventLedger.getInstance().record({
+      const ledger = EventLedger.ensureInitialized(this.db);
+      ledger.record({
         eventType: 'message.created',
         entityType: 'message',
         entityId: message.id,
         payload: { channelId: message.channelId, senderId: message.senderId, mentions },
       });
-    } catch {
-      this.db.execute(
-        `INSERT INTO event_journal (event_type, entity_type, entity_id, payload_json, created_at)
-         VALUES (?, ?, ?, ?, ?)`,
-        'message.created',
-        'message',
-        message.id,
-        JSON.stringify({ channelId: message.channelId, senderId: message.senderId, mentions }),
-        now
-      );
+    } catch (err) {
+      console.warn('[CHANNEL SERVICE] EventLedger recording failure:', err);
     }
 
     return message;

@@ -249,24 +249,38 @@ export class AgentLoopRunner {
               } catch {}
             }
 
+            const activeTaskObj = options.taskId && options.taskRepo ? options.taskRepo.getTask(options.taskId) : undefined;
+            const activeTaskTitle = activeTaskObj?.title || (options.taskId ? `Task ${options.taskId}` : `Turn ${currentTurn}`);
+
             const compactionResult = this.contextCompactor.evaluateAndCompact({
               messages: compMessages,
               currentTokens: estimatedTokens,
               maxTokens,
               compactionThresholdRatio: 0.75,
               snapshotState: {
-                goalId: options.goalId || options.taskId || options.runId,
+                goalId: options.goalId || (options.taskId && activeTaskObj?.goalId) || options.runId,
                 primaryObjective: options.userPrompt,
                 completedTasks: actions
                   .filter((a) => !a.error)
-                  .map((a, i) => ({ id: `act-${i}`, title: `${a.toolName} completed` })),
-                activeTask: options.taskId
-                  ? { id: options.taskId, title: `Active Task ${options.taskId} (Turn ${currentTurn})` }
-                  : { id: `turn-${currentTurn}`, title: `Turn ${currentTurn} execution` },
+                  .map((a, i) => {
+                    let desc = `${a.toolName} executed successfully`;
+                    if (a.toolName === 'writeFile' && a.params?.filePath) {
+                      desc = `Wrote file ${a.params.filePath}`;
+                    } else if (a.toolName === 'readFile' && a.params?.filePath) {
+                      desc = `Read file ${a.params.filePath}`;
+                    } else if (a.toolName === 'executeShell' && a.params?.command) {
+                      desc = `Executed shell: ${(a.params.command).slice(0, 50)}`;
+                    }
+                    return { id: `act-${i}`, title: desc };
+                  }),
+                activeTask: {
+                  id: options.taskId || `turn-${currentTurn}`,
+                  title: activeTaskTitle,
+                },
                 modifiedFiles: realModifiedFiles.map((p) => ({ path: p })),
                 encounteredErrorsAndResolutions: actions
                   .filter((a) => a.error)
-                  .map((a) => ({ error: a.error || '', fixApplied: 'Addressed during turn execution' })),
+                  .map((a) => ({ error: a.error || '', fixApplied: 'Encountered error; evaluated alternative in turn' })),
                 immutableDecisions,
                 pendingTaskDag,
               },
@@ -320,10 +334,11 @@ export class AgentLoopRunner {
       const currentModelId = options.getModelId ? options.getModelId() : options.modelId;
       let response;
       const watchdogIntervalMs = 15000;
-      const maxCeilingMs = 10 * 60 * 1000; // 10 minutes maximum ceiling
+      const maxCeilingMs = 60 * 60 * 1000; // 60 minutes maximum ceiling for reasoning models
       const invokeStartTime = Date.now();
       let watchdogTimer: NodeJS.Timeout | null = null;
 
+      let modelLeaseLost = false;
       try {
         watchdogTimer = setInterval(async () => {
           if (Date.now() - invokeStartTime > maxCeilingMs) {
@@ -338,8 +353,13 @@ export class AgentLoopRunner {
           } catch {}
           if (options.taskId && options.onRenewLease) {
             try {
-              await options.onRenewLease(options.taskId);
-            } catch {}
+              const renewed = await options.onRenewLease(options.taskId);
+              if (renewed === false) {
+                modelLeaseLost = true;
+              }
+            } catch {
+              modelLeaseLost = true;
+            }
           }
         }, watchdogIntervalMs);
 
@@ -400,6 +420,16 @@ export class AgentLoopRunner {
           clearInterval(watchdogTimer);
           watchdogTimer = null;
         }
+      }
+
+      if (modelLeaseLost) {
+        return {
+          finalContent: `Execution halted: Task lease ownership for task '${options.taskId}' was lost or expired during model invocation.`,
+          turnCount: currentTurn,
+          actions,
+          isAborted: true,
+          reason: `Lost task lease ownership during model turn execution.`,
+        };
       }
 
       if (response.isError && this.isQuotaError(response.content)) {
@@ -550,6 +580,25 @@ export class AgentLoopRunner {
         allowedCapabilities: effectiveCapabilities,
       };
 
+        let toolWatchdogTimer: NodeJS.Timeout | null = null;
+        let toolLeaseLost = false;
+        if (options.taskId && options.onRenewLease) {
+          toolWatchdogTimer = setInterval(async () => {
+            try {
+              options.onHeartbeat?.();
+              const renewed = await options.onRenewLease!(options.taskId!);
+              if (renewed === false) {
+                toolLeaseLost = true;
+              }
+            } catch {
+              toolLeaseLost = true;
+            }
+          }, watchdogIntervalMs);
+          if (toolWatchdogTimer && typeof (toolWatchdogTimer as any).unref === 'function') {
+            (toolWatchdogTimer as any).unref();
+          }
+        }
+
         let res;
         try {
           res = await this.toolGateway.executeTool(toolCall.name, toolCall.params || {}, toolCtx);
@@ -558,6 +607,21 @@ export class AgentLoopRunner {
             success: false,
             error: callErr?.message || 'Tool execution encountered an unexpected error.',
             riskLevel: 'LOW' as const,
+          };
+        } finally {
+          if (toolWatchdogTimer) {
+            clearInterval(toolWatchdogTimer);
+            toolWatchdogTimer = null;
+          }
+        }
+
+        if (toolLeaseLost) {
+          return {
+            finalContent: `Execution halted: Task lease ownership for task '${options.taskId}' was lost or expired during execution of tool '${toolCall.name}'.`,
+            turnCount: currentTurn,
+            actions,
+            isAborted: true,
+            reason: `Lost task lease ownership during tool execution.`,
           };
         }
 

@@ -87,9 +87,9 @@ export class TaskRepository {
         `INSERT INTO tasks (id, goal_id, title, description, assigned_agent_id, status, verification_spec_json, evidence_bundle_id, claimed_by_run_id, lease_expires_at, retry_count, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         task.id,
-        task.goalId,
+        task.goalId ?? null,
         task.title,
-        task.description,
+        task.description ?? '',
         task.assignedAgentId ?? null,
         task.status,
         task.verificationSpec ? JSON.stringify(task.verificationSpec) : '{}',
@@ -324,14 +324,64 @@ export class TaskRepository {
    */
   public completeTask(
     taskId: string,
-    evidenceBundleId: string
+    evidenceBundleId: string,
+    expectedRunId?: string
   ): string[] {
-    const evidenceRecord = this.db.queryOne<{ id: string }>(
-      'SELECT id FROM evidence WHERE id = ?',
+    const evidenceRecord = this.db.queryOne<{
+      id: string;
+      task_id: string;
+      run_id: string;
+      type: string;
+      content_uri: string;
+      verified: number | boolean;
+    }>(
+      'SELECT id, task_id, run_id, type, content_uri, verified FROM evidence WHERE id = ?',
       evidenceBundleId
     );
     if (!evidenceRecord) {
       throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' not found in database.`);
+    }
+
+    if (evidenceRecord.task_id !== taskId) {
+      throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' belongs to task '${evidenceRecord.task_id}', not '${taskId}'.`);
+    }
+
+    if (expectedRunId && (!evidenceRecord.run_id || evidenceRecord.run_id !== expectedRunId)) {
+      throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' belongs to run '${evidenceRecord.run_id || 'unassigned'}', not expected run '${expectedRunId}'.`);
+    }
+
+    const isVerified = evidenceRecord.verified === 1 || evidenceRecord.verified === true || String(evidenceRecord.verified) === '1';
+    if (!isVerified) {
+      throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' is unverified (verified = 0).`);
+    }
+
+    const uri = (evidenceRecord.content_uri || '').trim();
+    if (!uri) {
+      throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' has empty content_uri proof.`);
+    }
+
+    if (evidenceRecord.type === 'artifact_hash') {
+      const isGitCommit = uri.startsWith('git://commit/') && uri.replace('git://commit/', '').trim().length >= 7;
+      const isSha256 = uri.startsWith('sha256:') && uri.replace('sha256:', '').trim().length >= 16;
+      const isEvidenceUri = (uri.startsWith('evidence://') || uri.startsWith('artifact://') || uri.startsWith('file://')) && uri.length >= 10;
+      if (!isGitCommit && !isSha256 && !isEvidenceUri) {
+        throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' contains invalid artifact proof URI '${uri}'.`);
+      }
+    } else if (evidenceRecord.type === 'human_signoff') {
+      const isOperatorSignoff = uri.startsWith('operator://signoff/') && uri.replace('operator://signoff/', '').trim().length > 0;
+      const isSignoffUri = (uri.startsWith('file://') || uri.startsWith('evidence://') || uri.startsWith('signoff://')) && uri.length >= 10;
+      if (!isOperatorSignoff && !isSignoffUri) {
+        throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' contains invalid human_signoff URI '${uri}'.`);
+      }
+    } else if (evidenceRecord.type === 'test_output' || evidenceRecord.type === 'build_log') {
+      if (uri.length < 5) {
+        throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' contains insufficient test/build proof.`);
+      }
+    }
+
+    const task = this.getTask(taskId);
+    if (task?.verificationSpec?.expectedArtifactType && evidenceRecord.type !== task.verificationSpec.expectedArtifactType) {
+      throw new Error(`Cannot complete task '${taskId}': Evidence type '${evidenceRecord.type}' does not match expected artifact type '${task.verificationSpec.expectedArtifactType}'.`);
     }
 
     const result = this.db.execute(

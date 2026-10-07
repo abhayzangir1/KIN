@@ -89,7 +89,7 @@ export const CreateGoalModal: React.FC = () => {
               type="text"
               value={goalCriteria}
               onChange={(e) => setGoalCriteria(e.target.value)}
-              placeholder="e.g. Spec approved, 100% tests pass, zero regressions (comma separated)"
+              placeholder="e.g. Spec approved, all tests pass, zero regressions (comma separated)"
               className="w-full bg-[#090d16] border border-[#2d3748] rounded px-3 py-1.5 text-kin-text focus:outline-none focus:border-emerald-500"
             />
           </div>

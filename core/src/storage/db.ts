@@ -19,8 +19,8 @@ export class KinDatabase {
   private writeLock: Promise<void> = Promise.resolve();
   private isTransactionActive: boolean = false;
 
-  constructor(config: DatabaseConfig = {}) {
-    const rawPath = config.dbPath || ':memory:';
+  constructor(config: DatabaseConfig | string = {}) {
+    const rawPath = typeof config === 'string' ? config : (config.dbPath || ':memory:');
     this.dbPath = rawPath;
 
     if (rawPath !== ':memory:') {
@@ -36,7 +36,8 @@ export class KinDatabase {
       enableForeignKeyConstraints: true,
     });
 
-    this.initializePragmas(config.busyTimeoutMs ?? 10000);
+    const busyTimeoutMs = typeof config === 'string' ? 10000 : (config.busyTimeoutMs ?? 10000);
+    this.initializePragmas(busyTimeoutMs);
   }
 
   private initializePragmas(busyTimeoutMs: number): void {

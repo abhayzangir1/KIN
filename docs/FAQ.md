@@ -6,15 +6,15 @@ This FAQ describes the current source at a high level. KIN is under active devel
 
 KIN includes a local Ollama path. It requires Ollama to be installed and running, with a compatible model available. The current model readiness UI can show fallback local models even when Ollama is offline, so confirm the runtime and send a real request before relying on it.
 
-Local SQLite storage does not mean every network request is local. Hosted model calls send prompts and context to the chosen provider; browser navigation contacts the sites you visit; MCP tools can send data to their connected servers. No blanket offline or zero-network guarantee is made here.
+Local SQLite storage does not mean every network request is local. Hosted model calls send prompts and context to the chosen provider; browser navigation contacts the sites you visit; MCP tools can send data to their connected servers. No blanket offline or zero-network promise is made here.
 
 ### Do I need to configure every model provider?
 
 No. KIN has credential settings for individual providers, and providers without a key should not be needed for an unrelated provider. The current discovery/readiness implementation is incomplete: catalog fallbacks can appear, key presence can be mistaken for validation, and an invalid key may not be clearly distinguished from a working one. Verify a provider with a real model request.
 
-### Are OpenRouter free models guaranteed to cost nothing?
+### Do OpenRouter free models have billing certainty?
 
-No. KIN currently exposes free-model metadata and a curated list, but it does not provide a complete dynamic free/paid filter or guarantee billing, account quotas, availability, rate limits, or provider data-handling terms. Treat any “free” label as provider metadata, not a promise.
+No. KIN currently exposes free-model metadata and a curated list, but it does not provide a complete dynamic free/paid filter or ensure billing, account quotas, availability, rate limits, or provider data-handling terms. Treat any “free” label as provider metadata, not a promise.
 
 ### How many agents can run at once?
 
@@ -30,7 +30,7 @@ The source includes checkpoints and stale-run recovery. This audit did not verif
 
 ### How are skills and examples handled?
 
-KIN has skill creation, import, persistence, and execution paths. A timeout can stop waiting for an async skill result, but it does not necessarily cancel work that the skill already started; Node's VM is not an operating-system sandbox. The example handlers in docs/EXAMPLES include canned output and are illustrative scaffolds, not live integrations.
+KIN has skill creation, import, persistence, and execution paths. A timeout can stop waiting for an async skill result, but it does not necessarily cancel work that the skill already started; Node's VM is not a host-level sandbox. The example handlers in docs/EXAMPLES include canned output and are illustrative scaffolds, not live integrations.
 
 ### Does KIN have a plugin system?
 
@@ -42,7 +42,7 @@ KIN uses SQLite and local files for application state and project data. Do not d
 
 ### Are agent tools and computer actions fully sandboxed?
 
-No such guarantee is made. The source includes capability checks, approval paths, and project worktrees. Worktrees separate working directories, not operating-system processes, network access, or credentials. Chromium is currently launched with --no-sandbox. The current audit identifies additional differences between direct HTTP routes and the agent-tool authorization path.
+No such claim is made. The source includes capability checks, approval paths, and project worktrees. Worktrees separate working directories, not host-level processes, network access, or credentials. Chromium is currently launched without host sandbox flags. The current audit identifies additional differences between direct HTTP routes and the agent-tool authorization path.
 
 ### Can I build a desktop installer?
 

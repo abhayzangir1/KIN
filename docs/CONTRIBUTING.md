@@ -5,8 +5,8 @@ KIN is an open-source, local-first workspace for AI chats and agent workflows. I
 ## Contribution principles
 
 1. **Local-first data handling:** keep application state on the user's machine by default. Make hosted model, browser, and MCP data flows explicit; do not claim data remains local when an integration sends it elsewhere.
-2. **Durability as an engineering goal:** persist important state and add recovery coverage for changes to SQLite, runs, tasks, or checkpoints. Describe recovery guarantees only when they have been demonstrated.
-3. **Bounded execution:** document the actual limits of concurrency, worktree separation, and desktop control. A worktree or Node VM is not an operating-system sandbox.
+2. **Durability as an engineering goal:** persist important state and add recovery coverage for changes to SQLite, runs, tasks, or checkpoints. Describe recovery capabilities only when they have been demonstrated.
+3. **Bounded execution:** document the actual limits of concurrency, worktree separation, and desktop control. A worktree or Node VM is not a host-level sandbox.
 4. **Evidence-based communication:** separate source presence from tested behavior and avoid unsupported claims in product copy and documentation.
 
 ## Development setup
@@ -45,7 +45,7 @@ Before filing, search existing issues. Include:
 
 - A concise summary and reproducible steps
 - Expected and actual behavior
-- Operating system, Node version, and relevant app commit
+- Host platform, Node version, and relevant app commit
 - Whether inference used Ollama or a hosted provider
 - Relevant logs with API keys, bearer tokens, private URLs, and workspace secrets removed
 

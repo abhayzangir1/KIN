@@ -37,7 +37,7 @@ If needed, install a model supported by your machine, for example:
 ollama pull llama3.2
 ```
 
-KIN exposes `GET /api/system/models` and `GET /api/system/models/readiness`. Treat those responses as application-reported discovery/readiness, not proof that a model call will succeed; provider readiness currently has known accuracy gaps. Select a configured model and retry. KIN does not guarantee automatic fallback from a hosted provider to Ollama.
+KIN exposes `GET /api/system/models` and `GET /api/system/models/readiness`. Treat those responses as application-reported discovery/readiness, not proof that a model call will succeed; provider readiness currently has known accuracy gaps. Select a configured model and retry. KIN does not provide automatic fallback from a hosted provider to Ollama.
 
 For hosted providers, check that the relevant credential is configured and accepted by that provider. A saved key or a model appearing in a dropdown does not by itself prove that the account can use the model.
 

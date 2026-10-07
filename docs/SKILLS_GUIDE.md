@@ -1,6 +1,6 @@
 # KIN Skills & Capabilities Guide
 
-> This guide describes the skill format and intended workflow. Executable skills are not OS-sandboxed, and a timeout does not necessarily cancel asynchronous work already started. Review and trust a skill before importing it. Current implementation gaps are listed in the [audit](../KIN_AUDIT_2026-10-07.md).
+> This guide describes the skill format and intended workflow. Executable skills are not host-sandboxed, and a timeout does not necessarily cancel asynchronous work already started. Review and trust a skill before importing it. Current implementation gaps are listed in the [audit](../KIN_AUDIT_2026-10-07.md).
 
 The codebase includes a structured skill format, local persistence paths, and an optional execution path. Skills can contain instructions or executable handlers; their presence does not establish that a workflow is reliable or safe. Review each skill and its required permissions before use.
 

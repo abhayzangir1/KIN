@@ -2,7 +2,7 @@
 
 **Architecture notes for a local-first AI workspace**
 
-> This document mixes current architecture with target design. It is not a runtime verification record or a guarantee that every described control is implemented. See the [current audit](../KIN_AUDIT_2026-10-07.md) for source findings and verification limits.
+> This document mixes current architecture with target design. It is not a runtime verification record or an assurance that every described control is implemented. See the [current audit](../KIN_AUDIT_2026-10-07.md) for source findings and verification limits.
 
 ---
 

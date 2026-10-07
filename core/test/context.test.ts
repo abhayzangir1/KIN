@@ -228,7 +228,7 @@ describe('KIN Phase 5: Context Compiler, Spiller & Compactor Engine', () => {
       ],
     });
 
-    // Invariant: Prefix blocks (1, 2, 3) must be 100% byte-for-byte identical across turns
+    // Invariant: Prefix blocks (1, 2, 3) must be strictly byte-for-byte identical across turns
     expect(turn1.systemPromptBlock).toBe(turn2.systemPromptBlock);
     expect(turn1.toolSchemasBlock).toBe(turn2.toolSchemasBlock);
     expect(turn1.projectGroundingBlock).toBe(turn2.projectGroundingBlock);

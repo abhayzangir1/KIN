@@ -2,7 +2,7 @@
 
 The GitHub About description below matches the repository setting updated on 2026-10-07. The X, LinkedIn, and release copy below are local drafts and have not been published. The signed-in browser session was unavailable during this audit, so no social account was opened.
 
-The copy describes KIN as an early-stage local-first workspace. It avoids claims of complete privacy, guaranteed model availability, exact recovery, cost guarantees, or production readiness.
+The copy describes KIN as an early-stage local-first workspace. It avoids claims of complete privacy, assured model availability, exact recovery, pricing certainty, or production readiness.
 
 ## Short description
 

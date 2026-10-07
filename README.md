@@ -4,7 +4,7 @@
 
 KIN brings conversations, projects, agent definitions, tasks, model settings, and automation controls into one desktop-oriented workbench. The repository contains a TypeScript core, a React interface, a Tauri/Rust desktop shell, and SQLite-backed local state.
 
-KIN is under active development. Some paths are connected in source but have not been validated end to end. This README describes the current project without treating planned behavior as a guarantee.
+KIN is under active development. Some paths are connected in source but have not been validated end to end. This README describes the current project without treating planned behavior as a certainty.
 
 [Audit and current limitations](KIN_AUDIT_2026-10-07.md) · [Architecture notes](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Skills](docs/SKILLS_GUIDE.md) · [Slash commands](docs/SLASH_COMMANDS.md) · [FAQ](docs/FAQ.md) · [Contributing](docs/CONTRIBUTING.md) · [License](LICENSE)
 
@@ -79,10 +79,10 @@ The source includes capability checks, approval flows, secret handling, task lea
 - Model readiness can be overstated when Ollama is unavailable or a hosted API key is invalid.
 - Some task-completion paths can report completion without valid acceptance evidence.
 - A queued run admitted during startup is not dispatched by that startup path.
-- Git worktrees provide separate working directories; they are not OS-level process or network sandboxes.
+- Git worktrees provide separate working directories; they are not system-level process or network sandboxes.
 - Clean-machine desktop packaging has not been demonstrated in this audit.
 
-The [audit report](KIN_AUDIT_2026-10-07.md) distinguishes source findings, historical runtime observations, and unverified behavior. Product and technical specifications in docs/PRD.md and docs/TRD.md describe target requirements, not a live feature guarantee.
+The [audit report](KIN_AUDIT_2026-10-07.md) distinguishes source findings, historical runtime observations, and unverified behavior. Product and technical specifications in docs/PRD.md and docs/TRD.md describe target requirements, not an immediate production feature promise.
 
 ## Screenshots
 
