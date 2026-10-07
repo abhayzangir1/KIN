@@ -38,11 +38,31 @@ export const SettingsModal: React.FC = () => {
     setActiveRightTab,
     setActiveInspectorTab,
     credentials,
+    availableModels,
+    fetchAvailableModels,
+    isLoadingModels,
   } = useKinStore();
 
   const [activeTab, setActiveTab] = useState<'general' | 'models' | 'credentials' | 'evaluations' | 'database' | 'layout' | 'about'>('general');
+  const [modelTierFilter, setModelTierFilter] = useState<'all' | 'free' | 'paid'>('all');
+  const [isQueryingModels, setIsQueryingModels] = useState(false);
   const [vacuumStatus, setVacuumStatus] = useState<string | null>(null);
   const [isOptimizing, setIsOptimizing] = useState(false);
+
+  useEffect(() => {
+    if (activeTab === 'models') {
+      fetchAvailableModels();
+    }
+  }, [activeTab, fetchAvailableModels]);
+
+  const handleRefreshModels = async () => {
+    setIsQueryingModels(true);
+    try {
+      await fetchAvailableModels();
+    } finally {
+      setIsQueryingModels(false);
+    }
+  };
 
   // Close on Escape key
   useEffect(() => {
@@ -443,42 +463,110 @@ export const SettingsModal: React.FC = () => {
                   </div>
                 </div>
 
-                {/* OpenRouter Free Models Catalog */}
+                {/* OpenRouter Model Catalog */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-[#8b949e] flex items-center space-x-1.5">
                       <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                      <span>OpenRouter model examples</span>
+                      <span>OpenRouter Model Catalog</span>
                     </h4>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20">
-                      Static list — verify current pricing and availability
-                    </span>
+                    <div className="flex items-center space-x-2">
+                      <div className="flex items-center bg-[#161b22] border border-[#30363d] rounded p-0.5 text-[10px]">
+                        {(['all', 'free', 'paid'] as const).map((tier) => (
+                          <button
+                            key={tier}
+                            type="button"
+                            onClick={() => setModelTierFilter(tier)}
+                            className={`px-2 py-0.5 rounded capitalize transition-colors ${
+                              modelTierFilter === tier
+                                ? 'bg-purple-600 text-white font-medium'
+                                : 'text-[#8b949e] hover:text-kin-text'
+                            }`}
+                          >
+                            {tier}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleRefreshModels}
+                        disabled={isLoadingModels || isQueryingModels}
+                        className="p-1 rounded bg-[#161b22] border border-[#30363d] text-[#8b949e] hover:text-kin-text disabled:opacity-50 transition-colors"
+                        title="Refresh model catalog"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${isLoadingModels || isQueryingModels ? 'animate-spin' : ''}`} />
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-2">
-                    {[
-                      { id: 'openrouter/deepseek/deepseek-r1:free', name: 'DeepSeek R1', desc: 'Static example ID; check the provider for current availability, pricing, and limits.' },
-                      { id: 'openrouter/meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B Instruct', desc: 'Static example ID; check the provider for current availability, pricing, and limits.' },
-                      { id: 'openrouter/google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash', desc: 'Static example ID; check the provider for current availability, pricing, and limits.' },
-                      { id: 'openrouter/qwen/qwen-2.5-coder-32b-instruct:free', name: 'Qwen 2.5 Coder 32B', desc: 'Static example ID; check the provider for current availability, pricing, and limits.' },
-                    ].map((m) => (
-                      <div
-                        key={m.id}
-                        className="p-2.5 rounded-lg bg-[#161b22] border border-[#30363d] flex items-center justify-between text-xs"
-                      >
-                        <div>
-                          <div className="font-bold text-kin-text font-mono flex items-center space-x-2">
-                            <span>{m.name}</span>
-                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 font-sans">
-                              Example
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-[#8b949e] mt-0.5">{m.desc}</p>
-                          <div className="text-[10px] font-mono text-purple-300 mt-0.5">{m.id}</div>
+                  {(() => {
+                    const openRouterModels = availableModels.filter(
+                      (m) => m.provider === 'openrouter' || m.id.startsWith('openrouter/')
+                    );
+                    const filteredModels = openRouterModels.filter((m) => {
+                      const isFree = Boolean(m.isFree || m.id.includes(':free'));
+                      if (modelTierFilter === 'free') return isFree;
+                      if (modelTierFilter === 'paid') return !isFree;
+                      return true;
+                    });
+
+                    if (isLoadingModels || isQueryingModels) {
+                      return (
+                        <div className="p-3 text-center text-xs text-[#8b949e] italic bg-[#161b22] rounded-lg border border-[#30363d]">
+                          Querying available models...
                         </div>
+                      );
+                    }
+
+                    if (filteredModels.length === 0) {
+                      return (
+                        <div className="p-3 text-center text-xs text-[#8b949e] italic bg-[#161b22] rounded-lg border border-[#30363d]">
+                          No OpenRouter models found for filter &quot;{modelTierFilter}&quot;. Click refresh to query the gateway.
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto pr-1">
+                        {filteredModels.map((m) => {
+                          const isFree = Boolean(m.isFree || m.id.includes(':free'));
+                          return (
+                            <div
+                              key={m.id}
+                              className="p-2.5 rounded-lg bg-[#161b22] border border-[#30363d] flex items-center justify-between text-xs"
+                            >
+                              <div>
+                                <div className="font-bold text-kin-text font-mono flex items-center space-x-2">
+                                  <span>{m.name || m.id}</span>
+                                  <span
+                                    className={`text-[9px] px-1.5 py-0.2 rounded font-sans ${
+                                      isFree
+                                        ? 'bg-emerald-500/20 text-emerald-400'
+                                        : 'bg-purple-500/20 text-purple-300'
+                                    }`}
+                                  >
+                                    {isFree ? 'Free' : 'Paid'}
+                                  </span>
+                                  {m.validated && (
+                                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-400 font-sans">
+                                      Validated
+                                    </span>
+                                  )}
+                                </div>
+                                {m.description && <p className="text-[11px] text-[#8b949e] mt-0.5">{m.description}</p>}
+                                <div className="text-[10px] font-mono text-purple-300 mt-0.5">{m.id}</div>
+                              </div>
+                              {m.contextWindow && (
+                                <div className="text-[10px] font-mono text-[#8b949e]">
+                                  {(m.contextWindow / 1000).toFixed(0)}k ctx
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })()}
                 </div>
 
                 {/* BYOK Quick Action */}

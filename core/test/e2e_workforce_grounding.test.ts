@@ -22,6 +22,7 @@ import { AgentLoopRunner } from '../src/kernel/agent_loop.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import * as childProcess from 'node:child_process';
 
 describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () => {
   let tempDir: string;
@@ -136,13 +137,14 @@ describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () =>
       expect(runningTask?.leaseExpiresAt).toBeGreaterThan(now);
 
       // Insert verified evidence for completeTask
+      const headCommitSha = childProcess.execSync('git rev-parse HEAD', { encoding: 'utf-8' }).trim();
       db.execute(
         `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         'evidence-bundle-1',
         'task-1',
         'run-101',
         'artifact_hash',
-        'evidence://task-1/bundle-1',
+        `git://commit/${headCommitSha}`,
         1,
         now
       );
@@ -152,7 +154,7 @@ describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () =>
         'task-1',
         'run-101',
         'artifact_hash',
-        'evidence://task-1/bundle-2',
+        `git://commit/${headCommitSha}`,
         1,
         now
       );
@@ -283,13 +285,14 @@ describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () =>
       );
 
       expect(taskRepo.claimTaskWithLease('task-root', 'agent-boss', 'run-root')).toBe(true);
+      const headCommitSha = childProcess.execSync('git rev-parse HEAD', { encoding: 'utf-8' }).trim();
       db.execute(
         `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         'ev-root',
         'task-root',
         'run-root',
         'artifact_hash',
-        'evidence://task-root/ev-root',
+        `git://commit/${headCommitSha}`,
         1,
         now
       );
@@ -711,7 +714,7 @@ describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () =>
       const run = kernel.spawnRun({ agentId: 'agent-boss', projectId: 'proj-e2e', taskId: 'task-ev' });
       taskRepo.claimTaskWithLease('task-ev', 'agent-boss', run.id);
 
-      const commitSha = crypto.createHash('sha256').update('commit-content').digest('hex');
+      const commitSha = childProcess.execSync('git rev-parse HEAD', { encoding: 'utf-8' }).trim();
       const evidenceId = `ev-${Date.now()}`;
 
       db.execute(
@@ -1026,6 +1029,7 @@ describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () =>
       );
 
       // Claim and complete step 1
+      const headCommitSha = childProcess.execSync('git rev-parse HEAD', { encoding: 'utf-8' }).trim();
       expect(taskRepo.claimTaskWithLease('step-1', 'agent-boss', 'run-s1')).toBe(true);
       db.execute(
         `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -1033,7 +1037,7 @@ describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () =>
         'step-1',
         'run-s1',
         'artifact_hash',
-        'evidence://step-1/ev-s1',
+        `git://commit/${headCommitSha}`,
         1,
         now
       );
@@ -1051,7 +1055,7 @@ describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () =>
         'step-2',
         'run-s2',
         'artifact_hash',
-        'evidence://step-2/ev-s2',
+        `git://commit/${headCommitSha}`,
         1,
         now
       );
@@ -1066,7 +1070,7 @@ describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () =>
         'step-3',
         'run-s3',
         'artifact_hash',
-        'evidence://step-3/ev-s3',
+        `git://commit/${headCommitSha}`,
         1,
         now
       );
@@ -1214,7 +1218,9 @@ describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () =>
 
       // 4. Worker touches heartbeat and generates genuine evidence
       kernel.heartbeat(run1.id);
-      const buildSha = crypto.createHash('sha256').update('build-output').digest('hex');
+      const buildLogFile = path.join(tempDir, 'build.log');
+      fs.writeFileSync(buildLogFile, 'build-output');
+      const buildSha = crypto.createHash('sha256').update(fs.readFileSync(buildLogFile)).digest('hex');
       const ev1 = `ev-build-${now}`;
       db.execute(
         `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at)
@@ -1223,7 +1229,7 @@ describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () =>
         'task-build',
         run1.id,
         'build_log',
-        `sha256://${buildSha}`,
+        `file://${buildLogFile.replace(/\\/g, '/')}?sha256=${buildSha}`,
         1,
         now
       );
@@ -1244,6 +1250,8 @@ describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () =>
       expect(taskRepo.claimTaskWithLease('task-verify', 'agent-boss', run2.id, 60000)).toBe(true);
 
       // 7. Complete Task 2
+      const testLogFile = path.join(tempDir, 'test.log');
+      fs.writeFileSync(testLogFile, 'test-output');
       const ev2 = `ev-verify-${now}`;
       db.execute(
         `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at)
@@ -1252,7 +1260,7 @@ describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () =>
         'task-verify',
         run2.id,
         'test_output',
-        `exitCode://0`,
+        `file://${testLogFile.replace(/\\/g, '/')}`,
         1,
         now
       );
@@ -1463,13 +1471,15 @@ describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () =>
         taskRepo.completeTask('task-audit-ev', 'non-existent-ev-id');
       }).toThrow(/Evidence record 'non-existent-ev-id' not found in database/);
 
+      const signoffFile = path.join(tempDir, 'verified-evidence.json');
+      fs.writeFileSync(signoffFile, JSON.stringify({ signed: true }));
       db.execute(
         `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         'valid-ev-id',
         'task-audit-ev',
         'run-audit-ev',
         'human_signoff',
-        'file://verified-evidence.json',
+        `file://${signoffFile.replace(/\\/g, '/')}`,
         1,
         now
       );

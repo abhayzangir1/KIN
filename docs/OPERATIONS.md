@@ -42,7 +42,7 @@ To restore, stop the daemon first, restore the database and matching local data/
 
 ## Runtime limits
 
-- The kernel defaults to eight active runs. Queue recovery across restart has a known dispatch gap.
+- The kernel defaults to eight active runs. Startup actively admits and dispatches queued runs across platform restarts.
 - Provider token budgets are not a substitute for provider billing limits; automatic cross-provider fallback is not expected in all situations.
 - Readiness indicators may not reflect whether a model provider or Ollama is reachable.
 - A Tauri build does not by itself prove that the Node core and runtime are bundled for a clean machine.

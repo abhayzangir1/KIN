@@ -7,6 +7,7 @@ import { TaskRepository } from '../src/domain/task_repository.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import * as child_process from 'node:child_process';
 
 describe('KIN Phase 0/1: Domain Repositories & Execution Contracts', () => {
   let db: KinDatabase;
@@ -214,6 +215,7 @@ describe('KIN Phase 0/1: Domain Repositories & Execution Contracts', () => {
     expect(taskRepo.getTask('task-2')?.status).toBe('backlog');
 
     // 2. Complete Task 1 with verified evidence bundle
+    const headCommitSha = child_process.execSync('git rev-parse HEAD', { encoding: 'utf-8' }).trim();
     db.execute(
       `INSERT OR IGNORE INTO agent_runs (id, agent_id, project_id, state, heartbeat_at, created_at) VALUES ('run-test-1', 'agent-worker-a', 'proj-dag', 'running', ?, ?)`,
       now,
@@ -225,7 +227,7 @@ describe('KIN Phase 0/1: Domain Repositories & Execution Contracts', () => {
       'task-1',
       'run-test-1',
       'artifact_hash',
-      'evidence://task-1/bundle-001',
+      `git://commit/${headCommitSha}`,
       1,
       Date.now()
     );
@@ -252,7 +254,7 @@ describe('KIN Phase 0/1: Domain Repositories & Execution Contracts', () => {
       'task-2',
       'run-test-2',
       'artifact_hash',
-      'evidence://task-2/bundle-002',
+      `git://commit/${headCommitSha}`,
       1,
       Date.now()
     );

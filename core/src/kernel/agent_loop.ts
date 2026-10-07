@@ -206,85 +206,122 @@ export class AgentLoopRunner {
         const estimatedTokens = conversationHistory.reduce((acc, m) => acc + Math.ceil(m.content.length / 4), 0);
         const maxTokens = 16000;
         if (estimatedTokens > maxTokens * 0.75) {
-          const compMessages = conversationHistory.map((m, idx) => ({
-            id: `msg-${idx}`,
-            channelId: options.channelId,
-            senderId: m.role === 'assistant' ? options.agentId : (m.role === 'system' ? 'system' : 'user'),
-            senderType: (m.role === 'assistant' ? 'agent' : (m.role === 'system' ? 'system' : 'human')) as 'agent' | 'system' | 'human',
-            content: m.content,
-            mentions: [],
-            productivityScore: 100,
-            createdAt: Date.now() - (conversationHistory.length - idx) * 1000,
-          }));
+          let persistedMessages: Array<{ id: string; content: string }> = [];
+          if (options.taskRepo?.db && options.channelId) {
+            try {
+              persistedMessages = options.taskRepo.db.query(
+                'SELECT id, content FROM messages WHERE channel_id = ? ORDER BY created_at ASC',
+                options.channelId
+              );
+            } catch {}
+          }
+          const compMessages = conversationHistory.map((m, idx) => {
+            const matchedPersisted = persistedMessages[idx]?.id || persistedMessages.find((pm) => pm.content === m.content)?.id;
+            const messageId = matchedPersisted || `${options.runId}-msg-${idx}`;
+            return {
+              id: messageId,
+              channelId: options.channelId,
+              senderId: m.role === 'assistant' ? options.agentId : (m.role === 'system' ? 'system' : 'user'),
+              senderType: (m.role === 'assistant' ? 'agent' : (m.role === 'system' ? 'system' : 'human')) as 'agent' | 'system' | 'human',
+              content: m.content,
+              mentions: [],
+              productivityScore: 100,
+              createdAt: Date.now() - (conversationHistory.length - idx) * 1000,
+            };
+          });
 
-            const realModifiedFiles = Array.from(
-              new Set(
-                actions
-                  .filter((a) => a.toolName === 'writeFile' && !a.error)
-                  .map((a) => a.params?.filePath || a.params?.path)
-                  .filter((f): f is string => typeof f === 'string' && f.length > 0)
-              )
-            );
+          const realModifiedFiles = Array.from(
+            new Set(
+              actions
+                .filter((a) => a.toolName === 'writeFile' && !a.error)
+                .map((a) => a.params?.filePath || a.params?.path)
+                .filter((f): f is string => typeof f === 'string' && f.length > 0)
+            )
+          );
 
-            let immutableDecisions: Array<{ key: string; decision: string }> = [];
-            let pendingTaskDag: Array<{ id: string; title: string; dependsOn: string[] }> = [];
-            if (options.taskRepo) {
-              try {
-                const allTasks = options.taskRepo.listTasksByProject(options.projectId || 'proj-kin');
-                pendingTaskDag = allTasks
-                  .filter((t: any) => t.status === 'ready' || t.status === 'backlog')
-                  .map((t: any) => ({ id: t.id, title: t.title, dependsOn: t.dependencies || [] }));
-              } catch {}
-            }
-            if (options.decisionRepo || options.taskRepo) {
-              try {
-                const repo = options.decisionRepo || options.taskRepo;
-                const decisions = repo.listDecisionsByProject
-                  ? repo.listDecisionsByProject(options.projectId || 'proj-kin')
-                  : (repo.listDecisions ? repo.listDecisions(options.projectId || 'proj-kin') : []);
-                immutableDecisions = decisions.map((d: any) => ({
-                  key: d.id || d.title,
-                  decision: d.rationale || d.title,
+          let immutableDecisions: Array<{ key: string; decision: string }> = [];
+          let pendingTaskDag: Array<{ id: string; title: string; dependsOn: string[] }> = [];
+          let completedTasks: Array<{ id: string; title: string; evidenceUri?: string }> = [];
+
+          if (options.taskRepo) {
+            try {
+              const allTasks = options.taskRepo.listTasksByProject(options.projectId || 'proj-kin');
+              pendingTaskDag = allTasks
+                .filter((t: any) => t.status === 'ready' || t.status === 'backlog')
+                .map((t: any) => ({
+                  id: t.id,
+                  title: t.title + (t.description ? ` (${t.description})` : ''),
+                  dependsOn: t.dependencies || [],
                 }));
-              } catch {}
-            }
 
-            const activeTaskObj = options.taskId && options.taskRepo ? options.taskRepo.getTask(options.taskId) : undefined;
-            const activeTaskTitle = activeTaskObj?.title || (options.taskId ? `Task ${options.taskId}` : `Turn ${currentTurn}`);
+              completedTasks = allTasks
+                .filter((t: any) => t.status === 'completed')
+                .map((t: any) => ({
+                  id: t.id,
+                  title: t.title + (t.description ? `: ${t.description}` : ''),
+                  evidenceUri: t.evidenceBundleId || undefined,
+                }));
+            } catch {}
+          }
 
-            const compactionResult = this.contextCompactor.evaluateAndCompact({
-              messages: compMessages,
-              currentTokens: estimatedTokens,
-              maxTokens,
-              compactionThresholdRatio: 0.75,
-              snapshotState: {
-                goalId: options.goalId || (options.taskId && activeTaskObj?.goalId) || options.runId,
-                primaryObjective: options.userPrompt,
-                completedTasks: actions
-                  .filter((a) => !a.error)
-                  .map((a, i) => {
-                    let desc = `${a.toolName} executed successfully`;
-                    if (a.toolName === 'writeFile' && a.params?.filePath) {
-                      desc = `Wrote file ${a.params.filePath}`;
-                    } else if (a.toolName === 'readFile' && a.params?.filePath) {
-                      desc = `Read file ${a.params.filePath}`;
-                    } else if (a.toolName === 'executeShell' && a.params?.command) {
-                      desc = `Executed shell: ${(a.params.command).slice(0, 50)}`;
-                    }
-                    return { id: `act-${i}`, title: desc };
-                  }),
-                activeTask: {
-                  id: options.taskId || `turn-${currentTurn}`,
-                  title: activeTaskTitle,
-                },
-                modifiedFiles: realModifiedFiles.map((p) => ({ path: p })),
-                encounteredErrorsAndResolutions: actions
-                  .filter((a) => a.error)
-                  .map((a) => ({ error: a.error || '', fixApplied: 'Encountered error; evaluated alternative in turn' })),
-                immutableDecisions,
-                pendingTaskDag,
+          if (options.decisionRepo || options.taskRepo) {
+            try {
+              const repo = options.decisionRepo || options.taskRepo;
+              const decisions = repo.listDecisionsByProject
+                ? repo.listDecisionsByProject(options.projectId || 'proj-kin')
+                : (repo.listDecisions ? repo.listDecisions(options.projectId || 'proj-kin') : []);
+              immutableDecisions = decisions.map((d: any) => ({
+                key: d.id,
+                decision: d.rationale ? `${d.title} — ${d.rationale}` : d.title,
+              }));
+            } catch {}
+          }
+
+          if (completedTasks.length === 0) {
+            completedTasks = actions
+              .filter((a) => !a.error)
+              .map((a, i) => {
+                let desc = `${a.toolName} completed successfully`;
+                if (a.toolName === 'writeFile' && (a.params?.filePath || a.params?.path)) {
+                  desc = `Wrote file ${a.params.filePath || a.params.path}`;
+                } else if (a.toolName === 'readFile' && (a.params?.filePath || a.params?.path)) {
+                  desc = `Read file ${a.params.filePath || a.params.path}`;
+                } else if (a.toolName === 'executeShell' && a.params?.command) {
+                  desc = `Executed shell command: ${(a.params.command).slice(0, 80)}`;
+                }
+                return { id: `action-${options.runId}-${i + 1}`, title: desc };
+              });
+          }
+
+          const activeTaskObj = options.taskId && options.taskRepo ? options.taskRepo.getTask(options.taskId) : undefined;
+          const activeTaskTitle = activeTaskObj?.title
+            ? (activeTaskObj.description ? `${activeTaskObj.title}: ${activeTaskObj.description}` : activeTaskObj.title)
+            : (options.taskId ? `Task ${options.taskId}` : `Turn ${currentTurn}`);
+
+          const compactionResult = this.contextCompactor.evaluateAndCompact({
+            messages: compMessages,
+            currentTokens: estimatedTokens,
+            maxTokens,
+            compactionThresholdRatio: 0.75,
+            snapshotState: {
+              goalId: options.goalId || (options.taskId && activeTaskObj?.goalId) || options.runId,
+              primaryObjective: options.userPrompt,
+              completedTasks,
+              activeTask: {
+                id: options.taskId || `turn-${currentTurn}`,
+                title: activeTaskTitle,
               },
-            });
+              modifiedFiles: realModifiedFiles.map((p) => ({ path: p })),
+              encounteredErrorsAndResolutions: actions
+                .filter((a) => a.error)
+                .map((a) => ({
+                  error: `${a.toolName}: ${a.error || 'Execution failed'}`,
+                  fixApplied: a.output ? String(a.output).slice(0, 100) : 'Evaluated tool failure and adjusted execution plan',
+                })),
+              immutableDecisions,
+              pendingTaskDag,
+            },
+          });
 
           if (compactionResult.didCompact) {
             conversationHistory = compactionResult.compactedMessages.map((m) => ({

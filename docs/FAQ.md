@@ -18,7 +18,7 @@ No. KIN currently exposes free-model metadata and a curated list, but it does no
 
 ### How many agents can run at once?
 
-The kernel has a default limit of eight active runs. The run queue is persisted, but the startup path currently admits a queued run without dispatching it. Channel and agent work queues also use in-memory coordination. Do not treat concurrency limits or queue recovery as fully verified.
+The kernel has a default limit of eight active runs. The run queue is persisted, and startup actively admits and dispatches queued runs across platform restarts. Channel and agent work queues also use in-memory coordination. Do not treat concurrency limits or queue recovery as fully verified.
 
 ### Can I access the core server from another computer on my network?
 

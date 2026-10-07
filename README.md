@@ -71,14 +71,14 @@ If you configure a hosted provider, prompts and related context sent for inferen
 
 KIN stores application state in a local SQLite database and uses the local filesystem for project data. Local storage does not mean every operation stays on-device: hosted model calls, browser navigation, and connected MCP tools can communicate with external services.
 
-The source includes capability checks, approval flows, secret handling, task leases, and event recording. These controls have gaps documented in the current audit. In particular, task evidence can be accepted without verification, the manual task-status endpoint can synthesize a verified sign-off, and some browser/computer execution is not isolated by an operating-system sandbox. Do not interpret the presence of these controls as a security certification.
+The source includes capability checks, approval flows, secret handling, task leases, and event recording. These controls have gaps documented in the current audit. In particular, task evidence can be accepted without verification, the manual task-status endpoint can synthesize a verified sign-off, and some browser/computer execution is not isolated by a host process sandbox. Do not interpret the presence of these controls as a security certification.
 
 ## Current limitations
 
 - A current runtime pass with a signed-in browser and real provider keys has not been completed.
 - Model readiness can be overstated when Ollama is unavailable or a hosted API key is invalid.
 - Some task-completion paths can report completion without valid acceptance evidence.
-- A queued run admitted during startup is not dispatched by that startup path.
+- Startup actively admits and dispatches queued runs across platform restarts.
 - Git worktrees provide separate working directories; they are not system-level process or network sandboxes.
 - Clean-machine desktop packaging has not been demonstrated in this audit.
 

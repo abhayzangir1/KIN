@@ -143,6 +143,9 @@ export class CoreServer {
         console.warn('[KIN CORE] IPC auth token setup notice:', tokenErr);
       }
     }
+    if (!this.ipcAuthToken) {
+      this.ipcAuthToken = crypto.randomBytes(32).toString('hex');
+    }
     
     // Ensure migrations have executed
     new MigrationRunner(this.db).runMigrations();
@@ -1548,7 +1551,7 @@ export class CoreServer {
         const modelMap = new Map<string, any>();
         
         // 1. Ollama models
-        if (ollamaInfo.models) {
+        if (ollamaInfo.online && ollamaInfo.models) {
           for (const m of ollamaInfo.models) {
             if (!m.toLowerCase().includes('embed')) {
               modelMap.set(`ollama/${m}`, {
@@ -1565,8 +1568,17 @@ export class CoreServer {
           }
         }
         
+        const providers = ['ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq'];
+        const providerReadiness: Record<string, any> = {};
+        for (const p of providers) {
+          providerReadiness[p] = await this.modelGateway.checkProviderReadiness(p);
+        }
+
         // 2. Stored / discovered provider models
         for (const sm of storedModels) {
+          const provReadiness = providerReadiness[sm.provider_id] || { configured: false, validated: false };
+          const isProvConfigured = Boolean(provReadiness.configured);
+          const isProvValidated = Boolean(provReadiness.validated);
           modelMap.set(sm.id, {
             id: sm.id,
             name: sm.name,
@@ -1577,8 +1589,8 @@ export class CoreServer {
             supportsVision: Boolean(sm.supports_vision),
             isFree: sm.id.includes(':free'),
             isCustom: sm.provider_id === 'custom',
-            configured: sm.is_active !== 0,
-            validated: sm.is_active !== 0,
+            configured: sm.is_active !== 0 && isProvConfigured,
+            validated: sm.is_active !== 0 && isProvValidated,
           });
         }
 
@@ -1596,20 +1608,13 @@ export class CoreServer {
         // 4. Fallback standard catalog if models list is otherwise empty
         if (modelMap.size === 0) {
           const defaultCatalog = await this.modelGateway.fetchProviderModels('openrouter');
-          const hasOpenRouter = activeCreds.some((c: any) => c.provider === 'openrouter');
           for (const dm of defaultCatalog) {
             modelMap.set(dm.id, {
               ...dm,
-              configured: hasOpenRouter,
+              configured: false,
               validated: false,
             });
           }
-        }
-
-        const providers = ['ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq'];
-        const providerReadiness: Record<string, any> = {};
-        for (const p of providers) {
-          providerReadiness[p] = await this.modelGateway.checkProviderReadiness(p);
         }
 
         const urlObj = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
@@ -5090,16 +5095,54 @@ export class CoreServer {
         let goalCompleted = false;
 
         if (body.status === 'completed') {
+          // 1. Authenticate operator request against IPC auth token / session
+          const authHeader = (req.headers['authorization'] as string) || '';
+          const xIpcToken = req.headers['x-ipc-token'] as string;
+          const xKinAuth = req.headers['x-kin-auth-token'] as string;
+          const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+          const signoff = body.operatorSignoff || (
+            (req.headers['x-kin-operator-signature'] || (body as any).signature) ? {
+              operatorId: (req.headers['x-kin-operator-id'] as string) || (body as any).operatorId || 'operator-admin',
+              signature: ((req.headers['x-kin-operator-signature'] as string) || (body as any).signature || '').trim(),
+              justification: (body as any).signoffNotes || (body as any).justification || 'Operator verified completion',
+            } : undefined
+          );
+          const providedAuthToken = bearerToken || xIpcToken || xKinAuth || (body as any).authToken || (signoff as any)?.authToken || (signoff as any)?.sessionToken;
+
+          const validServerToken = this.ipcAuthToken;
+          if (!providedAuthToken) {
+            if (currentTask.status !== 'review') {
+              this.taskRepo.updateTaskStatus(taskId, 'review');
+              this.broadcastEvent('task:updated', { taskId, status: 'review' });
+            }
+            return this.sendJson(res, 401, {
+              error: 'Unauthorized: Manual task sign-off requires authenticated operator session and valid IPC auth token. Task placed in review status.',
+              status: 'review',
+            });
+          }
+
+          if (providedAuthToken !== validServerToken) {
+            if (currentTask.status !== 'review') {
+              this.taskRepo.updateTaskStatus(taskId, 'review');
+              this.broadcastEvent('task:updated', { taskId, status: 'review' });
+            }
+            return this.sendJson(res, 403, {
+              error: 'Forbidden: Invalid operator IPC authentication token. Task placed in review status.',
+              status: 'review',
+            });
+          }
+
           let evidenceId = body.evidenceId || currentTask.evidenceBundleId;
 
           if (!evidenceId) {
-            const signoff = body.operatorSignoff;
             if (signoff?.operatorId && signoff?.signature && signoff?.justification) {
               let runId = currentTask.claimedByRunId;
               if (!runId) {
                 const runRow = this.db.queryOne<{ id: string }>(
                   'SELECT id FROM agent_runs WHERE project_id = ? ORDER BY created_at DESC LIMIT 1',
                   this.activeProjectId
+                ) || this.db.queryOne<{ id: string }>(
+                  'SELECT id FROM agent_runs ORDER BY created_at DESC LIMIT 1'
                 );
                 if (runRow) {
                   runId = runRow.id;
@@ -5109,6 +5152,25 @@ export class CoreServer {
                   });
                 }
               }
+
+              // 2. Cryptographically verify operator signature against session/token binding
+              const operatorSig = signoff.signature || (req.headers['x-kin-operator-signature'] as string);
+              const expectedHmac = crypto.createHmac('sha256', validServerToken).update(`${signoff.operatorId}:${taskId}:${runId}:${signoff.justification}`).digest('hex');
+              const expectedHmacCompact = crypto.createHmac('sha256', validServerToken).update(`${taskId}:completed`).digest('hex');
+              const expectedTokenDigest = crypto.createHash('sha256').update(`${signoff.operatorId}:${validServerToken}:${taskId}`).digest('hex');
+              const isSignatureValid = Boolean(operatorSig && (operatorSig === expectedHmac || operatorSig === expectedHmacCompact || operatorSig === expectedTokenDigest));
+
+              if (!isSignatureValid) {
+                if (currentTask.status !== 'review') {
+                  this.taskRepo.updateTaskStatus(taskId, 'review');
+                  this.broadcastEvent('task:updated', { taskId, status: 'review' });
+                }
+                return this.sendJson(res, 403, {
+                  error: 'Forbidden: Operator signature verification failed. Task placed in review status.',
+                  status: 'review',
+                });
+              }
+
               evidenceId = `ev-signoff-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
               const signoffUri = `operator://signoff/${encodeURIComponent(signoff.operatorId)}?sig=${encodeURIComponent(signoff.signature)}&reason=${encodeURIComponent(signoff.justification)}`;
               this.db.execute(
@@ -8056,14 +8118,23 @@ export class CoreServer {
                 contentUri = `git://commit/${worktreeCommitSha}`;
                 evidenceType = 'artifact_hash';
                 isVerified = 1;
-              } else if (loopResult.finalContent && loopResult.finalContent.trim().length > 0) {
-                contentUri = `sha256:${crypto.createHash('sha256').update(loopResult.finalContent.trim()).digest('hex')}`;
-                evidenceType = expectedType || 'artifact_hash';
-                isVerified = 1;
-              } else if (loopResult.actions && loopResult.actions.length > 0 && loopResult.actions.every((a: any) => !a.error)) {
-                contentUri = `evidence://actions/${run.id}/${crypto.createHash('sha256').update(JSON.stringify(loopResult.actions)).digest('hex')}`;
-                evidenceType = (expectedType === 'test_output' || expectedType === 'build_log') ? expectedType : 'artifact_hash';
-                isVerified = 1;
+              } else if (loopResult.actions && loopResult.actions.length > 0) {
+                // Verifiable artifact grounding: Only record evidence when a real file exists on disk
+                for (const act of loopResult.actions) {
+                  if (act.error) continue;
+                  const candidatePath = (act as any).result?.filePath || act.output?.filePath || act.params?.filePath || act.params?.path || act.params?.outputFile;
+                  if (candidatePath && typeof candidatePath === 'string') {
+                    const fullPath = path.isAbsolute(candidatePath) ? candidatePath : path.resolve(repoRoot, candidatePath);
+                    if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+                      const fileHash = crypto.createHash('sha256').update(fs.readFileSync(fullPath)).digest('hex');
+                      const normPath = fullPath.replace(/\\/g, '/');
+                      contentUri = `file://${normPath}?sha256=${fileHash}`;
+                      evidenceType = (expectedType === 'test_output' || expectedType === 'build_log') ? expectedType : 'artifact_hash';
+                      isVerified = 1;
+                      break;
+                    }
+                  }
+                }
               }
 
               if (isVerified === 1 && contentUri) {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { KinDatabase } from '../src/storage/db.js';
 import { MigrationRunner } from '../src/storage/migration_runner.js';
 import { Sentinel } from '../src/security/sentinel.js';
@@ -7,11 +7,14 @@ import { EventLedger } from '../src/security/event_ledger.js';
 import { TaskRepository } from '../src/domain/task_repository.js';
 import { ModelGateway } from '../src/execution/model_gateway.js';
 import { ToolGateway } from '../src/execution/tool_gateway.js';
+import { WorktreeManager } from '../src/execution/worktree_manager.js';
 import { CoreServer } from '../src/server/core_server.js';
 import { AgentKernel } from '../src/kernel/agent_kernel.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as nodeOs from 'node:os';
+import * as childProcess from 'node:child_process';
+import * as crypto from 'node:crypto';
 
 describe('KIN Audit Remediation Suite (2026-10-07 Findings Verification)', () => {
   let db: KinDatabase;
@@ -161,6 +164,7 @@ describe('KIN Audit Remediation Suite (2026-10-07 Findings Verification)', () =>
     });
 
     it('successfully completes task when evidence is verified and matches task and run', () => {
+      const headSha = childProcess.execSync('git rev-parse HEAD', { encoding: 'utf-8' }).trim();
       taskRepo.createTask({
         id: 't-test-6',
         goalId: 'goal-audit',
@@ -172,7 +176,8 @@ describe('KIN Audit Remediation Suite (2026-10-07 Findings Verification)', () =>
 
       db.execute(
         `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at)
-         VALUES ('ev-valid-6', 't-test-6', 'run-6', 'artifact_hash', 'git://commit/a1b2c3d4e5f6', 1, ?)`,
+         VALUES ('ev-valid-6', 't-test-6', 'run-6', 'artifact_hash', ?, 1, ?)`,
+        `git://commit/${headSha}`,
         Date.now()
       );
 
@@ -182,6 +187,107 @@ describe('KIN Audit Remediation Suite (2026-10-07 Findings Verification)', () =>
       const task = taskRepo.getTask('t-test-6');
       expect(task?.status).toBe('completed');
       expect(task?.evidenceBundleId).toBe('ev-valid-6');
+    });
+
+    it('rejects nonexistent git commit SHA and leaves task in review status', () => {
+      taskRepo.createTask({
+        id: 't-fake-sha',
+        goalId: 'goal-audit',
+        title: 'Fake SHA Task',
+        status: 'running',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      db.execute(
+        `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at)
+         VALUES ('ev-fake-sha', 't-fake-sha', 'run-6', 'artifact_hash', 'git://commit/0000000000000000000000000000000000000000', 1, ?)`,
+        Date.now()
+      );
+
+      expect(() => taskRepo.completeTask('t-fake-sha', 'ev-fake-sha', 'run-6')).toThrow(/does not exist/);
+      const task = taskRepo.getTask('t-fake-sha');
+      expect(task?.status).toBe('review');
+    });
+
+    it('rejects nonexistent file:// URI and leaves task in review status', () => {
+      taskRepo.createTask({
+        id: 't-fake-file',
+        goalId: 'goal-audit',
+        title: 'Fake File Task',
+        status: 'running',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      db.execute(
+        `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at)
+         VALUES ('ev-fake-file', 't-fake-file', 'run-6', 'artifact_hash', 'file:///nonexistent/artifact/path/file.txt', 1, ?)`,
+        Date.now()
+      );
+
+      expect(() => taskRepo.completeTask('t-fake-file', 'ev-fake-file', 'run-6')).toThrow(/does not exist on disk/);
+      const task = taskRepo.getTask('t-fake-file');
+      expect(task?.status).toBe('review');
+    });
+
+    it('rejects task completion when evidence record has unrecognized type and leaves task in review status', () => {
+      taskRepo.createTask({
+        id: 't-unrecognized-type',
+        goalId: 'goal-audit',
+        title: 'Unrecognized Type Task',
+        status: 'running',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      // Mock queryOne to simulate unrecognized type record bypassing SQLite CHECK constraint
+      const origQueryOne = (taskRepo as any).db.queryOne.bind((taskRepo as any).db);
+      const querySpy = vi.spyOn((taskRepo as any).db, 'queryOne').mockImplementation((sql: string, ...params: any[]) => {
+        if (typeof sql === 'string' && sql.includes('FROM evidence WHERE id = ?') && params[0] === 'ev-unknown-type') {
+          return {
+            id: 'ev-unknown-type',
+            task_id: 't-unrecognized-type',
+            run_id: 'run-6',
+            type: 'unrecognized_type',
+            content_uri: 'file:///tmp/artifact.txt',
+            verified: 1,
+          };
+        }
+        return origQueryOne(sql, ...params);
+      });
+
+      try {
+        expect(() => taskRepo.completeTask('t-unrecognized-type', 'ev-unknown-type', 'run-6')).toThrow(/unrecognized evidence type/);
+        const task = taskRepo.getTask('t-unrecognized-type');
+        expect(task?.status).toBe('review');
+      } finally {
+        querySpy.mockRestore();
+      }
+    });
+
+    it('rejects task completion when evidence type does not match verificationSpec expectedArtifactType and leaves task in review', () => {
+      taskRepo.createTask({
+        id: 't-mismatch-spec',
+        goalId: 'goal-audit',
+        title: 'Mismatch Spec Task',
+        status: 'running',
+        verificationSpec: { expectedArtifactType: 'test_output' },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      const headSha = childProcess.execSync('git rev-parse HEAD', { encoding: 'utf-8' }).trim();
+      db.execute(
+        `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at)
+         VALUES ('ev-mismatch-spec', 't-mismatch-spec', 'run-6', 'artifact_hash', ?, 1, ?)`,
+        `git://commit/${headSha}`,
+        Date.now()
+      );
+
+      expect(() => taskRepo.completeTask('t-mismatch-spec', 'ev-mismatch-spec', 'run-6')).toThrow(/does not match expected artifact type/);
+      const task = taskRepo.getTask('t-mismatch-spec');
+      expect(task?.status).toBe('review');
     });
   });
 
@@ -226,10 +332,193 @@ describe('KIN Audit Remediation Suite (2026-10-07 Findings Verification)', () =>
         await server.stop();
       }
     });
+
+    it('PATCH /api/tasks/:id/status requires valid IPC token and signature for manual completion', async () => {
+      taskRepo.createTask({
+        id: 't-manual-signoff',
+        goalId: 'goal-audit',
+        title: 'Manual Signoff Task',
+        status: 'running',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      const server = new CoreServer({ port: 0, dbPath });
+      const port = await server.start();
+      try {
+        // 1. Missing Authorization header -> 401
+        const resNoAuth = await fetch(`http://127.0.0.1:${port}/api/tasks/t-manual-signoff/status`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'completed' }),
+        });
+        expect(resNoAuth.status).toBe(401);
+
+        // 2. Invalid Bearer token -> 403
+        const resBadAuth = await fetch(`http://127.0.0.1:${port}/api/tasks/t-manual-signoff/status`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer bad-token',
+          },
+          body: JSON.stringify({ status: 'completed' }),
+        });
+        expect(resBadAuth.status).toBe(403);
+
+        // 3. Valid IPC token with operator signature -> 200
+        const ipcToken = (server as any).ipcAuthToken;
+        const operatorSig = crypto.createHmac('sha256', ipcToken).update('t-manual-signoff:completed').digest('hex');
+        const resValid = await fetch(`http://127.0.0.1:${port}/api/tasks/t-manual-signoff/status`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${ipcToken}`,
+            'x-kin-operator-signature': operatorSig,
+          },
+          body: JSON.stringify({ status: 'completed', signoffNotes: 'Verified by operator' }),
+        });
+        expect(resValid.status).toBe(200);
+
+        // 4. Even when evidenceId is passed in body, manual status change without valid IPC token must be rejected with 401
+        const resWithEvNoAuth = await fetch(`http://127.0.0.1:${port}/api/tasks/t-manual-signoff/status`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'completed', evidenceId: 'ev-test-123' }),
+        });
+        expect(resWithEvNoAuth.status).toBe(401);
+      } finally {
+        await server.stop();
+      }
+    });
+  });
+
+  // NEW-03: Worktree merge error transitions task to blocked and run to failed
+  describe('NEW-03: Worktree Merge Failure State Handling', () => {
+    it('transitions task to blocked and run to failed when verifyAndMerge fails', async () => {
+      const server = new CoreServer({ port: 0, dbPath });
+
+      // Ensure test channel exists
+      db.execute(
+        `INSERT OR IGNORE INTO channels (id, project_id, name, created_at)
+         VALUES ('chan-audit', 'proj-audit', 'audit-channel', 1)`
+      );
+      db.execute(
+        `INSERT OR IGNORE INTO channel_members (channel_id, agent_id, joined_at)
+         VALUES ('chan-audit', 'ag-audit', 1)`
+      );
+
+      taskRepo.createTask({
+        id: 't-merge-fail',
+        goalId: 'goal-audit',
+        title: 'Merge Fail Task',
+        status: 'ready',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      const spyProvision = vi.spyOn(WorktreeManager.prototype, 'provisionWorktree').mockResolvedValue({
+        worktreePath: path.join(nodeOs.tmpdir(), 'wt-test-conflict-sim'),
+        branch: 'kin-worker-test',
+        isShadowRepo: false,
+      });
+      const spyDiff = vi.spyOn(WorktreeManager.prototype, 'generateDiff').mockResolvedValue('diff --git a/a.txt b/a.txt');
+      const spyCommit = vi.spyOn(WorktreeManager.prototype, 'commitWorktreeChanges').mockResolvedValue('mock-commit-sha-789');
+      const spyMerge = vi.spyOn(WorktreeManager.prototype, 'verifyAndMerge').mockResolvedValue({
+        success: false,
+        cleanMerge: false,
+        error: 'Merge conflict detected in base branch',
+      });
+      const spyLoop = vi.spyOn((server as any).agentLoopRunner, 'execute').mockResolvedValue({
+        finalContent: 'Code changes ready for merge',
+        turnCount: 1,
+        actions: [],
+      });
+
+      try {
+        const agent = (server as any).agentRepo.getIdentity('ag-audit');
+        await (server as any).executeAgentResponse(
+          agent,
+          'chan-audit',
+          { id: 'msg-merge-fail', content: 'Implement coding task', taskId: 't-merge-fail' }
+        );
+
+        const updatedTask = taskRepo.getTask('t-merge-fail');
+        expect(updatedTask?.status).toBe('blocked');
+        expect(updatedTask?.claimedByRunId).toBeUndefined();
+
+        const runs = db.query<{ id: string; state: string }>(
+          `SELECT id, state FROM agent_runs WHERE task_id = 't-merge-fail' ORDER BY created_at DESC`
+        );
+        expect(runs.length).toBeGreaterThan(0);
+        expect(runs[0].state).toBe('failed');
+
+        const events = db.query<{ payload_json: string }>(
+          `SELECT payload_json FROM event_journal WHERE entity_id = 't-merge-fail' AND event_type = 'TASK_BLOCKED'`
+        );
+        expect(events.length).toBeGreaterThan(0);
+        expect(events[0].payload_json).toContain('Merge conflict detected in base branch');
+      } finally {
+        spyProvision.mockRestore();
+        spyDiff.mockRestore();
+        spyCommit.mockRestore();
+        spyMerge.mockRestore();
+        spyLoop.mockRestore();
+      }
+    });
   });
 
   // NEW-04: Approval parameter digest binding
   describe('NEW-04: Parameter Digest Binding in Approvals', () => {
+    it('evaluates direct HTTP terminal route with and without x-kin-approval-token', async () => {
+      const server = new CoreServer({ port: 0, dbPath });
+      const port = await server.start();
+      try {
+        const testCmd = 'rm -rf test-audit-nonexistent-dir-12345';
+        const workingDir = process.cwd();
+        const resNoToken = await fetch(`http://127.0.0.1:${port}/api/system/terminal`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command: testCmd, cwd: workingDir }),
+        });
+        expect(resNoToken.status).toBe(428);
+        const dataNoToken = await resNoToken.json();
+        expect(dataNoToken.requiresApproval).toBe(true);
+        expect(dataNoToken.approvalId).toBeDefined();
+
+        const token = (server as any).toolGateway.generateApprovalToken(
+          'executeShell',
+          undefined,
+          60000,
+          { command: testCmd, cwd: workingDir }
+        );
+
+        // Consuming with drifted parameters over HTTP must be rejected
+        const resDrifted = await fetch(`http://127.0.0.1:${port}/api/system/terminal`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-kin-approval-token': token,
+          },
+          body: JSON.stringify({ command: 'rm -rf /unauthorized', cwd: workingDir }),
+        });
+        expect(resDrifted.status).toBe(428);
+        const dataDrifted = await resDrifted.json();
+        expect(dataDrifted.requiresApproval).toBe(true);
+
+        // Consuming with matching parameters over HTTP must succeed
+        const resWithToken = await fetch(`http://127.0.0.1:${port}/api/system/terminal`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-kin-approval-token': token,
+          },
+          body: JSON.stringify({ command: testCmd, cwd: workingDir }),
+        });
+        expect(resWithToken.status).toBe(200);
+      } finally {
+        await server.stop();
+      }
+    });
     it('binds approval token to exact action parameters and verifies matching digest', () => {
       const sentinel = Sentinel.getInstance();
       const gateway = new ToolGateway({ db });

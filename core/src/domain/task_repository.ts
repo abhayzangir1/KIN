@@ -1,3 +1,7 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as crypto from 'node:crypto';
+import * as child_process from 'node:child_process';
 import { KinDatabase } from '../storage/db.js';
 import { Goal, Task, TaskStatus, Decision, DecisionStatus } from './types.js';
 
@@ -244,7 +248,11 @@ export class TaskRepository {
    */
   public releaseTaskLease(taskId: string, runId: string, markFailed: boolean = false): void {
     const now = Date.now();
-    const newStatus: TaskStatus = markFailed ? 'failed' : 'ready';
+    const current = this.getTask(taskId);
+    let newStatus: TaskStatus = markFailed ? 'failed' : 'ready';
+    if (current && (current.status === 'blocked' || current.status === 'review' || current.status === 'completed')) {
+      newStatus = current.status;
+    }
 
     this.db.execute(
       `UPDATE tasks
@@ -339,49 +347,193 @@ export class TaskRepository {
       evidenceBundleId
     );
     if (!evidenceRecord) {
-      throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' not found in database.`);
+      this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+      throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' not found in database. Task remains in review.`);
     }
 
     if (evidenceRecord.task_id !== taskId) {
-      throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' belongs to task '${evidenceRecord.task_id}', not '${taskId}'.`);
+      this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+      throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' belongs to task '${evidenceRecord.task_id}', not '${taskId}'. Task remains in review.`);
     }
 
     if (expectedRunId && (!evidenceRecord.run_id || evidenceRecord.run_id !== expectedRunId)) {
-      throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' belongs to run '${evidenceRecord.run_id || 'unassigned'}', not expected run '${expectedRunId}'.`);
+      this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+      throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' belongs to run '${evidenceRecord.run_id || 'unassigned'}', not expected run '${expectedRunId}'. Task remains in review.`);
     }
 
     const isVerified = evidenceRecord.verified === 1 || evidenceRecord.verified === true || String(evidenceRecord.verified) === '1';
     if (!isVerified) {
-      throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' is unverified (verified = 0).`);
+      this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+      throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' is unverified (verified = 0). Task remains in review.`);
     }
 
     const uri = (evidenceRecord.content_uri || '').trim();
     if (!uri) {
-      throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' has empty content_uri proof.`);
+      this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+      throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' has empty content_uri proof. Task remains in review.`);
     }
 
+    // Resolve project repo path for verifying repository and disk artifacts
+    const projectRow = this.db.queryOne<{ repo_path: string }>(
+      `SELECT p.repo_path
+       FROM tasks t
+       LEFT JOIN goals g ON t.goal_id = g.id
+       LEFT JOIN projects p ON g.project_id = p.id
+       WHERE t.id = ?`,
+      taskId
+    );
+    const repoPath = (projectRow?.repo_path && projectRow.repo_path !== '.') ? path.resolve(process.cwd(), projectRow.repo_path) : process.cwd();
+
+    // Verifiable Artifact Grounding: Prove the artifact actually exists and matches
     if (evidenceRecord.type === 'artifact_hash') {
-      const isGitCommit = uri.startsWith('git://commit/') && uri.replace('git://commit/', '').trim().length >= 7;
-      const isSha256 = uri.startsWith('sha256:') && uri.replace('sha256:', '').trim().length >= 16;
-      const isEvidenceUri = (uri.startsWith('evidence://') || uri.startsWith('artifact://') || uri.startsWith('file://')) && uri.length >= 10;
-      if (!isGitCommit && !isSha256 && !isEvidenceUri) {
-        throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' contains invalid artifact proof URI '${uri}'.`);
+      if (uri.startsWith('git://commit/')) {
+        const commitSha = uri.replace('git://commit/', '').trim();
+        if (!/^[0-9a-fA-F]{7,40}$/.test(commitSha)) {
+          this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+          throw new Error(`Cannot complete task '${taskId}': Malformed git commit SHA '${commitSha}'. Task remains in review.`);
+        }
+        let isCommit = false;
+        try {
+          const objType = child_process.execSync(`git cat-file -t ${commitSha}`, {
+            cwd: repoPath,
+            stdio: 'pipe',
+            timeout: 5000,
+          }).toString().trim();
+          if (objType === 'commit') {
+            isCommit = true;
+          }
+        } catch {
+          try {
+            const objType = child_process.execSync(`git cat-file -t ${commitSha}`, {
+              cwd: process.cwd(),
+              stdio: 'pipe',
+              timeout: 5000,
+            }).toString().trim();
+            if (objType === 'commit') {
+              isCommit = true;
+            }
+          } catch {}
+        }
+        if (!isCommit) {
+          this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+          throw new Error(`Cannot complete task '${taskId}': Git commit '${commitSha}' does not exist in repository '${repoPath}'. Task remains in review.`);
+        }
+      } else if (uri.startsWith('file://')) {
+        let filePath = uri.replace(/^file:\/\//, '');
+        let expectedSha: string | null = null;
+        if (filePath.includes('?sha256=')) {
+          const parts = filePath.split('?sha256=');
+          filePath = parts[0];
+          expectedSha = parts[1];
+        } else if (filePath.includes('?')) {
+          filePath = filePath.split('?')[0];
+        }
+        try { filePath = decodeURIComponent(filePath); } catch {}
+        if (process.platform === 'win32' && filePath.startsWith('/') && filePath.length > 2 && filePath[2] === ':') {
+          filePath = filePath.slice(1);
+        }
+        const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(repoPath, filePath);
+        if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {
+          this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+          throw new Error(`Cannot complete task '${taskId}': Evidence artifact file '${resolvedPath}' does not exist on disk. Task remains in review.`);
+        }
+        if (expectedSha) {
+          const actualHash = crypto.createHash('sha256').update(fs.readFileSync(resolvedPath)).digest('hex');
+          if (actualHash.toLowerCase() !== expectedSha.toLowerCase()) {
+            this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+            throw new Error(`Cannot complete task '${taskId}': Artifact file '${resolvedPath}' SHA256 '${actualHash}' does not match expected '${expectedSha}'. Task remains in review.`);
+          }
+        }
+      } else {
+        const resolvedPath = path.isAbsolute(uri) ? uri : path.resolve(repoPath, uri);
+        if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {
+          this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+          throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' contains invalid artifact proof URI '${uri}' that does not resolve to an existing artifact. Task remains in review.`);
+        }
       }
     } else if (evidenceRecord.type === 'human_signoff') {
       const isOperatorSignoff = uri.startsWith('operator://signoff/') && uri.replace('operator://signoff/', '').trim().length > 0;
-      const isSignoffUri = (uri.startsWith('file://') || uri.startsWith('evidence://') || uri.startsWith('signoff://')) && uri.length >= 10;
-      if (!isOperatorSignoff && !isSignoffUri) {
-        throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' contains invalid human_signoff URI '${uri}'.`);
+      if (uri.startsWith('file://')) {
+        let filePath = uri.replace(/^file:\/\//, '');
+        if (filePath.includes('?')) {
+          filePath = filePath.split('?')[0];
+        }
+        try { filePath = decodeURIComponent(filePath); } catch {}
+        if (process.platform === 'win32' && filePath.startsWith('/') && filePath.length > 2 && filePath[2] === ':') {
+          filePath = filePath.slice(1);
+        }
+        const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(repoPath, filePath);
+        if (!fs.existsSync(resolvedPath)) {
+          this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+          throw new Error(`Cannot complete task '${taskId}': Human signoff file '${resolvedPath}' does not exist on disk. Task remains in review.`);
+        }
+      } else if (!isOperatorSignoff) {
+        this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+        throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' contains invalid human_signoff URI '${uri}'. Task remains in review.`);
       }
     } else if (evidenceRecord.type === 'test_output' || evidenceRecord.type === 'build_log') {
-      if (uri.length < 5) {
-        throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' contains insufficient test/build proof.`);
+      if (uri.startsWith('file://')) {
+        let filePath = uri.replace(/^file:\/\//, '');
+        let expectedSha: string | null = null;
+        if (filePath.includes('?sha256=')) {
+          const parts = filePath.split('?sha256=');
+          filePath = parts[0];
+          expectedSha = parts[1];
+        } else if (filePath.includes('?')) {
+          filePath = filePath.split('?')[0];
+        }
+        try { filePath = decodeURIComponent(filePath); } catch {}
+        if (process.platform === 'win32' && filePath.startsWith('/') && filePath.length > 2 && filePath[2] === ':') {
+          filePath = filePath.slice(1);
+        }
+        const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(repoPath, filePath);
+        if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {
+          this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+          throw new Error(`Cannot complete task '${taskId}': ${evidenceRecord.type} file '${resolvedPath}' does not exist on disk. Task remains in review.`);
+        }
+        if (expectedSha) {
+          const actualHash = crypto.createHash('sha256').update(fs.readFileSync(resolvedPath)).digest('hex');
+          if (actualHash.toLowerCase() !== expectedSha.toLowerCase()) {
+            this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+            throw new Error(`Cannot complete task '${taskId}': ${evidenceRecord.type} file '${resolvedPath}' SHA256 '${actualHash}' does not match expected '${expectedSha}'. Task remains in review.`);
+          }
+        }
+      } else if (uri.startsWith('git://commit/')) {
+        const commitSha = uri.replace('git://commit/', '').trim();
+        if (!/^[0-9a-fA-F]{7,40}$/.test(commitSha)) {
+          this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+          throw new Error(`Cannot complete task '${taskId}': Malformed git commit SHA '${commitSha}'. Task remains in review.`);
+        }
+        let isCommit = false;
+        try {
+          const objType = child_process.execSync(`git cat-file -t ${commitSha}`, { cwd: repoPath, stdio: 'pipe' }).toString().trim();
+          if (objType === 'commit') isCommit = true;
+        } catch {
+          try {
+            const objType = child_process.execSync(`git cat-file -t ${commitSha}`, { cwd: process.cwd(), stdio: 'pipe' }).toString().trim();
+            if (objType === 'commit') isCommit = true;
+          } catch {}
+        }
+        if (!isCommit) {
+          this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+          throw new Error(`Cannot complete task '${taskId}': Git commit '${commitSha}' does not exist in repository. Task remains in review.`);
+        }
+      } else {
+        const resolvedPath = path.isAbsolute(uri) ? uri : path.resolve(repoPath, uri);
+        if (!fs.existsSync(resolvedPath)) {
+          this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+          throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' contains insufficient test/build proof or nonexistent file. Task remains in review.`);
+        }
       }
+    } else {
+      this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+      throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' has unrecognized evidence type '${evidenceRecord.type}'. Task remains in review.`);
     }
 
     const task = this.getTask(taskId);
     if (task?.verificationSpec?.expectedArtifactType && evidenceRecord.type !== task.verificationSpec.expectedArtifactType) {
-      throw new Error(`Cannot complete task '${taskId}': Evidence type '${evidenceRecord.type}' does not match expected artifact type '${task.verificationSpec.expectedArtifactType}'.`);
+      this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+      throw new Error(`Cannot complete task '${taskId}': Evidence type '${evidenceRecord.type}' does not match expected artifact type '${task.verificationSpec.expectedArtifactType}'. Task remains in review.`);
     }
 
     const result = this.db.execute(

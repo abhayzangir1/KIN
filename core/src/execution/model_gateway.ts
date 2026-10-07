@@ -311,22 +311,22 @@ export class ModelGateway {
         this.validatedProviders.set('openrouter', false);
         // Fallback standard OpenRouter model templates if offline or unverified
         return [
-          { id: 'openrouter/deepseek/deepseek-r1:free', name: 'DeepSeek R1 (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 64000, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
-          { id: 'openrouter/meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B Instruct (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 128000, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
-          { id: 'openrouter/google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 1048576, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
-          { id: 'openrouter/qwen/qwen-2.5-coder-32b-instruct:free', name: 'Qwen 2.5 Coder 32B (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 32768, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
-          { id: 'openrouter/anthropic/claude-3.5-sonnet', name: 'Anthropic Claude 3.5 Sonnet', provider: 'openrouter', contextWindow: 200000, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
-          { id: 'openrouter/openai/gpt-4o', name: 'OpenAI GPT-4o', provider: 'openrouter', contextWindow: 128000, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'openrouter/deepseek/deepseek-r1:free', name: 'DeepSeek R1 (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 64000, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'openrouter/meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B Instruct (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 128000, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'openrouter/google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 1048576, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'openrouter/qwen/qwen-2.5-coder-32b-instruct:free', name: 'Qwen 2.5 Coder 32B (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 32768, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'openrouter/anthropic/claude-3.5-sonnet', name: 'Anthropic Claude 3.5 Sonnet', provider: 'openrouter', contextWindow: 200000, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'openrouter/openai/gpt-4o', name: 'OpenAI GPT-4o', provider: 'openrouter', contextWindow: 128000, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
         ];
       }
 
       if (normProvider === 'openai') {
         const standardOpenAi: DiscoveredModel[] = [
-          { id: 'openai/gpt-4o', name: 'OpenAI GPT-4o', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
-          { id: 'openai/gpt-4o-mini', name: 'OpenAI GPT-4o Mini', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
-          { id: 'openai/o3-mini', name: 'OpenAI o3-mini (Reasoning)', provider: 'openai', contextWindow: 200000, supportsTools: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
-          { id: 'openai/o1', name: 'OpenAI o1 (Advanced Reasoning)', provider: 'openai', contextWindow: 200000, supportsTools: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
-          { id: 'openai/gpt-4.5-preview', name: 'OpenAI GPT-4.5 Preview', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'openai/gpt-4o', name: 'OpenAI GPT-4o', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'openai/gpt-4o-mini', name: 'OpenAI GPT-4o Mini', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'openai/o3-mini', name: 'OpenAI o3-mini (Reasoning)', provider: 'openai', contextWindow: 200000, supportsTools: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'openai/o1', name: 'OpenAI o1 (Advanced Reasoning)', provider: 'openai', contextWindow: 200000, supportsTools: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'openai/gpt-4.5-preview', name: 'OpenAI GPT-4.5 Preview', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
         ];
         if (!apiKey) return standardOpenAi;
 
@@ -372,10 +372,10 @@ export class ModelGateway {
 
       if (normProvider === 'anthropic') {
         const standardAnthropic: DiscoveredModel[] = [
-          { id: 'anthropic/claude-3-7-sonnet-20250219', name: 'Claude 3.7 Sonnet (Hybrid Reasoning)', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
-          { id: 'anthropic/claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet (v2)', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
-          { id: 'anthropic/claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', provider: 'anthropic', contextWindow: 200000, supportsTools: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
-          { id: 'anthropic/claude-3-opus-20240229', name: 'Claude 3 Opus', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'anthropic/claude-3-7-sonnet-20250219', name: 'Claude 3.7 Sonnet (Hybrid Reasoning)', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'anthropic/claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet (v2)', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'anthropic/claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', provider: 'anthropic', contextWindow: 200000, supportsTools: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'anthropic/claude-3-opus-20240229', name: 'Claude 3 Opus', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
         ];
         if (!apiKey) return standardAnthropic;
 
@@ -413,10 +413,10 @@ export class ModelGateway {
 
       if (normProvider === 'gemini') {
         const standardGemini: DiscoveredModel[] = [
-          { id: 'gemini/gemini-2.5-pro', name: 'Google Gemini 2.5 Pro', provider: 'gemini', contextWindow: 2097152, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
-          { id: 'gemini/gemini-2.0-flash', name: 'Google Gemini 2.0 Flash', provider: 'gemini', contextWindow: 1048576, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
-          { id: 'gemini/gemini-1.5-pro', name: 'Google Gemini 1.5 Pro', provider: 'gemini', contextWindow: 2097152, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
-          { id: 'gemini/gemini-1.5-flash', name: 'Google Gemini 1.5 Flash', provider: 'gemini', contextWindow: 1048576, supportsTools: true, supportsVision: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'gemini/gemini-2.5-pro', name: 'Google Gemini 2.5 Pro', provider: 'gemini', contextWindow: 2097152, supportsTools: true, supportsVision: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'gemini/gemini-2.0-flash', name: 'Google Gemini 2.0 Flash', provider: 'gemini', contextWindow: 1048576, supportsTools: true, supportsVision: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'gemini/gemini-1.5-pro', name: 'Google Gemini 1.5 Pro', provider: 'gemini', contextWindow: 2097152, supportsTools: true, supportsVision: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'gemini/gemini-1.5-flash', name: 'Google Gemini 1.5 Flash', provider: 'gemini', contextWindow: 1048576, supportsTools: true, supportsVision: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
         ];
         if (!apiKey) return standardGemini;
 
@@ -454,8 +454,8 @@ export class ModelGateway {
 
       if (normProvider === 'deepseek') {
         const standardDeepSeek: DiscoveredModel[] = [
-          { id: 'deepseek/deepseek-chat', name: 'DeepSeek-V3 (Chat)', provider: 'deepseek', contextWindow: 64000, supportsTools: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
-          { id: 'deepseek/deepseek-reasoner', name: 'DeepSeek-R1 (Reasoner)', provider: 'deepseek', contextWindow: 64000, supportsTools: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'deepseek/deepseek-chat', name: 'DeepSeek-V3 (Chat)', provider: 'deepseek', contextWindow: 64000, supportsTools: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'deepseek/deepseek-reasoner', name: 'DeepSeek-R1 (Reasoner)', provider: 'deepseek', contextWindow: 64000, supportsTools: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
         ];
         if (!apiKey) return standardDeepSeek;
 
@@ -489,9 +489,9 @@ export class ModelGateway {
 
       if (normProvider === 'groq') {
         const standardGroq: DiscoveredModel[] = [
-          { id: 'groq/llama-3.3-70b-versatile', name: 'Groq Llama 3.3 70B Versatile', provider: 'groq', contextWindow: 128000, supportsTools: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
-          { id: 'groq/deepseek-r1-distill-llama-70b', name: 'Groq DeepSeek R1 Distill 70B', provider: 'groq', contextWindow: 128000, supportsTools: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
-          { id: 'groq/mixtral-8x7b-32768', name: 'Groq Mixtral 8x7B', provider: 'groq', contextWindow: 32768, supportsTools: true, configured: Boolean(apiKey), validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'groq/llama-3.3-70b-versatile', name: 'Groq Llama 3.3 70B Versatile', provider: 'groq', contextWindow: 128000, supportsTools: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'groq/deepseek-r1-distill-llama-70b', name: 'Groq DeepSeek R1 Distill 70B', provider: 'groq', contextWindow: 128000, supportsTools: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'groq/mixtral-8x7b-32768', name: 'Groq Mixtral 8x7B', provider: 'groq', contextWindow: 32768, supportsTools: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
         ];
         if (!apiKey) return standardGroq;
 

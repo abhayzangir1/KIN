@@ -28,7 +28,7 @@ The server has a compound handler for combinations of /plan, /boost, /teamwork-p
 - Command suggestions in the chat composer are not proof that every suggested workflow completes.
 - Model-backed commands require an available selected model.
 - Scheduled work depends on the scheduler, project/channel state, and an available target agent.
-- The audit identified remaining task-evidence, queue-restart, provider-readiness, and authorization gaps that can affect command outcomes.
+- Startup actively admits and dispatches queued runs across platform restarts; verify task evidence and provider readiness when evaluating command outcomes.
 - This list is based on source inspection on 2026-10-07 and may change with later commits.
 
 For command-specific API behavior, see [API documentation](API.md). For unverified walkthroughs, see the [tutorial index](TUTORIALS.md).
