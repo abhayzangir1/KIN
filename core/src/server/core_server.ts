@@ -4803,6 +4803,14 @@ export class CoreServer {
           this.agentRepo.updateAgentModelConfig(agentId, body.activeModelId);
         }
 
+        if ((body as any).capabilities && Array.isArray((body as any).capabilities)) {
+          this.db.execute(
+            `UPDATE agent_definitions SET capabilities_json = ? WHERE id = ?`,
+            JSON.stringify((body as any).capabilities),
+            identity.definitionId
+          );
+        }
+
         this.broadcastEvent('agent:updated', { agentId, ...body });
         return this.sendJson(res, 200, { success: true });
       }
@@ -6407,6 +6415,20 @@ export class CoreServer {
       if (req.method === 'GET' && pathname === '/api/mcp/tools') {
         const tools = this.mcpClient.getAllTools();
         return this.sendJson(res, 200, { tools });
+      }
+
+      // 35b. POST /api/mcp/reload — Explicitly reload MCP servers from project configuration
+      if (req.method === 'POST' && pathname === '/api/mcp/reload') {
+        const body = await this.parseJsonBody<{ projectRoot?: string; projectId?: string }>(req).catch(() => ({} as { projectRoot?: string; projectId?: string }));
+        let targetRoot = body?.projectRoot;
+        if (!targetRoot && body?.projectId) {
+          targetRoot = this.workspaceRepo.getProject(body.projectId)?.repoPath;
+        }
+        if (!targetRoot) {
+          targetRoot = this.workspaceRepo.getProject(this.activeProjectId)?.repoPath || process.cwd();
+        }
+        const tools = await this.mcpClient.reloadProject(targetRoot);
+        return this.sendJson(res, 200, { success: true, projectRoot: targetRoot, toolsCount: tools.length, tools });
       }
 
       // 36. GET /api/system/apps — Discover installed desktop applications
@@ -8054,6 +8076,24 @@ export class CoreServer {
           rationale: primaryGoal.description,
           parentRunId: run?.parentRunId,
         };
+      }
+
+      // Synchronize project MCP servers and skills before compiling tool schemas
+      if (rPath) {
+        const targetRepoResolved = path.resolve(rPath);
+        if (this.mcpClient.getProjectRoot() !== targetRepoResolved) {
+          try {
+            await this.mcpClient.reloadProject(targetRepoResolved);
+          } catch (mcpSyncErr) {
+            console.warn('[KIN CORE] MCP project reload notice:', mcpSyncErr);
+          }
+        } else if (this.mcpClient.getAllTools().length === 0) {
+          try {
+            await this.mcpClient.loadConfiguredServers();
+          } catch (mcpLoadErr) {
+            console.warn('[KIN CORE] MCP server auto-load notice:', mcpLoadErr);
+          }
+        }
       }
 
       // Compile prompt with project grounding, channel context, peer awareness, and cross-channel memory

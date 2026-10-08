@@ -487,7 +487,7 @@ export class ToolGateway {
    * Maps every tool to its discrete capability tag and recognized aliases.
    */
   public getRequiredCapability(toolName: string): { primary: string; aliases: string[] } {
-    if (toolName.startsWith('mcp__')) {
+    if (toolName.startsWith('mcp__') || toolName === 'mcp:call' || toolName === 'mcp_call' || toolName === 'mcpCall') {
       return { primary: 'mcp:call', aliases: ['mcp:call', 'mcp', toolName, '*'] };
     }
 
@@ -722,7 +722,7 @@ export class ToolGateway {
     context: ToolExecutionContext,
     risk: RiskLevel
   ): Promise<ToolInvocationResult<T>> {
-    // Dynamic MCP Tool Invocation
+    // Dynamic MCP Tool Invocation (mcp__ prefix)
     if (toolName.startsWith('mcp__')) {
       if (!this.mcpClient) {
         throw new Error(`MCP Client is not configured in ToolGateway for '${toolName}'.`);
@@ -731,6 +731,26 @@ export class ToolGateway {
       const serverName = parts[1];
       const mcpTool = parts.slice(2).join('__');
       const callRes = await this.mcpClient.callTool(serverName, mcpTool, params);
+      return {
+        success: !callRes.isError,
+        output: callRes.content as T,
+        riskLevel: risk,
+        error: callRes.isError ? (callRes.content?.[0]?.text || 'MCP tool execution error') : undefined,
+      };
+    }
+
+    // Dynamic MCP Tool Invocation (mcp:call or mcp_call)
+    if (toolName === 'mcp:call' || toolName === 'mcp_call' || toolName === 'mcpCall') {
+      if (!this.mcpClient) {
+        throw new Error(`MCP Client is not configured in ToolGateway.`);
+      }
+      const serverName = params.serverName || params.server;
+      const mcpTool = params.toolName || params.tool;
+      const toolArgs = params.arguments || params.params || params.args || {};
+      if (!serverName || !mcpTool) {
+        throw new Error(`'${toolName}' requires 'server' (or 'serverName') and 'tool' (or 'toolName') parameters.`);
+      }
+      const callRes = await this.mcpClient.callTool(serverName, mcpTool, toolArgs);
       return {
         success: !callRes.isError,
         output: callRes.content as T,
@@ -1350,7 +1370,7 @@ export class ToolGateway {
             : [role];
           const capabilities = Array.isArray(params.capabilities) && params.capabilities.length > 0
             ? params.capabilities
-            : ['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate'];
+            : ['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate', 'mcp:call'];
           const sysPrompt = params.systemPrompt ||
             `You are ${normalizedName}, a ${role} specialist in project ${projectId}. Workspace boundaries are strictly enforced. Execute tasks with high technical rigor.`;
 

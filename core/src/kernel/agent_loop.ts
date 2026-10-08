@@ -878,6 +878,18 @@ export class AgentLoopRunner {
       skillText = `\n\nRELEVANT PROCEDURAL SKILLS:\n` + skills.map((s) => `[Skill: ${s.name}]\n${s.instructions}`).join('\n\n');
     }
 
+    const mcpSchemas = this.toolGateway?.getToolSchemas().filter((t) => t.name.startsWith('mcp__')) || [];
+    let mcpToolsText = '';
+    if (mcpSchemas.length > 0) {
+      mcpToolsText = `\n\nCONNECTED MCP EXTENSION TOOLS (Active & Ready to Call):\n` +
+        mcpSchemas.map((t, idx) => {
+          const propNames = Object.keys((t.parameters as any)?.properties || {});
+          const argList = propNames.length > 0 ? propNames.join(', ') : '';
+          return `${26 + idx}. ${t.name}(${argList}) — ${t.description}`;
+        }).join('\n') +
+        `\n\nTo invoke a connected MCP tool, use its exact name in <tool_call>:\n<tool_call>\n{"name": "${mcpSchemas[0].name}", "parameters": { ... }}\n</tool_call>`;
+    }
+
     return `${basePrompt}${skillText}
 
 TOOL INSTRUCTIONS:
@@ -906,10 +918,10 @@ You have access to the following native and desktop tools:
 22. browserStep(action: "navigate"|"click"|"type"|"scroll"|"screenshot"|"wait", url?: string, selector?: string, text?: string) — Step-by-step browser automation.
 23. browserClose() — Close browser session.
 24. delegateToAgent(targetAgent: string, directive: string) [or coordinateWithAgent] — Coordinate or delegate task directive to a peer specialist agent (e.g. @Backend, @Frontend, @QA, @AndroidDev).
-25. hireSpecialist(displayName: string, roleTitle: string, systemPrompt?: string, suggestedModel?: string, domainAuthority?: string[]) — Onboard and hire a new specialist or subagent into this project and channel. Both orchestrators and specialists can hire subagents under them as required.
+25. hireSpecialist(displayName: string, roleTitle: string, systemPrompt?: string, suggestedModel?: string, domainAuthority?: string[]) — Onboard and hire a new specialist or subagent into this project and channel. Both orchestrators and specialists can hire subagents under them as required.${mcpToolsText}
 
 CRITICAL TOOL INVOCATION RULES:
-1. When instructed to create files, scaffold projects, build applications, or execute commands, you MUST invoke the appropriate tool (e.g. writeFile, executeShell) immediately. NEVER just describe what you plan to do in text without calling the tool.
+1. When instructed to create files, scaffold projects, build applications, or execute commands, you MUST invoke the appropriate tool (e.g. writeFile, executeShell, or an MCP tool) immediately. NEVER just describe what you plan to do in text without calling the tool.
 2. Output tool calls using EXACTLY this XML format:
 <tool_call>
 {"name": "tool_name", "parameters": {"param1": "val1"}}
@@ -919,6 +931,11 @@ Examples:
 To write a file:
 <tool_call>
 {"name": "writeFile", "parameters": {"path": "app/build.gradle.kts", "content": "// Gradle config"}}
+</tool_call>
+
+To call an MCP tool:
+<tool_call>
+{"name": "mcp__filesystem__list_directory", "parameters": {"path": "."}}
 </tool_call>
 
 To delegate or coordinate with another specialist:

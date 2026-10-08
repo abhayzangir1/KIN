@@ -37,6 +37,7 @@ interface PendingRequestEntry {
 export class McpClientManager {
   private activeServers: Map<string, { process: ChildProcess; tools: McpToolDefinition[] }> = new Map();
   private pendingRequests: Map<number, PendingRequestEntry> = new Map();
+  private inFlightHandshakes: Map<string, Promise<McpToolDefinition[]>> = new Map();
   private requestIdCounter = 1;
   private projectRoot: string;
 
@@ -62,7 +63,11 @@ export class McpClientManager {
       'TEMP', 'TMP',
       'SYSTEMROOT', 'SystemRoot',
       'COMSPEC', 'SHELL',
-      'TERM', 'LANG', 'LC_ALL'
+      'TERM', 'LANG', 'LC_ALL',
+      'APPDATA', 'LOCALAPPDATA',
+      'HOMEDRIVE', 'HOMEPATH',
+      'ProgramData', 'ALLUSERSPROFILE',
+      'NODE_PATH'
     ];
     const safeEnv: Record<string, string> = {};
     for (const key of safeSystemKeys) {
@@ -82,38 +87,68 @@ export class McpClientManager {
   }
 
   /**
-   * Loads configured MCP servers from .kin/mcp_servers.json.
+   * Loads configured MCP servers from .kin/mcp.json, .kin/mcp_servers.json, or mcp.json.
    */
   public async loadConfiguredServers(): Promise<McpToolDefinition[]> {
-    const configPath = path.join(this.projectRoot, '.kin', 'mcp_servers.json');
-    if (!fs.existsSync(configPath)) {
-      return [];
-    }
+    const candidatePaths = [
+      path.join(this.projectRoot, '.kin', 'mcp.json'),
+      path.join(this.projectRoot, '.kin', 'mcp_servers.json'),
+      path.join(this.projectRoot, 'mcp.json'),
+    ];
 
-    try {
-      const raw = fs.readFileSync(configPath, 'utf-8');
-      const parsed = JSON.parse(raw);
-      const servers: McpServerConfig[] = parsed.mcpServers ? Object.entries(parsed.mcpServers).map(([name, conf]: [string, any]) => ({
-        name,
-        command: conf.command,
-        args: conf.args || [],
-        env: conf.env || {},
-      })) : [];
+    const serverMap = new Map<string, McpServerConfig>();
 
-      const allTools: McpToolDefinition[] = [];
-      for (const s of servers) {
-        try {
-          const tools = await this.startServer(s);
-          allTools.push(...tools);
-        } catch (err) {
-          console.error(`[KIN MCP] Failed to start server ${s.name}:`, err);
+    for (const configPath of candidatePaths) {
+      if (!fs.existsSync(configPath)) continue;
+
+      try {
+        const raw = fs.readFileSync(configPath, 'utf-8');
+        const parsed = JSON.parse(raw);
+        const serverSources = parsed.mcpServers || parsed.servers || {};
+
+        if (Array.isArray(parsed)) {
+          for (const s of parsed) {
+            if (s.name && s.command && !serverMap.has(s.name)) {
+              serverMap.set(s.name, {
+                name: s.name,
+                command: s.command,
+                args: s.args || [],
+                env: s.env || {},
+              });
+            }
+          }
+        } else if (typeof serverSources === 'object' && serverSources !== null) {
+          for (const [name, conf] of Object.entries(serverSources)) {
+            const serverConfig = conf as any;
+            if (serverConfig?.command && !serverMap.has(name)) {
+              serverMap.set(name, {
+                name,
+                command: serverConfig.command,
+                args: serverConfig.args || [],
+                env: serverConfig.env || {},
+              });
+            }
+          }
         }
+      } catch (err) {
+        console.error(`[KIN MCP] Failed to read ${configPath}:`, err);
       }
-      return allTools;
-    } catch (err) {
-      console.error('[KIN MCP] Failed to read mcp_servers.json:', err);
+    }
+
+    if (serverMap.size === 0) {
       return [];
     }
+
+    const allTools: McpToolDefinition[] = [];
+    for (const s of serverMap.values()) {
+      try {
+        const tools = await this.startServer(s);
+        allTools.push(...tools);
+      } catch (err) {
+        console.error(`[KIN MCP] Failed to start server ${s.name}:`, err);
+      }
+    }
+    return allTools;
   }
 
   /**
@@ -126,9 +161,16 @@ export class McpClientManager {
   /**
    * Switches project root, shutting down previous MCP servers and loading new ones.
    */
-  public async reloadProject(projectRoot: string): Promise<McpToolDefinition[]> {
+  public async reloadProject(projectRoot: string, force: boolean = false): Promise<McpToolDefinition[]> {
+    const target = path.resolve(projectRoot);
+    if (!force && this.projectRoot === target && this.activeServers.size > 0) {
+      const activeTools = this.getAllTools();
+      if (activeTools.length > 0) {
+        return activeTools;
+      }
+    }
     this.shutdown();
-    this.setProjectRoot(projectRoot);
+    this.setProjectRoot(target);
     return await this.loadConfiguredServers();
   }
 
@@ -136,16 +178,45 @@ export class McpClientManager {
    * Spawns an MCP server, handles supervision lifecycle, and queries tools/list.
    */
   public async startServer(config: McpServerConfig): Promise<McpToolDefinition[]> {
-    if (this.activeServers.has(config.name)) {
+    if (this.inFlightHandshakes.has(config.name)) {
+      return await this.inFlightHandshakes.get(config.name)!;
+    }
+
+    const existing = this.activeServers.get(config.name);
+    if (existing && existing.tools.length > 0) {
+      return existing.tools;
+    }
+
+    const handshakePromise = this.performStartServer(config);
+    this.inFlightHandshakes.set(config.name, handshakePromise);
+    try {
+      return await handshakePromise;
+    } finally {
+      this.inFlightHandshakes.delete(config.name);
+    }
+  }
+
+  private async performStartServer(config: McpServerConfig): Promise<McpToolDefinition[]> {
+    if (this.activeServers.has(config.name) && this.activeServers.get(config.name)!.tools.length > 0) {
       return this.activeServers.get(config.name)!.tools;
     }
 
     const cleanEnv = McpClientManager.sanitizeMcpEnv(config.env);
 
+    const isWindows = process.platform === 'win32';
+    const isShellNeeded = isWindows && (
+      config.command.toLowerCase() === 'npx' ||
+      config.command.toLowerCase() === 'npm' ||
+      config.command.toLowerCase() === 'uvx' ||
+      /\.(cmd|bat)$/i.test(config.command) ||
+      !config.command.toLowerCase().endsWith('.exe')
+    );
+
     const proc = spawn(config.command, config.args || [], {
       cwd: this.projectRoot,
       env: cleanEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
+      shell: isShellNeeded,
     });
 
     let buffer = '';
@@ -171,6 +242,13 @@ export class McpClientManager {
         } catch (e) {
           // Non-JSON stdout or partial stream
         }
+      }
+    });
+
+    proc.stderr?.on('data', (data) => {
+      const errText = data.toString().trim();
+      if (errText) {
+        console.warn(`[KIN MCP ${config.name} STDERR]`, errText);
       }
     });
 
@@ -211,7 +289,7 @@ export class McpClientManager {
         protocolVersion: '2024-11-05',
         capabilities: {},
         clientInfo: { name: 'kin-core', version: '1.0.0' },
-      });
+      }, 30000);
 
       // Complete protocol initialization with initialized notification
       this.sendNotification(config.name, 'notifications/initialized');
@@ -272,7 +350,7 @@ export class McpClientManager {
   /**
    * Sends a JSON-RPC request over stdio.
    */
-  private sendRequest(serverName: string, method: string, params: Record<string, any>): Promise<any> {
+  private sendRequest(serverName: string, method: string, params: Record<string, any>, timeoutMs: number = 15000): Promise<any> {
     const entry = this.activeServers.get(serverName);
     if (!entry || !entry.process.stdin) {
       return Promise.reject(new Error(`MCP server '${serverName}' is not running.`));
@@ -289,8 +367,8 @@ export class McpClientManager {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(id);
-        reject(new Error(`MCP request '${method}' to '${serverName}' timed out (10s).`));
-      }, 10000);
+        reject(new Error(`MCP request '${method}' to '${serverName}' timed out (${Math.round(timeoutMs / 1000)}s).`));
+      }, timeoutMs);
 
       this.pendingRequests.set(id, {
         serverName,

@@ -148,7 +148,7 @@ export class Sentinel {
   }
 
   public getRequiredCapability(toolName: string): { primary: string; aliases: string[] } {
-    if (toolName.startsWith('mcp__')) {
+    if (toolName.startsWith('mcp__') || toolName === 'mcp:call' || toolName === 'mcp_call' || toolName === 'mcpCall') {
       return { primary: 'mcp:call', aliases: ['mcp:call', 'mcp', toolName, '*'] };
     }
 
