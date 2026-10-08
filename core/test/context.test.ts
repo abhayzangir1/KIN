@@ -377,4 +377,41 @@ describe('KIN Phase 5: Context Compiler, Spiller & Compactor Engine', () => {
     expect(snapshotMsg?.content).toContain('Resolved by subsequent build step');
     expect(snapshotMsg?.content).not.toContain('Evaluated tool failure and adjusted execution plan');
   });
+
+  it('truth-grounds compaction snapshot: marks unresolved tool failures as Unresolved without using error output', () => {
+    const messages: Message[] = [
+      { id: 'turn-run2-0', channelId: 'c1', senderId: 'user', senderType: 'human', content: 'Compile target', mentions: [], productivityScore: 100, createdAt: 1000 },
+      { id: 'turn-run2-1', channelId: 'c1', senderId: 'agent', senderType: 'agent', content: 'Build failed', mentions: [], productivityScore: 100, createdAt: 2000 },
+      { id: 'turn-run2-2', channelId: 'c1', senderId: 'agent', senderType: 'agent', content: 'Investigating failure', mentions: [], productivityScore: 100, createdAt: 3000 },
+      { id: 'turn-run2-3', channelId: 'c1', senderId: 'agent', senderType: 'agent', content: 'Attempting fallback step', mentions: [], productivityScore: 100, createdAt: 4000 },
+      { id: 'turn-run2-4', channelId: 'c1', senderId: 'agent', senderType: 'agent', content: 'Fallback failed', mentions: [], productivityScore: 100, createdAt: 5000 },
+    ];
+
+    const result = compactor.evaluateAndCompact({
+      messages,
+      currentTokens: 9000,
+      maxTokens: 10000,
+      snapshotState: {
+        goalId: 'g-2',
+        primaryObjective: 'Compile target',
+        completedTasks: [],
+        activeTask: { id: 'turn-1', title: 'Running turn 1' },
+        modifiedFiles: [],
+        encounteredErrorsAndResolutions: [
+          {
+            error: 'executeShell: Command failed with exit code 1',
+            fixApplied: 'Unresolved',
+          },
+        ],
+        immutableDecisions: [],
+        pendingTaskDag: [],
+      },
+    });
+
+    expect(result.didCompact).toBe(true);
+    expect(result.snapshot?.encounteredErrorsAndResolutions[0].fixApplied).toBe('Unresolved');
+    const snapshotMsg = result.compactedMessages.find((m) => m.id.startsWith('snapshot-'));
+    expect(snapshotMsg?.content).toContain('Unresolved');
+  });
 });
+

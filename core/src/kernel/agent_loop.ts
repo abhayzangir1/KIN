@@ -300,11 +300,18 @@ export class AgentLoopRunner {
                 .filter((a) => a.error)
                 .map((a) => {
                   const errIdx = actions.indexOf(a);
-                  const subsequentResolution = actions.slice(errIdx + 1).find((next) => !next.error && next.output);
-                  const resolutionOutput = subsequentResolution?.output ?? a.output;
-                  const fixApplied = resolutionOutput
-                    ? (typeof resolutionOutput === 'string' ? resolutionOutput : JSON.stringify(resolutionOutput)).slice(0, 150)
-                    : (subsequentResolution ? `Resolved by ${subsequentResolution.toolName}` : 'Unresolved');
+                  const subsequentResolution = actions.slice(errIdx + 1).find((next) => !next.error);
+                  let fixApplied = 'Unresolved';
+                  if (subsequentResolution) {
+                    if (subsequentResolution.output) {
+                      fixApplied = (typeof subsequentResolution.output === 'string'
+                        ? subsequentResolution.output
+                        : JSON.stringify(subsequentResolution.output)
+                      ).slice(0, 150);
+                    } else {
+                      fixApplied = `Resolved by ${subsequentResolution.toolName}`;
+                    }
+                  }
                   return {
                     error: `${a.toolName}: ${a.error || 'Execution failed'}`,
                     fixApplied,

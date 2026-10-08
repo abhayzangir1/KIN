@@ -139,7 +139,17 @@ export class ModelGateway {
           : 'Local Ollama runtime offline or unverified',
       };
     }
-    if (norm === 'custom') {
+    if (norm === 'custom' || this.customEndpoints.has(norm)) {
+      if (this.customEndpoints.has(norm)) {
+        const custom = this.customEndpoints.get(norm)!;
+        return {
+          provider: norm,
+          configured: true,
+          validated: true,
+          modelCount: 1,
+          message: `Custom endpoint "${norm}" registered at ${custom.baseUrl}`,
+        };
+      }
       const customCount = this.customEndpoints.size;
       return {
         provider: 'custom',
@@ -194,7 +204,17 @@ export class ModelGateway {
       };
     }
 
-    if (norm === 'custom') {
+    if (norm === 'custom' || this.customEndpoints.has(norm)) {
+      if (this.customEndpoints.has(norm)) {
+        const custom = this.customEndpoints.get(norm)!;
+        return {
+          provider: norm,
+          configured: true,
+          validated: true,
+          modelCount: 1,
+          message: `Custom endpoint "${norm}" registered at ${custom.baseUrl}`,
+        };
+      }
       const customCount = this.customEndpoints.size;
       return {
         provider: 'custom',
@@ -258,14 +278,17 @@ export class ModelGateway {
     const shouldOmit = typeof options === 'boolean' ? options : Boolean(options?.omitUnconfigured);
     const apiKey = explicitApiKey || this.resolveApiKey(normProvider);
 
-    if (shouldOmit && normProvider !== 'ollama' && normProvider !== 'custom' && !apiKey) {
+    if (shouldOmit && normProvider !== 'ollama' && normProvider !== 'custom' && !this.customEndpoints.has(normProvider) && !apiKey) {
       return [];
     }
 
     try {
-      if (normProvider === 'custom') {
+      if (normProvider === 'custom' || this.customEndpoints.has(normProvider)) {
         const result: DiscoveredModel[] = [];
-        for (const [name, info] of this.customEndpoints.entries()) {
+        const endpoints = normProvider === 'custom'
+          ? Array.from(this.customEndpoints.entries())
+          : (this.customEndpoints.has(normProvider) ? [[normProvider, this.customEndpoints.get(normProvider)!] as const] : []);
+        for (const [name, info] of endpoints) {
           result.push({
             id: `custom/${name}`,
             name: `Custom (${name})`,
@@ -619,9 +642,11 @@ export class ModelGateway {
           startTime,
           'gemini'
         );
-      } else if (this.customEndpoints.has(provider)) {
-        const custom = this.customEndpoints.get(provider)!;
-        const apiKey = custom.apiKey || this.resolveApiKey(provider);
+      } else if (this.customEndpoints.has(provider) || (provider === 'custom' && this.customEndpoints.has(modelName)) || (provider === 'custom' && this.customEndpoints.size === 1)) {
+        const custom = this.customEndpoints.get(provider)
+          || this.customEndpoints.get(modelName)
+          || this.customEndpoints.values().next().value!;
+        const apiKey = custom.apiKey || this.resolveApiKey(provider) || this.resolveApiKey(modelName);
         const url = custom.baseUrl.endsWith('/chat/completions')
           ? custom.baseUrl
           : `${custom.baseUrl.replace(/\/$/, '')}/chat/completions`;

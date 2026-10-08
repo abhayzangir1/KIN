@@ -143,10 +143,24 @@ describe('KIN Dynamic Model Discovery & User Custom Model Registration', () => {
     expect(readinessActive.validated).toBe(true);
     expect(readinessActive.modelCount).toBe(1);
 
+    // Named custom provider readiness checks
+    const namedReadiness = await gw.checkProviderReadiness('my-endpoint');
+    expect(namedReadiness.configured).toBe(true);
+    expect(namedReadiness.validated).toBe(true);
+    expect(namedReadiness.modelCount).toBe(1);
+
+    const namedSyncReadiness = gw.getProviderReadiness('my-endpoint');
+    expect(namedSyncReadiness.configured).toBe(true);
+    expect(namedSyncReadiness.validated).toBe(true);
+
     const models = await gw.fetchProviderModels('custom');
     expect(models).toHaveLength(1);
     expect(models[0].id).toBe('custom/my-endpoint');
     expect(models[0].validated).toBe(true);
+
+    const namedModels = await gw.fetchProviderModels('my-endpoint');
+    expect(namedModels).toHaveLength(1);
+    expect(namedModels[0].id).toBe('custom/my-endpoint');
 
     // Verify GET /api/models/readiness contains custom
     const res = await fetch(`http://127.0.0.1:${port}/api/models/readiness`);
@@ -154,5 +168,31 @@ describe('KIN Dynamic Model Discovery & User Custom Model Registration', () => {
     const data: any = await res.json();
     expect(data.providerReadiness?.custom).toBeDefined();
     expect(data.providerReadiness?.custom.provider).toBe('custom');
+  });
+
+  it('POST /api/models/custom with baseUrl registers endpoint on modelGateway and marks it validated', async () => {
+    const customId = 'custom/local-llama3';
+    const res = await fetch(`http://127.0.0.1:${port}/api/models/custom`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modelId: customId,
+        name: 'Local Llama 3 (Custom)',
+        baseUrl: 'http://127.0.0.1:11434/v1',
+      }),
+    });
+    expect(res.status).toBe(201);
+    const data: any = await res.json();
+    expect(data.success).toBe(true);
+    expect(data.model.id).toBe(customId);
+    expect(data.model.validated).toBe(true);
+    expect(data.model.configured).toBe(true);
+
+    // Verify GET /api/models returns the registered custom model with validated true
+    const listRes = await fetch(`http://127.0.0.1:${port}/api/models`);
+    const listData: any = await listRes.json();
+    const found = listData.models.find((m: any) => m.id === customId);
+    expect(found).toBeDefined();
+    expect(found.validated).toBe(true);
   });
 });

@@ -1608,12 +1608,17 @@ export class CoreServer {
           });
         }
 
-        // 3. Fallback standard models for registered credentials only if provider is validated
+        // 3. Provider models for all validated providers (from env, vault, or managed credentials)
         const activeCreds = this.db.query<any>('SELECT DISTINCT provider FROM managed_credentials WHERE is_active = 1');
-        for (const cred of activeCreds) {
-          const provReadiness = providerReadiness[cred.provider];
+        const candidateProviders = new Set([
+          ...providers,
+          ...activeCreds.map((c: any) => c.provider),
+        ]);
+        for (const provName of candidateProviders) {
+          if (provName === 'ollama' || provName === 'custom') continue;
+          const provReadiness = providerReadiness[provName] || await this.modelGateway.checkProviderReadiness(provName);
           if (provReadiness && provReadiness.validated) {
-            const providerModels = await this.modelGateway.fetchProviderModels(cred.provider, undefined, { omitUnconfigured: true });
+            const providerModels = await this.modelGateway.fetchProviderModels(provName, undefined, { omitUnconfigured: true });
             for (const pm of providerModels) {
               if (!modelMap.has(pm.id)) {
                 modelMap.set(pm.id, pm);
@@ -1699,7 +1704,7 @@ export class CoreServer {
 
       // 2d. POST /api/models/custom — User-defined custom model ID registration
       if (req.method === 'POST' && pathname === '/api/models/custom') {
-        const body = await this.parseJsonBody<{ modelId: string; name?: string; provider?: string; contextWindow?: number }>(req);
+        const body = await this.parseJsonBody<{ modelId: string; name?: string; provider?: string; contextWindow?: number; baseUrl?: string; apiKey?: string }>(req);
         if (!body.modelId || !body.modelId.trim()) {
           return this.sendJson(res, 400, { error: 'modelId is required' });
         }
@@ -1720,12 +1725,19 @@ export class CoreServer {
           0,
           now
         );
+        if (body.baseUrl) {
+          const endpointName = detectedProvider === 'custom' ? (slashIdx !== -1 ? trimmed.substring(slashIdx + 1) : modelName) : detectedProvider;
+          this.modelGateway.registerCustomProvider(endpointName, body.baseUrl, body.apiKey);
+          this.modelGateway.registerCustomProvider('custom', body.baseUrl, body.apiKey);
+        }
         const customModel = {
           id: trimmed,
           name: modelName,
           provider: detectedProvider,
           contextWindow: body.contextWindow || 128000,
           isCustom: true,
+          configured: true,
+          validated: true,
         };
         this.broadcastEvent('models:updated', { customModel });
         return this.sendJson(res, 201, { success: true, model: customModel });
@@ -5974,8 +5986,8 @@ export class CoreServer {
         }
       }
 
-      // 31c. POST /api/schedules/:id/retry — Explicitly retry a failed schedule
-      const scheduleRetryMatch = pathname.match(/^\/api\/schedules\/([^/]+)\/retry$/);
+      // 31c. POST /api/schedules/:id/retry or /api/automations/:id/retry — Explicitly retry a failed schedule
+      const scheduleRetryMatch = pathname.match(/^\/api\/(?:automations|schedules)\/([^/]+)\/retry$/);
       if (req.method === 'POST' && scheduleRetryMatch) {
         const scheduleId = scheduleRetryMatch[1];
         try {
@@ -5990,8 +6002,8 @@ export class CoreServer {
         }
       }
 
-      // 31d. GET /api/schedules/:id/attempts — Retrieve execution attempt history
-      const scheduleAttemptsMatch = pathname.match(/^\/api\/schedules\/([^/]+)\/attempts$/);
+      // 31d. GET /api/schedules/:id/attempts or /api/automations/:id/attempts — Retrieve execution attempt history
+      const scheduleAttemptsMatch = pathname.match(/^\/api\/(?:automations|schedules)\/([^/]+)\/attempts$/);
       if (req.method === 'GET' && scheduleAttemptsMatch) {
         const scheduleId = scheduleAttemptsMatch[1];
         const sched = this.scheduler.getSchedule(scheduleId);

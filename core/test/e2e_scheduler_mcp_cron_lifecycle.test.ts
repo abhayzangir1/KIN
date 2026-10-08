@@ -193,11 +193,16 @@ describe('KIN End-to-End Suite: Scheduler Dispatch, POSIX Cron, and MCP Supervis
       expect(attempts[0].status).toBe('failure');
       expect(attempts[1].status).toBe('success');
 
-      // Verify GET /api/schedules/:id/attempts HTTP endpoint returns both attempts
+      // Verify GET /api/schedules/:id/attempts and /api/automations/:id/attempts HTTP endpoints return both attempts
       const attemptsRes = await fetch(`http://127.0.0.1:${port}/api/schedules/${sched.id}/attempts`);
       expect(attemptsRes.status).toBe(200);
       const attemptsBody = await attemptsRes.json();
       expect(attemptsBody.attempts).toHaveLength(2);
+
+      const automationsAttemptsRes = await fetch(`http://127.0.0.1:${port}/api/automations/${sched.id}/attempts`);
+      expect(automationsAttemptsRes.status).toBe(200);
+      const automationsAttemptsBody = await automationsAttemptsRes.json();
+      expect(automationsAttemptsBody.attempts).toHaveLength(2);
 
       await server.stop();
     });

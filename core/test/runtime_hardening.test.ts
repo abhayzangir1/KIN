@@ -81,8 +81,10 @@ describe('KIN Hardening: Security, Approval Tokens, and Runtime Enforcement', ()
       const vault = new SecretVault();
       const encrypted = vault.encrypt('secret');
       const parts = encrypted.split(':');
-      // Corrupt the ciphertext body
-      parts[4] = '00' + parts[4].slice(2);
+      // Corrupt the ciphertext body deterministically by bit-flipping the first byte
+      const firstByte = parseInt(parts[4].slice(0, 2), 16);
+      const flipped = (firstByte ^ 0xff).toString(16).padStart(2, '0');
+      parts[4] = flipped + parts[4].slice(2);
       const tampered = parts.join(':');
 
       expect(() => vault.decrypt(tampered)).toThrow();
