@@ -6,7 +6,7 @@ KIN brings conversations, projects, agent definitions, tasks, model settings, an
 
 KIN is under active development. Some paths are connected in source but have not been validated end to end. This README describes the current project without treating planned behavior as a certainty.
 
-[Audit and current limitations](KIN_AUDIT_2026-10-07.md) · [Architecture notes](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Product Copy & Launch Kit](docs/PRODUCT_COPY_DRAFTS.md) · [Skills](docs/SKILLS_GUIDE.md) · [Slash commands](docs/SLASH_COMMANDS.md) · [FAQ](docs/FAQ.md) · [Contributing](docs/CONTRIBUTING.md) · [License](LICENSE)
+[Audit and current limitations](KIN_AUDIT_2026-10-07.md) · [Architecture notes](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Skills](docs/SKILLS_GUIDE.md) · [Slash commands](docs/SLASH_COMMANDS.md) · [FAQ](docs/FAQ.md) · [Contributing](docs/CONTRIBUTING.md) · [License](LICENSE)
 
 ## What KIN includes
 
