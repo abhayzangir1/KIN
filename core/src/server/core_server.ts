@@ -1236,7 +1236,12 @@ export class CoreServer {
       });
     }
 
-    // 7. Close SQLite database connection last
+    // 7. Clear wakeup queue before closing SQLite database connection
+    try {
+      this.wakeupQueue?.clear?.();
+    } catch {}
+
+    // 8. Close SQLite database connection last
     try {
       this.db.close();
     } catch {}
@@ -1556,6 +1561,10 @@ export class CoreServer {
 
       // 2. GET /api/system/models or GET /api/models — Dynamic Model Catalog
       if (req.method === 'GET' && (pathname === '/api/system/models' || pathname === '/api/models')) {
+        const urlObj = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
+        const freeOnly = urlObj.searchParams.get('freeOnly') === '1' || urlObj.searchParams.get('freeOnly') === 'true';
+        const omitUnconfigured = urlObj.searchParams.get('omitUnconfigured') === '1' || urlObj.searchParams.get('omitUnconfigured') === 'true';
+
         const ollamaInfo = await this.getLocalOllamaModels();
         const storedModels = this.db.query<any>('SELECT * FROM models ORDER BY created_at DESC');
         
@@ -1593,6 +1602,11 @@ export class CoreServer {
             : (providerReadiness[sm.provider_id] || { configured: false, validated: false });
           const isProvConfigured = Boolean(provReadiness.configured);
           const isProvValidated = Boolean(provReadiness.validated);
+          const isConfigured = sm.is_active !== 0 && (isCustom || isProvConfigured);
+          const isValidated = sm.is_active !== 0 && (isCustom || isProvValidated);
+          if (omitUnconfigured && (!isConfigured || !isValidated)) {
+            continue;
+          }
           modelMap.set(sm.id, {
             id: sm.id,
             name: sm.name,
@@ -1603,8 +1617,8 @@ export class CoreServer {
             supportsVision: Boolean(sm.supports_vision),
             isFree: sm.id.includes(':free'),
             isCustom: isCustom,
-            configured: sm.is_active !== 0 && (isCustom || isProvConfigured),
-            validated: sm.is_active !== 0 && (isCustom || isProvValidated),
+            configured: isConfigured,
+            validated: isValidated,
           });
         }
 
@@ -1618,7 +1632,7 @@ export class CoreServer {
           if (provName === 'ollama' || provName === 'custom') continue;
           const provReadiness = providerReadiness[provName] || await this.modelGateway.checkProviderReadiness(provName);
           if (provReadiness && provReadiness.validated) {
-            const providerModels = await this.modelGateway.fetchProviderModels(provName, undefined, { omitUnconfigured: true });
+            const providerModels = await this.modelGateway.fetchProviderModels(provName, undefined, { omitUnconfigured });
             for (const pm of providerModels) {
               if (!modelMap.has(pm.id)) {
                 modelMap.set(pm.id, pm);
@@ -1628,7 +1642,7 @@ export class CoreServer {
         }
 
         if (providerReadiness['custom']?.validated) {
-          const customModels = await this.modelGateway.fetchProviderModels('custom');
+          const customModels = await this.modelGateway.fetchProviderModels('custom', undefined, { omitUnconfigured });
           for (const cm of customModels) {
             if (!modelMap.has(cm.id)) {
               modelMap.set(cm.id, cm);
@@ -1637,7 +1651,7 @@ export class CoreServer {
         }
 
         // 4. Fallback standard catalog if models list is otherwise empty
-        if (modelMap.size === 0) {
+        if (modelMap.size === 0 && !omitUnconfigured) {
           const defaultCatalog = await this.modelGateway.fetchProviderModels('openrouter');
           for (const dm of defaultCatalog) {
             modelMap.set(dm.id, {
@@ -1648,10 +1662,10 @@ export class CoreServer {
           }
         }
 
-        const urlObj = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
-        const freeOnly = urlObj.searchParams.get('freeOnly') === '1' || urlObj.searchParams.get('freeOnly') === 'true';
-
         let modelsList = Array.from(modelMap.values());
+        if (omitUnconfigured) {
+          modelsList = modelsList.filter((m) => m.configured !== false && m.validated !== false);
+        }
         if (freeOnly) {
           modelsList = modelsList.filter((m) => Boolean(m.isFree));
         }

@@ -58,6 +58,35 @@ describe('KIN Dynamic Model Discovery & User Custom Model Registration', () => {
     expect(data.models.length).toBeGreaterThan(0);
   });
 
+  it('GET /api/models?omitUnconfigured=true returns empty list when no models or credentials are configured', async () => {
+    const emptyDbDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kin-models-omit-test-'));
+    const emptyDbPath = path.join(emptyDbDir, 'empty.sqlite');
+    const emptyServer = new CoreServer({ port: 0, dbPath: emptyDbPath });
+    const emptyPort = await emptyServer.start();
+    try {
+      const resTrue = await fetch(`http://127.0.0.1:${emptyPort}/api/models?omitUnconfigured=true`);
+      expect(resTrue.status).toBe(200);
+      const dataTrue: any = await resTrue.json();
+      expect(dataTrue.models).toEqual([]);
+
+      const resOne = await fetch(`http://127.0.0.1:${emptyPort}/api/models?omitUnconfigured=1`);
+      expect(resOne.status).toBe(200);
+      const dataOne: any = await resOne.json();
+      expect(dataOne.models).toEqual([]);
+
+      // Without omitUnconfigured, fallback catalog is returned
+      const resFallback = await fetch(`http://127.0.0.1:${emptyPort}/api/models`);
+      expect(resFallback.status).toBe(200);
+      const dataFallback: any = await resFallback.json();
+      expect(dataFallback.models.length).toBeGreaterThan(0);
+    } finally {
+      await emptyServer.stop();
+      try {
+        fs.rmSync(emptyDbDir, { recursive: true, force: true });
+      } catch {}
+    }
+  });
+
   it('POST /api/models/custom registers arbitrary user-defined model ID', async () => {
     const customModelId = 'openai/gpt-4.5-preview';
     const res = await fetch(`http://127.0.0.1:${port}/api/models/custom`, {

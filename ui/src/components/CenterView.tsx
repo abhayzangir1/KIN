@@ -590,6 +590,20 @@ export const CenterView: React.FC = () => {
                 </span>
               )}
             </span>
+            {latestRoutingByChannel[activeChannelId].routing.matchedKeywords &&
+              latestRoutingByChannel[activeChannelId].routing.matchedKeywords.length > 0 && (
+                <div className="flex items-center space-x-1 shrink-0 ml-1.5">
+                  {latestRoutingByChannel[activeChannelId].routing.matchedKeywords.map((kw, idx) => (
+                    <span
+                      key={idx}
+                      className="px-1.5 py-0.5 rounded bg-cyan-900/60 text-cyan-200 font-mono text-[9px] border border-cyan-600/40"
+                      title={`Matched keyword: ${kw}`}
+                    >
+                      #{kw}
+                    </span>
+                  ))}
+                </div>
+              )}
           </div>
           <div className="flex items-center space-x-2 shrink-0 ml-2">
             <span className="text-[#64748b] text-[10px] font-mono">

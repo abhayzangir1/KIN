@@ -2223,6 +2223,18 @@ export const useKinStore = create<KinState>((set, get) => ({
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       const data = await res.json();
+      if (data.routing) {
+        set((state) => ({
+          latestRoutingByChannel: {
+            ...state.latestRoutingByChannel,
+            [channelId]: {
+              channelId,
+              messageId: data.message?.id,
+              routing: data.routing,
+            },
+          },
+        }));
+      }
       if (data.message) {
         set((state) => {
           const chanId = data.message.channelId || channelId;

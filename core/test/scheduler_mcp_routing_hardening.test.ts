@@ -620,6 +620,43 @@ describe('KIN Hardening: Scheduler, MCP Supervision, and Routing Observability',
 
       mcpManager.shutdown();
     });
+
+    it('guards against synchronous stdin write errors in sendRequest', async () => {
+      const scriptPath = path.join(tempDir, 'broken_pipe_server.cjs');
+      fs.writeFileSync(
+        scriptPath,
+        `
+        const readline = require('readline');
+        const rl = readline.createInterface({ input: process.stdin });
+        rl.on('line', (line) => {
+          const req = JSON.parse(line);
+          if (req.method === 'initialize') {
+            console.log(JSON.stringify({ jsonrpc: '2.0', id: req.id, result: {} }));
+          } else if (req.method === 'tools/list') {
+            console.log(JSON.stringify({ jsonrpc: '2.0', id: req.id, result: { tools: [{ name: 'test_tool', inputSchema: {} }] } }));
+          }
+        });
+        `
+      );
+
+      const mcpManager = new McpClientManager(tempDir);
+      await mcpManager.startServer({
+        name: 'pipeServer',
+        command: process.execPath,
+        args: [scriptPath],
+      });
+
+      // Directly destroy or close stdin on the process to simulate synchronous EPIPE / stream closed
+      const activeEntry = (mcpManager as any).activeServers.get('pipeServer');
+      expect(activeEntry).toBeDefined();
+      if (activeEntry?.process?.stdin) {
+        activeEntry.process.stdin.destroy(new Error('EPIPE: Broken pipe'));
+      }
+
+      await expect(mcpManager.callTool('pipeServer', 'test_tool', {})).rejects.toThrow();
+
+      mcpManager.shutdown();
+    });
   });
 
   // ==========================================================================

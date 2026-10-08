@@ -305,7 +305,13 @@ export class McpClientManager {
         },
       });
 
-      entry.process.stdin?.write(payload + '\n');
+      try {
+        entry.process.stdin?.write(payload + '\n');
+      } catch (err: any) {
+        clearTimeout(timeout);
+        this.pendingRequests.delete(id);
+        reject(err);
+      }
     });
   }
 
