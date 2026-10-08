@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useKinStore } from '../store/kinStore.js';
-import { FolderPlus, X } from 'lucide-react';
+import { FolderPlus, FolderOpen, X } from 'lucide-react';
 
 export const NewProjectModal: React.FC = () => {
   const { isNewProjectModalOpen, setNewProjectModalOpen, createProject } = useKinStore();
@@ -73,14 +73,37 @@ export const NewProjectModal: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-[#94a3b8] font-medium mb-1">Root Repository Path</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-[#94a3b8] font-medium">Root Repository Path</label>
+              {'showDirectoryPicker' in window && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const dirHandle = await (window as any).showDirectoryPicker();
+                      if (dirHandle?.name) {
+                        if (!name) setName(dirHandle.name);
+                        setRepoPath(`D:\\${dirHandle.name}`);
+                      }
+                    } catch {}
+                  }}
+                  className="flex items-center space-x-1 text-[11px] text-emerald-400 hover:text-emerald-300 font-medium transition"
+                >
+                  <FolderOpen className="w-3 h-3" />
+                  <span>Browse Folder</span>
+                </button>
+              )}
+            </div>
             <input
               type="text"
               value={repoPath}
               onChange={(e) => setRepoPath(e.target.value)}
-              placeholder="e.g. D:\test01 or C:\workspaces\my-project"
+              placeholder="e.g. D:\testtt or D:\KIN"
               className="w-full bg-[#090d16] border border-[#2d3748] rounded px-3 py-2 text-kin-text font-mono focus:outline-none focus:border-emerald-500"
             />
+            <p className="text-[10px] text-[#64748b] mt-1">
+              Specify your local project folder (e.g. <span className="text-emerald-400 font-mono">D:\testtt</span>). You do <strong className="text-amber-300">not</strong> need a JSON file.
+            </p>
           </div>
 
           <div className="pt-2 flex items-center justify-end space-x-2">
