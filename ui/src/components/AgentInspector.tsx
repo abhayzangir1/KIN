@@ -1963,20 +1963,22 @@ export const AgentInspector: React.FC = () => {
 
                         {/* Assigned Channels strictly scoped to active project */}
                         {ag.assignedChannels &&
-                          ag.assignedChannels.filter((cId) => channels.some((ch) => ch.id === cId)).length > 0 && (
+                          ag.assignedChannels.filter((cId) => channels.some((ch) => ch.id === cId || '#' + ch.name === cId || ch.name === cId)).length > 0 && (
                           <div className="flex flex-wrap gap-1 pt-1 border-t border-[#1e293b]/60">
                             {ag.assignedChannels
-                              .filter((cId) => channels.some((ch) => ch.id === cId))
+                              .filter((cId) => channels.some((ch) => ch.id === cId || '#' + ch.name === cId || ch.name === cId))
                               .map((cId) => {
-                                const c = channels.find((ch) => ch.id === cId);
-                                const name = c?.name || cId;
+                                const c = channels.find((ch) => ch.id === cId || '#' + ch.name === cId || ch.name === cId);
+                                const targetId = c?.id || cId;
+                                const rawName = c?.name || cId.replace(/^#/, '');
+                                const displayName = rawName.startsWith('#') ? rawName : `#${rawName}`;
                                 return (
                                   <button
                                     key={cId}
-                                    onClick={() => setActiveChannel(cId)}
-                                    className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#090d16] text-[#94a3b8] hover:text-emerald-300 border border-[#1e293b] transition"
+                                    onClick={() => setActiveChannel(targetId)}
+                                    className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#090d16] text-[#94a3b8] hover:text-emerald-300 border border-[#1e293b] hover:border-emerald-500/40 transition cursor-pointer shadow-sm hover:shadow"
                                   >
-                                    #{name}
+                                    {displayName}
                                   </button>
                                 );
                               })}

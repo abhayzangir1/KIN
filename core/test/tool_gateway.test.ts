@@ -10,6 +10,8 @@ import { KinDatabase } from '../src/storage/db.js';
 import { MigrationRunner } from '../src/storage/migration_runner.js';
 import { WorkspaceRepository } from '../src/domain/workspace_repository.js';
 import { AgentRepository } from '../src/domain/agent_repository.js';
+import { AgentLoopRunner } from '../src/kernel/agent_loop.js';
+import { Sentinel } from '../src/security/sentinel.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -314,5 +316,90 @@ describe('KIN Phase 4/5: Tool Gateway & Git Worktree Manager', () => {
     try {
       fs.rmSync(tempDbDir, { recursive: true, force: true });
     } catch {}
+  });
+
+  it('allows a hired specialist to autonomously recruit a subagent under them with agent:hire capability', async () => {
+    const tempDbDir = fs.mkdtempSync(path.join(tempRepoDir, 'kin-subagent-test-'));
+    const tempDbPath = path.join(tempDbDir, 'test.sqlite');
+    const db = new KinDatabase({ dbPath: tempDbPath });
+    new MigrationRunner(db).runMigrations();
+
+    const gw = new ToolGateway({ db });
+    let callbackCount = 0;
+    gw.setAgentHiredCallback(() => {
+      callbackCount++;
+    });
+
+    // 1. Initial hire: Boss hires @LeadAndroidDev
+    const hire1 = await gw.executeTool(
+      'hireSpecialist',
+      {
+        displayName: '@LeadAndroidDev',
+        roleTitle: 'Lead Mobile Architect',
+      },
+      {
+        runId: 'run-init',
+        agentId: 'agent-boss',
+        projectId: 'proj-android',
+        channelId: 'chan-mobile',
+        worktreeRoot: tempRepoDir,
+        autonomyMode: 'AUTO',
+        allowedCapabilities: ['*'],
+      }
+    );
+    expect(hire1.success).toBe(true);
+    expect(callbackCount).toBe(1);
+
+    // 2. Subagent hire: @LeadAndroidDev hires subagent @JuniorKotlinDev under them
+    const hire2 = await gw.executeTool(
+      'hireSpecialist',
+      {
+        displayName: '@JuniorKotlinDev',
+        roleTitle: 'Kotlin UI Subagent',
+        suggestedModel: 'ollama/qwen2.5-coder:3b',
+      },
+      {
+        runId: 'run-subagent',
+        agentId: hire1.output.agentId,
+        projectId: 'proj-android',
+        channelId: 'chan-mobile',
+        worktreeRoot: tempRepoDir,
+        autonomyMode: 'AUTO',
+        allowedCapabilities: ['agent:hire', 'agent:delegate', 'fs:read', 'fs:write'],
+      }
+    );
+    expect(hire2.success).toBe(true);
+    expect(hire2.output.displayName).toBe('@JuniorKotlinDev');
+    expect(hire2.output.projectId).toBe('proj-android');
+    expect(callbackCount).toBe(2);
+
+    // Verify subagent persisted in project
+    const subIdentity = db.queryOne<any>(
+      `SELECT * FROM agent_identities WHERE display_name = ? AND project_id = ?`,
+      '@JuniorKotlinDev',
+      'proj-android'
+    );
+    expect(subIdentity).toBeDefined();
+    expect(subIdentity.project_id).toBe('proj-android');
+
+    db.close();
+    try {
+      fs.rmSync(tempDbDir, { recursive: true, force: true });
+    } catch {}
+  });
+
+  it('exposes hireSpecialist in AgentLoopRunner TOOL INSTRUCTIONS and parses tool calls', () => {
+    const loopPrompt = (AgentLoopRunner.prototype as any).buildSystemPrompt('You are @Boss', []);
+    expect(loopPrompt).toContain('hireSpecialist(');
+    expect(loopPrompt).toContain('Onboard and hire a new specialist or subagent into this project and channel');
+
+    const rawToolCall = `<tool_call>
+{"name": "hireSpecialist", "parameters": {"displayName": "@AndroidDev", "roleTitle": "Senior Android Engineer"}}
+</tool_call>`;
+    const parsed = AgentLoopRunner.extractToolCall(rawToolCall);
+    expect(parsed).toBeDefined();
+    expect(parsed?.name).toBe('hireSpecialist');
+    expect(parsed?.params.displayName).toBe('@AndroidDev');
+    expect(parsed?.params.roleTitle).toBe('Senior Android Engineer');
   });
 });

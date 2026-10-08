@@ -51,23 +51,43 @@ html.light ::-webkit-scrollbar-thumb {
   transition: box-shadow 0.15s cubic-bezier(0.4, 0, 0.2, 1), transform 0.1s ease, border-color 0.15s ease;
 }
 
-/* Subtle elevation highlight on hover for interactive items */
+/* Subtle elevation highlight on hover for interactive items, lists, cards and options */
 button:not(:disabled):hover,
 [role="button"]:hover,
-.cursor-pointer:hover {
+.cursor-pointer:hover,
+li:hover,
+.group:hover {
   box-shadow: 0 2px 8px -1px rgba(0, 0, 0, 0.25);
 }
 
 html.light button:not(:disabled):hover,
 html.light [role="button"]:hover,
-html.light .cursor-pointer:hover {
+html.light .cursor-pointer:hover,
+html.light li:hover,
+html.light .group:hover {
   box-shadow: 0 2px 8px -1px rgba(0, 0, 0, 0.08);
 }
 
 /* Dark mode subtle borders (soften harsh high-contrast outlines) */
 html.dark .border-\[\#1e293b\],
 html.dark .border-\[\#21262d\],
-html.dark .border-\[\#30363d\] {
+html.dark .border-\[\#30363d\],
+html.dark .border-\[\#2d3748\],
+html.dark .border-\[\#334155\],
+html.dark .border-\[\#1b263e\],
+html.dark .border-\[\#1e2a44\],
+html.dark .border-\[\#212d45\],
+html.dark .border-\[\#232f48\],
+html.dark .border-\[\#283858\],
+html.dark .border-\[\#2f4068\],
+html.dark .border-\[\#1a253e\],
+html.dark .border-\[\#1b263b\],
+html.dark .border-\[\#1c2944\],
+html.dark .border-\[\#1d273e\],
+html.dark .border-\[\#1f2b45\],
+html.dark .border-\[\#233150\],
+html.dark .border-\[\#243354\],
+html.dark .border-\[\#1e2a4a\] {
   border-color: rgba(255, 255, 255, 0.07);
 }
 
@@ -93,7 +113,36 @@ html.light .bg-\[\#0b0f19\],
 html.light .bg-\[\#070b14\],
 html.light .bg-\[\#050811\],
 html.light .bg-\[\#080d1a\],
-html.light .bg-\[\#0e1424\] {
+html.light .bg-\[\#0e1424\],
+html.light .bg-\[\#060911\],
+html.light .bg-\[\#060a12\],
+html.light .bg-\[\#070a12\],
+html.light .bg-\[\#070b16\],
+html.light .bg-\[\#080c17\],
+html.light .bg-\[\#080d18\],
+html.light .bg-\[\#090d18\],
+html.light .bg-\[\#090f1d\],
+html.light .bg-\[\#0a0f1e\],
+html.light .bg-\[\#0a1128\],
+html.light .bg-\[\#0b101d\],
+html.light .bg-\[\#0b101e\],
+html.light .bg-\[\#0b1020\],
+html.light .bg-\[\#0b1220\],
+html.light .bg-\[\#0b1222\],
+html.light .bg-\[\#0b1329\],
+html.light .bg-\[\#0c1220\],
+html.light .bg-\[\#0c1222\],
+html.light .bg-\[\#0d1424\],
+html.light .bg-\[\#0d1426\],
+html.light .bg-\[\#0d1527\],
+html.light .bg-\[\#0d1627\],
+html.light .bg-\[\#0e1322\],
+html.light .bg-\[\#0e1526\],
+html.light .bg-\[\#0e1628\],
+html.light .bg-\[\#0f182c\],
+html.light .bg-\[\#070c18\],
+html.light .bg-\[\#101728\],
+html.light .bg-\[\#121626\] {
   background-color: #f8fafc !important;
   color: #0f172a !important;
 }
@@ -105,17 +154,54 @@ html.light .bg-\[\#131b2e\],
 html.light .bg-\[\#161b22\],
 html.light .bg-\[\#101726\],
 html.light .bg-\[\#111827\],
-html.light .bg-\[\#0f172a\] {
+html.light .bg-\[\#0f172a\],
+html.light .bg-\[\#131d33\],
+html.light .bg-\[\#131d35\],
+html.light .bg-\[\#141d33\],
+html.light .bg-\[\#151c2f\],
+html.light .bg-\[\#151f35\],
+html.light .bg-\[\#161f36\],
+html.light .bg-\[\#162035\],
+html.light .bg-\[\#1a233a\],
+html.light .bg-\[\#1a253f\],
+html.light .bg-\[\#1b2234\],
+html.light .bg-\[\#1c2742\],
+html.light .bg-\[\#1e2a47\],
+html.light .bg-\[\#1f2d4a\],
+html.light .bg-\[\#202d48\],
+html.light .bg-\[\#202e4d\],
+html.light .bg-\[\#252f48\],
+html.light .bg-\[\#253248\],
+html.light .bg-\[\#283548\] {
   background-color: #ffffff !important;
   color: #0f172a !important;
 }
 
-/* 3. Secondary/Nested Surfaces & Pills */
+/* 3. Secondary/Nested Surfaces, Pills & Tinted Cards */
 html.light .bg-\[\#1e293b\],
 html.light .bg-\[\#21262d\],
 html.light .bg-\[\#1a2333\],
-html.light .bg-\[\#1f2937\] {
+html.light .bg-\[\#1f2937\],
+html.light .bg-\[\#070503\],
+html.light .bg-\[\#071318\],
+html.light .bg-\[\#0b0616\],
+html.light .bg-\[\#0b0805\],
+html.light .bg-\[\#0d0508\],
+html.light .bg-\[\#130d22\],
+html.light .bg-\[\#150a0f\],
+html.light .bg-\[\#170a0f\],
+html.light .bg-\[\#181507\],
+html.light .bg-\[\#1c080d\],
+html.light .bg-\[\#1e1008\],
+html.light .bg-\[\#1e1307\],
+html.light .bg-\[\#180d12\],
+html.light .bg-\[\#150f14\],
+html.light .bg-\[\#151206\],
+html.light .bg-\[\#180a0f\],
+html.light .bg-\[\#181106\],
+html.light .bg-\[\#1a1208\] {
   background-color: #f1f5f9 !important;
+  color: #0f172a !important;
 }
 
 /* 4. Interactive Hover States in Light Mode */
@@ -133,6 +219,20 @@ html.light .border-\[\#30363d\],
 html.light .border-\[\#21262d\],
 html.light .border-\[\#2d3748\],
 html.light .border-\[\#334155\],
+html.light .border-\[\#1b263e\],
+html.light .border-\[\#1e2a44\],
+html.light .border-\[\#212d45\],
+html.light .border-\[\#232f48\],
+html.light .border-\[\#283858\],
+html.light .border-\[\#2f4068\],
+html.light .border-\[\#1a253e\],
+html.light .border-\[\#1b263b\],
+html.light .border-\[\#1c2944\],
+html.light .border-\[\#1d273e\],
+html.light .border-\[\#1f2b45\],
+html.light .border-\[\#233150\],
+html.light .border-\[\#243354\],
+html.light .border-\[\#1e2a4a\],
 html.light .border-\[\#1e293b\]\/60,
 html.light .border-\[\#1e293b\]\/50,
 html.light .border-\[\#30363d\]\/80 {

@@ -146,6 +146,9 @@ export class AgentLoopRunner {
       'browserStep',
       'browserClose',
       'delegateToAgent',
+      'hireSpecialist',
+      'hire_specialist',
+      'hireAgent',
     ];
     const matchedSkills = this.skillEngine.matchSkills(promptForSkills, undefined, {
       availableTools: standardCapabilities,
@@ -603,7 +606,7 @@ export class AgentLoopRunner {
       // Compute Effective Capabilities: @Boss retains full platform authority (*); specialists strictly inherit definition capabilities
       const effectiveCapabilities = options.allowedCapabilities !== undefined
         ? options.allowedCapabilities
-        : (options.agentId === 'agent-boss' ? ['*'] : ['fs:read', 'fs:write']);
+        : (options.agentId === 'agent-boss' ? ['*'] : ['fs:read', 'fs:write', 'agent:hire', 'agent:delegate']);
 
       // Route to ToolGateway
       const toolCtx: ToolExecutionContext = {
@@ -903,6 +906,7 @@ You have access to the following native and desktop tools:
 22. browserStep(action: "navigate"|"click"|"type"|"scroll"|"screenshot"|"wait", url?: string, selector?: string, text?: string) — Step-by-step browser automation.
 23. browserClose() — Close browser session.
 24. delegateToAgent(targetAgent: string, directive: string) — Coordinate or delegate task directive to a peer specialist agent (e.g. @Backend, @Frontend, @QA).
+25. hireSpecialist(displayName: string, roleTitle: string, systemPrompt?: string, suggestedModel?: string, domainAuthority?: string[]) — Onboard and hire a new specialist or subagent into this project and channel. Both orchestrators and specialists can hire subagents under them as required.
 
 To invoke a tool, output EXACTLY this format:
 <tool_call>

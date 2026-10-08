@@ -629,7 +629,7 @@ export class CoreServer {
         systemPrompt: 'You are @Boss, the Lead Sovereign Orchestrator of KIN. You direct the workforce, execute project plans, manage worktrees, coordinate tools, and verify all technical deliverables. Workspace boundaries are strictly enforced.',
         defaultModelId: 'ollama/qwen2.5-coder:3b',
         domainAuthority: ['Architecture', 'Orchestration', 'Engineering', 'Operations'],
-        capabilities: ['read', 'write', 'shell', 'worktree', 'delegate'],
+        capabilities: ['read', 'write', 'shell', 'worktree', 'delegate', 'agent:hire', 'agent:delegate', '*'],
         createdAt: now,
       });
 
@@ -714,7 +714,7 @@ export class CoreServer {
           systemPrompt: 'You are @DocWriter, the technical documentation specialist. You write comprehensive, clear TRDs, architecture docs, and READMEs.',
           defaultModelId: 'ollama/qwen2.5-coder:3b',
           domainAuthority: ['Documentation', 'Architecture', 'TRD', 'Verification'],
-          capabilities: ['read', 'write'],
+          capabilities: ['read', 'write', 'agent:hire', 'agent:delegate'],
           createdAt: now,
         });
         this.agentRepo.createIdentity({
@@ -2334,6 +2334,19 @@ export class CoreServer {
         const agent = this.agentRepo.getIdentity(body.agentId);
         if (!agent) {
           return this.sendJson(res, 404, { error: 'Agent not found' });
+        }
+
+        const channel = this.workspaceRepo.getChannel(channelId);
+        if (!channel) {
+          return this.sendJson(res, 404, { error: 'Channel not found' });
+        }
+
+        // Strict cross-project boundary enforcement:
+        // Specialists cannot be assigned to channels outside their bound project.
+        if (agent.projectId && channel.projectId && agent.projectId !== channel.projectId && !agent.isOrchestrator && agent.id !== 'agent-boss') {
+          return this.sendJson(res, 400, {
+            error: `Cross-project boundary violation: Agent ${agent.displayName} belongs to project ${agent.projectId} and cannot be assigned to channel in project ${channel.projectId}.`,
+          });
         }
 
         this.workspaceRepo.addChannelMember(channelId, body.agentId);
@@ -5545,7 +5558,8 @@ export class CoreServer {
         const tasksTotal = agentTasks[0]?.total || 0;
         const tasksCompleted = agentTasks[0]?.completed || 0;
         const taskSuccessRate = tasksTotal > 0 ? Math.round((tasksCompleted / tasksTotal) * 100) : 100;
-        const assignedChannels = this.workspaceRepo.listAgentChannelIds(agentId, agent.projectId || this.activeProjectId);
+        const targetProj = agent.isOrchestrator ? this.activeProjectId : (agent.projectId || this.activeProjectId);
+        const assignedChannels = this.workspaceRepo.listAgentChannelIds(agentId, targetProj);
 
         return this.sendJson(res, 200, {
           agentId,
@@ -7476,9 +7490,11 @@ export class CoreServer {
     if (hireTarget && isChannel) {
       const normalizedName = hireTarget.name;
       const role = hireTarget.role;
+      const chan = this.workspaceRepo.getChannel(channelId);
+      const targetProjId = chan?.projectId || this.activeProjectId;
 
       // Check if specialist already exists in project
-      const existing = this.agentRepo.getIdentityByProjectAndName(this.activeProjectId, normalizedName);
+      const existing = this.agentRepo.getIdentityByProjectAndName(targetProjId, normalizedName);
       if (existing) {
         const memberIds = this.workspaceRepo.listChannelMemberIds(channelId);
         if (!memberIds.includes(existing.id)) {
@@ -7502,7 +7518,7 @@ export class CoreServer {
           senderType: 'agent',
           content: reply.content,
           createdAt: reply.createdAt,
-          productivityScore: reply.productivityScore,
+          productivityScore: 100,
         });
 
         await this.enqueueChannelExecution(channelId, () =>
@@ -7510,9 +7526,6 @@ export class CoreServer {
         );
         return;
       }
-
-      const chan = this.workspaceRepo.getChannel(channelId);
-      const targetProjId = chan?.projectId || this.activeProjectId;
 
       // Provision new agent identity in SQLite
       const now = Date.now();
@@ -7526,7 +7539,7 @@ export class CoreServer {
         systemPrompt: `You are ${normalizedName}, a ${role} specialist in project ${targetProjId}. Workspace boundaries are strictly enforced.`,
         defaultModelId: 'ollama/qwen2.5-coder:3b',
         domainAuthority: [role],
-        capabilities: ['read', 'write', 'execute'],
+        capabilities: ['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate', 'read', 'write', 'execute'],
         createdAt: now,
       });
 
@@ -7555,7 +7568,7 @@ export class CoreServer {
         status: 'idle',
         isOrchestrator: false,
         projectId: targetProjId,
-        assignedChannels: [channelId],
+        assignedChannels: this.workspaceRepo.listAgentChannelIds(identity.id, targetProjId),
       };
 
       this.broadcastEvent('agent:created', { agent: formattedAgent });
@@ -7703,7 +7716,7 @@ export class CoreServer {
             status: 'idle',
             isOrchestrator: false,
             projectId: targetProjId,
-            assignedChannels: [channelId],
+            assignedChannels: this.workspaceRepo.listAgentChannelIds(identity.id, targetProjId),
           },
         });
         this.broadcastEvent('channel:member_added', { channelId, agentId: identity.id });
@@ -8809,6 +8822,30 @@ export class CoreServer {
             this.enqueueChannelExecution(channelId, () =>
               this.enqueueAgentExecution(targetPeer.id, () =>
                 this.executeAgentResponse(targetPeer, channelId, peerTrigger, recursionDepth + 1, undefined, undefined, undefined, run.id)
+              )
+            );
+          }
+        }
+
+        // (1-hire) Check for tool-based hiring via hireSpecialist
+        const hiredActions = (loopResult.actions || []).filter(
+          (a) => (a.toolName === 'hireSpecialist' || a.toolName === 'hire_specialist' || a.toolName === 'hireAgent') && a.output && (a.output as any).agentId
+        );
+        for (const act of hiredActions) {
+          const out = act.output as any;
+          const newAgent = allProjectAgents.find((p) => p.id === out.agentId) || this.agentRepo.getIdentity(out.agentId);
+          if (newAgent && newAgent.id !== freshIdentity.id) {
+            const recruitTrigger = {
+              id: `hire-onboard-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              channelId,
+              senderId: freshIdentity.id,
+              senderType: 'agent',
+              content: `[ONBOARDING DIRECTIVE FROM ${freshIdentity.displayName}]: You have been onboarded as ${out.role || 'Specialist'} into this channel for project ${targetProjectId}. Introduce yourself, state your domain capabilities, and begin assisting.`,
+              createdAt: Date.now(),
+            };
+            this.enqueueChannelExecution(channelId, () =>
+              this.enqueueAgentExecution(newAgent.id, () =>
+                this.executeAgentResponse(newAgent, channelId, recruitTrigger, recursionDepth + 1, undefined, undefined, undefined, run.id)
               )
             );
           }

@@ -435,6 +435,17 @@ Role relevance may be used as a candidate signal, but it must not wake many agen
 
 Human steering has higher scheduling priority than passive agent chatter.
 
+## 8.5 Strict Project & Channel Scoping
+
+- **Initial Channel Enrollment:** When a recruit is onboarded (via `hireSpecialist` tool or `/api/agents`), the agent is bound to `activeProjectId` and enrolled strictly into the originating channel (`channelId`).
+- **Controlled Channel Expansion:** The agent remains isolated to that initial channel until explicitly added or mentioned (`@AgentName`) in another channel within the same project.
+- **Cross-Channel Operational Memory:** Agents enrolled across multiple channels within a project compile recent messages from all assigned channels via `crossChannelSummaries`, preserving context without cross-project leakage.
+- **Total Cross-Project Isolation:** Agents never access or leak into channels belonging to foreign projects.
+
+## 8.6 Workforce Hierarchy & Swarm Map Navigation
+
+The workforce social hierarchy and agent topology are visually realized via the interactive Swarm Map, accessible via the top application header bar. Users can inspect reporting lines, active model readiness, assigned channels, and invoke direct recruitment.
+
 ---
 
 # 9. Goals, planning and tasks
@@ -485,15 +496,21 @@ Examples of completion evidence:
 
 # 10. Two graphs
 
-KIN must expose two distinct graphs.
+KIN exposes two distinct graphs, projected cleanly into the user interface:
 
-## Workforce graph
+## Workforce graph (Swarm Map)
 
-Who manages, collaborates with or delegates to whom.
+Who manages, collaborates with or delegates to whom. The interactive Swarm Map visualizes:
+- Hierarchical reporting structures (e.g., Sovereign Lead Orchestrator -> Hired Specialists -> Domain Subagents);
+- Real-time operational readiness, active model configurations, and strictly scoped project channels;
+- Direct recruitment affordances and interactive node focus.
 
-## Task graph
+## Task graph (Task DAG & Goal Phases)
 
-What task depends on what.
+What task depends on what, unified with structured Goal Phase Execution:
+- Goal ancestry tracking from root objectives down to sub-goal verification;
+- Dynamic task dependency resolution and topological scheduling;
+- Automatic artifact linking and gate verification before step progression.
 
 Neither graph implicitly grants permissions.
 
@@ -971,16 +988,17 @@ Primary surface:
 +----------------+----------------------+------------------+
 ```
 
-Secondary surfaces:
+Secondary surfaces & core views:
 
-- workforce/swarm graph;
-- task DAG;
+- **Swarm Map Navigation:** Fast top-header access button opening the interactive workforce hierarchy graph, showing reporting relationships, active models, and assigned channels.
+- **Universal BYOK Vault:** Centralized credential management modal for OpenAI, Anthropic, OpenRouter, Google Gemini, Groq, and DeepSeek with complete Add, Edit, and Delete operations; right panel selects from configured models without re-entering keys.
+- **Unified Task DAG & Goal Phases:** Interactive tree view tracking goal ancestry, phase transitions, and dependency gates.
+- **Polished Dual Themes:** Seamless Dark and Light theme styling eliminating dark bleed-through, replacing heavy borders with subtle hover shadow highlights across cards, list items, and modals.
 - artifact/diff viewer;
 - memory explorer;
 - skill explorer;
 - run/trace inspector;
 - approval center;
-- model/provider settings;
 - tool/MCP manager;
 - autonomy policy settings;
 - recovery/health panel;
