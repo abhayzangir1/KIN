@@ -1579,7 +1579,7 @@ export class CoreServer {
           }
         }
         
-        const providers = ['ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq'];
+        const providers = ['ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'custom'];
         const providerReadiness: Record<string, any> = {};
         for (const p of providers) {
           providerReadiness[p] = await this.modelGateway.checkProviderReadiness(p);
@@ -1587,7 +1587,10 @@ export class CoreServer {
 
         // 2. Stored / discovered provider models
         for (const sm of storedModels) {
-          const provReadiness = providerReadiness[sm.provider_id] || { configured: false, validated: false };
+          const isCustom = sm.provider_id === 'custom';
+          const provReadiness = isCustom
+            ? { configured: true, validated: true }
+            : (providerReadiness[sm.provider_id] || { configured: false, validated: false });
           const isProvConfigured = Boolean(provReadiness.configured);
           const isProvValidated = Boolean(provReadiness.validated);
           modelMap.set(sm.id, {
@@ -1599,19 +1602,31 @@ export class CoreServer {
             supportsTools: Boolean(sm.supports_tools),
             supportsVision: Boolean(sm.supports_vision),
             isFree: sm.id.includes(':free'),
-            isCustom: sm.provider_id === 'custom',
-            configured: sm.is_active !== 0 && isProvConfigured,
-            validated: sm.is_active !== 0 && isProvValidated,
+            isCustom: isCustom,
+            configured: sm.is_active !== 0 && (isCustom || isProvConfigured),
+            validated: sm.is_active !== 0 && (isCustom || isProvValidated),
           });
         }
 
-        // 3. Fallback standard models for registered credentials if models table was empty
+        // 3. Fallback standard models for registered credentials only if provider is validated
         const activeCreds = this.db.query<any>('SELECT DISTINCT provider FROM managed_credentials WHERE is_active = 1');
         for (const cred of activeCreds) {
-          const providerModels = await this.modelGateway.fetchProviderModels(cred.provider);
-          for (const pm of providerModels) {
-            if (!modelMap.has(pm.id)) {
-              modelMap.set(pm.id, pm);
+          const provReadiness = providerReadiness[cred.provider];
+          if (provReadiness && provReadiness.validated) {
+            const providerModels = await this.modelGateway.fetchProviderModels(cred.provider, undefined, { omitUnconfigured: true });
+            for (const pm of providerModels) {
+              if (!modelMap.has(pm.id)) {
+                modelMap.set(pm.id, pm);
+              }
+            }
+          }
+        }
+
+        if (providerReadiness['custom']?.validated) {
+          const customModels = await this.modelGateway.fetchProviderModels('custom');
+          for (const cm of customModels) {
+            if (!modelMap.has(cm.id)) {
+              modelMap.set(cm.id, cm);
             }
           }
         }
@@ -1646,7 +1661,7 @@ export class CoreServer {
 
       // 2b. GET /api/models/readiness or /api/system/models/readiness — Provider Readiness States
       if (req.method === 'GET' && (pathname === '/api/models/readiness' || pathname === '/api/system/models/readiness')) {
-        const providers = ['ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq'];
+        const providers = ['ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'custom'];
         const readiness: Record<string, any> = {};
         for (const p of providers) {
           readiness[p] = await this.modelGateway.checkProviderReadiness(p);

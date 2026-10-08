@@ -139,6 +139,16 @@ export class ModelGateway {
           : 'Local Ollama runtime offline or unverified',
       };
     }
+    if (norm === 'custom') {
+      const customCount = this.customEndpoints.size;
+      return {
+        provider: 'custom',
+        configured: customCount > 0,
+        validated: customCount > 0,
+        modelCount: customCount,
+        message: customCount > 0 ? `${customCount} custom endpoint(s) registered` : 'No custom endpoint configured',
+      };
+    }
     const apiKey = this.resolveApiKey(norm);
     const isConfigured = Boolean(apiKey);
     const isValidated = this.validatedProviders.get(norm) ?? false;
@@ -184,6 +194,17 @@ export class ModelGateway {
       };
     }
 
+    if (norm === 'custom') {
+      const customCount = this.customEndpoints.size;
+      return {
+        provider: 'custom',
+        configured: customCount > 0,
+        validated: customCount > 0,
+        modelCount: customCount,
+        message: customCount > 0 ? `${customCount} custom endpoint(s) registered` : 'No custom endpoint configured',
+      };
+    }
+
     const apiKey = this.resolveApiKey(norm);
     if (!apiKey) {
       this.validatedProviders.set(norm, false);
@@ -201,12 +222,12 @@ export class ModelGateway {
       const models = await this.fetchProviderModels(norm, apiKey, { omitUnconfigured: true });
       const reachable = models.length > 0 && models.some((m) => m.validated);
       this.validatedProviders.set(norm, reachable);
-      this.providerModelCounts.set(norm, models.length);
+      this.providerModelCounts.set(norm, reachable ? models.length : 0);
       return {
         provider: norm,
         configured: true,
         validated: reachable,
-        modelCount: models.length,
+        modelCount: reachable ? models.length : 0,
         message: reachable
           ? `Validated and reachable (${models.length} model(s) discovered)`
           : `API key configured, but reachable model verification returned empty catalog`,
@@ -237,11 +258,31 @@ export class ModelGateway {
     const shouldOmit = typeof options === 'boolean' ? options : Boolean(options?.omitUnconfigured);
     const apiKey = explicitApiKey || this.resolveApiKey(normProvider);
 
-    if (shouldOmit && normProvider !== 'ollama' && !apiKey) {
+    if (shouldOmit && normProvider !== 'ollama' && normProvider !== 'custom' && !apiKey) {
       return [];
     }
 
     try {
+      if (normProvider === 'custom') {
+        const result: DiscoveredModel[] = [];
+        for (const [name, info] of this.customEndpoints.entries()) {
+          result.push({
+            id: `custom/${name}`,
+            name: `Custom (${name})`,
+            provider: 'custom',
+            contextWindow: 128000,
+            maxOutputTokens: 8192,
+            supportsTools: true,
+            supportsVision: false,
+            isFree: false,
+            description: `Custom model endpoint at ${info.baseUrl}`,
+            configured: true,
+            validated: true,
+          });
+        }
+        return result;
+      }
+
       if (normProvider === 'ollama') {
         const res = await fetch(`${this.ollamaHost}/api/tags`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
         if (res && res.ok) {
@@ -309,6 +350,7 @@ export class ModelGateway {
           }
         }
         this.validatedProviders.set('openrouter', false);
+        if (shouldOmit) return [];
         // Fallback standard OpenRouter model templates if offline or unverified
         return [
           { id: 'openrouter/deepseek/deepseek-r1:free', name: 'DeepSeek R1 (Free Tier)', provider: 'openrouter', isFree: true, contextWindow: 64000, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
@@ -328,7 +370,7 @@ export class ModelGateway {
           { id: 'openai/o1', name: 'OpenAI o1 (Advanced Reasoning)', provider: 'openai', contextWindow: 200000, supportsTools: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
           { id: 'openai/gpt-4.5-preview', name: 'OpenAI GPT-4.5 Preview', provider: 'openai', contextWindow: 128000, supportsTools: true, supportsVision: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
         ];
-        if (!apiKey) return standardOpenAi;
+        if (!apiKey) return shouldOmit ? [] : standardOpenAi;
 
         const res = await fetch('https://api.openai.com/v1/models', {
           headers: { Authorization: `Bearer ${apiKey}` },
@@ -367,6 +409,7 @@ export class ModelGateway {
           }
         }
         this.validatedProviders.set('openai', false);
+        if (shouldOmit) return [];
         return standardOpenAi;
       }
 
@@ -377,7 +420,7 @@ export class ModelGateway {
           { id: 'anthropic/claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', provider: 'anthropic', contextWindow: 200000, supportsTools: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
           { id: 'anthropic/claude-3-opus-20240229', name: 'Claude 3 Opus', provider: 'anthropic', contextWindow: 200000, supportsTools: true, supportsVision: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
         ];
-        if (!apiKey) return standardAnthropic;
+        if (!apiKey) return shouldOmit ? [] : standardAnthropic;
 
         try {
           const res = await fetch('https://api.anthropic.com/v1/models', {
@@ -408,6 +451,7 @@ export class ModelGateway {
           }
         } catch {}
         this.validatedProviders.set('anthropic', false);
+        if (shouldOmit) return [];
         return standardAnthropic;
       }
 
@@ -418,7 +462,7 @@ export class ModelGateway {
           { id: 'gemini/gemini-1.5-pro', name: 'Google Gemini 1.5 Pro', provider: 'gemini', contextWindow: 2097152, supportsTools: true, supportsVision: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
           { id: 'gemini/gemini-1.5-flash', name: 'Google Gemini 1.5 Flash', provider: 'gemini', contextWindow: 1048576, supportsTools: true, supportsVision: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
         ];
-        if (!apiKey) return standardGemini;
+        if (!apiKey) return shouldOmit ? [] : standardGemini;
 
         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`, {
           signal: AbortSignal.timeout(10000),
@@ -449,6 +493,7 @@ export class ModelGateway {
           }
         }
         this.validatedProviders.set('gemini', false);
+        if (shouldOmit) return [];
         return standardGemini;
       }
 
@@ -457,7 +502,7 @@ export class ModelGateway {
           { id: 'deepseek/deepseek-chat', name: 'DeepSeek-V3 (Chat)', provider: 'deepseek', contextWindow: 64000, supportsTools: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
           { id: 'deepseek/deepseek-reasoner', name: 'DeepSeek-R1 (Reasoner)', provider: 'deepseek', contextWindow: 64000, supportsTools: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
         ];
-        if (!apiKey) return standardDeepSeek;
+        if (!apiKey) return shouldOmit ? [] : standardDeepSeek;
 
         try {
           const res = await fetch('https://api.deepseek.com/models', {
@@ -484,6 +529,7 @@ export class ModelGateway {
           }
         } catch {}
         this.validatedProviders.set('deepseek', false);
+        if (shouldOmit) return [];
         return standardDeepSeek;
       }
 
@@ -493,7 +539,7 @@ export class ModelGateway {
           { id: 'groq/deepseek-r1-distill-llama-70b', name: 'Groq DeepSeek R1 Distill 70B', provider: 'groq', contextWindow: 128000, supportsTools: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
           { id: 'groq/mixtral-8x7b-32768', name: 'Groq Mixtral 8x7B', provider: 'groq', contextWindow: 32768, supportsTools: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
         ];
-        if (!apiKey) return standardGroq;
+        if (!apiKey) return shouldOmit ? [] : standardGroq;
 
         const res = await fetch('https://api.groq.com/openai/v1/models', {
           headers: { Authorization: `Bearer ${apiKey}` },
@@ -519,6 +565,7 @@ export class ModelGateway {
           }
         }
         this.validatedProviders.set('groq', false);
+        if (shouldOmit) return [];
         return standardGroq;
       }
     } catch (err) {

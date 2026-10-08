@@ -22,6 +22,7 @@ export const AddAgentModal: React.FC = () => {
   const [displayName, setDisplayName] = useState('');
   const [roleTitle, setRoleTitle] = useState('');
   const [activeModelId, setActiveModelId] = useState('ollama/qwen2.5-coder:3b');
+  const [modelTierFilter, setModelTierFilter] = useState<'all' | 'free' | 'paid'>('all');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -30,6 +31,13 @@ export const AddAgentModal: React.FC = () => {
 
   const isChannel = !activeChannelId.startsWith('dm-');
   const activeChannel = channels.find((c) => c.id === activeChannelId);
+
+  const filteredModels = availableModels.filter((m) => {
+    const isFree = Boolean(m.isFree || m.provider === 'ollama' || m.id.endsWith(':free'));
+    if (modelTierFilter === 'free') return isFree;
+    if (modelTierFilter === 'paid') return !isFree;
+    return true;
+  });
 
   // Available project agents not already in this channel
   const availableToAssign = agents.filter(
@@ -193,17 +201,48 @@ export const AddAgentModal: React.FC = () => {
               </div>
             </div>
 
-            <div className="space-y-1">
-              <label className="text-[#94a3b8] font-medium">Configured Model</label>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[#94a3b8] font-medium">Configured Model</label>
+                <div className="flex items-center space-x-1 p-0.5 bg-[#090d16] rounded border border-[#1e293b] text-[10px]">
+                  <button
+                    type="button"
+                    onClick={() => setModelTierFilter('all')}
+                    className={`px-2 py-0.5 rounded transition ${
+                      modelTierFilter === 'all' ? 'bg-blue-600 text-white font-medium' : 'text-[#64748b] hover:text-[#94a3b8]'
+                    }`}
+                  >
+                    All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModelTierFilter('free')}
+                    className={`px-2 py-0.5 rounded transition ${
+                      modelTierFilter === 'free' ? 'bg-emerald-600 text-white font-medium' : 'text-[#64748b] hover:text-[#94a3b8]'
+                    }`}
+                  >
+                    Free Tier
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModelTierFilter('paid')}
+                    className={`px-2 py-0.5 rounded transition ${
+                      modelTierFilter === 'paid' ? 'bg-purple-600 text-white font-medium' : 'text-[#64748b] hover:text-[#94a3b8]'
+                    }`}
+                  >
+                    Paid
+                  </button>
+                </div>
+              </div>
               <select
                 value={activeModelId}
                 onChange={(e) => setActiveModelId(e.target.value)}
                 className="w-full bg-[#090d16] border border-[#2d3748] rounded px-2.5 py-1.5 text-kin-text focus:outline-none focus:border-blue-500 cursor-pointer font-mono"
               >
                 {/* 1. Local Ollama Models */}
-                {availableModels.filter((m) => m.provider === 'ollama').length > 0 && (
+                {filteredModels.filter((m) => m.provider === 'ollama').length > 0 && (
                   <optgroup label="Local Ollama Models">
-                    {availableModels
+                    {filteredModels
                       .filter((m) => m.provider === 'ollama')
                       .map((m) => (
                         <option key={m.id} value={m.id}>
@@ -215,7 +254,7 @@ export const AddAgentModal: React.FC = () => {
 
                 {/* 2. Discovered External Providers */}
                 {['anthropic', 'openai', 'gemini', 'deepseek', 'groq', 'openrouter'].map((prov) => {
-                  const provModels = availableModels.filter((m) => m.provider === prov && m.configured !== false);
+                  const provModels = filteredModels.filter((m) => m.provider === prov && m.configured !== false);
                   if (provModels.length === 0) return null;
                   const provLabel =
                     prov === 'anthropic' ? 'Anthropic Cloud Models' :
@@ -237,9 +276,9 @@ export const AddAgentModal: React.FC = () => {
                 })}
 
                 {/* 3. Custom Registered Models */}
-                {availableModels.filter((m) => (m.provider === 'custom' || m.isCustom) && m.configured !== false).length > 0 && (
+                {filteredModels.filter((m) => (m.provider === 'custom' || m.isCustom) && m.configured !== false).length > 0 && (
                   <optgroup label="Custom User Models">
-                    {availableModels
+                    {filteredModels
                       .filter((m) => (m.provider === 'custom' || m.isCustom) && m.configured !== false)
                       .map((m) => (
                         <option key={m.id} value={m.id}>
@@ -250,16 +289,16 @@ export const AddAgentModal: React.FC = () => {
                 )}
 
                 {/* 4. Active Selected Model if not in list */}
-                {activeModelId && !availableModels.some((m) => m.id === activeModelId) && (
+                {activeModelId && !filteredModels.some((m) => m.id === activeModelId) && (
                   <optgroup label="Active Selected Model">
                     <option value={activeModelId}>{activeModelId}</option>
                   </optgroup>
                 )}
 
                 {/* 5. Fallback if no models available */}
-                {availableModels.length === 0 && !activeModelId && (
+                {filteredModels.length === 0 && !activeModelId && (
                   <option value="" disabled>
-                    No models configured (Configure Ollama or BYOK in Settings)
+                    No models match the filter (Configure Ollama or BYOK in Settings)
                   </option>
                 )}
               </select>

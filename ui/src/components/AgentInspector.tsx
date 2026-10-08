@@ -113,6 +113,14 @@ export const AgentInspector: React.FC = () => {
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [discoveryProvider, setDiscoveryProvider] = useState('openrouter');
   const [discoveryFeedback, setDiscoveryFeedback] = useState<string | null>(null);
+  const [inspectorModelTierFilter, setInspectorModelTierFilter] = useState<'all' | 'free' | 'paid'>('all');
+
+  const inspectorFilteredModels = availableModels.filter((m) => {
+    const isFree = Boolean(m.isFree || m.provider === 'ollama' || m.id.endsWith(':free'));
+    if (inspectorModelTierFilter === 'free') return isFree;
+    if (inspectorModelTierFilter === 'paid') return !isFree;
+    return true;
+  });
 
   // Credentials BYOK state
   const [showAddKeyModal, setShowAddKeyModal] = useState(false);
@@ -1450,9 +1458,40 @@ export const AgentInspector: React.FC = () => {
                     <label className="text-[10px] font-medium text-[#64748b] uppercase tracking-wider">
                       Assigned Model (Tier 1)
                     </label>
-                    <span className="text-[9px] text-emerald-400 font-mono truncate max-w-[150px]">
-                      {activeModelId.replace(/^ollama\//, '').toUpperCase()}
-                    </span>
+                    <div className="flex items-center space-x-1.5">
+                      <div className="flex items-center space-x-1 p-0.5 bg-[#0a0f1d] rounded border border-[#1e293b] text-[9px]">
+                        <button
+                          type="button"
+                          onClick={() => setInspectorModelTierFilter('all')}
+                          className={`px-1.5 py-0.5 rounded transition ${
+                            inspectorModelTierFilter === 'all' ? 'bg-blue-600 text-white font-medium' : 'text-[#64748b] hover:text-[#94a3b8]'
+                          }`}
+                        >
+                          All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setInspectorModelTierFilter('free')}
+                          className={`px-1.5 py-0.5 rounded transition ${
+                            inspectorModelTierFilter === 'free' ? 'bg-emerald-600 text-white font-medium' : 'text-[#64748b] hover:text-[#94a3b8]'
+                          }`}
+                        >
+                          Free Tier
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setInspectorModelTierFilter('paid')}
+                          className={`px-1.5 py-0.5 rounded transition ${
+                            inspectorModelTierFilter === 'paid' ? 'bg-purple-600 text-white font-medium' : 'text-[#64748b] hover:text-[#94a3b8]'
+                          }`}
+                        >
+                          Paid
+                        </button>
+                      </div>
+                      <span className="text-[9px] text-emerald-400 font-mono truncate max-w-[120px]">
+                        {activeModelId.replace(/^ollama\//, '').toUpperCase()}
+                      </span>
+                    </div>
                   </div>
 
                   <select
@@ -1461,9 +1500,9 @@ export const AgentInspector: React.FC = () => {
                     className="w-full bg-[#0a0f1d] border border-[#1e293b] rounded px-2.5 py-1.5 text-kin-text text-xs focus:outline-none focus:border-emerald-500 font-mono"
                   >
                     {/* 1. Local Ollama Models */}
-                    {availableModels.filter((m) => m.provider === 'ollama').length > 0 && (
+                    {inspectorFilteredModels.filter((m) => m.provider === 'ollama').length > 0 && (
                       <optgroup label="Local Ollama Models">
-                        {availableModels
+                        {inspectorFilteredModels
                           .filter((m) => m.provider === 'ollama')
                           .map((m) => (
                             <option key={m.id} value={m.id}>
@@ -1475,7 +1514,7 @@ export const AgentInspector: React.FC = () => {
 
                     {/* 2. Discovered External Providers */}
                     {['anthropic', 'openai', 'gemini', 'deepseek', 'groq', 'openrouter'].map((prov) => {
-                      const provModels = availableModels.filter((m) => m.provider === prov && m.configured !== false);
+                      const provModels = inspectorFilteredModels.filter((m) => m.provider === prov && m.configured !== false);
                       if (provModels.length === 0) return null;
                       const provLabel =
                         prov === 'anthropic' ? 'Anthropic Cloud Models' :
@@ -1497,9 +1536,9 @@ export const AgentInspector: React.FC = () => {
                     })}
 
                     {/* 3. Custom Registered Models */}
-                    {availableModels.filter((m) => (m.provider === 'custom' || m.isCustom) && m.configured !== false).length > 0 && (
+                    {inspectorFilteredModels.filter((m) => (m.provider === 'custom' || m.isCustom) && m.configured !== false).length > 0 && (
                       <optgroup label="Custom User Models">
-                        {availableModels
+                        {inspectorFilteredModels
                           .filter((m) => (m.provider === 'custom' || m.isCustom) && m.configured !== false)
                           .map((m) => (
                             <option key={m.id} value={m.id}>
@@ -1512,16 +1551,16 @@ export const AgentInspector: React.FC = () => {
                     {/* 4. Active Model Fallback if not listed */}
                     {activeModelId &&
                       activeModelId !== 'inherit' &&
-                      !availableModels.some((m) => m.id === activeModelId) && (
+                      !inspectorFilteredModels.some((m) => m.id === activeModelId) && (
                         <optgroup label="Active Selected Model">
                           <option value={activeModelId}>{activeModelId} (Active)</option>
                         </optgroup>
                       )}
 
                     {/* 5. Fallback if no models available */}
-                    {availableModels.length === 0 && !activeModelId && (
+                    {inspectorFilteredModels.length === 0 && !activeModelId && (
                       <option value="" disabled>
-                        No models configured (Configure Ollama or BYOK in Settings)
+                        No models match the filter (Configure Ollama or BYOK in Settings)
                       </option>
                     )}
 

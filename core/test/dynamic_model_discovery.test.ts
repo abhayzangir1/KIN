@@ -102,4 +102,57 @@ describe('KIN Dynamic Model Discovery & User Custom Model Registration', () => {
     const claudeFound = listData.models.some((m: any) => m.id.includes('claude-3-7'));
     expect(claudeFound).toBe(true);
   });
+
+  it('fetchProviderModels returns empty list when shouldOmit is true and credentials are unconfigured', async () => {
+    const unconfiguredGw = new ModelGateway({
+      ollamaHost: 'http://127.0.0.1:99999',
+    });
+
+    const openaiOmitted = await unconfiguredGw.fetchProviderModels('openai', undefined, { omitUnconfigured: true });
+    expect(openaiOmitted).toEqual([]);
+
+    const anthropicOmitted = await unconfiguredGw.fetchProviderModels('anthropic', undefined, { omitUnconfigured: true });
+    expect(anthropicOmitted).toEqual([]);
+
+    const openrouterOmitted = await unconfiguredGw.fetchProviderModels('openrouter', undefined, { omitUnconfigured: true });
+    expect(openrouterOmitted).toEqual([]);
+
+    const geminiOmitted = await unconfiguredGw.fetchProviderModels('gemini', undefined, { omitUnconfigured: true });
+    expect(geminiOmitted).toEqual([]);
+
+    const deepseekOmitted = await unconfiguredGw.fetchProviderModels('deepseek', undefined, { omitUnconfigured: true });
+    expect(deepseekOmitted).toEqual([]);
+
+    const groqOmitted = await unconfiguredGw.fetchProviderModels('groq', undefined, { omitUnconfigured: true });
+    expect(groqOmitted).toEqual([]);
+  });
+
+  it('evaluates custom provider readiness and includes custom in GET /api/models/readiness', async () => {
+    const gw = new ModelGateway();
+
+    // Initially 0 custom endpoints
+    const readinessEmpty = await gw.checkProviderReadiness('custom');
+    expect(readinessEmpty.provider).toBe('custom');
+    expect(readinessEmpty.configured).toBe(false);
+    expect(readinessEmpty.validated).toBe(false);
+
+    // Register custom provider
+    gw.registerCustomProvider('my-endpoint', 'http://127.0.0.1:8000/v1', 'custom-key');
+    const readinessActive = await gw.checkProviderReadiness('custom');
+    expect(readinessActive.configured).toBe(true);
+    expect(readinessActive.validated).toBe(true);
+    expect(readinessActive.modelCount).toBe(1);
+
+    const models = await gw.fetchProviderModels('custom');
+    expect(models).toHaveLength(1);
+    expect(models[0].id).toBe('custom/my-endpoint');
+    expect(models[0].validated).toBe(true);
+
+    // Verify GET /api/models/readiness contains custom
+    const res = await fetch(`http://127.0.0.1:${port}/api/models/readiness`);
+    expect(res.status).toBe(200);
+    const data: any = await res.json();
+    expect(data.providerReadiness?.custom).toBeDefined();
+    expect(data.providerReadiness?.custom.provider).toBe('custom');
+  });
 });

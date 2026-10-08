@@ -334,4 +334,47 @@ describe('KIN Phase 5: Context Compiler, Spiller & Compactor Engine', () => {
     expect(compiled.systemPromptBlock).toContain('• [@ResearchAgent]: Identified 22 tables with strict foreign keys.');
     expect(compiled.systemPromptBlock).toContain('Channel Scoping Rule:');
   });
+
+  it('truth-grounds compaction snapshot: preserves empty completedTasks and grounds error resolutions in tool output', () => {
+    const messages: Message[] = [
+      { id: 'turn-run1-0', channelId: 'c1', senderId: 'user', senderType: 'human', content: 'Inspect repo', mentions: [], productivityScore: 100, createdAt: 1000 },
+      { id: 'turn-run1-1', channelId: 'c1', senderId: 'agent', senderType: 'agent', content: 'Step 1 output', mentions: [], productivityScore: 100, createdAt: 2000 },
+      { id: 'turn-run1-2', channelId: 'c1', senderId: 'agent', senderType: 'agent', content: 'Step 2 output', mentions: [], productivityScore: 100, createdAt: 3000 },
+      { id: 'turn-run1-3', channelId: 'c1', senderId: 'agent', senderType: 'agent', content: 'Step 3 output', mentions: [], productivityScore: 100, createdAt: 4000 },
+      { id: 'turn-run1-4', channelId: 'c1', senderId: 'agent', senderType: 'agent', content: 'Step 4 output', mentions: [], productivityScore: 100, createdAt: 5000 },
+    ];
+
+    // No DAG tasks completed: completedTasks must remain strictly []
+    const result = compactor.evaluateAndCompact({
+      messages,
+      currentTokens: 9000,
+      maxTokens: 10000,
+      snapshotState: {
+        goalId: 'g-1',
+        primaryObjective: 'Refactor core modules',
+        completedTasks: [],
+        activeTask: { id: 'turn-1', title: 'Running turn 1' },
+        modifiedFiles: [{ path: 'core/src/kernel/agent_loop.ts' }],
+        encounteredErrorsAndResolutions: [
+          {
+            error: 'executeShell: Command failed with exit code 1',
+            fixApplied: '{"stdout": "Resolved by subsequent build step", "exitCode": 0}',
+          },
+        ],
+        immutableDecisions: [],
+        pendingTaskDag: [],
+      },
+    });
+
+    expect(result.didCompact).toBe(true);
+    expect(result.snapshot?.completedTasks).toEqual([]);
+    expect(result.snapshot?.encounteredErrorsAndResolutions[0].fixApplied).toContain('Resolved by subsequent build step');
+
+    // Formatted snapshot content contains real resolution output and none of the fake action IDs
+    const snapshotMsg = result.compactedMessages.find((m) => m.id.startsWith('snapshot-'));
+    expect(snapshotMsg).toBeDefined();
+    expect(snapshotMsg?.content).not.toContain('action-run1');
+    expect(snapshotMsg?.content).toContain('Resolved by subsequent build step');
+    expect(snapshotMsg?.content).not.toContain('Evaluated tool failure and adjusted execution plan');
+  });
 });

@@ -217,7 +217,7 @@ export class AgentLoopRunner {
           }
           const compMessages = conversationHistory.map((m, idx) => {
             const matchedPersisted = persistedMessages[idx]?.id || persistedMessages.find((pm) => pm.content === m.content)?.id;
-            const messageId = matchedPersisted || `${options.runId}-msg-${idx}`;
+            const messageId = matchedPersisted || `turn-${options.runId}-${idx}`;
             return {
               id: messageId,
               channelId: options.channelId,
@@ -277,22 +277,6 @@ export class AgentLoopRunner {
             } catch {}
           }
 
-          if (completedTasks.length === 0) {
-            completedTasks = actions
-              .filter((a) => !a.error)
-              .map((a, i) => {
-                let desc = `${a.toolName} completed successfully`;
-                if (a.toolName === 'writeFile' && (a.params?.filePath || a.params?.path)) {
-                  desc = `Wrote file ${a.params.filePath || a.params.path}`;
-                } else if (a.toolName === 'readFile' && (a.params?.filePath || a.params?.path)) {
-                  desc = `Read file ${a.params.filePath || a.params.path}`;
-                } else if (a.toolName === 'executeShell' && a.params?.command) {
-                  desc = `Executed shell command: ${(a.params.command).slice(0, 80)}`;
-                }
-                return { id: `action-${options.runId}-${i + 1}`, title: desc };
-              });
-          }
-
           const activeTaskObj = options.taskId && options.taskRepo ? options.taskRepo.getTask(options.taskId) : undefined;
           const activeTaskTitle = activeTaskObj?.title
             ? (activeTaskObj.description ? `${activeTaskObj.title}: ${activeTaskObj.description}` : activeTaskObj.title)
@@ -314,10 +298,18 @@ export class AgentLoopRunner {
               modifiedFiles: realModifiedFiles.map((p) => ({ path: p })),
               encounteredErrorsAndResolutions: actions
                 .filter((a) => a.error)
-                .map((a) => ({
-                  error: `${a.toolName}: ${a.error || 'Execution failed'}`,
-                  fixApplied: a.output ? String(a.output).slice(0, 100) : 'Evaluated tool failure and adjusted execution plan',
-                })),
+                .map((a) => {
+                  const errIdx = actions.indexOf(a);
+                  const subsequentResolution = actions.slice(errIdx + 1).find((next) => !next.error && next.output);
+                  const resolutionOutput = subsequentResolution?.output ?? a.output;
+                  const fixApplied = resolutionOutput
+                    ? (typeof resolutionOutput === 'string' ? resolutionOutput : JSON.stringify(resolutionOutput)).slice(0, 150)
+                    : (subsequentResolution ? `Resolved by ${subsequentResolution.toolName}` : 'Unresolved');
+                  return {
+                    error: `${a.toolName}: ${a.error || 'Execution failed'}`,
+                    fixApplied,
+                  };
+                }),
               immutableDecisions,
               pendingTaskDag,
             },
