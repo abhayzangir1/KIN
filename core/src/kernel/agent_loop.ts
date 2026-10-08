@@ -905,15 +905,28 @@ You have access to the following native and desktop tools:
 21. browserScreenshot() — Take screenshot of current browser page.
 22. browserStep(action: "navigate"|"click"|"type"|"scroll"|"screenshot"|"wait", url?: string, selector?: string, text?: string) — Step-by-step browser automation.
 23. browserClose() — Close browser session.
-24. delegateToAgent(targetAgent: string, directive: string) — Coordinate or delegate task directive to a peer specialist agent (e.g. @Backend, @Frontend, @QA).
+24. delegateToAgent(targetAgent: string, directive: string) [or coordinateWithAgent] — Coordinate or delegate task directive to a peer specialist agent (e.g. @Backend, @Frontend, @QA, @AndroidDev).
 25. hireSpecialist(displayName: string, roleTitle: string, systemPrompt?: string, suggestedModel?: string, domainAuthority?: string[]) — Onboard and hire a new specialist or subagent into this project and channel. Both orchestrators and specialists can hire subagents under them as required.
 
-To invoke a tool, output EXACTLY this format:
+CRITICAL TOOL INVOCATION RULES:
+1. When instructed to create files, scaffold projects, build applications, or execute commands, you MUST invoke the appropriate tool (e.g. writeFile, executeShell) immediately. NEVER just describe what you plan to do in text without calling the tool.
+2. Output tool calls using EXACTLY this XML format:
 <tool_call>
 {"name": "tool_name", "parameters": {"param1": "val1"}}
 </tool_call>
 
-When you receive the <observation>, evaluate the result and provide the next step or final response. Do NOT output <tool_call> if you already have the answer.`;
+Examples:
+To write a file:
+<tool_call>
+{"name": "writeFile", "parameters": {"path": "app/build.gradle.kts", "content": "// Gradle config"}}
+</tool_call>
+
+To delegate or coordinate with another specialist:
+<tool_call>
+{"name": "delegateToAgent", "parameters": {"targetAgent": "@QAEngineer", "directive": "Review test criteria"}}
+</tool_call>
+
+3. When you receive the <observation>, evaluate the result and continue with your next tool or summarize the completed work.`;
   }
 
   public extractToolCall(content: string): { name: string; params: any } | null {

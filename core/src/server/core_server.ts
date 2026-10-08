@@ -8800,9 +8800,16 @@ export class CoreServer {
 
       // 8c. Peer-to-Peer Multi-Agent Coordination & Delegation
       if (recursionDepth < 4) {
-        // (1) Check for tool-based delegations via delegateToAgent
+        // (1) Check for tool-based delegations via delegateToAgent / coordinateWithAgent
         const delegations = (loopResult.actions || []).filter(
-          (a) => a.toolName === 'delegateToAgent' && a.output && (a.output as any).delegated
+          (a) => (
+            a.toolName === 'delegateToAgent' ||
+            a.toolName === 'delegate_to_agent' ||
+            a.toolName === 'coordinateWithAgent' ||
+            a.toolName === 'coordinate_with_agent' ||
+            a.toolName === 'delegateTask' ||
+            a.toolName === 'delegate'
+          ) && a.output && (a.output as any).delegated
         );
         for (const act of delegations) {
           const out = act.output as any;

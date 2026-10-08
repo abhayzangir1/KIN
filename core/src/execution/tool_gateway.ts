@@ -539,7 +539,12 @@ export class ToolGateway {
         return { primary: 'schedule:cron', aliases: ['schedule:cron', 'schedule', 'cron'] };
 
       case 'delegateToAgent':
-        return { primary: 'agent:delegate', aliases: ['agent:delegate', 'delegate', 'agent'] };
+      case 'delegate_to_agent':
+      case 'coordinateWithAgent':
+      case 'coordinate_with_agent':
+      case 'delegateTask':
+      case 'delegate':
+        return { primary: 'agent:delegate', aliases: ['agent:delegate', 'delegate', 'agent', 'coordinateWithAgent', 'coordinate_with_agent', 'delegate_to_agent', 'delegateTask'] };
 
       case 'hireSpecialist':
       case 'hire_specialist':
@@ -1275,9 +1280,14 @@ export class ToolGateway {
           return { success: true, output: { closed: true } as T, riskLevel: risk };
         }
 
-        case 'delegateToAgent': {
-          const target = params.targetAgent || params.agentName || params.target;
-          const directive = params.directive || params.instructions || params.task;
+        case 'delegateToAgent':
+        case 'delegate_to_agent':
+        case 'coordinateWithAgent':
+        case 'coordinate_with_agent':
+        case 'delegateTask':
+        case 'delegate': {
+          const target = params.targetAgent || params.agentName || params.target || params.agent;
+          const directive = params.directive || params.instructions || params.task || params.message;
           if (!target || !directive) {
             throw new Error("delegateToAgent requires 'targetAgent' and 'directive' parameters");
           }
@@ -1529,6 +1539,11 @@ export class ToolGateway {
       toolName === 'browserInspect' ||
       toolName === 'browserScreenshot' ||
       toolName === 'delegateToAgent' ||
+      toolName === 'delegate_to_agent' ||
+      toolName === 'coordinateWithAgent' ||
+      toolName === 'coordinate_with_agent' ||
+      toolName === 'delegateTask' ||
+      toolName === 'delegate' ||
       toolName === 'hireSpecialist' ||
       toolName === 'hire_specialist' ||
       toolName === 'hireAgent'
