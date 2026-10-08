@@ -204,6 +204,10 @@ export class Sentinel {
       case 'delegateToAgent':
       case 'proposePlanAdjustment':
         return { primary: 'agent:delegate', aliases: ['agent:delegate', 'delegate', 'agent', 'proposePlanAdjustment', '*'] };
+      case 'hireSpecialist':
+      case 'hire_specialist':
+      case 'hireAgent':
+        return { primary: 'agent:hire', aliases: ['agent:hire', 'agent:delegate', 'delegate', 'agent', 'hireSpecialist', 'hire_specialist', 'hireAgent', '*'] };
       default:
         return { primary: 'fs:read', aliases: ['fs:read', 'fs_read', 'read', 'fs'] };
     }

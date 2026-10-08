@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useKinStore } from '../store/kinStore.js';
-import { Folder, Plus, X, Play, Copy, Check, Shield, Activity } from 'lucide-react';
+import { Folder, Plus, X, Play, Copy, Check, Shield, Activity, Network, Sun, Moon } from 'lucide-react';
 
 export const HeaderBar: React.FC = () => {
   const {
@@ -10,6 +10,9 @@ export const HeaderBar: React.FC = () => {
     setActiveProject,
     deleteProject,
     setNewProjectModalOpen,
+    setSwarmMapOpen,
+    theme,
+    toggleTheme,
     ollamaStatus,
     startOllama,
     isConnected,
@@ -119,6 +122,16 @@ export const HeaderBar: React.FC = () => {
             {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
           </button>
         </div>
+
+        {/* Swarm Map Top Navigation Button */}
+        <button
+          onClick={() => setSwarmMapOpen(true)}
+          className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-[#161b22] hover:bg-[#21262d] text-purple-300 hover:text-purple-200 border border-purple-500/30 text-xs font-sans font-medium transition shadow-sm hover:shadow cursor-pointer"
+          title="Open Swarm Map Hierarchy & Workforce Topology"
+        >
+          <Network className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+          <span>Swarm Map</span>
+        </button>
       </div>
 
       {/* Right: Path, Ollama Status, DB Status, Autonomy Mode, Settings */}
@@ -183,6 +196,25 @@ export const HeaderBar: React.FC = () => {
             <option value="FULL_ACCESS" className="bg-[#161b22] text-blue-400">FULL_ACCESS</option>
           </select>
         </div>
+
+        {/* Quick Dual-Theme Toggle */}
+        <button
+          onClick={toggleTheme}
+          className="flex items-center space-x-1 px-2 py-0.5 rounded bg-[#161b22] border border-[#30363d] text-kin-text hover:bg-[#21262d] transition cursor-pointer"
+          title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Theme`}
+        >
+          {theme === 'dark' ? (
+            <>
+              <Sun className="w-3 h-3 text-amber-400 shrink-0" />
+              <span className="text-[10px] font-sans text-amber-300">Light</span>
+            </>
+          ) : (
+            <>
+              <Moon className="w-3 h-3 text-blue-500 shrink-0" />
+              <span className="text-[10px] font-sans text-blue-600">Dark</span>
+            </>
+          )}
+        </button>
 
         {/* Live Machine Control Glowing Indicator */}
         {isMachineControlActive && (

@@ -1961,22 +1961,25 @@ export const AgentInspector: React.FC = () => {
                           <span className="font-mono text-[#cbd5e1]">{ag.activeModelId}</span>
                         </div>
 
-                        {/* Assigned Channels */}
-                        {ag.assignedChannels && ag.assignedChannels.length > 0 && (
+                        {/* Assigned Channels strictly scoped to active project */}
+                        {ag.assignedChannels &&
+                          ag.assignedChannels.filter((cId) => channels.some((ch) => ch.id === cId)).length > 0 && (
                           <div className="flex flex-wrap gap-1 pt-1 border-t border-[#1e293b]/60">
-                            {ag.assignedChannels.map((cId) => {
-                              const c = channels.find((ch) => ch.id === cId);
-                              const name = c?.name || cId;
-                              return (
-                                <button
-                                  key={cId}
-                                  onClick={() => setActiveChannel(cId)}
-                                  className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#090d16] text-[#94a3b8] hover:text-emerald-300 border border-[#1e293b] transition"
-                                >
-                                  #{name}
-                                </button>
-                              );
-                            })}
+                            {ag.assignedChannels
+                              .filter((cId) => channels.some((ch) => ch.id === cId))
+                              .map((cId) => {
+                                const c = channels.find((ch) => ch.id === cId);
+                                const name = c?.name || cId;
+                                return (
+                                  <button
+                                    key={cId}
+                                    onClick={() => setActiveChannel(cId)}
+                                    className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#090d16] text-[#94a3b8] hover:text-emerald-300 border border-[#1e293b] transition"
+                                  >
+                                    #{name}
+                                  </button>
+                                );
+                              })}
                           </div>
                         )}
                       </div>

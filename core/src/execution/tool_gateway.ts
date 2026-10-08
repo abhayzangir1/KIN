@@ -83,7 +83,12 @@ export class ToolGateway {
   private computerSupervisor?: ComputerSupervisor;
   private skillEngine?: SkillEngine;
   private mcpClient?: McpClientManager;
+  private agentHiredCallback?: (agent: any, channelId?: string) => void;
   private singleUseApprovalTokens: Map<string, { toolName: string; runId?: string; expiresAt: number }> = new Map();
+
+  public setAgentHiredCallback(cb: (agent: any, channelId?: string) => void): void {
+    this.agentHiredCallback = cb;
+  }
 
   constructor(options?: {
     desktopController?: DesktopController;
@@ -445,6 +450,22 @@ export class ToolGateway {
           required: ['goalId'],
         },
       },
+      {
+        name: 'hireSpecialist',
+        description: 'Recruit and onboard a new specialized agent into the active project and channel (e.g. @AndroidDev, @Frontend, @QA, @SecurityEngineer). Use this whenever the user requests a team, specialized skills, or dynamic subagent delegation.',
+        parameters: {
+          type: 'object',
+          properties: {
+            displayName: { type: 'string', description: 'Name or handle of the specialist agent (e.g. @AndroidDev, @QAEngineer, @BackendDev)' },
+            roleTitle: { type: 'string', description: 'Professional title or specialization (e.g. Senior Android Engineer, QA Specialist)' },
+            systemPrompt: { type: 'string', description: 'Detailed system instructions and persona defining the specialist responsibilities' },
+            domainAuthority: { type: 'array', items: { type: 'string' }, description: 'List of domain expertise keywords (e.g. ["Android", "Kotlin", "Gradle"])' },
+            suggestedModel: { type: 'string', description: 'Optional model identifier to assign to this specialist (e.g. ollama/qwen2.5-coder:3b)' },
+            capabilities: { type: 'array', items: { type: 'string' }, description: 'Optional array of capability strings' },
+          },
+          required: ['displayName', 'roleTitle'],
+        },
+      },
     ];
 
     const mcp = this.mcpClient;
@@ -519,6 +540,11 @@ export class ToolGateway {
 
       case 'delegateToAgent':
         return { primary: 'agent:delegate', aliases: ['agent:delegate', 'delegate', 'agent'] };
+
+      case 'hireSpecialist':
+      case 'hire_specialist':
+      case 'hireAgent':
+        return { primary: 'agent:hire', aliases: ['agent:hire', 'agent:delegate', 'agent', 'hire', 'hireSpecialist', 'hire_specialist', 'hireAgent', '*'] };
 
       default:
         return { primary: 'fs:read', aliases: ['fs:read', 'fs_read', 'read', 'fs'] };
@@ -1294,6 +1320,163 @@ export class ToolGateway {
           };
         }
 
+        case 'hireSpecialist':
+        case 'hire_specialist':
+        case 'hireAgent': {
+          const rawName = params.displayName || params.name || params.agentName || params.roleTitle;
+          const role = params.roleTitle || params.role || 'Specialist';
+          if (!rawName) {
+            throw new Error("hireSpecialist requires 'displayName' and 'roleTitle' parameters");
+          }
+
+          const cleanName = String(rawName).trim().replace(/\s+/g, '');
+          const normalizedName = cleanName.startsWith('@') ? cleanName : `@${cleanName}`;
+          const projectId = context.projectId || 'proj-kin';
+          const channelId = context.channelId || 'chan-general';
+          const now = Date.now();
+          const activeModelId = params.suggestedModel || params.activeModelId || params.modelId || 'ollama/qwen2.5-coder:3b';
+          const domainAuthority = Array.isArray(params.domainAuthority) && params.domainAuthority.length > 0
+            ? params.domainAuthority
+            : [role];
+          const capabilities = Array.isArray(params.capabilities) && params.capabilities.length > 0
+            ? params.capabilities
+            : ['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate'];
+          const sysPrompt = params.systemPrompt ||
+            `You are ${normalizedName}, a ${role} specialist in project ${projectId}. Workspace boundaries are strictly enforced. Execute tasks with high technical rigor.`;
+
+          let agentId = `agent-${now}-${crypto.randomBytes(3).toString('hex')}`;
+          let defId = `def-${now}-${crypto.randomBytes(3).toString('hex')}`;
+          let formattedAgent: any = {
+            id: agentId,
+            name: normalizedName.replace(/^@/, ''),
+            role,
+            displayName: normalizedName,
+            activeModelId,
+            systemPrompt: sysPrompt,
+            status: 'idle',
+            isOrchestrator: false,
+            projectId,
+            assignedChannels: [channelId],
+          };
+
+          if (this.db) {
+            const existing = this.db.queryOne<{ id: string; definition_id: string; display_name: string; active_model_id: string }>(
+              `SELECT id, definition_id, display_name, active_model_id FROM agent_identities 
+               WHERE (project_id = ? OR (id = 'agent-boss' AND is_orchestrator = 1))
+                 AND display_name = ? COLLATE NOCASE`,
+              projectId,
+              normalizedName
+            );
+
+            if (existing) {
+              agentId = existing.id;
+              defId = existing.definition_id;
+              this.db.execute(
+                `INSERT OR IGNORE INTO channel_members (channel_id, agent_id, joined_at) VALUES (?, ?, ?)`,
+                channelId,
+                agentId,
+                now
+              );
+              formattedAgent = {
+                id: agentId,
+                name: existing.display_name.replace(/^@/, ''),
+                role,
+                displayName: existing.display_name,
+                activeModelId: existing.active_model_id,
+                systemPrompt: sysPrompt,
+                status: 'idle',
+                isOrchestrator: false,
+                projectId,
+                assignedChannels: [channelId],
+              };
+            } else {
+              // Ensure workspace, project, and channel records exist to satisfy foreign key constraints
+              this.db.execute(
+                `INSERT OR IGNORE INTO workspaces (id, name, root_path, default_autonomy_mode, created_at, updated_at)
+                 VALUES (?, ?, ?, 'AUTO', ?, ?)`,
+                'ws-default',
+                'Default Workspace',
+                context.worktreeRoot || '.',
+                now,
+                now
+              );
+              this.db.execute(
+                `INSERT OR IGNORE INTO projects (id, workspace_id, name, repo_path, settings_json, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, '{}', ?, ?)`,
+                projectId,
+                'ws-default',
+                projectId,
+                context.worktreeRoot || '.',
+                now,
+                now
+              );
+              this.db.execute(
+                `INSERT OR IGNORE INTO channels (id, project_id, name, is_private, created_at)
+                 VALUES (?, ?, ?, 0, ?)`,
+                channelId,
+                projectId,
+                channelId.replace(/^chan-/, ''),
+                now
+              );
+
+              this.db.execute(
+                `INSERT INTO agent_definitions (id, name, role, system_prompt, default_model_id, domain_authority_json, capabilities_json, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                defId,
+                normalizedName.replace(/^@/, ''),
+                role,
+                sysPrompt,
+                activeModelId,
+                JSON.stringify(domainAuthority),
+                JSON.stringify(capabilities),
+                now
+              );
+
+              this.db.execute(
+                `INSERT INTO agent_identities (id, workspace_id, project_id, definition_id, display_name, active_model_id, is_orchestrator, is_ephemeral, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`,
+                agentId,
+                'ws-default',
+                projectId,
+                defId,
+                normalizedName,
+                activeModelId,
+                now,
+                now
+              );
+
+              this.db.execute(
+                `INSERT OR IGNORE INTO channel_members (channel_id, agent_id, joined_at) VALUES (?, ?, ?)`,
+                channelId,
+                agentId,
+                now
+              );
+            }
+          }
+
+          if (this.agentHiredCallback) {
+            try {
+              this.agentHiredCallback(formattedAgent, channelId);
+            } catch (cbErr) {
+              console.warn('[TOOL GATEWAY] agentHiredCallback error:', cbErr);
+            }
+          }
+
+          return {
+            success: true,
+            output: {
+              agentId,
+              displayName: normalizedName,
+              role,
+              activeModelId,
+              channelId,
+              projectId,
+              message: `Successfully onboarded ${normalizedName} (${role}) to channel #${channelId} in project ${projectId}. They are enrolled and ready to collaborate.`,
+            } as T,
+            riskLevel: risk,
+          };
+        }
+
         default:
           return {
             success: false,
@@ -1345,7 +1528,10 @@ export class ToolGateway {
       toolName === 'desktopListWindows' ||
       toolName === 'browserInspect' ||
       toolName === 'browserScreenshot' ||
-      toolName === 'delegateToAgent'
+      toolName === 'delegateToAgent' ||
+      toolName === 'hireSpecialist' ||
+      toolName === 'hire_specialist' ||
+      toolName === 'hireAgent'
     ) {
       return 'LOW';
     }

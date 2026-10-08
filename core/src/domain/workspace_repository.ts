@@ -51,9 +51,9 @@ export class WorkspaceRepository {
       project.workspaceId,
       project.name,
       project.repoPath,
-      JSON.stringify(project.settings),
+      JSON.stringify(project.settings ?? {}),
       project.createdAt,
-      project.updatedAt
+      project.updatedAt ?? project.createdAt
     );
   }
 
@@ -210,7 +210,18 @@ export class WorkspaceRepository {
     return rows.map((r) => r.agent_id);
   }
 
-  public listAgentChannelIds(agentId: string): string[] {
+  public listAgentChannelIds(agentId: string, projectId?: string): string[] {
+    if (projectId) {
+      const rows = this.db.query<{ channel_id: string }>(
+        `SELECT cm.channel_id FROM channel_members cm
+         JOIN channels c ON cm.channel_id = c.id
+         WHERE cm.agent_id = ? AND c.project_id = ?
+         ORDER BY cm.joined_at ASC`,
+        agentId,
+        projectId
+      );
+      return rows.map((r) => r.channel_id);
+    }
     const rows = this.db.query<{ channel_id: string }>(
       `SELECT channel_id FROM channel_members WHERE agent_id = ? ORDER BY joined_at ASC`,
       agentId

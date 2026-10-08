@@ -21,6 +21,13 @@ import {
   Network,
   Sun,
   Moon,
+  Plus,
+  Edit2,
+  Trash2,
+  Eye,
+  EyeOff,
+  Lock,
+  AlertCircle,
 } from 'lucide-react';
 
 export const SettingsModal: React.FC = () => {
@@ -42,6 +49,10 @@ export const SettingsModal: React.FC = () => {
     setActiveRightTab,
     setActiveInspectorTab,
     credentials,
+    fetchCredentials,
+    addCredential,
+    updateCredential,
+    deleteCredential,
     availableModels,
     fetchAvailableModels,
     isLoadingModels,
@@ -59,11 +70,102 @@ export const SettingsModal: React.FC = () => {
   const [vacuumStatus, setVacuumStatus] = useState<string | null>(null);
   const [isOptimizing, setIsOptimizing] = useState(false);
 
+  // BYOK Credentials State
+  const [showCredForm, setShowCredForm] = useState(false);
+  const [editingCredId, setEditingCredId] = useState<string | null>(null);
+  const [credProvider, setCredProvider] = useState('openai');
+  const [credKeyName, setCredKeyName] = useState('');
+  const [credApiKey, setCredApiKey] = useState('');
+  const [credQuota, setCredQuota] = useState(5000000);
+  const [showCredKey, setShowCredKey] = useState(false);
+  const [credSaving, setCredSaving] = useState(false);
+  const [credError, setCredError] = useState<string | null>(null);
+
   useEffect(() => {
     if (activeTab === 'models') {
       fetchAvailableModels();
     }
-  }, [activeTab, fetchAvailableModels]);
+    if (activeTab === 'credentials') {
+      fetchCredentials();
+    }
+  }, [activeTab, fetchAvailableModels, fetchCredentials]);
+
+  const handleOpenAddCred = () => {
+    setEditingCredId(null);
+    setCredProvider('openai');
+    setCredKeyName('');
+    setCredApiKey('');
+    setCredQuota(5000000);
+    setShowCredKey(false);
+    setCredError(null);
+    setShowCredForm(true);
+  };
+
+  const handleOpenEditCred = (cred: any) => {
+    setEditingCredId(cred.id);
+    setCredProvider(cred.provider);
+    setCredKeyName(cred.keyName || cred.keyAlias || '');
+    setCredApiKey('');
+    setCredQuota(cred.monthlyQuotaTokens || cred.maxSpendTokens || 5000000);
+    setShowCredKey(false);
+    setCredError(null);
+    setShowCredForm(true);
+  };
+
+  const handleSaveCred = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!credKeyName.trim()) {
+      setCredError('Key alias or name is required');
+      return;
+    }
+    if (!editingCredId && !credApiKey.trim()) {
+      setCredError('API Key is required');
+      return;
+    }
+    setCredSaving(true);
+    setCredError(null);
+    try {
+      if (editingCredId) {
+        const res = await updateCredential(editingCredId, {
+          provider: credProvider,
+          keyName: credKeyName.trim(),
+          apiKey: credApiKey.trim() || undefined,
+          monthlyQuotaTokens: credQuota,
+        });
+        if (!res.success) {
+          setCredError('Failed to update credential');
+          return;
+        }
+      } else {
+        const res = await addCredential({
+          provider: credProvider,
+          keyName: credKeyName.trim(),
+          apiKey: credApiKey.trim(),
+          monthlyQuotaTokens: credQuota,
+        });
+        if (!res.success) {
+          setCredError('Failed to save credential');
+          return;
+        }
+      }
+      setShowCredForm(false);
+      setEditingCredId(null);
+      setCredApiKey('');
+      setCredKeyName('');
+      fetchAvailableModels();
+    } catch (err: any) {
+      setCredError(err.message || 'Error saving credential');
+    } finally {
+      setCredSaving(false);
+    }
+  };
+
+  const handleDeleteCred = async (id: string, name: string) => {
+    if (window.confirm(`Delete credential "${name}"? Agents will no longer be able to use this key.`)) {
+      await deleteCredential(id);
+      fetchAvailableModels();
+    }
+  };
 
   const handleRefreshModels = async () => {
     setIsQueryingModels(true);
@@ -437,14 +539,10 @@ export const SettingsModal: React.FC = () => {
                         </p>
                       </div>
                       <button
-                        onClick={() => {
-                          setActiveRightTab('Agent');
-                          setActiveInspectorTab('Credentials');
-                          setSettingsModalOpen(false);
-                        }}
+                        onClick={() => setActiveTab('credentials')}
                         className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-medium transition cursor-pointer"
                       >
-                        <span>Manage in Agent Inspector (BYOK)</span>
+                        <span>Manage BYOK Credentials Vault</span>
                         <ArrowRight className="w-3.5 h-3.5 ml-1" />
                       </button>
                     </div>
@@ -662,67 +760,320 @@ export const SettingsModal: React.FC = () => {
                     </div>
                   </div>
                   <button
-                    onClick={() => {
-                      setActiveRightTab('Agent');
-                      setActiveInspectorTab('Credentials');
-                      setSettingsModalOpen(false);
-                    }}
+                    onClick={() => setActiveTab('credentials')}
                     className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-medium transition cursor-pointer"
                   >
-                    <span>Manage in Agent Inspector (BYOK)</span>
+                    <span>Open BYOK Key Vault</span>
                     <ArrowRight className="w-3 h-3" />
                   </button>
                 </div>
               </div>
             )}
 
-            {/* 3. BYOK CREDENTIALS TAB */}
+            {/* 3. UNIVERSAL BYOK CREDENTIALS VAULT */}
             {activeTab === 'credentials' && (
-              <div className="space-y-6">
-                <div>
-                  <h3 className="text-sm font-semibold text-kin-text mb-1 flex items-center space-x-2">
-                    <Key className="w-4 h-4 text-amber-400" />
-                    <span>Managed Provider Credentials (BYOK)</span>
-                  </h3>
-                  <p className="text-xs text-[#8b949e]">
-                    Store external LLM provider API keys securely in SQLite WAL with monthly token spend limits and agent capability grants.
-                  </p>
+              <div className="space-y-5">
+                {/* Header & Add Button */}
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-kin-text flex items-center space-x-2">
+                      <Key className="w-4 h-4 text-amber-400" />
+                      <span>Universal BYOK Key Vault</span>
+                    </h3>
+                    <p className="text-xs text-[#8b949e] mt-0.5">
+                      Configure external LLM provider API keys once. Keys are encrypted with HMAC in SQLite WAL and available to all agents across all projects.
+                    </p>
+                  </div>
+                  {!showCredForm && (
+                    <button
+                      onClick={handleOpenAddCred}
+                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm hover:shadow transition cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Provider Key</span>
+                    </button>
+                  )}
                 </div>
 
-                <div className="p-4 rounded-lg bg-[#161b22] border border-[#30363d] space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-xs font-bold text-kin-text">Secure Encrypted Key Vault</div>
-                      <div className="text-[11px] text-[#8b949e]">
-                        Currently storing {credentials?.length || 0} active provider credential(s).
+                {/* Inline Add / Edit Credential Form */}
+                {showCredForm && (
+                  <form onSubmit={handleSaveCred} className="p-4 rounded-lg bg-[#161b22] border border-emerald-500/40 space-y-4 shadow-md">
+                    <div className="flex items-center justify-between border-b border-[#21262d] pb-2.5">
+                      <div className="flex items-center space-x-2 text-xs font-bold text-kin-text">
+                        <Lock className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>{editingCredId ? 'Edit Provider Credential' : 'Add New Provider Credential'}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCredForm(false);
+                          setEditingCredId(null);
+                        }}
+                        className="text-[#8b949e] hover:text-kin-text transition p-1"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    {credError && (
+                      <div className="flex items-center space-x-2 px-3 py-2 rounded bg-red-950/60 border border-red-500/50 text-red-300 text-xs">
+                        <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+                        <span>{credError}</span>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* Provider Selector */}
+                      <div>
+                        <label className="block text-[11px] font-medium text-[#8b949e] mb-1">Provider</label>
+                        <select
+                          value={credProvider}
+                          onChange={(e) => setCredProvider(e.target.value)}
+                          disabled={!!editingCredId}
+                          className="w-full bg-[#0d1117] border border-[#30363d] rounded px-2.5 py-1.5 text-xs text-kin-text focus:outline-none focus:border-emerald-500 cursor-pointer disabled:opacity-60"
+                        >
+                          <option value="openai">OpenAI (GPT-4.5, GPT-4o, o3-mini)</option>
+                          <option value="anthropic">Anthropic (Claude 3.7 Sonnet, Claude 3.5)</option>
+                          <option value="openrouter">OpenRouter (Unified Catalog)</option>
+                          <option value="gemini">Google Gemini (Gemini 2.0 Flash, 1.5 Pro)</option>
+                          <option value="groq">Groq (Llama 3.3 70B, Ultra-fast LPU)</option>
+                          <option value="deepseek">DeepSeek (DeepSeek V3, DeepSeek R1)</option>
+                          <option value="custom">Custom Provider (OpenAI Compatible)</option>
+                        </select>
+                      </div>
+
+                      {/* Key Alias / Name */}
+                      <div>
+                        <label className="block text-[11px] font-medium text-[#8b949e] mb-1">Key Alias / Name</label>
+                        <input
+                          type="text"
+                          value={credKeyName}
+                          onChange={(e) => setCredKeyName(e.target.value)}
+                          placeholder="e.g. Primary Work Key"
+                          className="w-full bg-[#0d1117] border border-[#30363d] rounded px-2.5 py-1.5 text-xs text-kin-text placeholder-[#484f58] focus:outline-none focus:border-emerald-500"
+                          required
+                        />
                       </div>
                     </div>
-                    <button
-                      onClick={() => {
-                        setActiveRightTab('Agent');
-                        setActiveInspectorTab('Credentials');
-                        setSettingsModalOpen(false);
-                      }}
-                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-semibold transition cursor-pointer"
-                    >
-                      <Key className="w-3.5 h-3.5" />
-                      <span>Manage in Agent Inspector (BYOK)</span>
-                      <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
-                    </button>
+
+                    {/* API Key */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-[11px] font-medium text-[#8b949e]">
+                          API Key {editingCredId && <span className="text-[10px] text-slate-500 font-normal">(Leave blank to keep existing encrypted key)</span>}
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setShowCredKey(!showCredKey)}
+                          className="text-[11px] text-[#8b949e] hover:text-kin-text flex items-center space-x-1 cursor-pointer"
+                        >
+                          {showCredKey ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                          <span>{showCredKey ? 'Hide' : 'Show'}</span>
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type={showCredKey ? 'text' : 'password'}
+                          value={credApiKey}
+                          onChange={(e) => setCredApiKey(e.target.value)}
+                          placeholder={editingCredId ? '••••••••••••••••••••' : 'sk-...'}
+                          className="w-full bg-[#0d1117] border border-[#30363d] rounded px-2.5 py-1.5 text-xs text-kin-text font-mono placeholder-[#484f58] focus:outline-none focus:border-emerald-500"
+                          required={!editingCredId}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Monthly Token Quota */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-[11px] font-medium text-[#8b949e]">Monthly Token Spend Quota</label>
+                        <span className="text-[11px] font-mono text-emerald-400 font-medium">
+                          {credQuota >= 1000000000 ? 'Unlimited' : `${(credQuota / 1000000).toFixed(1)}M Tokens`}
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="number"
+                          value={credQuota}
+                          onChange={(e) => setCredQuota(Math.max(10000, Number(e.target.value)))}
+                          step={500000}
+                          min={10000}
+                          className="flex-1 bg-[#0d1117] border border-[#30363d] rounded px-2.5 py-1 text-xs text-kin-text font-mono focus:outline-none focus:border-emerald-500"
+                        />
+                        <div className="flex items-center space-x-1">
+                          {[1000000, 5000000, 10000000, 50000000].map((q) => (
+                            <button
+                              key={q}
+                              type="button"
+                              onClick={() => setCredQuota(q)}
+                              className={`px-2 py-0.5 rounded text-[10px] font-mono transition cursor-pointer border ${
+                                credQuota === q
+                                  ? 'bg-emerald-600/30 text-emerald-300 border-emerald-500/50 font-bold'
+                                  : 'bg-[#0d1117] text-[#8b949e] border-[#30363d] hover:text-kin-text'
+                              }`}
+                            >
+                              {q / 1000000}M
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Form Buttons */}
+                    <div className="flex items-center justify-end space-x-2 pt-2 border-t border-[#21262d]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCredForm(false);
+                          setEditingCredId(null);
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-kin-text text-xs transition cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={credSaving}
+                        className="flex items-center space-x-1.5 px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow transition cursor-pointer disabled:opacity-50"
+                      >
+                        {credSaving ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Saving & Discovering Models...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Save & Discover Models</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* Credentials List */}
+                <div className="space-y-3">
+                  {credentials && credentials.length > 0 ? (
+                    credentials.map((cred) => {
+                      const prov = (cred.provider || 'custom').toLowerCase();
+                      const provColor =
+                        prov === 'openai' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' :
+                        prov === 'anthropic' ? 'text-amber-400 bg-amber-500/10 border-amber-500/30' :
+                        prov === 'gemini' ? 'text-blue-400 bg-blue-500/10 border-blue-500/30' :
+                        prov === 'openrouter' ? 'text-purple-400 bg-purple-500/10 border-purple-500/30' :
+                        prov === 'groq' ? 'text-rose-400 bg-rose-500/10 border-rose-500/30' :
+                        prov === 'deepseek' ? 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30' :
+                        'text-slate-300 bg-slate-500/10 border-slate-500/30';
+
+                      const used = cred.usedTokens || cred.currentSpendTokens || 0;
+                      const max = cred.monthlyQuotaTokens || cred.maxSpendTokens || 5000000;
+                      const pct = Math.min(100, Math.round((used / max) * 100));
+
+                      return (
+                        <div
+                          key={cred.id}
+                          className="p-3.5 rounded-lg bg-[#161b22] border border-[#30363d] space-y-2.5 transition hover:shadow-md"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2.5">
+                              <span className={`text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded border ${provColor}`}>
+                                {cred.provider}
+                              </span>
+                              <div>
+                                <span className="text-xs font-bold text-kin-text">
+                                  {cred.keyName || cred.keyAlias || `${cred.provider.toUpperCase()} Key`}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center space-x-2">
+                              <span
+                                className={`text-[9px] font-mono px-1.5 py-0.5 rounded border font-semibold ${
+                                  cred.status === 'active'
+                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                    : 'bg-red-500/10 text-red-400 border-red-500/30'
+                                }`}
+                              >
+                                {cred.status || 'active'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditCred(cred)}
+                                className="p-1 rounded bg-[#21262d] hover:bg-[#30363d] text-kin-muted hover:text-kin-text transition cursor-pointer"
+                                title="Edit Credential"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCred(cred.id, cred.keyName || cred.keyAlias || cred.provider)}
+                                className="p-1 rounded hover:bg-red-900/40 text-red-400 transition cursor-pointer"
+                                title="Delete Credential"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between text-[11px] font-mono text-[#8b949e]">
+                            <div className="flex items-center space-x-1.5">
+                              <Lock className="w-3 h-3 text-emerald-400" />
+                              <span>{cred.maskedKey || '••••••••••••'}</span>
+                            </div>
+                            <div>
+                              <span>{used.toLocaleString()} / {max.toLocaleString()} tokens</span>
+                              <span className="ml-1 text-slate-500">({pct}%)</span>
+                            </div>
+                          </div>
+
+                          {/* Quota Progress Bar */}
+                          <div className="w-full bg-[#0d1117] h-1.5 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-300 ${
+                                pct > 90 ? 'bg-red-500' : pct > 70 ? 'bg-amber-400' : 'bg-emerald-500'
+                              }`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="p-8 rounded-lg bg-[#161b22] border border-dashed border-[#30363d] text-center space-y-3">
+                      <Key className="w-8 h-8 text-amber-400 mx-auto opacity-70" />
+                      <div>
+                        <div className="text-xs font-bold text-kin-text">No Provider Keys Configured</div>
+                        <p className="text-[11px] text-[#8b949e] mt-1 max-w-md mx-auto">
+                          Add your OpenAI, Anthropic, OpenRouter, Google Gemini, Groq, or DeepSeek API key here. The key is stored securely in SQLite WAL and available to every agent in every project.
+                        </p>
+                      </div>
+                      {!showCredForm && (
+                        <button
+                          onClick={handleOpenAddCred}
+                          className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow transition cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Add Your First Key</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Vault Architecture Info Footer */}
+                <div className="grid grid-cols-3 gap-2 pt-2 text-[11px] font-mono text-[#8b949e]">
+                  <div className="p-2.5 rounded bg-[#161b22] border border-[#21262d]">
+                    <span className="text-amber-400 font-bold block mb-0.5">Zero Plaintext</span>
+                    HMAC & encrypted storage
                   </div>
-                  <div className="grid grid-cols-3 gap-2 pt-2 text-[11px] font-mono text-[#8b949e]">
-                    <div className="p-2 rounded bg-[#0d1117] border border-[#21262d]">
-                      <span className="text-amber-400 font-bold block">Zero Stored Plaintext</span>
-                      HMAC & hashed storage
-                    </div>
-                    <div className="p-2 rounded bg-[#0d1117] border border-[#21262d]">
-                      <span className="text-emerald-400 font-bold block">Token Guardrails</span>
-                      Monthly spend quotas
-                    </div>
-                    <div className="p-2 rounded bg-[#0d1117] border border-[#21262d]">
-                      <span className="text-blue-400 font-bold block">Scoped Grants</span>
-                      Per-agent permissioning
-                    </div>
+                  <div className="p-2.5 rounded bg-[#161b22] border border-[#21262d]">
+                    <span className="text-emerald-400 font-bold block mb-0.5">Universal BYOK</span>
+                    Shared across all agents
+                  </div>
+                  <div className="p-2.5 rounded bg-[#161b22] border border-[#21262d]">
+                    <span className="text-blue-400 font-bold block mb-0.5">Auto-Discovery</span>
+                    Dynamic model catalog sync
                   </div>
                 </div>
               </div>

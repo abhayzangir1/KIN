@@ -256,6 +256,12 @@ export class CoreServer {
       db: this.db,
       computerSupervisor: this.computerSupervisor,
     });
+    this.toolGateway.setAgentHiredCallback((agent, channelId) => {
+      this.broadcastEvent('agent:created', { agent });
+      if (channelId) {
+        this.broadcastEvent('channel:member_added', { channelId, agentId: agent.id });
+      }
+    });
     this.desktopController = this.toolGateway.getDesktopController();
     this.browserController = this.toolGateway.getBrowserController();
     let repoRoot = process.env.KIN_PROJECT_ROOT || process.cwd();
@@ -2000,7 +2006,7 @@ export class CoreServer {
             status: 'idle',
             isOrchestrator: a.isOrchestrator,
             projectId: a.projectId,
-            assignedChannels: this.workspaceRepo.listAgentChannelIds(a.id),
+            assignedChannels: this.workspaceRepo.listAgentChannelIds(a.id, projectId),
             modelAvailable,
             modelStatus,
           };
@@ -2025,7 +2031,7 @@ export class CoreServer {
 
         const agents = projectAgents.map((ag) => {
           const def = this.agentRepo.getDefinition(ag.definitionId);
-          const assignedCids = this.workspaceRepo.listAgentChannelIds(ag.id);
+          const assignedCids = this.workspaceRepo.listAgentChannelIds(ag.id, projectId);
           const assignedNames = Array.from(
             new Set(
               assignedCids.map((cId) => '#' + (this.workspaceRepo.getChannel(cId)?.name || cId))
@@ -2396,7 +2402,7 @@ export class CoreServer {
             `You are ${normalizedName}, a ${role} specialist in project ${projectId}. Workspace boundaries are strictly enforced.`,
           defaultModelId: activeModelId,
           domainAuthority: body.domainAuthority || [role],
-          capabilities: body.capabilities || ['read', 'write', 'execute'],
+          capabilities: body.capabilities || ['read', 'write', 'execute', 'agent:hire', 'agent:delegate'],
           createdAt: now,
         });
 
@@ -2494,10 +2500,11 @@ export class CoreServer {
         const activeCreds = this.db.query<any>('SELECT DISTINCT provider FROM managed_credentials WHERE is_active = 1');
         const configuredProviders = new Set<string>(['ollama', ...activeCreds.map((c: any) => c.provider.toLowerCase())]);
 
-        const agents = this.agentRepo.listIdentitiesByProject(activeProject?.id || 'proj-kin');
+        const currentProjId = activeProject?.id || 'proj-kin';
+        const agents = this.agentRepo.listIdentitiesByProject(currentProjId);
         const agentDisplays = agents.map((a) => {
           const def = this.agentRepo.getDefinition(a.definitionId);
-          const assignedChannels = this.workspaceRepo.listAgentChannelIds(a.id);
+          const assignedChannels = this.workspaceRepo.listAgentChannelIds(a.id, currentProjId);
           const { modelAvailable, modelStatus } = this.computeModelAvailability(
             a.activeModelId,
             ollamaInfo,
@@ -3211,7 +3218,7 @@ export class CoreServer {
           let matrix = `👥 **Workforce Collaboration Matrix (${projectAgents.length} Agents)**\n\n`;
           for (const ag of projectAgents) {
             const def = this.agentRepo.getDefinition(ag.definitionId);
-            const assignedCids = this.workspaceRepo.listAgentChannelIds(ag.id);
+            const assignedCids = this.workspaceRepo.listAgentChannelIds(ag.id, targetProjectId);
             const assignedNames = Array.from(
               new Set(
                 assignedCids.map((cId) => '#' + (this.workspaceRepo.getChannel(cId)?.name || cId))
@@ -3609,7 +3616,7 @@ export class CoreServer {
             let matrix = `👥 **Workforce Collaboration Matrix (${projectAgents.length} Agents)**\n\n`;
             for (const ag of projectAgents) {
               const def = this.agentRepo.getDefinition(ag.definitionId);
-              const assignedCids = this.workspaceRepo.listAgentChannelIds(ag.id);
+              const assignedCids = this.workspaceRepo.listAgentChannelIds(ag.id, targetProjectId);
               const assignedNames = Array.from(
                 new Set(
                   assignedCids
@@ -5538,7 +5545,7 @@ export class CoreServer {
         const tasksTotal = agentTasks[0]?.total || 0;
         const tasksCompleted = agentTasks[0]?.completed || 0;
         const taskSuccessRate = tasksTotal > 0 ? Math.round((tasksCompleted / tasksTotal) * 100) : 100;
-        const assignedChannels = this.workspaceRepo.listAgentChannelIds(agentId);
+        const assignedChannels = this.workspaceRepo.listAgentChannelIds(agentId, agent.projectId || this.activeProjectId);
 
         return this.sendJson(res, 200, {
           agentId,
@@ -7223,6 +7230,99 @@ export class CoreServer {
         return this.sendJson(res, 201, { success: true, credential });
       }
 
+      // 70b. PUT /api/settings/credentials/:id — Modify managed credential (BYOK)
+      const credPutMatch = pathname.match(/^\/api\/settings\/credentials\/([^/]+)$/);
+      if (req.method === 'PUT' && credPutMatch) {
+        const credId = credPutMatch[1];
+        const body = await this.parseJsonBody<any>(req);
+        const existing = this.db.queryOne<any>('SELECT * FROM managed_credentials WHERE id = ?', credId);
+        if (!existing) {
+          return this.sendJson(res, 404, { error: 'Credential not found' });
+        }
+
+        const now = Date.now();
+        const provider = body.provider || existing.provider;
+        const keyName = body.keyName || body.keyAlias || body.key || existing.key_alias;
+        const monthlyQuotaTokens = body.monthlyQuotaTokens !== undefined ? Number(body.monthlyQuotaTokens) : existing.max_spend_tokens;
+        const scopedAgentIds = body.scopedAgentIds || body.scopedGrants || (existing.scoped_grants_json ? JSON.parse(existing.scoped_grants_json) : []);
+
+        let encryptedKey = existing.secret_hash;
+        const apiKey = body.apiKey || body.secret || body.value;
+        if (apiKey && apiKey !== '****...****' && !apiKey.includes('...')) {
+          encryptedKey = SecretVault.getInstance().encrypt(apiKey);
+        }
+
+        this.db.execute(
+          `UPDATE managed_credentials 
+           SET provider = ?, key_alias = ?, secret_hash = ?, scoped_grants_json = ?, max_spend_tokens = ?, updated_at = ?
+           WHERE id = ?`,
+          provider,
+          keyName,
+          encryptedKey,
+          JSON.stringify(scopedAgentIds),
+          monthlyQuotaTokens,
+          now,
+          credId
+        );
+
+        let rawKey = '';
+        try {
+          rawKey = SecretVault.getInstance().decrypt(encryptedKey);
+        } catch {}
+        const maskedKey = rawKey.length > 8 ? `${rawKey.slice(0, 4)}...${rawKey.slice(-4)}` : '****...****';
+
+        const updatedCred = {
+          id: credId,
+          provider,
+          keyName,
+          keyAlias: keyName,
+          maskedKey,
+          monthlyQuotaTokens,
+          maxSpendTokens: monthlyQuotaTokens,
+          usedTokens: existing.current_spend_tokens || 0,
+          currentSpendTokens: existing.current_spend_tokens || 0,
+          quotaResetDay: 1,
+          status: existing.is_active ? 'active' : 'revoked',
+          scopedAgentIds,
+          scopedGrants: scopedAgentIds,
+          createdAt: existing.created_at,
+          updatedAt: now,
+        };
+
+        this.broadcastEvent('credential:updated', updatedCred);
+
+        if (apiKey && apiKey !== '****...****' && !apiKey.includes('...')) {
+          (async () => {
+            try {
+              const discovered = await this.modelGateway.fetchProviderModels(provider, apiKey);
+              for (const m of discovered) {
+                try {
+                  this.db.execute(
+                    `INSERT OR REPLACE INTO models (id, provider_id, name, context_window, max_output_tokens, supports_tools, supports_vision, created_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                    m.id,
+                    m.provider,
+                    m.name,
+                    m.contextWindow || 128000,
+                    m.maxOutputTokens || 4096,
+                    m.supportsTools ? 1 : 0,
+                    m.supportsVision ? 1 : 0,
+                    now
+                  );
+                } catch {}
+              }
+              if (discovered.length > 0) {
+                this.broadcastEvent('models:updated', { provider, count: discovered.length });
+              }
+            } catch (err) {
+              console.warn('[KIN CORE] Auto-discovery models warning for ' + provider + ':', err);
+            }
+          })();
+        }
+
+        return this.sendJson(res, 200, { success: true, credential: updatedCred });
+      }
+
       // 71. DELETE /api/settings/credentials/:id — Delete managed credential
       const credDeleteMatch = pathname.match(/^\/api\/settings\/credentials\/([^/]+)$/);
       if (req.method === 'DELETE' && credDeleteMatch) {
@@ -7486,16 +7586,174 @@ export class CoreServer {
       return;
     }
 
-    // 2. Check if user is asking to assign an existing agent to this channel
-    if ((contentLower.includes('assign') || contentLower.includes('add')) && isChannel) {
-      const targetAgent = allProjectAgents.find(
-        (a) =>
-          !a.isOrchestrator &&
-          (contentLower.includes(a.displayName.toLowerCase().replace(/^@/, '')) ||
-            contentLower.includes(a.displayName.toLowerCase()))
-      );
+    // 1b. Check if user is asking to hire a team without naming a specific individual
+    const isTeamHireIntent =
+      isHireIntent &&
+      (contentLower.includes('team') ||
+        contentLower.includes('teammate') ||
+        contentLower.includes('workforce') ||
+        contentLower.includes('required team'));
 
-      if (targetAgent) {
+    if (isTeamHireIntent && isChannel) {
+      const chan = this.workspaceRepo.getChannel(channelId);
+      const targetProjId = chan?.projectId || this.activeProjectId;
+      let teamSpecs: Array<{ name: string; role: string; domainAuthority: string[]; systemPrompt?: string }> = [];
+
+      if (contentLower.includes('android')) {
+        teamSpecs = [
+          {
+            name: '@AndroidDev',
+            role: 'Senior Android Engineer',
+            domainAuthority: ['Android', 'Kotlin', 'Jetpack Compose', 'Gradle', 'Android Architecture'],
+            systemPrompt: `You are @AndroidDev, Senior Android Engineer in project ${targetProjId}. You build Android native applications, Jetpack Compose interfaces, and test suites. Workspace boundaries are strictly enforced.`,
+          },
+          {
+            name: '@QAEngineer',
+            role: 'Mobile QA Specialist',
+            domainAuthority: ['Mobile QA', 'Espresso', 'Testing', 'Android Verification'],
+            systemPrompt: `You are @QAEngineer, Mobile QA Specialist in project ${targetProjId}. You verify code quality and write automated tests. Workspace boundaries are strictly enforced.`,
+          },
+        ];
+      } else if (contentLower.includes('ios') || contentLower.includes('swift')) {
+        teamSpecs = [
+          {
+            name: '@iOSDev',
+            role: 'Senior iOS Engineer',
+            domainAuthority: ['iOS', 'Swift', 'SwiftUI', 'Xcode'],
+          },
+          {
+            name: '@QAEngineer',
+            role: 'Mobile QA Specialist',
+            domainAuthority: ['Mobile QA', 'XCTest', 'Testing'],
+          },
+        ];
+      } else if (contentLower.includes('web') || contentLower.includes('frontend') || contentLower.includes('react')) {
+        teamSpecs = [
+          {
+            name: '@FrontendDev',
+            role: 'Frontend UI Specialist',
+            domainAuthority: ['React', 'TypeScript', 'TailwindCSS'],
+          },
+          {
+            name: '@BackendDev',
+            role: 'Backend API Specialist',
+            domainAuthority: ['Node.js', 'REST API', 'Database'],
+          },
+        ];
+      } else {
+        teamSpecs = [
+          {
+            name: '@LeadDev',
+            role: 'Senior Software Engineer',
+            domainAuthority: ['Software Engineering', 'System Architecture'],
+          },
+          {
+            name: '@QAEngineer',
+            role: 'QA & Testing Specialist',
+            domainAuthority: ['Verification', 'Quality Assurance'],
+          },
+        ];
+      }
+
+      const hiredAgents: any[] = [];
+      const now = Date.now();
+      for (let i = 0; i < teamSpecs.length; i++) {
+        const spec = teamSpecs[i];
+        let identity = this.agentRepo.getIdentityByProjectAndName(targetProjId, spec.name);
+        if (!identity) {
+          const defId = `def-${now}-${i}`;
+          const agentId = `agent-${now}-${i}`;
+          const role = spec.role;
+          const sysPrompt = spec.systemPrompt || `You are ${spec.name}, a ${role} specialist in project ${targetProjId}. Workspace boundaries are strictly enforced.`;
+
+          this.agentRepo.createDefinition({
+            id: defId,
+            name: spec.name.replace(/^@/, ''),
+            role,
+            systemPrompt: sysPrompt,
+            defaultModelId: 'ollama/qwen2.5-coder:3b',
+            domainAuthority: spec.domainAuthority,
+            capabilities: ['read', 'write', 'execute', 'agent:hire', 'agent:delegate'],
+            createdAt: now + i,
+          });
+
+          identity = {
+            id: agentId,
+            workspaceId: 'ws-default',
+            projectId: targetProjId,
+            definitionId: defId,
+            displayName: spec.name,
+            activeModelId: 'ollama/qwen2.5-coder:3b',
+            isOrchestrator: false,
+            isEphemeral: false,
+            createdAt: now + i,
+            updatedAt: now + i,
+          };
+          this.agentRepo.createIdentity(identity);
+        }
+
+        this.workspaceRepo.addChannelMember(channelId, identity.id);
+        this.broadcastEvent('agent:created', {
+          agent: {
+            id: identity.id,
+            name: identity.displayName.replace(/^@/, ''),
+            role: spec.role,
+            displayName: identity.displayName,
+            activeModelId: identity.activeModelId,
+            status: 'idle',
+            isOrchestrator: false,
+            projectId: targetProjId,
+            assignedChannels: [channelId],
+          },
+        });
+        this.broadcastEvent('channel:member_added', { channelId, agentId: identity.id });
+        hiredAgents.push(identity);
+      }
+
+      const teamList = teamSpecs.map((s) => `• **${s.name}** (${s.role})`).join('\n');
+      const announcement = `I have recruited and assembled the specialized workforce for project **${targetProjId}** in **#${chan?.name || 'this channel'}**:\n${teamList}\n\nAll specialists are enrolled with project context and ready to begin. Over to you, ${teamSpecs[0].name}!`;
+
+      const reply = this.channelService.sendMessage({
+        channelId,
+        senderId: boss.id,
+        senderType: 'agent',
+        content: announcement,
+        productivityScore: 100,
+      });
+
+      this.broadcastEvent('message:created', {
+        id: reply.id,
+        channelId: reply.channelId,
+        senderId: reply.senderId,
+        senderName: boss.displayName.replace(/^@/, ''),
+        senderType: 'agent',
+        content: reply.content,
+        createdAt: reply.createdAt,
+        productivityScore: reply.productivityScore,
+      });
+
+      if (hiredAgents.length > 0) {
+        await this.enqueueChannelExecution(channelId, () =>
+          this.enqueueAgentExecution(hiredAgents[0].id, () => this.executeAgentResponse(hiredAgents[0], channelId, userMsg))
+        );
+      }
+      return;
+    }
+
+    // 2. Check if user mentions or calls an existing agent to this channel
+    const targetAgent = allProjectAgents.find(
+      (a) =>
+        !a.isOrchestrator &&
+        (rawContent.includes(a.displayName) ||
+          contentLower.includes(a.displayName.toLowerCase()) ||
+          ((contentLower.includes('assign') || contentLower.includes('add') || contentLower.includes('call')) &&
+            contentLower.includes(a.displayName.toLowerCase().replace(/^@/, ''))))
+    );
+
+    if (targetAgent && isChannel) {
+      const channelMemberIds = this.workspaceRepo.listChannelMemberIds(channelId);
+      const isAlreadyMember = channelMemberIds.includes(targetAgent.id);
+      if (!isAlreadyMember) {
         this.workspaceRepo.addChannelMember(channelId, targetAgent.id);
         this.broadcastEvent('channel:member_added', { channelId, agentId: targetAgent.id });
 
@@ -7503,7 +7761,7 @@ export class CoreServer {
           channelId,
           senderId: boss.id,
           senderType: 'agent',
-          content: `I have assigned ${targetAgent.displayName} to this channel. They are now enrolled with cross-channel project context and ready to collaborate.`,
+          content: `I have enrolled ${targetAgent.displayName} into #${this.workspaceRepo.getChannel(channelId)?.name || 'this channel'}. They are now active with cross-channel project context. Over to you, ${targetAgent.displayName}!`,
           productivityScore: 100,
         });
 
@@ -7517,12 +7775,12 @@ export class CoreServer {
           createdAt: reply.createdAt,
           productivityScore: reply.productivityScore,
         });
-
-        await this.enqueueChannelExecution(channelId, () =>
-          this.enqueueAgentExecution(targetAgent.id, () => this.executeAgentResponse(targetAgent, channelId, userMsg))
-        );
-        return;
       }
+
+      await this.enqueueChannelExecution(channelId, () =>
+        this.enqueueAgentExecution(targetAgent.id, () => this.executeAgentResponse(targetAgent, channelId, userMsg))
+      );
+      return;
     }
 
     // 3. Safety net domain delegation:
@@ -7712,13 +7970,13 @@ export class CoreServer {
         .filter((a) => memberIds.includes(a.id) && a.id !== agent.id)
         .map((a) => a.displayName);
       const assignedChannels = this.workspaceRepo
-        .listAgentChannelIds(agent.id)
+        .listAgentChannelIds(agent.id, targetProjectId)
         .map((cId) => this.workspaceRepo.getChannel(cId)?.name)
         .filter(Boolean)
         .map((name) => `#${name}`);
 
       // 3. Compile cross-channel memory from other assigned channels
-      const allAgentChannelIds = this.workspaceRepo.listAgentChannelIds(agent.id);
+      const allAgentChannelIds = this.workspaceRepo.listAgentChannelIds(agent.id, targetProjectId);
       const otherChannelIds = allAgentChannelIds.filter((id) => id !== channelId && !id.startsWith('dm-'));
       const crossChannelSummaries = otherChannelIds.map((cId) => {
         const c = this.workspaceRepo.getChannel(cId);

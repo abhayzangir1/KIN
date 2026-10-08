@@ -807,7 +807,26 @@ Core capabilities:
 - scheduling;
 - user interaction;
 - MCP resources/tools;
-- project-specific tools.
+- project-specific tools;
+- workforce hiring and delegation (`hireSpecialist`).
+
+### Workforce Dynamic Hiring Tool (`hireSpecialist`)
+
+Allows the orchestrator (`@Boss`) or specialist agents to recruit and onboard specialized workforce members and subagents dynamically:
+
+- **Tool Identifier:** `hireSpecialist` (aliases: `hire_specialist`, `hireAgent`)
+- **Required Parameters:**
+  - `displayName`: Name or handle of the agent (e.g. `@AndroidDev`, `@QAEngineer`).
+  - `roleTitle`: Professional domain title (e.g. "Senior Android Engineer", "QA Specialist").
+- **Optional Parameters:**
+  - `systemPrompt`: Technical instructions, persona, and boundary invariants.
+  - `domainAuthority`: Array of domain expertise tags (e.g. `["Android", "Kotlin", "Gradle"]`).
+  - `suggestedModel`: Model identifier assigned to the recruit (e.g. `ollama/qwen2.5-coder:3b`).
+  - `capabilities`: Granted capability strings (e.g. `['fs:read', 'fs:write', 'agent:hire', 'agent:delegate']`).
+- **Enforcement & Isolation:**
+  - The recruit is persisted in SQLite `agent_definitions` and `agent_identities`, bound to the active `projectId` and initial `channelId`.
+  - Recruits can subsequently be called into other channels within the same project. Foreign channel memberships are never exposed across projects.
+  - Real-time events (`agent:created`, `channel:member_added`) are broadcast over SSE.
 
 ### Capability routing order
 
@@ -1238,11 +1257,18 @@ The following are reference sources, not mandatory dependencies:
 - **Persistence & Telemetry:** Evaluation runs and scores are recorded in the SQLite `agent_evaluations` table with test case inputs, expected outputs, execution latencies, and normalized scores (0-100 scale).
 - **Interactive Inspector UI:** Dedicated `Evals` subtab in the Agent Inspector showing benchmark radar/score meters, historical performance trends, and an interactive `Run Benchmark Eval` trigger.
 
-### 31.8 Managed Credentials & Bring-Your-Own-Key (BYOK)
-- **Centralized Credential Vault:** Secure storage for provider API keys and external service credentials in `managed_credentials` table.
-- **Granular Scoping:** Keys are bound to specific provider types (`gemini`, `openai`, `anthropic`, `ollama`), rate limits, and token budgets.
-- **Usage Metering:** Real-time tracking of token expenditures and request counts per credential.
-- **Inspector Management UI:** Integrated `BYOK` subtab in the Agent Inspector for adding, inspecting, rotating, and revoking provider credentials with masked display and active usage statistics.
+### 31.8 Universal BYOK Credential Vault in Settings
+- **Centralized Credential Vault:** Secure storage for provider API keys in the SQLite `managed_credentials` table, encrypted at rest with HMAC and AES-256 (`SecretVault`).
+- **Universal Multi-Project Availability:** Keys configured once in `Settings → BYOK & Credentials` are globally accessible to all agents across all projects without per-agent key configuration.
+- **Complete CRUD Management:** Full capability to add, inspect, modify, and delete credentials across supported providers (`openai`, `anthropic`, `openrouter`, `gemini`, `groq`, `deepseek`, and custom endpoints).
+- **Dynamic Model Auto-Discovery:** Adding or updating a credential automatically triggers an API query to the external provider to discover and register available models directly into the system model catalog.
+- **Clean Agent Inspector Model Picker:** The right panel Agent Inspector focuses strictly on model selection (from discovered provider models or local Ollama models) and custom model assignment without prompting for individual API keys.
+- **Usage Guardrails:** Configurable monthly token spend limits, real-time consumption progress bars, and status tracking (`active` / `revoked`).
+
+### 31.9 Swarm Map Navigation & Minimalist Dual-Theme Interface
+- **Top Header Swarm Map Button:** Prominent navigation trigger in the top application header bar providing immediate access to the interactive workforce hierarchy map and reporting lines.
+- **Strict Project & Channel Scoping:** Agent channel memberships in topology views are strictly filtered to the active project, preventing foreign channel ID leakage.
+- **Minimalist Dual-Theme Styling:** Complete light and dark theme styling across all views, sidebars, modals, and cards without dark bleed-through. Heavy borders and outlines are replaced with clean surfaces and smooth hover shadow highlights.
 
 ---
 

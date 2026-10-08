@@ -663,6 +663,20 @@ interface KinState {
     scopedAgentIds?: string[];
     scopedGrants?: string[];
   }) => Promise<{ success: boolean; credential?: ManagedCredentialItem }>;
+  updateCredential: (
+    id: string,
+    params: {
+      provider?: string;
+      keyName?: string;
+      keyAlias?: string;
+      apiKey?: string;
+      secret?: string;
+      monthlyQuotaTokens?: number;
+      maxSpendTokens?: number;
+      scopedAgentIds?: string[];
+      scopedGrants?: string[];
+    }
+  ) => Promise<{ success: boolean; credential?: ManagedCredentialItem }>;
   deleteCredential: (id: string) => Promise<boolean>;
   submitGrillMeAnswers: (
     params: { channelId?: string; topic?: string; answers: Record<string, string> } | Record<string, string>
@@ -1510,6 +1524,15 @@ export const useKinStore = create<KinState>((set, get) => ({
         } catch {}
       });
 
+      sse.addEventListener('credential:updated', (e) => {
+        try {
+          const cred: ManagedCredentialItem = JSON.parse(e.data);
+          set((state) => ({
+            credentials: state.credentials.map((c) => (c.id === cred.id ? cred : c)),
+          }));
+        } catch {}
+      });
+
       sse.addEventListener('credential:deleted', (e) => {
         try {
           const { id } = JSON.parse(e.data);
@@ -2163,6 +2186,7 @@ export const useKinStore = create<KinState>((set, get) => ({
     set({
       activeProjectId: projectId,
       activeChannelId: '',
+      channelMembers: [],
       activeGitDiff: null,
       selectedArtifact: null,
       channelMessagesCache: {},
@@ -3469,6 +3493,50 @@ export const useKinStore = create<KinState>((set, get) => ({
       return { success: false };
     } catch (err) {
       console.error('[KIN UI] Failed to add credential:', err);
+      return { success: false };
+    }
+  },
+
+  updateCredential: async (
+    id: string,
+    params: {
+      provider?: string;
+      keyName?: string;
+      keyAlias?: string;
+      apiKey?: string;
+      secret?: string;
+      monthlyQuotaTokens?: number;
+      maxSpendTokens?: number;
+      scopedAgentIds?: string[];
+      scopedGrants?: string[];
+    }
+  ) => {
+    try {
+      const res = await fetch(`/api/settings/credentials/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: params.provider,
+          keyAlias: params.keyAlias || params.keyName,
+          keyName: params.keyName || params.keyAlias,
+          secret: params.secret || params.apiKey,
+          apiKey: params.apiKey || params.secret,
+          scopedGrants: params.scopedGrants || params.scopedAgentIds,
+          scopedAgentIds: params.scopedAgentIds || params.scopedGrants,
+          maxSpendTokens: params.maxSpendTokens || params.monthlyQuotaTokens,
+          monthlyQuotaTokens: params.monthlyQuotaTokens || params.maxSpendTokens,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        set((state) => ({
+          credentials: state.credentials.map((c) => (c.id === id ? data.credential : c)),
+        }));
+        return { success: true, credential: data.credential };
+      }
+      return { success: false };
+    } catch (err) {
+      console.error('[KIN UI] Failed to update credential:', err);
       return { success: false };
     }
   },

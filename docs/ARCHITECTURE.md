@@ -199,10 +199,11 @@ Before every reasoning turn, `ContextCompiler` (`core/src/context/context_compil
 
 ---
 
-### 3.5 Model Gateway & Quota Guard Architecture
+### 3.5 Model Gateway & Universal BYOK Vault Architecture
 `ModelGateway` (`core/src/execution/model_gateway.ts`) abstracts model providers:
 - **Local Inference**: Native connectivity to local **Ollama** instances (`http://localhost:11434`), supporting local models like `qwen2.5-coder:3b` and `llama3.2`.
-- **Cloud BYOK (Bring Your Own Key)**: Direct integration with OpenRouter, Anthropic, OpenAI, DeepSeek, and Google Gemini with token spend tracking and configurable spend caps.
+- **Universal Cloud BYOK (Bring Your Own Key)**: Direct integration with OpenRouter, Anthropic, OpenAI, DeepSeek, Groq, and Google Gemini with token spend tracking and configurable spend caps. Keys are stored encrypted with HMAC and AES-256 in the centralized `managed_credentials` table in SQLite. Once configured in Settings, keys are globally accessible to any agent across all projects.
+- **Dynamic Model Auto-Discovery**: Adding or modifying credentials triggers live provider discovery via `fetchProviderModels`, synchronizing the model catalog immediately into SQLite `models`.
 - **Quota Guard (HTTP 429 Interception)**:
   1. When a cloud provider returns HTTP 429 (`RESOURCE_EXHAUSTED` or rate limit exceeded), the gateway catches the error.
   2. The agent run is updated to status `quota_paused`, and an immutable checkpoint is saved.
@@ -283,7 +284,16 @@ graph TD
 
 ---
 
-### 3.7 Slash Command Engine & Multi-Command Pipelines
+### 3.7 Dynamic Workforce Engine & `hireSpecialist` Tool Integration
+The workforce engine enables autonomous recruitment and team delegation:
+- **`hireSpecialist` Tool (`ToolGateway`)**: Available to `@Boss` (orchestrator) and specialist agents. Enables autonomous onboarding of specialized subagents and domain experts (e.g. `@AndroidDev`, `@QAEngineer`, `@BackendDev`) with role titles, domain authority tags, suggested models, and system instructions.
+- **Strict Project & Channel Scoping**: Hired agents are persisted in SQLite `agent_definitions` and `agent_identities`, bound strictly to `context.projectId` and `context.channelId`. Hired agents can later be assigned to other channels within that project, while preserving multi-channel context. Memberships are strictly scoped so foreign channel IDs are never exposed across projects.
+- **Context Compiler Directives**: `ContextCompiler` embeds instructions into Block 1 prompting agents to utilize `hireSpecialist` when an operator requests a team or specialized skill set.
+- **Swarm Map Navigation & Topology**: Visualizes the workforce hierarchy and reporting relationships, accessible directly via the top application header bar button.
+
+---
+
+### 3.8 Slash Command Engine & Multi-Command Pipelines
 KIN provides a unified slash command router (`core/src/server/core_server.ts`) supporting single and compound commands:
 
 | Slash Command | Primary Action | System Effect |

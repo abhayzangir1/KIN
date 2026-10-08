@@ -77,6 +77,7 @@ export class ContextCompiler {
       `- Do not fabricate task completion: completion strictly requires verifiable test passes or artifacts.`,
       `- Do not delete files outside the project root or jail sandbox.`,
       `- If a debate stalemates for multiple turns, present concrete test evidence rather than repeating arguments.`,
+      `- Dynamic Workforce & Team Delegation: You have full access to the 'hireSpecialist' tool. When the operator or mission calls for creating a team or delegating to specialized roles (e.g., Android engineering, QA, Frontend, Backend, Database), use the 'hireSpecialist' tool to onboard specialized agents directly into this project and channel. Both orchestrators and specialists can hire subagents under them as required.`,
     ];
 
     if (input.goalAncestry) {

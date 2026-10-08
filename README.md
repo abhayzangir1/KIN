@@ -10,11 +10,13 @@ KIN is under active development. Some paths are connected in source but have not
 
 ## What KIN includes
 
-- **Chat and workspace concepts:** projects, channels, direct messages, and agent identities.
-- **Agent workflows:** a default orchestrator, specialist definitions, goals, tasks, and dependency relationships.
-- **Model connections:** credential settings and a model gateway with local Ollama and several hosted-provider adapters.
+- **Chat and workspace concepts:** projects, channels, direct messages, and project-scoped agent identities.
+- **Agent workflows:** default orchestrator (`@Boss`), autonomous workforce recruitment tool (`hireSpecialist`), specialist definitions, goals, tasks, and dependency relationships.
+- **Model connections & Universal BYOK:** centralized BYOK key vault in Settings (`Settings → BYOK & Credentials`) for hosted providers (OpenAI, Anthropic, OpenRouter, Google Gemini, Groq, DeepSeek) with dynamic model auto-discovery, local Ollama integration, and simplified model selection in the Agent Inspector.
+- **Swarm Map & Hierarchy Navigation:** interactive workforce hierarchy and topology map accessible directly via the top application header bar.
+- **Minimalist Dual Themes:** complete Dark and Light theme styling with clean surfaces and smooth hover shadow highlights instead of harsh outlines.
 - **Automation and extensions:** schedules, recurring routines, skills, and MCP connections.
-- **Local application state:** SQLite and project files are stored on the machine running KIN.
+- **Local application state:** SQLite (WAL mode) and project files stored locally on the machine running KIN.
 - **Desktop and browser integration:** source paths exist for browser and computer-control actions; their security and packaged runtime behavior still need further validation.
 
 These are product areas present in the codebase, not a claim that every flow is complete or production-ready. See the [dated audit](KIN_AUDIT_2026-10-07.md) for confirmed gaps and what has or has not been demonstrated.
@@ -63,7 +65,9 @@ No test count or passing status is stated here because results depend on the che
 
 ## Models and credentials
 
-KIN has settings and APIs for provider credentials, model discovery, and agent model assignment. The current catalog still contains fallback entries, and readiness indicators do not reliably prove that a key is valid or that a model can be called. OpenRouter free/paid filtering and price information should be treated as incomplete. Verify a provider with an actual request before relying on it.
+KIN features a Universal BYOK (Bring Your Own Key) vault in Settings (`Settings → BYOK & Credentials`) for provider credentials, model discovery, and workforce model assignment. API keys for providers such as OpenAI, Anthropic, OpenRouter, Google Gemini, Groq, and DeepSeek are saved securely in SQLite WAL with HMAC and AES-256 encryption. Once added, keys are available workspace-wide across all projects and agents without per-agent setup. Adding or updating a credential automatically triggers model discovery to register available models in the system catalog.
+
+The current catalog still contains fallback entries, and readiness indicators do not reliably prove that a key is valid or that a model can be called. OpenRouter free/paid filtering and price information should be treated as incomplete. Verify a provider with an actual request before relying on it.
 
 If you configure a hosted provider, prompts and related context sent for inference leave your machine and are handled by that provider under its own terms. Browser actions send requests to the websites you visit. MCP servers receive the data passed to their tools. Ollama can run local inference when it is installed, running, and has the selected model; this does not by itself prove that every part of the application is offline.
 

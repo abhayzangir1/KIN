@@ -8,6 +8,10 @@
 
 html.light {
   color-scheme: light;
+  --kin-bg: #f8fafc;
+  --kin-surface: #ffffff;
+  --kin-surface-subtle: #f1f5f9;
+  --kin-border: #e2e8f0;
 }
 
 /* Minimalist scrollbars */
@@ -21,7 +25,7 @@ html.light {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2A364F;
+  background: #2a364f;
   border-radius: 4px;
 }
 
@@ -30,47 +34,118 @@ html.light ::-webkit-scrollbar-thumb {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3B82F6;
+  background: #3b82f6;
 }
 
-/* Clean minimal borderless feel with subtle marginal separation */
-html.light {
-  --kin-bg: #f8fafc;
-  --kin-surface: #ffffff;
-  --kin-border: #e2e8f0;
+/* ============================================================================
+   BORDERLESS MINIMALISM & SMOOTH HOVER SHADOW HIGHLIGHTS
+   Eliminates harsh, heavy borders across cards, list items, options, and panels;
+   replaces them with smooth, subtle hover shadows for a clean, modern aesthetic.
+   ============================================================================ */
+
+/* Soften harsh borders across lists, cards, and options */
+.rounded,
+.rounded-md,
+.rounded-lg,
+.rounded-xl {
+  transition: box-shadow 0.15s cubic-bezier(0.4, 0, 0.2, 1), transform 0.1s ease, border-color 0.15s ease;
 }
 
-/* Light mode overrides for high-readability minimalist aesthetic */
+/* Subtle elevation highlight on hover for interactive items */
+button:not(:disabled):hover,
+[role="button"]:hover,
+.cursor-pointer:hover {
+  box-shadow: 0 2px 8px -1px rgba(0, 0, 0, 0.25);
+}
+
+html.light button:not(:disabled):hover,
+html.light [role="button"]:hover,
+html.light .cursor-pointer:hover {
+  box-shadow: 0 2px 8px -1px rgba(0, 0, 0, 0.08);
+}
+
+/* Dark mode subtle borders (soften harsh high-contrast outlines) */
+html.dark .border-\[\#1e293b\],
+html.dark .border-\[\#21262d\],
+html.dark .border-\[\#30363d\] {
+  border-color: rgba(255, 255, 255, 0.07);
+}
+
+html.dark .border-\[\#1e293b\]\/60,
+html.dark .border-\[\#1e293b\]\/50,
+html.dark .border-\[\#30363d\]\/80 {
+  border-color: rgba(255, 255, 255, 0.04);
+}
+
+/* ============================================================================
+   COMPREHENSIVE LIGHT THEME OVERRIDES
+   Ensures complete coverage across all panels, sidebars, modals, tables, and cards
+   without dark background bleed-through.
+   ============================================================================ */
+
+/* 1. Base Container & App Backgrounds */
+html.light body,
+html.light #root,
 html.light .bg-\[\#0a0f1d\],
 html.light .bg-\[\#070b12\],
 html.light .bg-\[\#090d16\],
 html.light .bg-\[\#0b0f19\],
+html.light .bg-\[\#070b14\],
+html.light .bg-\[\#050811\],
+html.light .bg-\[\#080d1a\],
 html.light .bg-\[\#0e1424\] {
   background-color: #f8fafc !important;
+  color: #0f172a !important;
 }
 
+/* 2. Elevated Surfaces (Modals, Cards, Panels, Header) */
 html.light .bg-\[\#0d121f\],
 html.light .bg-\[\#0d1117\],
 html.light .bg-\[\#131b2e\],
 html.light .bg-\[\#161b22\],
+html.light .bg-\[\#101726\],
+html.light .bg-\[\#111827\],
 html.light .bg-\[\#0f172a\] {
   background-color: #ffffff !important;
+  color: #0f172a !important;
 }
 
+/* 3. Secondary/Nested Surfaces & Pills */
 html.light .bg-\[\#1e293b\],
-html.light .bg-\[\#21262d\] {
+html.light .bg-\[\#21262d\],
+html.light .bg-\[\#1a2333\],
+html.light .bg-\[\#1f2937\] {
   background-color: #f1f5f9 !important;
 }
 
+/* 4. Interactive Hover States in Light Mode */
+html.light .hover\:bg-\[\#131b2e\]:hover,
+html.light .hover\:bg-\[\#161b22\]:hover,
+html.light .hover\:bg-\[\#21262d\]:hover,
+html.light .hover\:bg-\[\#30363d\]:hover {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+/* 5. Minimal, Crisp Light Borders */
 html.light .border-\[\#1e293b\],
 html.light .border-\[\#30363d\],
 html.light .border-\[\#21262d\],
-html.light .border-\[\#2d3748\] {
+html.light .border-\[\#2d3748\],
+html.light .border-\[\#334155\],
+html.light .border-\[\#1e293b\]\/60,
+html.light .border-\[\#1e293b\]\/50,
+html.light .border-\[\#30363d\]\/80 {
   border-color: #e2e8f0 !important;
 }
 
+/* 6. Typography & Contrast in Light Mode */
 html.light .text-kin-text {
   color: #0f172a !important;
+}
+
+html.light .text-kin-muted {
+  color: #64748b !important;
 }
 
 html.light .text-\[\#cbd5e1\],
@@ -79,14 +154,36 @@ html.light .text-\[\#8b949e\] {
   color: #475569 !important;
 }
 
-html.light .text-\[\#64748b\] {
+html.light .text-\[\#64748b\],
+html.light .text-\[\#475569\] {
   color: #64748b !important;
 }
 
+/* 7. Form Controls (Inputs, Selects, Textareas) in Light Mode */
 html.light input,
 html.light select,
 html.light textarea {
   color: #0f172a !important;
   background-color: #ffffff !important;
   border-color: #cbd5e1 !important;
+}
+
+html.light input:focus,
+html.light select:focus,
+html.light textarea:focus {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 1px #3b82f6 !important;
+}
+
+html.light input::placeholder,
+html.light textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* 8. Modal Backdrop Softening */
+html.light .bg-black\/60,
+html.light .bg-black\/70,
+html.light .bg-black\/80 {
+  background-color: rgba(15, 23, 42, 0.45) !important;
+  backdrop-filter: blur(4px);
 }
