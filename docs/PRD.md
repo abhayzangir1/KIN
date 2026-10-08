@@ -1153,7 +1153,7 @@ A release is product-complete for the stated scope only if:
 4. Visible collaboration.
 5. State over raw history.
 6. Context as a managed resource.
-7. Local sovereignty.
+7. Local data control.
 8. Consequential actions are governed.
 9. Few authoritative boundaries.
 10. Frameworks are replaceable.
