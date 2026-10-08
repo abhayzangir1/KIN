@@ -17,6 +17,8 @@ core/.kin/
 *.log
 *.tmp
 core/v12_security_verified.txt
+screenshots/
+core/screenshots/
 
 # Environment & Private Credentials
 .env

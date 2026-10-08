@@ -228,7 +228,7 @@ export class DesktopController {
 
     try {
       this.pendingListPromise = new Promise<WindowInfo[]>((resolve) => {
-        childProcess.exec('tasklist /v /fo csv', { maxBuffer: 10 * 1024 * 1024, windowsHide: true }, (err, stdout) => {
+        childProcess.exec('tasklist /v /fo csv', { timeout: 10000, maxBuffer: 10 * 1024 * 1024, windowsHide: true }, (err, stdout) => {
           this.pendingListPromise = null;
           if (err || !stdout) {
             return resolve(this.cachedWindows?.data || []);

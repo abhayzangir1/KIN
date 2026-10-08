@@ -271,19 +271,26 @@ export class TaskRepository {
   }
 
   /**
-   * Scans for tasks with expired leases and safely resets them to 'ready' for other agents.
+   * Scans for tasks with expired leases, terminated runs, or missing claim leases,
+   * and safely resets them to 'ready' (or 'failed' if max retries exceeded) for other agents.
    */
   public reclaimExpiredTaskLeases(): string[] {
     const now = Date.now();
-    const expired = this.db.query<{ id: string }>(
-      `SELECT t.id FROM tasks t
+    const expired = this.db.query<{ id: string; retry_count: number }>(
+      `SELECT t.id, t.retry_count FROM tasks t
        LEFT JOIN agent_runs r ON t.claimed_by_run_id = r.id
        WHERE t.status = 'running'
-         AND t.lease_expires_at IS NOT NULL
          AND (
-           (t.lease_expires_at < ? AND (r.state IS NULL OR r.state != 'waiting_for_approval'))
-           OR
-           (r.state = 'waiting_for_approval' AND t.lease_expires_at + 86400000 < ?)
+           -- 1. Orphaned running task with no claimed run
+           t.claimed_by_run_id IS NULL
+           -- 2. Claimed run terminated without completing or failing task
+           OR (r.state IS NOT NULL AND r.state IN ('completed', 'failed', 'cancelled'))
+           -- 3. Running task without lease expiration timestamp set
+           OR t.lease_expires_at IS NULL
+           -- 4. Expired lease and run is not actively waiting for human approval
+           OR (t.lease_expires_at < ? AND (r.state IS NULL OR r.state != 'waiting_for_approval'))
+           -- 5. Extended approval grace period (24h) expired even if waiting for approval
+           OR (r.state = 'waiting_for_approval' AND t.lease_expires_at + 86400000 < ?)
          )`,
       now,
       now
@@ -294,14 +301,16 @@ export class TaskRepository {
     const reclaimedIds: string[] = [];
     this.db.transactionSync(() => {
       for (const row of expired) {
+        const nextStatus = (row.retry_count || 0) >= 5 ? 'failed' : 'ready';
         this.db.execute(
           `UPDATE tasks
-           SET status = 'ready',
+           SET status = ?,
                claimed_by_run_id = NULL,
                lease_expires_at = NULL,
                retry_count = retry_count + 1,
                updated_at = ?
            WHERE id = ?`,
+          nextStatus,
           now,
           row.id
         );

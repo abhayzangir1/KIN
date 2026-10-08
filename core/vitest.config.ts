@@ -5,5 +5,8 @@ export default defineConfig({
     include: ['test/**/*.test.ts'],
     exclude: ['**/node_modules/**', '**/.kin/**', '**/dist/**'],
     fileParallelism: false,
+    env: {
+      KIN_ISOLATE_OLLAMA: 'true',
+    },
   },
 });

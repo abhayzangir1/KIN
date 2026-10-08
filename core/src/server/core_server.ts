@@ -401,7 +401,8 @@ export class CoreServer {
       if (reclaimedTaskIds.length > 0) {
         console.log(`[KIN SUPERVISOR] Self-healing reclaimed ${reclaimedTaskIds.length} expired task lease(s).`);
         for (const tId of reclaimedTaskIds) {
-          this.broadcastEvent('task:updated', { taskId: tId, status: 'ready' });
+          const t = this.taskRepo.getTask(tId);
+          this.broadcastEvent('task:updated', { taskId: tId, status: t?.status || 'ready' });
         }
       }
 
@@ -792,6 +793,9 @@ export class CoreServer {
    * Queries Ollama for currently installed models and online status.
    */
   public async getLocalOllamaModels(): Promise<{ online: boolean; models: string[] }> {
+    if (process.env.KIN_ISOLATE_OLLAMA === 'true') {
+      return { online: false, models: [] };
+    }
     try {
       const res = await fetch('http://127.0.0.1:11434/api/tags', { signal: AbortSignal.timeout(5000) });
       if (!res.ok) return { online: false, models: [] };
@@ -2162,6 +2166,22 @@ export class CoreServer {
           content,
           truncated,
         });
+      }
+
+      // 7a. GET /api/channels — List channels in project
+      if (req.method === 'GET' && pathname === '/api/channels') {
+        const projectId = parsedUrl.searchParams.get('projectId') || this.activeProjectId;
+        const channels = this.workspaceRepo.listChannels(projectId, true);
+        const mapped = channels.map((c: Channel) => ({
+          id: c.id,
+          projectId: c.projectId,
+          name: c.name,
+          topic: c.topic,
+          isPrivate: c.isPrivate,
+          createdAt: c.createdAt,
+          memberIds: this.workspaceRepo.listChannelMemberIds(c.id),
+        }));
+        return this.sendJson(res, 200, { channels: mapped });
       }
 
       // 7b. POST /api/channels — Create channel in project
@@ -4684,15 +4704,16 @@ export class CoreServer {
       const agentModelMatch = pathname.match(/^\/api\/agents\/([^/]+)\/model$/);
       if (req.method === 'PATCH' && agentModelMatch) {
         const agentId = agentModelMatch[1];
-        const body = await this.parseJsonBody<{ activeModelId: string; fallbackModelId?: string }>(req);
+        const body = await this.parseJsonBody<{ activeModelId?: string; model?: string; fallbackModelId?: string }>(req);
+        const activeModelId = body.activeModelId || body.model;
 
-        if (!body.activeModelId) {
-          return this.sendJson(res, 400, { error: 'activeModelId is required' });
+        if (!activeModelId) {
+          return this.sendJson(res, 400, { error: 'activeModelId or model is required' });
         }
 
-        this.agentRepo.updateAgentModelConfig(agentId, body.activeModelId, body.fallbackModelId);
-        this.broadcastEvent('agent:updated', { agentId, activeModelId: body.activeModelId });
-        return this.sendJson(res, 200, { success: true, agentId, activeModelId: body.activeModelId });
+        this.agentRepo.updateAgentModelConfig(agentId, activeModelId, body.fallbackModelId);
+        this.broadcastEvent('agent:updated', { agentId, activeModelId });
+        return this.sendJson(res, 200, { success: true, agentId, activeModelId });
       }
 
       // 12. PATCH /api/agents/:agentId/contract — Update agent role title and instructions
@@ -4743,13 +4764,23 @@ export class CoreServer {
         return this.sendJson(res, 200, { success: true, autonomyMode: body.autonomyMode });
       }
 
+      // 13b. GET /api/approvals — List approvals
+      if (req.method === 'GET' && pathname === '/api/approvals') {
+        const statusFilter = parsedUrl.searchParams.get('status');
+        const rows = statusFilter
+          ? this.db.query<any>('SELECT * FROM approvals WHERE status = ? ORDER BY created_at DESC', statusFilter)
+          : this.db.query<any>('SELECT * FROM approvals ORDER BY created_at DESC');
+        return this.sendJson(res, 200, { approvals: rows });
+      }
+
       // 14. POST /api/approvals/:approvalId/resolve — Resolve approval gate
       const approvalMatch = pathname.match(/^\/api\/approvals\/([^/]+)\/resolve$/);
       if (req.method === 'POST' && approvalMatch) {
         const approvalId = approvalMatch[1];
-        const body = await this.parseJsonBody<{ approved: boolean }>(req);
+        const body = await this.parseJsonBody<{ approved?: boolean; status?: string; decision?: string }>(req);
 
-        const status = body.approved ? 'approved' : 'rejected';
+        const isApproved = body.approved === true || body.status === 'approved' || body.decision === 'approve';
+        const status = isApproved ? 'approved' : 'rejected';
         const now = Date.now();
 
         this.db.execute(
@@ -4843,7 +4874,7 @@ export class CoreServer {
 
         this.broadcastEvent('approval:resolved', {
           approvalId,
-          approved: body.approved,
+          approved: isApproved,
           toolName: approvalRow?.tool_name,
           result: toolExecutionResult,
         });
@@ -4928,6 +4959,20 @@ export class CoreServer {
         const goals = this.taskRepo.listGoals(projectId);
         const tasks = this.taskRepo.listTasksByProject(projectId);
         return this.sendJson(res, 200, { goals, tasks });
+      }
+
+      // 15b. GET /api/goals — List goals for project
+      if (req.method === 'GET' && pathname === '/api/goals') {
+        const projectId = parsedUrl.searchParams.get('projectId') || this.activeProjectId;
+        const goals = this.taskRepo.listGoals(projectId);
+        return this.sendJson(res, 200, { goals });
+      }
+
+      // 15c. GET /api/tasks — List tasks for project
+      if (req.method === 'GET' && pathname === '/api/tasks') {
+        const projectId = parsedUrl.searchParams.get('projectId') || this.activeProjectId;
+        const tasks = this.taskRepo.listTasksByProject(projectId);
+        return this.sendJson(res, 200, { tasks });
       }
 
       // 16. POST /api/projects/:id/goals — Create a goal
@@ -6184,11 +6229,27 @@ export class CoreServer {
       // 33c. POST /api/skills/experiences — Record execution or recovery experience
       if (req.method === 'POST' && (pathname === '/api/skills/experiences' || pathname === '/api/learning/experiences')) {
         const body = await this.parseJsonBody<any>(req);
-        if (!body?.runId || !body?.objective || !body?.outcome) {
-          return this.sendJson(res, 400, { error: 'runId, objective, and outcome are required' });
+        let runId = body?.runId;
+        if (!runId) {
+          const latestRun = this.db.queryOne<{ id: string }>(
+            'SELECT id FROM agent_runs ORDER BY created_at DESC LIMIT 1'
+          );
+          if (latestRun) runId = latestRun.id;
         }
-        const expId = this.skillEngine.recordExperience(body);
-        this.broadcastEvent('learning:experience_recorded', { expId, ...body });
+        if (!runId) {
+          return this.sendJson(res, 400, { error: 'runId is required or a recent agent run must exist in the project.' });
+        }
+        const objective = body?.objective || body?.input || 'General task execution';
+        const outcome = (body?.outcome === 'failure' || body?.outcome === 'success')
+          ? body.outcome
+          : (body?.success === false ? 'failure' : 'success');
+        const expId = this.skillEngine.recordExperience({
+          ...body,
+          runId,
+          objective,
+          outcome,
+        });
+        this.broadcastEvent('learning:experience_recorded', { expId, runId, objective, outcome });
         return this.sendJson(res, 201, { success: true, experienceId: expId });
       }
 
@@ -7016,13 +7077,13 @@ export class CoreServer {
       if (req.method === 'POST' && pathname === '/api/settings/credentials') {
         const body = await this.parseJsonBody<any>(req);
         const provider = body.provider;
-        const keyName = body.keyName || body.keyAlias;
-        const apiKey = body.apiKey || body.secret;
+        const keyName = body.keyName || body.keyAlias || body.key;
+        const apiKey = body.apiKey || body.secret || body.value;
         const monthlyQuotaTokens = body.monthlyQuotaTokens || body.maxSpendTokens || 5000000;
         const scopedAgentIds = body.scopedAgentIds || body.scopedGrants || [];
 
         if (!provider || !keyName || !apiKey) {
-          return this.sendJson(res, 400, { error: 'Provider, keyName (or keyAlias), and apiKey (or secret) are required' });
+          return this.sendJson(res, 400, { error: 'Provider, keyName (or keyAlias/key), and apiKey (or secret/value) are required' });
         }
         const now = Date.now();
         const credId = `cred-${now}-${Math.random().toString(36).slice(2, 6)}`;

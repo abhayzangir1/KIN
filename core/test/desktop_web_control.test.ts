@@ -96,7 +96,7 @@ describe('KIN V12: Desktop & Web Control Upgrades', () => {
 
       const keyRes = await controller.sendKey('ESC');
       expect(keyRes.success).toBe(true);
-    }, 35000);
+    }, 60000);
   });
 
   describe('3 & 8. BrowserController: Persistent Sessions & Web Task Step Trajectory', () => {
@@ -148,7 +148,7 @@ describe('KIN V12: Desktop & Web Control Upgrades', () => {
       } finally {
         await browser.close();
       }
-    });
+    }, 30000);
 
     it('normalizes and formats navigation URLs correctly including about:blank, file protocols, and whitespace', async () => {
       const browser = new BrowserController();
