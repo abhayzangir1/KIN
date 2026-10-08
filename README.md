@@ -6,7 +6,7 @@ KIN brings conversations, projects, agent definitions, tasks, model settings, an
 
 KIN is under active development. Some paths are connected in source but have not been validated end to end. This README describes the current project without treating planned behavior as a certainty.
 
-[Audit and current limitations](KIN_AUDIT_2026-10-07.md) · [Architecture notes](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Skills](docs/SKILLS_GUIDE.md) · [Slash commands](docs/SLASH_COMMANDS.md) · [FAQ](docs/FAQ.md) · [Contributing](docs/CONTRIBUTING.md) · [License](LICENSE)
+[Audit and current limitations](KIN_AUDIT_2026-10-07.md) · [Architecture notes](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Product Copy & Launch Kit](docs/PRODUCT_COPY_DRAFTS.md) · [Skills](docs/SKILLS_GUIDE.md) · [Slash commands](docs/SLASH_COMMANDS.md) · [FAQ](docs/FAQ.md) · [Contributing](docs/CONTRIBUTING.md) · [License](LICENSE)
 
 ## What KIN includes
 
@@ -15,7 +15,7 @@ KIN is under active development. Some paths are connected in source but have not
 - **Model connections & Universal BYOK:** centralized BYOK key vault in Settings (`Settings → BYOK & Credentials`) for hosted providers (OpenAI, Anthropic, OpenRouter, Google Gemini, Groq, DeepSeek) with dynamic model auto-discovery, local Ollama integration, and simplified model selection in the Agent Inspector.
 - **Swarm Map & Hierarchy Navigation:** interactive workforce hierarchy and topology map accessible directly via the top application header bar.
 - **Minimalist Dual Themes:** complete Dark and Light theme styling with clean surfaces and smooth hover shadow highlights instead of harsh outlines.
-- **Automation and extensions:** schedules, recurring routines, skills, and MCP connections.
+- **Model Context Protocol (MCP) & Extensions:** native stdio JSON-RPC 2.0 client execution for community MCP servers (configured via `.kin/mcp.json`), procedural skills, recurring schedules, and automation routines.
 - **Local application state:** SQLite (WAL mode) and project files stored locally on the machine running KIN.
 - **Desktop and browser integration:** source paths exist for browser and computer-control actions; their security and packaged runtime behavior still need further validation.
 
