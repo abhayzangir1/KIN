@@ -40,3 +40,10 @@ KIN_COMPREHENSIVE_AUDIT_AND_FIX_PLAN.md
 *marketing*
 *draft*
 docs/PRODUCT_COPY_DRAFTS.md
+
+# Local-only audit and runtime-inspection material
+/KIN_AUDIT*.md
+/KIN_COMPREHENSIVE_AUDIT*.md
+/inspect_states.mjs
+/verify_live_runtime_suite.mjs
+/core/test/live_runtime_verification_report.json

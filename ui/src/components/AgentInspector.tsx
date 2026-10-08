@@ -95,7 +95,7 @@ export const AgentInspector: React.FC = () => {
   const currentAgent = agents.find((a) => a.id === selectedAgentId) || agents[0];
 
   // Contract form state
-  const [roleTitle, setRoleTitle] = useState(currentAgent?.role || 'Lead Sovereign Orchestrator');
+  const [roleTitle, setRoleTitle] = useState(currentAgent?.role || 'Workspace Orchestrator');
   const [activeModelId, setActiveModelId] = useState(currentAgent?.activeModelId || 'ollama/qwen2.5-coder:3b');
   const [customInstructions, setCustomInstructions] = useState(
     currentAgent?.systemPrompt || 'Optional custom instructions specific to this agent'

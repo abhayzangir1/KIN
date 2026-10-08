@@ -1372,7 +1372,7 @@ export class ToolGateway {
             ? params.capabilities
             : ['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate', 'mcp:call'];
           const sysPrompt = params.systemPrompt ||
-            `You are ${normalizedName}, a ${role} specialist in project ${projectId}. Workspace boundaries are strictly enforced. Execute tasks with high technical rigor.`;
+            `You are ${normalizedName}, a ${role} specialist in project ${projectId}. Follow the capabilities and project scope provided for this run. Ask when access or authority is unclear.`;
 
           let agentId = `agent-${now}-${crypto.randomBytes(3).toString('hex')}`;
           let defId = `def-${now}-${crypto.randomBytes(3).toString('hex')}`;

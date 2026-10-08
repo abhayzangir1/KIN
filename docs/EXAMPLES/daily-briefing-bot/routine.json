@@ -4,5 +4,5 @@
   "prompt": "Compile daily workspace briefing covering active goals, pending tasks, and recent git commits",
   "type": "cron",
   "targetChannel": "#general",
-  "description": "Fires daily at 09:00 to post an executive project digest into the team channel"
+  "description": "Illustrative schedule metadata only; not connected to a live workspace or posting handler"
 }

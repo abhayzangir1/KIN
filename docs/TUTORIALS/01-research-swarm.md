@@ -1,29 +1,14 @@
 # Research workflow sketch
 
-This is a suggested workflow, not a verified end-to-end tutorial. Model calls, browser access, and coordination depend on configuration. Review the [current audit](../../KIN_AUDIT_2026-10-07.md) before relying on the result.
-
-## Before you start
-
-- Select a project and confirm the agent identities and models you intend to use.
-- Confirm a model can answer a simple prompt.
-- If using browser tools, confirm the browser opens the intended destination and that the page content is observable.
-- Do not send private or restricted material to a hosted model or external site unless you intend to share it with that provider.
+This is a suggested process for using KIN's chat, agent, browser, and task features. It does not perform or verify research by itself. Example skills in `docs/EXAMPLES/research-analyzer/` return scaffold output rather than fetched findings.
 
 ## Suggested sequence
 
-1. State the research question, source requirements, and what would count as a useful answer.
-2. Use /goal to record the objective and /plan to request a task breakdown.
-3. Review the proposed tasks and confirm which agent, model, and tools are appropriate.
-4. Ask the research agent to inspect named primary sources. Record the page URL, relevant passage, and access date for each claim.
-5. Ask a second agent or a human to check the evidence and distinguish direct source statements from interpretation.
-6. Review the final summary yourself. Do not treat generated text or a “verified” label as proof that a source was checked.
+1. Select a project and channel that are appropriate for the research.
+2. State the question, source requirements, date range, and expected output.
+3. If asking for specialist help, name the agents or use a bounded planning request.
+4. Confirm the chosen model and any browser/MCP tools before sending private context.
+5. Ask for source links and separate direct source observations from inference.
+6. Open the cited sources and verify claims yourself before relying on the result.
 
-## What to inspect
-
-- Did the selected agent actually run?
-- Did the browser reach the intended source?
-- Are the cited pages represented in the saved result?
-- Do important statements distinguish evidence from inference?
-- Did the task finish with evidence that matches the acceptance criteria?
-
-The workflow is useful for exploring the project, but this page does not promise a three-agent swarm, persistent browser login, or an authoritative research report.
+Hosted inference and browser navigation can send data outside the machine. See [Current implementation notes](../PROJECT_STATUS.md).

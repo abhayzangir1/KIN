@@ -25,7 +25,7 @@ parameters:
 
 > Example only. The included implementation returns canned values such as two active goals, five pending tasks, and “All services operational.” It does not collect live workspace or health data.
 
-Automates compiling proactive morning briefings and executive workspace digests without operator prompting.
+Describes a possible workflow for compiling a workspace briefing. The included handler returns scaffold output and does not query or post live workspace data.
 
 ## When to Use
 Activate this skill whenever:

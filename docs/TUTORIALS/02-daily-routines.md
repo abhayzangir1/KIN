@@ -1,31 +1,19 @@
-# Timers and recurring routines: workflow sketch
+# Timers and recurring routines
 
-This page describes a way to explore the schedule features. It has not been verified end to end against the current checkout. In particular, persistence does not by itself prove that a due run will be dispatched after a restart.
+KIN's source includes one-shot schedules and recurring five-field cron schedules. A schedule firing wakes an agent; it does not guarantee that the requested work finishes successfully.
 
-## Try a one-time schedule
+## Try a one-time reminder
 
-1. Start the core and UI.
-2. In a test project, enter a harmless request such as:
-
-~~~text
-/schedule 1m Report whether the test reminder fired
-~~~
-
-3. Check the response and the automation/schedule view for a created record.
-4. Leave the application running and check whether the trigger is delivered to the expected channel.
-5. Repeat with a controlled restart before relying on schedules across restarts.
-
-The command handler supports duration-style inputs. Check the current slash-command handler for accepted syntax rather than assuming every natural-language duration works.
+1. Use a disposable project and a harmless reminder.
+2. Enter `/schedule 1m Report whether this reminder fired` in a channel.
+3. Inspect the created schedule and its target channel/agent.
+4. Confirm whether the wake-up message and agent run appear.
+5. Cancel the schedule if it remains active.
 
 ## Try a recurring routine
 
-Use a harmless task and a short interval in a test project. Confirm the created routine, target channel, target agent, and next-run time. Verify that repeated triggers do not create unintended duplicate work.
+Use a test project and a valid five-field cron expression, for example `*/15 * * * *`. Confirm the displayed next-run time and inspect schedule attempt state after a fire. Consider host local time and daylight-saving changes when using fixed calendar times.
 
-## Check before relying on it
+## Before relying on a routine
 
-- Confirm the target agent has a usable model and required tools.
-- Check the schedule's persisted status after creation and after restart.
-- Confirm what happens when a run is already active or the provider is unavailable.
-- Cancel the test schedule and verify that it no longer fires.
-
-The scheduler and schedule records exist in source. This page does not promise quiescent run suspension, exact restart recovery, or successful delivery under every condition.
+Check that the target agent, model, tools, project, and channel are available. Inspect failure state and retry behavior. Do not treat a schedule record or `schedule:fired` UI event as proof the resulting task completed.

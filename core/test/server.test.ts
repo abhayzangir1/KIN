@@ -39,7 +39,7 @@ describe('KIN Phase 1/2: Core IPC Server Integration & Authoritative State', () 
     expect(data.agents.length).toBe(1);
     const boss = data.agents[0];
     expect(boss.displayName).toBe('@Boss');
-    expect(boss.role).toBe('Lead Sovereign Orchestrator');
+    expect(boss.role).toBe('Workspace Orchestrator');
     expect(boss.isOrchestrator).toBe(true);
 
     expect(data.messages.length).toBeGreaterThan(0);

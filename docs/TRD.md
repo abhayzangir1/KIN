@@ -1,5 +1,5 @@
-# KIN — FINAL MASTER TECHNICAL REQUIREMENTS DOCUMENT
-## Version 12.0 — System Architecture, IPC Contracts & Engineering Specification
+# KIN technical design and requirements
+## Proposed architecture and engineering direction
 
 **Date:** 2026-10-01
 **Document Version:** 12.0
@@ -10,7 +10,7 @@
 **Persistence:** SQLite 3 (WAL mode) + local filesystem
 **Source strategy:** Native KIN domain, selective reuse/adapters for external runtime patterns
 
-> This TRD documents intended interfaces and technical requirements. It does not prove that every listed runtime, security, recovery, or packaging behavior exists in the current checkout. See the [2026-10-07 audit](../KIN_AUDIT_2026-10-07.md) for code-level findings and verification limits.
+> This document describes proposed interfaces and technical requirements. It does not prove that every listed runtime, security, recovery, or packaging behavior exists in the current checkout. For a concise source-level inventory, see [Current implementation notes](PROJECT_STATUS.md).
 
 ---
 
@@ -1956,7 +1956,7 @@ Crash recovery, concurrency/failure injection, prompt-injection defenses, packag
 
 ---
 
-# 51. Enterprise Resilience, OpenRouter BYOK, Concurrency Fast-Path & Visual Baselines
+# 51. Runtime Resilience, OpenRouter BYOK, Concurrency Fast-Path & UI Baselines
 
 ### 51.1 ModelGateway & OpenRouter BYOK Architecture
 The `ModelGateway` (`core/src/execution/model_gateway.ts`) standardizes multi-provider LLM invocations with unified token metrics, scoped credential resolution, and resilient retry policies:

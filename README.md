@@ -1,25 +1,18 @@
 # KIN
 
-**A local-first workspace for AI chats and agent workflows.**
+KIN is a local-first, desktop-oriented workspace for AI chats, projects, and agent workflows. The repository contains a TypeScript core service, a React interface, a Tauri/Rust desktop shell, and SQLite-backed application state.
 
-KIN brings conversations, projects, agent definitions, tasks, model settings, and automation controls into one desktop-oriented workbench. The repository contains a TypeScript core, a React interface, a Tauri/Rust desktop shell, and SQLite-backed local state.
+KIN is under active development. Features described here are present in source unless stated otherwise; this is not a claim that every workflow has been validated end to end.
 
-KIN is under active development. Some paths are connected in source but have not been validated end to end. This README describes the current project without treating planned behavior as a certainty.
+## What is in the repository
 
-[Audit and current limitations](KIN_AUDIT_2026-10-07.md) · [Architecture notes](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Skills](docs/SKILLS_GUIDE.md) · [Slash commands](docs/SLASH_COMMANDS.md) · [FAQ](docs/FAQ.md) · [Contributing](docs/CONTRIBUTING.md) · [License](LICENSE)
+- Projects, channels, direct-message views, agent identities and definitions, goals, tasks, and task dependencies.
+- A default orchestrator named `@Boss`, specialist agents, and agent runs coordinated through the local core.
+- A model gateway with provider integrations, credential settings, model discovery, custom model records, and an Ollama path. Provider availability depends on configuration and actual provider responses.
+- A tool gateway, approval and capability checks, skills, MCP stdio clients, schedules, browser control, and desktop-control paths.
+- A Tauri desktop shell and a browser-based development UI.
 
-## What KIN includes
-
-- **Chat and workspace concepts:** projects, channels, direct messages, and project-scoped agent identities.
-- **Agent workflows:** default orchestrator (`@Boss`), autonomous workforce recruitment tool (`hireSpecialist`), specialist definitions, goals, tasks, and dependency relationships.
-- **Model connections & Universal BYOK:** centralized BYOK key vault in Settings (`Settings → BYOK & Credentials`) for hosted providers (OpenAI, Anthropic, OpenRouter, Google Gemini, Groq, DeepSeek) with dynamic model auto-discovery, local Ollama integration, and simplified model selection in the Agent Inspector.
-- **Swarm Map & Hierarchy Navigation:** interactive workforce hierarchy and topology map accessible directly via the top application header bar.
-- **Minimalist Dual Themes:** complete Dark and Light theme styling with clean surfaces and smooth hover shadow highlights instead of harsh outlines.
-- **Model Context Protocol (MCP) & Extensions:** native stdio JSON-RPC 2.0 client execution for community MCP servers (configured via `.kin/mcp.json`), procedural skills, recurring schedules, and automation routines.
-- **Local application state:** SQLite (WAL mode) and project files stored locally on the machine running KIN.
-- **Desktop and browser integration:** source paths exist for browser and computer-control actions; their security and packaged runtime behavior still need further validation.
-
-These are product areas present in the codebase, not a claim that every flow is complete or production-ready. See the [dated audit](KIN_AUDIT_2026-10-07.md) for confirmed gaps and what has or has not been demonstrated.
+The codebase does not include a general marketplace/plugin registry. Git worktrees separate working directories; they do not isolate processes, credentials, or network access. Browser, desktop, skill, model, recovery, and packaged-app behavior depends on the host and configuration.
 
 ## Run from source
 
@@ -27,94 +20,67 @@ These are product areas present in the codebase, not a claim that every flow is 
 
 - Node.js 20 or later
 - npm
-- Rust and the platform build tools only if you are working on the Tauri desktop shell
-- Ollama only if you want to try a local model
+- Rust and platform build tools to build the Tauri desktop shell
+- Ollama only if you want to use local Ollama inference
 
 ### Install and build
 
-~~~sh
+```sh
 git clone https://github.com/abhayzangir1/KIN.git
 cd KIN
 npm install
 npm run build
-~~~
+```
 
-Start the core daemon in one terminal:
+Run the core and UI in separate terminals:
 
-~~~sh
+```sh
 npm run daemon --workspace=core
-~~~
+```
 
-Start the web workbench in another terminal:
-
-~~~sh
+```sh
 npm run dev --workspace=ui
-~~~
+```
 
-Open http://localhost:5173. The core listens on 127.0.0.1:54321; it is bound to loopback and is not exposed as a LAN server by default.
+The development UI uses `http://localhost:5173`. The core defaults to `127.0.0.1:54321` and does not bind to a LAN interface by default. The repository's `start.bat` and `start.sh` scripts are development launchers, not self-contained installers.
 
-On Windows, start.bat and on macOS/Linux, start.sh are convenience development launchers. They require a working Node installation and repository dependencies; they are not self-contained installers.
+Run the core tests with:
 
-To run the core test suite yourself:
-
-~~~sh
+```sh
 npm test --workspace=core
-~~~
+```
 
-No test count or passing status is stated here because results depend on the checkout and environment.
+This command reports results for the checkout and environment where it is run; this README does not assert a current test count or pass status.
 
-## Models and credentials
+## Models and data handling
 
-KIN features a Universal BYOK (Bring Your Own Key) vault in Settings (`Settings → BYOK & Credentials`) for provider credentials, model discovery, and workforce model assignment. API keys for providers such as OpenAI, Anthropic, OpenRouter, Google Gemini, Groq, and DeepSeek are saved securely in SQLite WAL with HMAC and AES-256 encryption. Once added, keys are available workspace-wide across all projects and agents without per-agent setup. Adding or updating a credential automatically triggers model discovery to register available models in the system catalog.
+Provider credentials can be managed in Settings. The model gateway contains discovery paths for supported providers and Ollama. A model appearing in a catalog or being marked configured does not prove that inference will succeed. Provider lists, model capabilities, pricing metadata, account access, quotas, and availability can change; verify by making a real request before relying on a model.
 
-The current catalog still contains fallback entries, and readiness indicators do not reliably prove that a key is valid or that a model can be called. OpenRouter free/paid filtering and price information should be treated as incomplete. Verify a provider with an actual request before relying on it.
+Application state is stored locally in SQLite and project files use the local filesystem. Hosted model requests send prompts and selected context to that provider. Browser navigation contacts the requested websites. MCP tools receive the arguments passed to them. Local storage does not imply that all application activity is offline.
 
-If you configure a hosted provider, prompts and related context sent for inference leave your machine and are handled by that provider under its own terms. Browser actions send requests to the websites you visit. MCP servers receive the data passed to their tools. Ollama can run local inference when it is installed, running, and has the selected model; this does not by itself prove that every part of the application is offline.
+## Boundaries to understand
 
-## Data and security
+- Capability checks and approval flows are application controls; they are not a host-level security sandbox.
+- A Git worktree is a separate working directory, not process, network, or credential isolation.
+- Skills and MCP servers may execute code or external tools. Review their source and configuration before enabling them.
+- The Tauri build configuration exists, but a clean-machine installation with all required core/runtime dependencies has not been established by this README.
+- Product requirements in [PRD](docs/PRD.md) and [TRD](docs/TRD.md) describe desired behavior. See [current implementation notes](docs/PROJECT_STATUS.md) for the source-level scope and known boundaries.
 
-KIN stores application state in a local SQLite database and uses the local filesystem for project data. Local storage does not mean every operation stays on-device: hosted model calls, browser navigation, and connected MCP tools can communicate with external services.
+## Documentation
 
-The source includes capability checks, approval flows, secret handling, task leases, and event recording. These controls have gaps documented in the current audit. In particular, task evidence can be accepted without verification, the manual task-status endpoint can synthesize a verified sign-off, and some browser/computer execution is not isolated by a host process sandbox. Do not interpret the presence of these controls as a security certification.
-
-## Current limitations
-
-- A current runtime pass with a signed-in browser and real provider keys has not been completed.
-- Model readiness can be overstated when Ollama is unavailable or a hosted API key is invalid.
-- Some task-completion paths can report completion without valid acceptance evidence.
-- Startup actively admits and dispatches queued runs across platform restarts.
-- Git worktrees provide separate working directories; they are not system-level process or network sandboxes.
-- Clean-machine desktop packaging has not been demonstrated in this audit.
-
-The [audit report](KIN_AUDIT_2026-10-07.md) distinguishes source findings, historical runtime observations, and unverified behavior. Product and technical specifications in docs/PRD.md and docs/TRD.md describe target requirements, not an immediate production feature promise.
-
-## Screenshots
-
-The images below show interface views included in the repository. They are visual references and do not demonstrate that the associated workflow is currently verified.
-
-![KIN workbench](docs/assets/screenshots/01_app_interface_workbench.png)
-
-![KIN agent topology view](docs/assets/screenshots/02_swarm_map_topology.png)
-
-![KIN settings and credentials view](docs/assets/screenshots/03_settings_and_credentials.png)
-
-![KIN agent inspector](docs/assets/screenshots/04_agent_inspector_teamwork.png)
-
-## Releases
-
-See [GitHub Releases](https://github.com/abhayzangir1/KIN/releases) for any published artifacts. Available files and supported platforms are release-specific. A clean-machine installation and bundled Node/core runtime were not verified for this audit.
-
-## Project documents
-
-- [Current audit and product-copy review](KIN_AUDIT_2026-10-07.md)
-- [Previous comprehensive audit and fix-plan review](KIN_COMPREHENSIVE_AUDIT_AND_FIX_PLAN.md)
+- [Current implementation notes](docs/PROJECT_STATUS.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Core API overview](docs/API.md)
+- [Skills guide](docs/SKILLS_GUIDE.md)
+- [Slash commands](docs/SLASH_COMMANDS.md)
+- [Operations](docs/OPERATIONS.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Product requirements](docs/PRD.md)
 - [Technical requirements](docs/TRD.md)
-- [Architecture notes](docs/ARCHITECTURE.md)
-- [Tutorial index](docs/TUTORIALS.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Tutorial and example index](docs/TUTORIALS.md)
+- [Contributing](docs/CONTRIBUTING.md)
 
-The tutorials and example skills are workflow sketches. Their presence does not establish that each example is a live integration or verified end-to-end recipe.
+Screenshots in `docs/assets/screenshots/` are interface snapshots. They do not verify the corresponding workflow or current runtime state.
 
 ## License
 

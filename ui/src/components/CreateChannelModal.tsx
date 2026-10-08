@@ -83,7 +83,7 @@ export const CreateChannelModal: React.FC = () => {
           <div className="p-2.5 rounded bg-[#1e293b]/40 border border-[#1e293b] text-[11px] text-[#94a3b8] space-y-1">
             <div className="text-emerald-400 font-semibold">Channel Invariant:</div>
             <div>
-              By default, this new channel in project <span className="text-kin-text font-bold">{activeProject?.name || 'KIN'}</span> will contain only the Lead Sovereign Orchestrator (<span className="text-amber-300">@Boss</span>). You or @Boss can assign specialists later.
+              By default, this new channel in project <span className="text-kin-text font-bold">{activeProject?.name || 'KIN'}</span> will contain the default orchestrator (<span className="text-amber-300">@Boss</span>). You or @Boss can add specialists later.
             </div>
           </div>
 

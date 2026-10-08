@@ -127,7 +127,7 @@ export class SkillEngine {
       {
         name: 'code-refactoring-and-review',
         version: '1.0.0',
-        description: 'Automated architectural review and zero-regression refactoring guidance',
+        description: 'Architectural review and regression-conscious refactoring guidance',
         instructions: 'When refactoring or reviewing code: 1. Verify boundary conditions and jail paths. 2. Enforce separation of concerns. 3. Maintain backward compatibility. 4. Run test suites before and after modifications.',
         requiredTools: ['readFile', 'writeFile', 'git'],
         triggerPatterns: ['refactor', 'review', 'clean code', 'architecture'],

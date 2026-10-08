@@ -712,7 +712,7 @@ export const CenterView: React.FC = () => {
                     </span>
                   ) : agent?.isOrchestrator ? (
                     <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono font-bold">
-                      Lead Sovereign Orchestrator
+                      Workspace Orchestrator
                     </span>
                   ) : (
                     <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 font-mono font-bold">
@@ -966,14 +966,14 @@ export const CenterView: React.FC = () => {
           </div>
         )}
 
-        {/* Enterprise Crash Recovery Banner */}
+        {/* Interrupted run recovery banner */}
         {pendingRecoveries.length > 0 && (
           <div className="p-3 bg-[#1e1008]/95 backdrop-blur-sm border border-amber-500/60 rounded-xl space-y-2.5 shadow-2xl animate-fadeIn">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <AlertTriangle className="w-4 h-4 text-amber-400 animate-pulse" />
                 <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300 font-mono">
-                  Enterprise Resilience: Crash Recovery ({pendingRecoveries.length} Interrupted Run{pendingRecoveries.length > 1 ? 's' : ''})
+                  Interrupted run recovery ({pendingRecoveries.length} run{pendingRecoveries.length > 1 ? 's' : ''})
                 </span>
               </div>
               <div className="flex items-center space-x-2">
@@ -1115,7 +1115,7 @@ export const CenterView: React.FC = () => {
           </div>
         )}
 
-        {/* Enterprise Quota Pause Guard Banner */}
+        {/* Provider quota pause banner */}
         {quotaPauseState?.isPaused && (
           <div className="p-3 bg-[#130d22]/95 backdrop-blur-sm border border-purple-500/60 rounded-xl space-y-2 shadow-2xl animate-fadeIn">
             <div className="flex items-center justify-between">

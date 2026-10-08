@@ -1,15 +1,15 @@
-# KIN — FINAL MASTER PRODUCT REQUIREMENTS DOCUMENT
-## Version 12.0 — Autonomous Scheduler, Computer Use & Proactive Routines Evolution
+# KIN product requirements and roadmap
+## Proposed product direction
 
 **Date:** 2026-10-01
-**Status:** Product requirements and target behavior; not a verified implementation inventory
+**Status:** Proposed product requirements; not a description of implemented or verified behavior
 **Product:** KIN
 **Intended category:** Local-first AI workspace with agent and multi-agent workflow goals
 **Platforms:** Windows, macOS, Linux
 **Distribution:** Open source
 **Primary UX:** Message-first collaborative workspace with Antigravity-Style Timed Autonomy
 
-> This PRD is a target specification. A requirement written here is not evidence that the current application implements or has tested it. For current source findings and verification limits, see the [2026-10-07 audit](../KIN_AUDIT_2026-10-07.md).
+> This document describes desired product behavior and design choices. It is not evidence that the current application implements or has tested them. For a concise source-level inventory, see [Current implementation notes](PROJECT_STATUS.md).
 
 ---
 
@@ -148,7 +148,7 @@ Dream-RSI is retained as a future research pattern for suitable long-horizon dis
 
 # 1. Vision
 
-KIN's target experience is a local-first desktop workspace where a human can describe an outcome and receive help from agents, tasks, tools, and automation while retaining control. The requirements below describe intended behavior; current implementation and verification status are documented separately in the audit.
+KIN's target experience is a local-first desktop workspace where a human can describe an outcome and receive help from agents, tasks, tools, and automation while retaining control. The requirements below describe intended behavior; see [Current implementation notes](PROJECT_STATUS.md) for the source-level inventory.
 
 The product combines:
 
@@ -501,7 +501,7 @@ KIN exposes two distinct graphs, projected cleanly into the user interface:
 ## Workforce graph (Swarm Map)
 
 Who manages, collaborates with or delegates to whom. The interactive Swarm Map visualizes:
-- Hierarchical reporting structures (e.g., Sovereign Lead Orchestrator -> Hired Specialists -> Domain Subagents);
+- Hierarchical reporting structures (e.g., Default Orchestrator -> Hired Specialists -> Domain Subagents);
 - Real-time operational readiness, active model configurations, and strictly scoped project channels;
 - Direct recruitment affordances and interactive node focus.
 
@@ -1227,7 +1227,7 @@ The following are reference sources, not mandatory dependencies:
 
 ---
 
-# 31. Enterprise Resilience, Crash Recovery & Collaborative Autonomy
+# 31. Runtime Recovery and Collaborative Work
 
 ### 31.1 Turn-by-Turn Checkpointing & Crash Recovery
 - **Granular Checkpointing:** Every turn of execution within `agent_loop.ts` persists an immutable turn checkpoint (`onTurnCheckpoint`) containing model messages, tool invocation arguments, tool execution results, and updated token usage to SQLite `agent_runs.checkpoint_data`.

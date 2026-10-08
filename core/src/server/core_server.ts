@@ -588,7 +588,7 @@ export class CoreServer {
         id: 'chan-general',
         projectId: 'proj-kin',
         name: 'general',
-        topic: 'Workspace Sovereign Discussion',
+        topic: 'Workspace discussion',
         isPrivate: false,
         createdAt: now,
       });
@@ -625,8 +625,8 @@ export class CoreServer {
       this.agentRepo.createDefinition({
         id: 'def-boss',
         name: 'Boss',
-        role: 'Lead Sovereign Orchestrator',
-        systemPrompt: 'You are @Boss, the Lead Sovereign Orchestrator of KIN. You direct the workforce, execute project plans, manage worktrees, coordinate tools, and verify all technical deliverables. Workspace boundaries are strictly enforced.',
+        role: 'Workspace Orchestrator',
+        systemPrompt: 'You are @Boss, KIN’s default workspace orchestrator. Coordinate agents and tools for the current request. Follow the capabilities and project boundaries provided for this run, and ask when access or authority is unclear.',
         defaultModelId: 'ollama/qwen2.5-coder:3b',
         domainAuthority: ['Architecture', 'Orchestration', 'Engineering', 'Operations'],
         capabilities: ['read', 'write', 'shell', 'worktree', 'delegate', 'agent:hire', 'agent:delegate', '*'],
@@ -652,7 +652,7 @@ export class CoreServer {
         channelId: 'chan-general',
         senderId: 'agent-boss',
         senderType: 'agent',
-        content: 'KIN Platform initialized. I am @Boss, your Lead Sovereign Orchestrator. Workspace boundaries are strictly enforced.',
+        content: 'KIN workspace initialized. I am @Boss, the default workspace orchestrator.',
         productivityScore: 100,
       });
       bossIdentity = this.agentRepo.getIdentity('agent-boss');
@@ -1914,7 +1914,7 @@ export class CoreServer {
           id: channelId,
           projectId: id,
           name: 'general',
-          topic: `${project.name} Sovereign Discussion`,
+          topic: `${project.name} discussion`,
           isPrivate: false,
           createdAt: now,
         });
@@ -1998,7 +1998,7 @@ export class CoreServer {
           return {
             id: a.id,
             name: def?.name ?? a.displayName,
-            role: def?.role ?? (a.isOrchestrator ? 'Lead Sovereign Orchestrator' : 'Specialist'),
+            role: def?.role ?? (a.isOrchestrator ? 'Workspace Orchestrator' : 'Specialist'),
             displayName: a.displayName,
             activeModelId: a.activeModelId,
             fallbackModelId: a.fallbackModelId,
@@ -2307,7 +2307,7 @@ export class CoreServer {
             return {
               id: a!.id,
               name: def?.name ?? a!.displayName,
-              role: def?.role ?? (a!.isOrchestrator ? 'Lead Sovereign Orchestrator' : 'Specialist'),
+              role: def?.role ?? (a!.isOrchestrator ? 'Workspace Orchestrator' : 'Specialist'),
               displayName: a!.displayName,
               activeModelId: a!.activeModelId,
               fallbackModelId: a!.fallbackModelId,
@@ -2412,7 +2412,7 @@ export class CoreServer {
           role,
           systemPrompt:
             body.systemPrompt ||
-            `You are ${normalizedName}, a ${role} specialist in project ${projectId}. Workspace boundaries are strictly enforced.`,
+            `You are ${normalizedName}, a ${role} specialist in project ${projectId}. Follow the capabilities and project scope provided for this run, and ask when access or authority is unclear.`,
           defaultModelId: activeModelId,
           domainAuthority: body.domainAuthority || [role],
           capabilities: body.capabilities || ['read', 'write', 'execute', 'agent:hire', 'agent:delegate'],
@@ -2552,7 +2552,7 @@ export class CoreServer {
           return {
             id: a.id,
             name: def?.name ?? a.displayName,
-            role: def?.role ?? (a.isOrchestrator ? 'Lead Sovereign Orchestrator' : 'Specialist'),
+            role: def?.role ?? (a.isOrchestrator ? 'Workspace Orchestrator' : 'Specialist'),
             displayName: a.displayName,
             activeModelId: a.activeModelId,
             fallbackModelId: a.fallbackModelId,
@@ -3218,7 +3218,7 @@ export class CoreServer {
           const acceptanceCriteria = customCriteria && customCriteria.length > 0 ? customCriteria : [
             'Architecture, contracts and specifications verified',
             'Implementation deliverables confirmed with zero placeholders',
-            'Automated test passes and zero regressions verified',
+            'Relevant automated tests pass and known regressions are reported',
           ];
 
           // A. /teamwork-preview component
@@ -3507,7 +3507,7 @@ export class CoreServer {
                 channelId,
                 senderId: boss.id,
                 senderType: 'agent',
-                content: `ℹ️ **Usage**: \`/goal <title> [| <description>] [| <criterion 1>, <criterion 2>]\`\n\nExample: \`/goal Ship Antigravity Hub | File review and git diffing | Zero regressions, full test pass\``,
+                content: `ℹ️ **Usage**: \`/goal <title> [| <description>] [| <criterion 1>, <criterion 2>]\`\n\nExample: \`/goal Document the API migration | Review routes and update clients | API contract documented, relevant tests pass\``,
                 productivityScore: 100,
               });
               this.broadcastEvent('message:created', {
@@ -3737,7 +3737,7 @@ export class CoreServer {
               acceptanceCriteria: [
                 'Architecture and contracts verified',
                 'Implementation deliverables confirmed',
-                'Automated test passes and zero regressions',
+                'Relevant automated tests pass and known regressions are reported',
               ],
               status: 'active',
               createdAt: existingPlanGoal ? existingPlanGoal.createdAt : now,
@@ -4690,7 +4690,7 @@ export class CoreServer {
         const executionDetails = {
           agentId,
           displayName: identity.displayName,
-          role: def?.role || (identity.isOrchestrator ? 'Lead Sovereign Orchestrator' : 'Specialist'),
+          role: def?.role || (identity.isOrchestrator ? 'Workspace Orchestrator' : 'Specialist'),
           activeModelId: identity.activeModelId,
           status: this.activeAgentExecutions.has(agentId) ? 'thinking' : 'idle',
           totalDurationMs: durationMs,
@@ -5879,7 +5879,7 @@ export class CoreServer {
         }
 
         const truncatedDiff = targetDiff.slice(0, 8000);
-        const reviewPrompt = `You are @Boss, Lead Sovereign Orchestrator of KIN. Review the following git diff for ${targetLabel}.\n\n` +
+        const reviewPrompt = `You are @Boss, KIN's default workspace orchestrator. Review the following git diff for ${targetLabel}.\n\n` +
           `Provide a concise architectural and code quality review covering:\n` +
           `1. Summary of Changes\n` +
           `2. Potential Bugs, Edge Cases & Regressions\n` +
@@ -7105,7 +7105,7 @@ export class CoreServer {
         }
         const now = Date.now();
         const evalId = `eval-${now}-${Math.random().toString(36).slice(2, 6)}`;
-        const benchmarkSuite = 'KIN Enterprise Rigor Benchmark v2';
+        const benchmarkSuite = 'KIN Runtime Hardening Benchmark';
         const rubricScores = {
           accuracy: 96,
           reasoning: 94,
@@ -7558,7 +7558,7 @@ export class CoreServer {
         id: defId,
         name: normalizedName.replace(/^@/, ''),
         role,
-        systemPrompt: `You are ${normalizedName}, a ${role} specialist in project ${targetProjId}. Workspace boundaries are strictly enforced.`,
+        systemPrompt: `You are ${normalizedName}, a ${role} specialist in project ${targetProjId}. Follow the capabilities and project scope provided for this run, and ask when access or authority is unclear.`,
         defaultModelId: 'ollama/qwen2.5-coder:3b',
         domainAuthority: [role],
         capabilities: ['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate', 'read', 'write', 'execute'],
@@ -7640,13 +7640,13 @@ export class CoreServer {
             name: '@AndroidDev',
             role: 'Senior Android Engineer',
             domainAuthority: ['Android', 'Kotlin', 'Jetpack Compose', 'Gradle', 'Android Architecture'],
-            systemPrompt: `You are @AndroidDev, Senior Android Engineer in project ${targetProjId}. You build Android native applications, Jetpack Compose interfaces, and test suites. Workspace boundaries are strictly enforced.`,
+            systemPrompt: `You are @AndroidDev, Senior Android Engineer in project ${targetProjId}. You build Android native applications, Jetpack Compose interfaces, and test suites. Follow the capabilities and project scope provided for this run.`,
           },
           {
             name: '@QAEngineer',
             role: 'Mobile QA Specialist',
             domainAuthority: ['Mobile QA', 'Espresso', 'Testing', 'Android Verification'],
-            systemPrompt: `You are @QAEngineer, Mobile QA Specialist in project ${targetProjId}. You verify code quality and write automated tests. Workspace boundaries are strictly enforced.`,
+            systemPrompt: `You are @QAEngineer, Mobile QA Specialist in project ${targetProjId}. You review code quality and write automated tests. Follow the capabilities and project scope provided for this run.`,
           },
         ];
       } else if (contentLower.includes('ios') || contentLower.includes('swift')) {
@@ -7699,7 +7699,7 @@ export class CoreServer {
           const defId = `def-${now}-${i}`;
           const agentId = `agent-${now}-${i}`;
           const role = spec.role;
-          const sysPrompt = spec.systemPrompt || `You are ${spec.name}, a ${role} specialist in project ${targetProjId}. Workspace boundaries are strictly enforced.`;
+          const sysPrompt = spec.systemPrompt || `You are ${spec.name}, a ${role} specialist in project ${targetProjId}. Follow the capabilities and project scope provided for this run.`;
 
           this.agentRepo.createDefinition({
             id: defId,
@@ -7867,7 +7867,7 @@ export class CoreServer {
       }
     }
 
-    // 4. Default: @Boss acts as the sovereign orchestrator safety net directly
+    // 4. Default: @Boss acts as the orchestrator fallback
     await this.enqueueChannelExecution(channelId, () =>
       this.enqueueAgentExecution(boss.id, () => this.executeAgentResponse(boss, channelId, userMsg))
     );
@@ -8101,8 +8101,8 @@ export class CoreServer {
         agentDefinition: def ?? {
           id: agent.definitionId,
           name: agent.displayName,
-          role: agent.isOrchestrator ? 'Lead Sovereign Orchestrator' : 'Specialist',
-          systemPrompt: 'You are @Boss, the Lead Sovereign Orchestrator in KIN.',
+          role: agent.isOrchestrator ? 'Workspace Orchestrator' : 'Specialist',
+          systemPrompt: 'You are @Boss, KIN’s default workspace orchestrator.',
           defaultModelId: agent.activeModelId,
           domainAuthority: [],
           capabilities: [],
