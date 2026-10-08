@@ -53,6 +53,8 @@ export interface AgentDisplay {
   assignedChannels?: string[];
   currentTool?: string;
   analytics?: AgentAnalytics;
+  modelAvailable?: boolean;
+  modelStatus?: string;
 }
 
 export interface ChannelItem {
@@ -127,6 +129,7 @@ export interface ApprovalItem {
   actionSummary: string;
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   createdAt: number;
+  projectId?: string;
 }
 
 export interface OllamaStatus {
@@ -148,6 +151,35 @@ export interface AvailableModelItem {
   configured?: boolean;
   validated?: boolean;
   description?: string;
+}
+
+export function isAgentAvailable(
+  agent: AgentDisplay,
+  ollamaStatus: { online: boolean; models: string[] },
+  credentials: ManagedCredentialItem[] = [],
+  availableModels: AvailableModelItem[] = []
+): boolean {
+  const modelId = (agent.activeModelId || '').trim();
+  if (!modelId || modelId === 'inherit') {
+    return Boolean(ollamaStatus.online && ollamaStatus.models?.length > 0) || credentials.some((c) => c.status !== 'revoked');
+  }
+  const isOllama = modelId.startsWith('ollama/') || !modelId.includes('/');
+  if (isOllama) {
+    if (!ollamaStatus.online || !ollamaStatus.models || ollamaStatus.models.length === 0) return false;
+    const cleanName = modelId.replace(/^ollama\//, '').toLowerCase();
+    return ollamaStatus.models.some((m) => {
+      const lower = m.toLowerCase();
+      return lower === cleanName || lower.startsWith(cleanName) || cleanName.startsWith(lower);
+    });
+  }
+  const provider = modelId.split('/')[0].toLowerCase();
+  if (credentials.some((c) => c.provider.toLowerCase() === provider && c.status !== 'revoked')) {
+    return true;
+  }
+  if (availableModels.some((m) => m.id === modelId && (m.configured || m.validated))) {
+    return true;
+  }
+  return Boolean(agent.modelAvailable);
 }
 
 export interface ArtifactItem {
@@ -661,6 +693,11 @@ interface KinState {
   setInspectorWidth: (width: number) => void;
   resetPanelWidths: () => void;
 
+  // Theme State
+  theme: 'dark' | 'light';
+  setTheme: (theme: 'dark' | 'light') => void;
+  toggleTheme: () => void;
+
   // Main View Navigation
   activeMainView: 'chat' | 'automations';
   setActiveMainView: (view: 'chat' | 'automations') => void;
@@ -860,6 +897,28 @@ export const useKinStore = create<KinState>((set, get) => ({
   isAddAgentModalOpen: false,
   isSettingsModalOpen: false,
   setSettingsModalOpen: (open: boolean) => set({ isSettingsModalOpen: open }),
+
+  // Theme State
+  theme: (() => {
+    try {
+      const saved = localStorage.getItem('kin_theme');
+      if (saved === 'light' || saved === 'dark') return saved;
+    } catch {}
+    return 'dark';
+  })(),
+  setTheme: (theme: 'dark' | 'light') => {
+    try {
+      localStorage.setItem('kin_theme', theme);
+    } catch {}
+    set({ theme });
+  },
+  toggleTheme: () => {
+    const next = get().theme === 'dark' ? 'light' : 'dark';
+    try {
+      localStorage.setItem('kin_theme', next);
+    } catch {}
+    set({ theme: next });
+  },
 
   // Resizable Workspace Layout State
   sidebarWidth: (() => {
@@ -1680,9 +1739,17 @@ export const useKinStore = create<KinState>((set, get) => ({
       sse.addEventListener('approval:created', (e) => {
         try {
           const approval = JSON.parse(e.data);
+          const apprProj = approval.projectId || approval.project_id;
           set((state) => {
+            const currentProj = state.activeProjectId || 'proj-kin';
+            if (apprProj && apprProj !== currentProj) return state;
             if (state.pendingApprovals.some((a) => a.id === approval.id)) return state;
-            return { pendingApprovals: [...state.pendingApprovals, approval] };
+            return {
+              pendingApprovals: [
+                ...state.pendingApprovals,
+                { ...approval, projectId: apprProj || currentProj },
+              ],
+            };
           });
         } catch (err) {
           console.error('[KIN UI] Failed to parse approval:created event', err);
@@ -2099,6 +2166,7 @@ export const useKinStore = create<KinState>((set, get) => ({
       activeGitDiff: null,
       selectedArtifact: null,
       channelMessagesCache: {},
+      pendingApprovals: [],
     });
     try {
       await fetch(`/api/projects/${encodeURIComponent(projectId)}/activate`, { method: 'POST' });

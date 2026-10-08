@@ -24,7 +24,18 @@ export const App: React.FC = () => {
     closeSSE,
     setSidebarWidth,
     setInspectorWidth,
+    theme,
   } = useKinStore();
+
+  useEffect(() => {
+    if (theme === 'light') {
+      document.documentElement.classList.add('light');
+      document.documentElement.classList.remove('dark');
+    } else {
+      document.documentElement.classList.add('dark');
+      document.documentElement.classList.remove('light');
+    }
+  }, [theme]);
 
   const [isDraggingLeft, setIsDraggingLeft] = useState(false);
   const [isDraggingRight, setIsDraggingRight] = useState(false);
@@ -78,7 +89,7 @@ export const App: React.FC = () => {
 
   return (
     <ErrorBoundary name="KIN Root Workspace">
-      <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0a0f1d] text-kin-text font-sans antialiased select-none">
+      <div className={`flex flex-col h-screen w-screen overflow-hidden font-sans antialiased select-none ${theme === 'light' ? 'bg-[#f8fafc] text-slate-800' : 'bg-[#0a0f1d] text-kin-text'}`}>
         {/* Top Application Header Bar */}
         <HeaderBar />
 

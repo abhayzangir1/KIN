@@ -331,5 +331,105 @@ describe('KIN Hardening: Security, Approval Tokens, and Runtime Enforcement', ()
       expect(found).toBeDefined();
       expect(found.maskedKey).toBe('sk-a...5678');
     });
+
+    it('enforces strict project scoping on approvals between proj-kin and a secondary project', async () => {
+      const token = server.getIpcAuthToken();
+
+      // Create a pending approval in default project
+      const apprRes = await new Promise<{ statusCode: number; body: any }>((resolve, reject) => {
+        const req = http.request(
+          `http://127.0.0.1:${serverPort}/api/approvals`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+          },
+          (response) => {
+            let data = '';
+            response.on('data', (c) => (data += c));
+            response.on('end', () => resolve({ statusCode: response.statusCode || 0, body: JSON.parse(data) }));
+          }
+        );
+        req.on('error', reject);
+        req.write(
+          JSON.stringify({
+            agentId: 'agent-boss',
+            toolName: 'executeShell',
+            actionPayload: { command: 'echo isolation-test' },
+            riskLevel: 'HIGH',
+          })
+        );
+        req.end();
+      });
+
+      expect(apprRes.statusCode).toBe(201);
+      const approvalId = apprRes.body.approval.id;
+      expect(approvalId).toBeDefined();
+
+      // Query approvals for proj-kin
+      const kinApprovalsRes = await new Promise<{ statusCode: number; body: any }>((resolve, reject) => {
+        const req = http.request(
+          `http://127.0.0.1:${serverPort}/api/approvals?projectId=proj-kin`,
+          {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${token}` },
+          },
+          (response) => {
+            let data = '';
+            response.on('data', (c) => (data += c));
+            response.on('end', () => resolve({ statusCode: response.statusCode || 0, body: JSON.parse(data) }));
+          }
+        );
+        req.on('error', reject);
+        req.end();
+      });
+
+      expect(kinApprovalsRes.statusCode).toBe(200);
+      expect(kinApprovalsRes.body.approvals.some((a: any) => a.id === approvalId)).toBe(true);
+
+      // Query approvals for a secondary project (e.g. proj-testtt)
+      const secondaryApprovalsRes = await new Promise<{ statusCode: number; body: any }>((resolve, reject) => {
+        const req = http.request(
+          `http://127.0.0.1:${serverPort}/api/approvals?projectId=proj-testtt`,
+          {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${token}` },
+          },
+          (response) => {
+            let data = '';
+            response.on('data', (c) => (data += c));
+            response.on('end', () => resolve({ statusCode: response.statusCode || 0, body: JSON.parse(data) }));
+          }
+        );
+        req.on('error', reject);
+        req.end();
+      });
+
+      expect(secondaryApprovalsRes.statusCode).toBe(200);
+      expect(secondaryApprovalsRes.body.approvals.some((a: any) => a.id === approvalId)).toBe(false);
+
+      // Query /api/state for secondary project
+      const secondaryStateRes = await new Promise<{ statusCode: number; body: any }>((resolve, reject) => {
+        const req = http.request(
+          `http://127.0.0.1:${serverPort}/api/state?projectId=proj-testtt`,
+          {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${token}` },
+          },
+          (response) => {
+            let data = '';
+            response.on('data', (c) => (data += c));
+            response.on('end', () => resolve({ statusCode: response.statusCode || 0, body: JSON.parse(data) }));
+          }
+        );
+        req.on('error', reject);
+        req.end();
+      });
+
+      expect(secondaryStateRes.statusCode).toBe(200);
+      expect(secondaryStateRes.body.pendingApprovals.some((a: any) => a.id === approvalId)).toBe(false);
+    });
   });
 });

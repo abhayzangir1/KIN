@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useKinStore } from '../store/kinStore.js';
+import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
 import {
   Terminal,
   ShieldCheck,
@@ -39,9 +39,6 @@ import {
   Network,
   Target,
   Award,
-  Key,
-  Lock,
-  Plus,
 } from 'lucide-react';
 
 export const AgentInspector: React.FC = () => {
@@ -89,9 +86,6 @@ export const AgentInspector: React.FC = () => {
     credentials,
     fetchEvaluations,
     runAgentEvaluation,
-    fetchCredentials,
-    addCredential,
-    deleteCredential,
     availableModels,
     isLoadingModels,
     discoverModels,
@@ -122,14 +116,10 @@ export const AgentInspector: React.FC = () => {
     return true;
   });
 
-  // Credentials BYOK state
-  const [showAddKeyModal, setShowAddKeyModal] = useState(false);
-  const [credProvider, setCredProvider] = useState('anthropic');
-  const [credAlias, setCredAlias] = useState('');
-  const [credSecret, setCredSecret] = useState('');
-  const [credMaxTokens, setCredMaxTokens] = useState('500000');
-  const [credGrants, setCredGrants] = useState<string[]>(['tools:read', 'tools:exec', 'models:fast']);
-  const [credSubmitting, setCredSubmitting] = useState(false);
+  const isCurrentAgentModelReady = currentAgent
+    ? isAgentAvailable({ ...currentAgent, activeModelId }, ollamaStatus, credentials, availableModels)
+    : false;
+
 
   // Terminal state
   const [terminalInput, setTerminalInput] = useState('');
@@ -161,8 +151,6 @@ export const AgentInspector: React.FC = () => {
     if (activeRightTab === 'Agent') {
       if (activeInspectorTab === 'Evaluations' && currentAgent?.id) {
         fetchEvaluations(currentAgent.id);
-      } else if (activeInspectorTab === 'Credentials') {
-        fetchCredentials();
       }
     }
   }, [activeRightTab, activeInspectorTab, currentAgent?.id]);
@@ -503,20 +491,6 @@ export const AgentInspector: React.FC = () => {
             >
               <Award className="w-3 h-3 text-amber-400" />
               <span>Evals</span>
-            </button>
-            <button
-              onClick={() => {
-                setActiveInspectorTab('Credentials');
-                fetchCredentials();
-              }}
-              className={`px-2 py-0.5 rounded text-[11px] font-medium transition cursor-pointer flex items-center space-x-1 ${
-                activeInspectorTab === 'Credentials'
-                  ? 'bg-blue-600/30 text-blue-300 border border-blue-500/40 font-semibold shadow-sm'
-                  : 'text-[#8b949e] hover:text-kin-text hover:bg-[#161b22]'
-              }`}
-            >
-              <Key className="w-3 h-3 text-emerald-400" />
-              <span>BYOK</span>
             </button>
           </div>
           <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-[#161b22] text-kin-muted border border-[#30363d] truncate max-w-[120px]">
@@ -1380,9 +1354,22 @@ export const AgentInspector: React.FC = () => {
                   </div>
                 </div>
 
-                <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold">
-                  {currentAgent?.status?.toUpperCase() || 'IDLE'}
-                </span>
+                <div className="flex items-center space-x-1.5">
+                  <span
+                    className={`text-[9px] uppercase px-1.5 py-0.5 rounded border font-medium flex items-center space-x-1 ${
+                      isCurrentAgentModelReady
+                        ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                        : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                    }`}
+                    title={isCurrentAgentModelReady ? 'Model engine and credentials are ready' : 'Model is offline or missing credentials'}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${isCurrentAgentModelReady ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                    <span>{isCurrentAgentModelReady ? 'MODEL READY' : 'MODEL OFFLINE'}</span>
+                  </span>
+                  <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 font-bold">
+                    {currentAgent?.status?.toUpperCase() || 'IDLE'}
+                  </span>
+                </div>
               </div>
 
               <div className="flex items-center justify-between pt-1 border-t border-[#1e293b] text-[10px]">
@@ -1488,8 +1475,16 @@ export const AgentInspector: React.FC = () => {
                           Paid
                         </button>
                       </div>
-                      <span className="text-[9px] text-emerald-400 font-mono truncate max-w-[120px]">
-                        {activeModelId.replace(/^ollama\//, '').toUpperCase()}
+                      <span
+                        className={`text-[9px] font-mono px-1.5 py-0.5 rounded border flex items-center space-x-1 ${
+                          isCurrentAgentModelReady
+                            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                            : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                        }`}
+                        title={isCurrentAgentModelReady ? 'Model engine and credentials are ready' : 'Model is offline or missing API key in Settings'}
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-full ${isCurrentAgentModelReady ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
+                        <span>{isCurrentAgentModelReady ? 'READY' : 'OFFLINE / KEY NEEDED'}</span>
                       </span>
                     </div>
                   </div>
@@ -1566,6 +1561,15 @@ export const AgentInspector: React.FC = () => {
 
                     <option value="inherit">inherit (Project Default)</option>
                   </select>
+
+                  {!isCurrentAgentModelReady && (
+                    <div className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px]">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                      <span>
+                        This model is currently offline or requires an API key. Configure it in <strong>Settings → BYOK &amp; Credentials</strong> or start Ollama.
+                      </span>
+                    </div>
+                  )}
 
                   {/* Manual Model ID Assignment */}
                   <div className="pt-1 space-y-1">
@@ -1980,7 +1984,7 @@ export const AgentInspector: React.FC = () => {
                   })}
                 </div>
               </div>
-            ) : activeInspectorTab === 'Evaluations' ? (
+            ) : (
               <div className="space-y-3 font-sans">
                 {/* Header & Run Benchmark Eval Action */}
                 <div className="p-3 rounded-lg bg-[#0f172a] border border-[#1e293b] space-y-2.5">
@@ -2090,230 +2094,6 @@ export const AgentInspector: React.FC = () => {
                       <Award className="w-6 h-6 mx-auto text-[#334155]" />
                       <div className="text-xs text-kin-text font-medium">No benchmark evaluations recorded yet</div>
                       <div className="text-[10px]">Run a formal evaluation above to assess precision, safety, and rubric scores.</div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              /* Sub-tab 5: Credentials (BYOK) */
-              <div className="space-y-3 font-sans">
-                {/* Header & Add Credential Button */}
-                <div className="p-3 rounded-lg bg-[#0f172a] border border-[#1e293b] space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-1.5 text-kin-text font-semibold text-[11px]">
-                      <Key className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Managed Credentials (BYOK)</span>
-                    </div>
-                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold">
-                      {credentials.length} Active Key{credentials.length === 1 ? '' : 's'}
-                    </span>
-                  </div>
-
-                  <p className="text-[10px] text-[#94a3b8] leading-relaxed">
-                    Bring-Your-Own-Key provider store with HMAC-SHA256 zero-leak vault, capability grants, and token spend quotas.
-                  </p>
-
-                  <button
-                    onClick={() => setShowAddKeyModal(!showAddKeyModal)}
-                    className="w-full flex items-center justify-center space-x-1.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold font-mono transition shadow cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>{showAddKeyModal ? 'Cancel' : '+ Add Provider Key'}</span>
-                  </button>
-                </div>
-
-                {/* Add Key Form */}
-                {showAddKeyModal && (
-                  <form
-                    onSubmit={async (e) => {
-                      e.preventDefault();
-                      if (!credAlias.trim() || !credSecret.trim()) return;
-                      setCredSubmitting(true);
-                      await addCredential({
-                        provider: credProvider,
-                        keyAlias: credAlias.trim(),
-                        secret: credSecret.trim(),
-                        scopedGrants: credGrants,
-                        maxSpendTokens: parseInt(credMaxTokens, 10) || 500000,
-                      });
-                      setCredSubmitting(false);
-                      setCredAlias('');
-                      setCredSecret('');
-                      setShowAddKeyModal(false);
-                    }}
-                    className="p-3 rounded-lg bg-[#0c1222] border border-emerald-500/40 space-y-2.5 animate-fadeIn"
-                  >
-                    <div className="text-[11px] font-bold text-emerald-300 font-mono flex items-center space-x-1">
-                      <Lock className="w-3 h-3 text-emerald-400" />
-                      <span>Register Provider Credential</span>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-medium text-[#64748b] uppercase">Provider</label>
-                      <select
-                        value={credProvider}
-                        onChange={(e) => setCredProvider(e.target.value)}
-                        className="w-full bg-[#070b14] border border-[#1e293b] rounded px-2 py-1 text-xs text-kin-text focus:outline-none focus:border-emerald-500 font-mono"
-                      >
-                        <option value="anthropic">Anthropic (Claude 3.7 / 3.5 Sonnet)</option>
-                        <option value="openai">OpenAI (GPT-4o / o3-mini)</option>
-                        <option value="gemini">Google Gemini (Gemini 2.5 Pro / Flash)</option>
-                        <option value="deepseek">DeepSeek (DeepSeek V3 / R1)</option>
-                        <option value="mistral">Mistral AI</option>
-                        <option value="groq">Groq (LPU Ultra-Fast)</option>
-                        <option value="openrouter">OpenRouter Gateway</option>
-                      </select>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-medium text-[#64748b] uppercase">Key Alias</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. anthropic-production-primary"
-                        value={credAlias}
-                        onChange={(e) => setCredAlias(e.target.value)}
-                        className="w-full bg-[#070b14] border border-[#1e293b] rounded px-2 py-1 text-xs text-kin-text focus:outline-none focus:border-emerald-500 font-mono"
-                        required
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-medium text-[#64748b] uppercase">Secret Key Value</label>
-                      <input
-                        type="password"
-                        placeholder="sk-ant-... or sk-..."
-                        value={credSecret}
-                        onChange={(e) => setCredSecret(e.target.value)}
-                        className="w-full bg-[#070b14] border border-[#1e293b] rounded px-2 py-1 text-xs text-kin-text focus:outline-none focus:border-emerald-500 font-mono"
-                        required
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-medium text-[#64748b] uppercase">Max Spend Tokens</label>
-                      <input
-                        type="number"
-                        value={credMaxTokens}
-                        onChange={(e) => setCredMaxTokens(e.target.value)}
-                        className="w-full bg-[#070b14] border border-[#1e293b] rounded px-2 py-1 text-xs text-kin-text focus:outline-none focus:border-emerald-500 font-mono"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-medium text-[#64748b] uppercase">Scoped Grants</label>
-                      <div className="flex flex-wrap gap-1.5 pt-0.5">
-                        {['tools:read', 'tools:exec', 'models:fast', 'models:reasoning'].map((grant) => {
-                          const hasGrant = credGrants.includes(grant);
-                          return (
-                            <button
-                              key={grant}
-                              type="button"
-                              onClick={() => {
-                                setCredGrants((prev) =>
-                                  hasGrant ? prev.filter((g) => g !== grant) : [...prev, grant]
-                                );
-                              }}
-                              className={`px-2 py-0.5 rounded text-[10px] font-mono border transition cursor-pointer ${
-                                hasGrant
-                                  ? 'bg-emerald-600/30 text-emerald-300 border-emerald-500/50 font-bold'
-                                  : 'bg-[#070b14] text-[#64748b] border-[#1e293b]'
-                              }`}
-                            >
-                              {grant}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={credSubmitting || !credAlias.trim() || !credSecret.trim()}
-                      className="w-full py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-xs font-bold transition shadow disabled:opacity-40 cursor-pointer"
-                    >
-                      {credSubmitting ? 'Storing Safely...' : 'Save & Secure Key'}
-                    </button>
-                  </form>
-                )}
-
-                {/* Credentials List */}
-                <div className="space-y-2">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-[#64748b] px-1">
-                    Configured Keys ({credentials.length})
-                  </div>
-
-                  {credentials.length > 0 ? (
-                    credentials.map((c) => (
-                      <div
-                        key={c.id}
-                        className="p-3 rounded-lg bg-[#0f172a] border border-[#1e293b] space-y-2"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-2 min-w-0 pr-2">
-                            <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                            <span className="font-semibold text-kin-text text-xs truncate">
-                              {c.keyAlias || c.keyName || 'Provider Key'}
-                            </span>
-                            <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 font-mono font-bold border border-blue-500/30">
-                              {c.provider}
-                            </span>
-                          </div>
-                          <button
-                            onClick={() => deleteCredential(c.id)}
-                            className="p-1 text-[#64748b] hover:text-red-400 transition cursor-pointer shrink-0"
-                            title="Delete credential"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-
-                        {/* Token Budget Usage */}
-                        {(() => {
-                          const currentTokens = c.currentSpendTokens ?? c.usedTokens ?? 0;
-                          const maxTokens = c.maxSpendTokens ?? c.monthlyQuotaTokens ?? 500000;
-                          const grants = c.scopedGrants ?? c.scopedAgentIds ?? [];
-                          return (
-                            <>
-                              <div className="space-y-1">
-                                <div className="flex justify-between text-[10px] font-mono text-[#94a3b8]">
-                                  <span>Token Budget</span>
-                                  <span>
-                                    {currentTokens.toLocaleString()} / {maxTokens.toLocaleString()} tokens
-                                  </span>
-                                </div>
-                                <div className="w-full bg-[#090d16] h-1.5 rounded-full overflow-hidden border border-[#1e293b]">
-                                  <div
-                                    className="bg-emerald-500 h-full rounded-full transition-all duration-500"
-                                    style={{
-                                      width: `${Math.min(100, (currentTokens / Math.max(1, maxTokens)) * 100)}%`,
-                                    }}
-                                  />
-                                </div>
-                              </div>
-
-                              {/* Scoped Grants */}
-                              {grants.length > 0 && (
-                                <div className="flex flex-wrap gap-1 pt-1 border-t border-[#1e293b]/60">
-                                  {grants.map((grant: string) => (
-                                    <span
-                                      key={grant}
-                                      className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#090d16] text-[#cbd5e1] border border-[#1e293b]"
-                                    >
-                                      {grant}
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                            </>
-                          );
-                        })()}
-                      </div>
-                    ))
-                  ) : (
-                    <div className="p-6 text-center text-[#64748b] border border-dashed border-[#1e293b] rounded-lg bg-[#0c1222]/30 space-y-1.5">
-                      <Key className="w-6 h-6 mx-auto text-[#334155]" />
-                      <div className="text-xs text-kin-text font-medium">No provider keys registered</div>
-                      <div className="text-[10px]">Add your personal Claude, OpenAI, or Gemini keys to unlock frontier execution.</div>
                     </div>
                   )}
                 </div>

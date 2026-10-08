@@ -1,6 +1,6 @@
 import React from 'react';
-import { useKinStore } from '../store/kinStore.js';
-import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale, Trash2 } from 'lucide-react';
+import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
+import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale, Trash2, Sun, Moon } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
   const {
@@ -10,6 +10,9 @@ export const Sidebar: React.FC = () => {
     setActiveChannel,
     deleteChannel,
     agents,
+    ollamaStatus,
+    credentials,
+    availableModels,
     selectedAgentId,
     setSelectedAgentId,
     setCreateChannelModalOpen,
@@ -30,6 +33,8 @@ export const Sidebar: React.FC = () => {
     setSettingsModalOpen,
     autonomyMode,
     activeMainView,
+    theme,
+    toggleTheme,
     setActiveMainView,
   } = useKinStore();
 
@@ -50,6 +55,12 @@ export const Sidebar: React.FC = () => {
     });
   }, [goals]);
 
+  const availableAgents = React.useMemo(() => {
+    return agents.filter((ag) =>
+      isAgentAvailable(ag, ollamaStatus, credentials, availableModels)
+    );
+  }, [agents, ollamaStatus, credentials, availableModels]);
+
   return (
     <aside
       style={{ width: `${sidebarWidth}px` }}
@@ -62,7 +73,7 @@ export const Sidebar: React.FC = () => {
           <span className="truncate">{activeProject?.name || 'KIN'}</span>
         </div>
         <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#1e293b] text-kin-muted">
-          {agents.length} {agents.length === 1 ? 'agent' : 'agents'}
+          {availableAgents.length} {availableAgents.length === 1 ? 'agent' : 'agents'}
         </span>
       </div>
 
@@ -152,47 +163,65 @@ export const Sidebar: React.FC = () => {
           </div>
 
           <div className="space-y-0.5">
-            {agents.map((agent) => {
-              const isDmActive = activeChannelId === `dm-${agent.id}`;
-              const isSelected = selectedAgentId === agent.id;
-              const isThinking = agent.status === 'thinking' || agent.status === 'working';
+            {availableAgents.length > 0 ? (
+              availableAgents.map((agent) => {
+                const isDmActive = activeChannelId === `dm-${agent.id}`;
+                const isSelected = selectedAgentId === agent.id;
+                const isThinking = agent.status === 'thinking' || agent.status === 'working';
 
-              return (
+                return (
+                  <button
+                    key={agent.id}
+                    onClick={() => handleSelectDm(agent.id)}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded transition cursor-pointer ${
+                      isDmActive
+                        ? 'bg-blue-600/20 border border-blue-500/40 text-blue-300 font-medium'
+                        : isSelected
+                        ? 'bg-[#131b2e] text-kin-text'
+                        : 'text-[#94a3b8] hover:bg-[#131b2e] hover:text-kin-text'
+                    }`}
+                    title={`Open 1-on-1 Direct Message with ${agent.displayName}`}
+                  >
+                    <div className="flex items-center space-x-2 truncate">
+                      <span
+                        className={`w-2 h-2 rounded-full shrink-0 ${
+                          isThinking
+                            ? 'bg-amber-400 animate-pulse shadow-[0_0_6px_#fbbf24]'
+                            : 'bg-emerald-400 shadow-[0_0_4px_#34d399]'
+                        }`}
+                      />
+                      <span className="truncate">{agent.displayName}</span>
+                    </div>
+
+                    {agent.isOrchestrator ? (
+                      <span className="text-[9px] uppercase px-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono shrink-0">
+                        Boss
+                      </span>
+                    ) : (
+                      <span className="text-[9px] uppercase px-1 rounded bg-blue-500/20 text-blue-300 font-mono shrink-0">
+                        Spec
+                      </span>
+                    )}
+                  </button>
+                );
+              })
+            ) : (
+              <div className="p-2.5 rounded-lg bg-[#0e1424] border border-[#1e293b] text-center space-y-1.5">
+                <div className="text-[11px] text-[#94a3b8] font-medium">No Available Agents</div>
+                <div className="text-[10px] text-[#64748b]">
+                  {ollamaStatus.online
+                    ? 'No installed models match configured agents'
+                    : 'Ollama offline & no BYOK keys configured'}
+                </div>
                 <button
-                  key={agent.id}
-                  onClick={() => handleSelectDm(agent.id)}
-                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded transition ${
-                    isDmActive
-                      ? 'bg-blue-600/20 border border-blue-500/40 text-blue-300 font-medium'
-                      : isSelected
-                      ? 'bg-[#131b2e] text-kin-text'
-                      : 'text-[#94a3b8] hover:bg-[#131b2e] hover:text-kin-text'
-                  }`}
-                  title={`Open 1-on-1 Direct Message with ${agent.displayName}`}
+                  type="button"
+                  onClick={() => setSettingsModalOpen(true)}
+                  className="w-full py-1 rounded bg-[#1e293b] hover:bg-[#334155] text-emerald-400 text-[10px] font-semibold transition cursor-pointer"
                 >
-                  <div className="flex items-center space-x-2 truncate">
-                    <span
-                      className={`w-2 h-2 rounded-full shrink-0 ${
-                        isThinking
-                          ? 'bg-amber-400 animate-pulse shadow-[0_0_6px_#fbbf24]'
-                          : 'bg-emerald-400 shadow-[0_0_4px_#34d399]'
-                      }`}
-                    />
-                    <span className="truncate">{agent.displayName}</span>
-                  </div>
-
-                  {agent.isOrchestrator ? (
-                    <span className="text-[9px] uppercase px-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono shrink-0">
-                      Boss
-                    </span>
-                  ) : (
-                    <span className="text-[9px] uppercase px-1 rounded bg-blue-500/20 text-blue-300 font-mono shrink-0">
-                      Spec
-                    </span>
-                  )}
+                  Configure in Settings →
                 </button>
-              );
-            })}
+              </div>
+            )}
           </div>
         </div>
 
@@ -402,19 +431,34 @@ export const Sidebar: React.FC = () => {
 
       {/* Bottom Settings & Preferences Bar */}
       <div className="p-2 border-t border-[#1e293b] bg-[#070b12] space-y-1">
-        <button
-          onClick={() => setSettingsModalOpen(true)}
-          className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg bg-[#131b2e] hover:bg-[#1c2742] text-kin-text border border-[#1e293b] hover:border-emerald-500/40 transition shadow-sm group cursor-pointer"
-          title="Open System Settings & Preferences"
-        >
-          <div className="flex items-center space-x-2 truncate">
-            <Settings className="w-4 h-4 text-emerald-400 group-hover:rotate-45 transition-transform duration-300 shrink-0" />
-            <span className="font-semibold text-xs truncate">Settings</span>
-          </div>
-          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
-            {autonomyMode}
-          </span>
-        </button>
+        <div className="flex items-center space-x-1.5">
+          <button
+            onClick={() => setSettingsModalOpen(true)}
+            className="flex-1 flex items-center justify-between px-2.5 py-2 rounded-lg bg-[#131b2e] hover:bg-[#1c2742] text-kin-text border border-[#1e293b] hover:border-emerald-500/40 transition shadow-sm group cursor-pointer"
+            title="Open System Settings & Preferences"
+          >
+            <div className="flex items-center space-x-2 truncate">
+              <Settings className="w-4 h-4 text-emerald-400 group-hover:rotate-45 transition-transform duration-300 shrink-0" />
+              <span className="font-semibold text-xs truncate">Settings</span>
+            </div>
+            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+              {autonomyMode}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="p-2 rounded-lg bg-[#131b2e] hover:bg-[#1c2742] text-[#8b949e] hover:text-kin-text border border-[#1e293b] transition cursor-pointer shrink-0"
+            title={theme === 'light' ? 'Switch to Dark Theme' : 'Switch to Minimal Light Theme'}
+          >
+            {theme === 'light' ? (
+              <Moon className="w-4 h-4 text-amber-400" />
+            ) : (
+              <Sun className="w-4 h-4 text-amber-300" />
+            )}
+          </button>
+        </div>
 
         <button
           onClick={() => setActiveRightTab('Agent')}

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useKinStore } from '../store/kinStore.js';
+import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
 import {
   MessageSquare,
   Send,
@@ -21,7 +21,6 @@ import {
   Clock,
   Monitor,
   Quote,
-  Scale,
   FileUp,
   Loader2,
   ChevronDown,
@@ -41,6 +40,9 @@ export const CenterView: React.FC = () => {
     activeChannelId,
     channelMembers,
     agents,
+    ollamaStatus,
+    credentials,
+    availableModels,
     messages,
     schedules,
     latestRoutingByChannel,
@@ -49,6 +51,7 @@ export const CenterView: React.FC = () => {
     removeChannelMember,
     setAddAgentModalOpen,
     setSelectedAgentId,
+    activeProjectId,
     pendingApprovals,
     resolveApproval,
     setActiveRightTab,
@@ -62,8 +65,6 @@ export const CenterView: React.FC = () => {
     activeTakeover,
     activeTakeovers,
     setDesktopControlModalOpen,
-    setSkillsModalOpen,
-    setDecisionsModalOpen,
     setAutomationsModalOpen,
     uploadFile,
     isUploading,
@@ -239,6 +240,12 @@ export const CenterView: React.FC = () => {
     setShowSlashMenu(false);
   };
 
+  const scopedPendingApprovals = React.useMemo(() => {
+    return pendingApprovals.filter(
+      (appr) => (appr.projectId || (appr as any).project_id) === activeProjectId
+    );
+  }, [pendingApprovals, activeProjectId]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
   }, [activeChannelId]);
@@ -248,33 +255,37 @@ export const CenterView: React.FC = () => {
   }, [channelMessages.length, channelMessages[channelMessages.length - 1]?.content]);
 
   const slashCommands = [
-    { cmd: '/plan /boost /teamwork-preview /goal', desc: '4-tier compound pipeline: Goal Milestone + Plan DAG + Matrix + Autonomy' },
-    { cmd: '/plan /boost /teamwork-preview', desc: 'Compound pipeline: Teamwork matrix + Plan DAG + Boost autonomy' },
-    { cmd: '/plan', desc: 'Generate multi-phase plan in DAG' },
-    { cmd: '/boost', desc: 'Deep architecture audit & auto-correct' },
+    { cmd: '/plan', desc: 'Generate multi-phase plan in DAG (e.g. /plan Core Architecture)' },
+    { cmd: '/boost', desc: 'Deep architecture audit & autonomous verification directive' },
+    { cmd: '/teamwork-preview', desc: 'Inspect workforce topology & model readiness' },
+    { cmd: '/goal', desc: 'Create milestone & orchestrate subtasks (e.g. /goal Ship Feature)' },
     { cmd: '/schedule', desc: 'Schedule timed wakeup alarm (e.g. /schedule 5s check)' },
-    { cmd: '/routine', desc: 'Schedule proactive recurring routine (cron or interval)' },
+    { cmd: '/routine', desc: 'Schedule proactive recurring routine' },
     { cmd: '/timer', desc: 'Alias for /schedule' },
-    { cmd: '/teamwork-preview', desc: 'Workforce topology & readiness matrix' },
-    { cmd: '/goal', desc: 'Create milestone & orchestrate subtasks' },
     { cmd: '/skills', desc: 'Browse and inspect installed agent skills' },
     { cmd: '/decisions', desc: 'Architecture Decision Records (ADR)' },
     { cmd: '/hire', desc: 'Hire new specialist' },
     { cmd: '/assign', desc: 'Assign agent to channel' },
-    { cmd: '/btw', desc: 'Ephemeral side query without polluting active context or plan' },
+    { cmd: '/btw', desc: 'Ephemeral side query without polluting active context' },
     { cmd: '/grill-me', desc: 'Adversarial architectural assessment & tradeoff analysis' },
     { cmd: '/clear', desc: 'Clear input' },
   ];
 
-  const matchingSlashCommands = slashCommands.filter((c) =>
-    c.cmd.toLowerCase().startsWith(inputText.trim().toLowerCase())
-  );
-
-  const matchingAgents = agents.filter((ag) => {
-    const lastWord = inputText.split(/\s/).pop() || '';
-    const query = lastWord.startsWith('@') ? lastWord.slice(1).toLowerCase() : '';
-    return ag.displayName.toLowerCase().replace(/^@/, '').includes(query);
+  const lastSlashWord = inputText.split(/\s/).pop() || '';
+  const matchingSlashCommands = slashCommands.filter((c) => {
+    if (!lastSlashWord.startsWith('/')) return false;
+    const q = lastSlashWord.slice(1).toLowerCase();
+    if (!q) return true;
+    return c.cmd.toLowerCase().slice(1).startsWith(q) || c.cmd.toLowerCase().slice(1).includes(q);
   });
+
+  const matchingAgents = agents
+    .filter((ag) => isAgentAvailable(ag, ollamaStatus, credentials, availableModels))
+    .filter((ag) => {
+      const lastWord = inputText.split(/\s/).pop() || '';
+      const query = lastWord.startsWith('@') ? lastWord.slice(1).toLowerCase() : '';
+      return ag.displayName.toLowerCase().replace(/^@/, '').includes(query);
+    });
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
@@ -285,15 +296,11 @@ export const CenterView: React.FC = () => {
     if (lastWord.startsWith('@')) {
       setShowMentionMenu(true);
       setShowSlashMenu(false);
-    } else if (val.startsWith('/')) {
-      // Keep slash menu open if matching slash commands exist even if spaces are present in compound commands
-      const hasMatching = slashCommands.some((c) => c.cmd.toLowerCase().startsWith(val.trim().toLowerCase()));
-      if (hasMatching || !val.includes(' ')) {
-        setShowSlashMenu(true);
-        setShowMentionMenu(false);
-      } else {
-        setShowSlashMenu(false);
-      }
+      setMentionSelectedIndex(0);
+    } else if (lastWord.startsWith('/')) {
+      setShowSlashMenu(true);
+      setShowMentionMenu(false);
+      setSlashSelectedIndex(0);
     } else {
       setShowMentionMenu(false);
       setShowSlashMenu(false);
@@ -304,7 +311,7 @@ export const CenterView: React.FC = () => {
     const words = inputText.split(/\s/);
     words.pop();
     const cleanHandle = agentName.startsWith('@') ? agentName : `@${agentName}`;
-    const newText = [...words, cleanHandle].join(' ') + ' ';
+    const newText = (words.length > 0 ? words.join(' ') + ' ' : '') + cleanHandle + ' ';
     setInputText(newText);
     setShowMentionMenu(false);
     inputRef.current?.focus();
@@ -312,34 +319,17 @@ export const CenterView: React.FC = () => {
 
   const handleSlashCommand = (cmd: string) => {
     setShowSlashMenu(false);
-    if (cmd === '/skills') {
-      setSkillsModalOpen(true);
+    if (cmd === '/clear') {
       setInputText('');
-    } else if (cmd === '/hire') {
-      setAddAgentModalOpen(true);
-      setInputText('');
-    } else if (cmd === '/assign') {
-      setAddAgentModalOpen(true);
-      setInputText('');
-    } else if (cmd === '/clear') {
-      setInputText('');
-    } else if (cmd.includes('/plan') && cmd.includes('/boost') && cmd.includes('/goal')) {
-      sendMessage('/plan /boost /teamwork-preview /goal');
-      setInputText('');
-    } else if (cmd.includes('/plan') && cmd.includes('/boost')) {
-      sendMessage('/plan /boost /teamwork-preview');
-      setInputText('');
-    } else if (cmd === '/teamwork-preview' || cmd === '/teamwork') {
-      sendMessage('/teamwork-preview');
-      setInputText('');
-    } else if (cmd === '/decisions' || cmd === '/decision') {
-      setDecisionsModalOpen(true);
-      sendMessage('/decisions');
-      setInputText('');
-    } else {
-      setInputText(`${cmd} `);
       inputRef.current?.focus();
+      return;
     }
+    // Antigravity style: replace active slash token with selected command and trailing space
+    const words = inputText.split(/\s/);
+    words.pop();
+    const newText = (words.length > 0 ? words.join(' ') + ' ' : '') + `${cmd} `;
+    setInputText(newText);
+    inputRef.current?.focus();
   };
 
   const handleQuoteMessage = (msg: any) => {
@@ -847,126 +837,40 @@ export const CenterView: React.FC = () => {
         </div>
       )}
 
-      {/* Slash Commands Overlay */}
+      {/* Antigravity-Style Slash Commands Autocomplete Popup */}
       {showSlashMenu && matchingSlashCommands.length > 0 && (
-        <div className="absolute bottom-16 left-4 bg-[#0f172a] border border-[#2d3748] rounded-xl shadow-2xl p-2 z-20 w-80 space-y-1 text-xs">
-          <div className="text-[10px] text-[#64748b] uppercase font-bold px-2 py-0.5 flex items-center justify-between">
-            <span>Commands ({matchingSlashCommands.length})</span>
-            <span className="text-[9px] font-mono lowercase text-[#94a3b8]">↑↓ Tab/Enter</span>
+        <div className="absolute bottom-16 left-4 bg-[#090d16] border border-[#2d3748] rounded-xl shadow-2xl p-2 z-30 w-96 max-h-72 overflow-y-auto space-y-1 text-xs animate-in fade-in duration-100">
+          <div className="text-[10px] text-[#64748b] uppercase font-bold px-2 py-1 flex items-center justify-between border-b border-[#1e293b] pb-1">
+            <span className="flex items-center space-x-1.5">
+              <Terminal className="w-3 h-3 text-emerald-400" />
+              <span>Independent Slash Commands ({matchingSlashCommands.length})</span>
+            </span>
+            <span className="text-[9px] font-mono lowercase text-[#94a3b8]">↑↓ to navigate, Tab/Enter to insert</span>
           </div>
-          {matchingSlashCommands.map((c, idx) => (
-            <button
-              key={c.cmd}
-              onClick={() => handleSlashCommand(c.cmd)}
-              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded text-left transition ${
-                idx === slashSelectedIndex
-                  ? 'bg-[#1e293b] ring-1 ring-emerald-500/50 text-white'
-                  : 'hover:bg-[#1e293b]/70 text-[#cbd5e1]'
-              }`}
-            >
-              <span className="font-mono text-emerald-400 font-bold">{c.cmd}</span>
-              <span className="text-[10px] text-[#94a3b8]">{c.desc}</span>
-            </button>
-          ))}
+          <div className="space-y-0.5 pt-1">
+            {matchingSlashCommands.map((c, idx) => (
+              <button
+                key={c.cmd}
+                type="button"
+                onClick={() => handleSlashCommand(c.cmd)}
+                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition cursor-pointer ${
+                  idx === slashSelectedIndex
+                    ? 'bg-emerald-500/20 text-white border border-emerald-500/40 shadow-sm'
+                    : 'hover:bg-[#161f36] text-[#cbd5e1]'
+                }`}
+              >
+                <div className="flex items-center space-x-2 truncate">
+                  <span className="font-mono text-emerald-400 font-bold text-xs">{c.cmd}</span>
+                </div>
+                <span className="text-[10px] text-[#94a3b8] truncate ml-2 text-right">{c.desc}</span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
       {/* Bottom Message Input Box & Security Approvals */}
-      {/* Bottom Message Input Box & Security Approvals */}
       <div className="p-3 border-t border-[#1e293b] bg-[#090d16] space-y-2.5">
-        {/* Quick Command Chips */}
-        <div className="flex items-center space-x-1.5 px-0.5 overflow-x-auto text-[11px] font-mono select-none">
-          <span className="text-[#64748b] text-[9px] uppercase font-bold tracking-wider shrink-0">Commands:</span>
-          <button
-            type="button"
-            onClick={() => { sendMessage('/plan /boost /teamwork-preview'); }}
-            className="px-2 py-0.5 rounded bg-gradient-to-r from-emerald-500/20 via-blue-500/20 to-purple-500/20 hover:from-emerald-500/30 hover:via-blue-500/30 hover:to-purple-500/30 text-emerald-300 border border-emerald-500/40 transition flex items-center space-x-1 shrink-0 font-medium shadow-sm cursor-pointer"
-            title="Execute compound pipeline: /plan /boost /teamwork-preview (Teamwork Matrix + Plan DAG + Boost Autonomy)"
-          >
-            <span>⚡ /plan /boost /teamwork-preview</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { sendMessage('/plan /boost /teamwork-preview /goal'); }}
-            className="px-2 py-0.5 rounded bg-gradient-to-r from-amber-500/20 via-emerald-500/20 to-cyan-500/20 hover:from-amber-500/30 hover:via-emerald-500/30 hover:to-cyan-500/30 text-amber-300 border border-amber-500/40 transition flex items-center space-x-1 shrink-0 font-medium shadow-sm cursor-pointer"
-            title="Execute full 4-tier compound pipeline: /plan /boost /teamwork-preview /goal (Milestone Goal + Plan DAG + Matrix + Autonomy)"
-          >
-            <span>🎯 /plan /boost /teamwork-preview /goal</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setInputText('/boost '); inputRef.current?.focus(); }}
-            className="px-2 py-0.5 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 transition flex items-center space-x-1 shrink-0"
-            title="Run /boost to trigger architecture audit & verification"
-          >
-            <span>🚀 /boost</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setInputText('/plan '); inputRef.current?.focus(); }}
-            className="px-2 py-0.5 rounded bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 transition flex items-center space-x-1 shrink-0"
-            title="Run /plan to initialize multi-phase DAG execution"
-          >
-            <span>📋 /plan</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { sendMessage('/teamwork-preview'); }}
-            className="px-2 py-0.5 rounded bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30 transition flex items-center space-x-1 shrink-0"
-            title="Run /teamwork-preview to inspect workforce collaboration & model readiness"
-          >
-            <span>👥 /teamwork-preview</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setInputText('/goal '); inputRef.current?.focus(); }}
-            className="px-2 py-0.5 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 transition flex items-center space-x-1 shrink-0"
-            title="Run /goal to register project milestone"
-          >
-            <span>🎯 /goal</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setInputText('/schedule '); inputRef.current?.focus(); }}
-            className="px-2 py-0.5 rounded bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 transition flex items-center space-x-1 shrink-0"
-            title="Run /schedule to configure timed agent wakeup"
-          >
-            <span>⏱️ /schedule</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setInputText('/routine '); inputRef.current?.focus(); }}
-            className="px-2 py-0.5 rounded bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 transition flex items-center space-x-1 shrink-0"
-            title="Run /routine to configure recurring proactive routine"
-          >
-            <span>🔄 /routine</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setDecisionsModalOpen(true); }}
-            className="px-2 py-0.5 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition flex items-center space-x-1 shrink-0"
-            title="Open Architecture Decision Records (ADR) Modal"
-          >
-            <Scale className="w-3 h-3 text-amber-400" />
-            <span>/decisions</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setInputText('/btw '); inputRef.current?.focus(); }}
-            className="px-2 py-0.5 rounded bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 transition flex items-center space-x-1 shrink-0 cursor-pointer"
-            title="Run /btw for ephemeral side query without polluting active context"
-          >
-            <span>💡 /btw</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setInputText('/grill-me '); inputRef.current?.focus(); }}
-            className="px-2 py-0.5 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 transition flex items-center space-x-1 shrink-0 cursor-pointer"
-            title="Run /grill-me for adversarial architecture & tradeoff questionnaire"
-          >
-            <span>🔥 /grill-me</span>
-          </button>
-        </div>
 
         {/* Antigravity In-App Scheduler & Timers Bar */}
         {activeSchedules.length > 0 && (
@@ -1336,13 +1240,13 @@ export const CenterView: React.FC = () => {
         )}
 
         {/* Security Gate: Action Approval Required - docked right above message box */}
-        {pendingApprovals.length > 0 && (
+        {scopedPendingApprovals.length > 0 && (
           <div className="p-3 bg-[#1e1307]/95 backdrop-blur-sm border border-amber-500/40 rounded-xl space-y-2.5 shadow-2xl animate-fadeIn">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <AlertTriangle className="w-4 h-4 text-amber-400 animate-pulse" />
                 <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300 font-mono">
-                  Security Gate: Action Approval Required ({pendingApprovals.length})
+                  Security Gate: Action Approval Required ({scopedPendingApprovals.length})
                 </span>
               </div>
               <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono">
@@ -1350,7 +1254,7 @@ export const CenterView: React.FC = () => {
               </span>
             </div>
 
-            {pendingApprovals.map((appr) => (
+            {scopedPendingApprovals.map((appr) => (
               <div key={appr.id} className="p-2.5 rounded-lg bg-[#0b0f19] border border-[#2d3748] space-y-2">
                 <div className="flex items-center justify-between text-[11px]">
                   <div className="flex items-center space-x-2 font-mono truncate mr-2">
@@ -1501,15 +1405,7 @@ export const CenterView: React.FC = () => {
                   setSlashSelectedIndex((prev) => (prev - 1 + matchingSlashCommands.length) % matchingSlashCommands.length);
                   return;
                 }
-                if (e.key === 'Tab') {
-                  e.preventDefault();
-                  const targetCmd = matchingSlashCommands[slashSelectedIndex]?.cmd || matchingSlashCommands[0].cmd;
-                  setInputText(`${targetCmd} `);
-                  setShowSlashMenu(false);
-                  inputRef.current?.focus();
-                  return;
-                }
-                if (e.key === 'Enter') {
+                if (e.key === 'Tab' || e.key === 'Enter') {
                   e.preventDefault();
                   const targetCmd = matchingSlashCommands[slashSelectedIndex]?.cmd || matchingSlashCommands[0].cmd;
                   handleSlashCommand(targetCmd);

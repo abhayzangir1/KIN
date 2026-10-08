@@ -2,20 +2,91 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: dark;
+}
+
+html.light {
+  color-scheme: light;
+}
+
+/* Minimalist scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0B0F17;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
   background: #2A364F;
-  border-radius: 3px;
+  border-radius: 4px;
+}
+
+html.light ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: #3B82F6;
+}
+
+/* Clean minimal borderless feel with subtle marginal separation */
+html.light {
+  --kin-bg: #f8fafc;
+  --kin-surface: #ffffff;
+  --kin-border: #e2e8f0;
+}
+
+/* Light mode overrides for high-readability minimalist aesthetic */
+html.light .bg-\[\#0a0f1d\],
+html.light .bg-\[\#070b12\],
+html.light .bg-\[\#090d16\],
+html.light .bg-\[\#0b0f19\],
+html.light .bg-\[\#0e1424\] {
+  background-color: #f8fafc !important;
+}
+
+html.light .bg-\[\#0d121f\],
+html.light .bg-\[\#0d1117\],
+html.light .bg-\[\#131b2e\],
+html.light .bg-\[\#161b22\],
+html.light .bg-\[\#0f172a\] {
+  background-color: #ffffff !important;
+}
+
+html.light .bg-\[\#1e293b\],
+html.light .bg-\[\#21262d\] {
+  background-color: #f1f5f9 !important;
+}
+
+html.light .border-\[\#1e293b\],
+html.light .border-\[\#30363d\],
+html.light .border-\[\#21262d\],
+html.light .border-\[\#2d3748\] {
+  border-color: #e2e8f0 !important;
+}
+
+html.light .text-kin-text {
+  color: #0f172a !important;
+}
+
+html.light .text-\[\#cbd5e1\],
+html.light .text-\[\#94a3b8\],
+html.light .text-\[\#8b949e\] {
+  color: #475569 !important;
+}
+
+html.light .text-\[\#64748b\] {
+  color: #64748b !important;
+}
+
+html.light input,
+html.light select,
+html.light textarea {
+  color: #0f172a !important;
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
 }

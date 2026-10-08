@@ -988,14 +988,17 @@ export class CoreServer {
       now
     );
 
+    const targetAgent = this.agentRepo.getIdentity(targetAgentId);
     this.broadcastEvent('approval:created', {
       id,
       runId,
-      agentId,
+      agentId: targetAgentId,
+      agentName: targetAgent?.displayName ?? '@Boss',
       toolName,
       actionPayload: sanitizedPayload,
       reason,
       riskLevel,
+      projectId: targetAgent?.projectId || this.activeProjectId,
     });
 
     return id;
@@ -1969,9 +1972,23 @@ export class CoreServer {
       const projectAgentsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/agents$/);
       if (req.method === 'GET' && projectAgentsMatch) {
         const projectId = projectAgentsMatch[1];
+        const urlObj = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
+        const availableOnly = urlObj.searchParams.get('availableOnly') === '1' || urlObj.searchParams.get('availableOnly') === 'true';
+
+        const ollamaInfo = await this.getLocalOllamaModels();
+        const activeCreds = this.db.query<any>('SELECT DISTINCT provider FROM managed_credentials WHERE is_active = 1');
+        const configuredProviders = new Set<string>(['ollama', ...activeCreds.map((c: any) => c.provider.toLowerCase())]);
+
         const agents = this.agentRepo.listIdentitiesByProject(projectId);
-        const agentDisplays = agents.map((a) => {
+        let agentDisplays = agents.map((a) => {
           const def = this.agentRepo.getDefinition(a.definitionId);
+          const { modelAvailable, modelStatus } = this.computeModelAvailability(
+            a.activeModelId,
+            ollamaInfo,
+            configuredProviders,
+            activeCreds.length
+          );
+
           return {
             id: a.id,
             name: def?.name ?? a.displayName,
@@ -1984,8 +2001,15 @@ export class CoreServer {
             isOrchestrator: a.isOrchestrator,
             projectId: a.projectId,
             assignedChannels: this.workspaceRepo.listAgentChannelIds(a.id),
+            modelAvailable,
+            modelStatus,
           };
         });
+
+        if (availableOnly) {
+          agentDisplays = agentDisplays.filter((a) => a.modelAvailable);
+        }
+
         return this.sendJson(res, 200, { agents: agentDisplays });
       }
 
@@ -2258,11 +2282,22 @@ export class CoreServer {
           memberIds = ['agent-boss'];
         }
 
+        const ollamaInfo = await this.getLocalOllamaModels();
+        const activeCreds = this.db.query<any>('SELECT DISTINCT provider FROM managed_credentials WHERE is_active = 1');
+        const configuredProviders = new Set<string>(['ollama', ...activeCreds.map((c: any) => c.provider.toLowerCase())]);
+
         const members = memberIds
           .map((id) => this.agentRepo.getIdentity(id))
           .filter(Boolean)
           .map((a) => {
             const def = this.agentRepo.getDefinition(a!.definitionId);
+            const { modelAvailable, modelStatus } = this.computeModelAvailability(
+              a!.activeModelId,
+              ollamaInfo,
+              configuredProviders,
+              activeCreds.length
+            );
+
             return {
               id: a!.id,
               name: def?.name ?? a!.displayName,
@@ -2274,6 +2309,8 @@ export class CoreServer {
               status: 'idle',
               isOrchestrator: a!.isOrchestrator,
               projectId: a!.projectId,
+              modelAvailable,
+              modelStatus,
             };
           });
 
@@ -2432,10 +2469,8 @@ export class CoreServer {
         const requestedProjId = parsedUrl.searchParams.get('projectId');
         const ws = this.workspaceRepo.getWorkspace('ws-default');
         const projects = this.workspaceRepo.listProjects('ws-default');
-        const targetProjId = (requestedProjId && this.workspaceRepo.getProject(requestedProjId))
-          ? requestedProjId
-          : this.activeProjectId;
-        const activeProject = this.workspaceRepo.getProject(targetProjId) || projects[0];
+        const targetProjId = requestedProjId || this.activeProjectId || 'proj-kin';
+        const activeProject = this.workspaceRepo.getProject(targetProjId) || projects.find((p) => p.id === targetProjId) || projects[0];
         
         let channels = this.workspaceRepo.listChannels(activeProject?.id || 'proj-kin');
         if (channels.length === 0 && activeProject) {
@@ -2455,10 +2490,20 @@ export class CoreServer {
         const messages = this.channelService.getMessages(activeChannelId, 100);
 
         // Fetch agents in active project
+        const ollamaInfo = await this.getLocalOllamaModels();
+        const activeCreds = this.db.query<any>('SELECT DISTINCT provider FROM managed_credentials WHERE is_active = 1');
+        const configuredProviders = new Set<string>(['ollama', ...activeCreds.map((c: any) => c.provider.toLowerCase())]);
+
         const agents = this.agentRepo.listIdentitiesByProject(activeProject?.id || 'proj-kin');
         const agentDisplays = agents.map((a) => {
           const def = this.agentRepo.getDefinition(a.definitionId);
           const assignedChannels = this.workspaceRepo.listAgentChannelIds(a.id);
+          const { modelAvailable, modelStatus } = this.computeModelAvailability(
+            a.activeModelId,
+            ollamaInfo,
+            configuredProviders,
+            activeCreds.length
+          );
 
           const agentMessages = this.db.query<{ count: number; avg_score: number; last_at: number }>(
             `SELECT COUNT(*) as count, COALESCE(AVG(productivity_score), 0) as avg_score, MAX(created_at) as last_at
@@ -2496,6 +2541,8 @@ export class CoreServer {
             isOrchestrator: a.isOrchestrator,
             projectId: a.projectId,
             assignedChannels,
+            modelAvailable,
+            modelStatus,
             analytics: {
               messagesCount: agentMessages[0]?.count || 0,
               assignedTasksCount: tasksTotal,
@@ -2512,7 +2559,8 @@ export class CoreServer {
           };
         });
 
-        // Fetch pending approvals
+        // Fetch pending approvals scoped to the active project
+        const currentProjectId = targetProjId || activeProject?.id || 'proj-kin';
         const rawApprovals = this.db.query<{
           id: string;
           run_id: string;
@@ -2521,7 +2569,19 @@ export class CoreServer {
           action_payload_json: string;
           risk_level: string;
           created_at: number;
-        }>("SELECT * FROM approvals WHERE status = 'pending' ORDER BY created_at DESC");
+          project_id?: string;
+        }>(
+          `SELECT a.*, COALESCE(r.project_id, ag.project_id) as project_id
+           FROM approvals a
+           LEFT JOIN agent_runs r ON a.run_id = r.id
+           LEFT JOIN agent_identities ag ON a.agent_id = ag.id
+           WHERE a.status = 'pending'
+             AND (r.project_id = ? OR ag.project_id = ? OR (r.project_id IS NULL AND ag.project_id IS NULL AND ? = 'proj-kin'))
+           ORDER BY a.created_at DESC`,
+          currentProjectId,
+          currentProjectId,
+          currentProjectId
+        );
 
         const pendingApprovals = rawApprovals.map((a) => {
           const agent = agents.find((ag) => ag.id === a.agent_id);
@@ -2534,16 +2594,15 @@ export class CoreServer {
             actionSummary: payload?.command || JSON.stringify(payload),
             riskLevel: a.risk_level,
             createdAt: a.created_at,
+            projectId: a.project_id || currentProjectId,
           };
         });
 
         // Fetch goals and tasks for project
-        const goals = this.taskRepo.listGoals(activeProject?.id || 'proj-kin');
-        const tasks = this.taskRepo.listTasksByProject(activeProject?.id || 'proj-kin');
+        const goals = this.taskRepo.listGoals(currentProjectId);
+        const tasks = this.taskRepo.listTasksByProject(currentProjectId);
 
-        // Check Ollama status
-        const ollamaInfo = await this.getLocalOllamaModels();
-
+        // Check Ollama status (ollamaInfo already retrieved above)
         // Calculate Project Analytics
         let dbStat = 0;
         try {
@@ -3082,9 +3141,30 @@ export class CoreServer {
             .replace(/^[,\s|:\-/]+/, '')
             .trim();
 
+          if (strippedTopic.length === 0) {
+            const usageMsg = this.channelService.sendMessage({
+              channelId,
+              senderId: boss.id,
+              senderType: 'agent',
+              content: `ℹ️ **Command Directive**: Please provide an objective or directive with your slash command (e.g. \`/plan <objective>\`, \`/boost <verification prompt>\`, or \`/goal <milestone>\`). Commands execute with your prompt.`,
+              productivityScore: 100,
+            });
+            this.broadcastEvent('message:created', {
+              id: usageMsg.id,
+              channelId: usageMsg.channelId,
+              senderId: usageMsg.senderId,
+              senderName: boss.displayName.replace(/^@/, ''),
+              senderType: 'agent',
+              content: usageMsg.content,
+              createdAt: usageMsg.createdAt,
+              productivityScore: usageMsg.productivityScore,
+            });
+            return;
+          }
+
           const now = Date.now();
-          let objective = 'Autonomous Multi-Agent Systems & Verification Pipeline';
-          let planDesc = 'Authoritative multi-phase execution plan for autonomous workforce coordination';
+          let objective = strippedTopic.length < 120 ? strippedTopic : (strippedTopic.split(/[.;]/)[0] || strippedTopic.slice(0, 100)).trim();
+          let planDesc = `Authoritative multi-phase execution plan for ${objective}`;
           let customCriteria: string[] | null = null;
 
           if (strippedTopic.includes('|')) {
@@ -3369,18 +3449,25 @@ export class CoreServer {
             productivityScore: compoundReply.productivityScore,
           });
 
-          // Trigger Autonomous Execution Wired to Active Phase 1 Task
+          // Trigger Autonomous Execution Wired to Active Phase 1 Task with authentic LLM formulation
           const compoundExecutionDirective = {
             id: `msg-compound-exec-${now}`,
             channelId,
             senderId: 'user-operator',
-            senderType: 'human',
-            content: planDirectiveText,
+            senderType: 'human' as const,
+            content: `[COMPOUND PIPELINE DIRECTIVE: ${engagedModes.join(', ')}]\n` +
+              `Target Objective: "${objective}"\n` +
+              `Project: ${targetProjectId} | Repository Root: ${repoPath}\n` +
+              `Active Phase/Step: ${activeStep}\n` +
+              `Repository Status: ${gitSummaryText}\n` +
+              `Engine Status: ${engineSummary}\n` +
+              (scheduledTimerInfo ? `Scheduled Timer: ${scheduledTimerInfo}\n` : '') +
+              `Directive: Review requirements, execute tasks with maximum autonomy, verify edge cases, confirm zero runtime errors, and coordinate deliverables.`,
             createdAt: now + 1,
             taskId: createdTasks[0]?.id || undefined,
           };
 
-          this.executeSequentialAgents([boss], channelId, compoundExecutionDirective).catch((err) => {
+          this.executeSequentialAgents([boss], channelId, compoundExecutionDirective as any).catch((err) => {
             console.error('[KIN CORE] Compound pipeline execution error:', err);
           });
           return;
@@ -3678,41 +3765,17 @@ export class CoreServer {
 
             const planDirectiveText = `[PLAN EXECUTION DIRECTIVE]: Begin executing Phase 1: "${activeStep}" for objective "${objective}". Review requirements, execute tasks, and coordinate deliverables.`;
 
-            const planMsg = `📋 **Execution Plan Initialized**: **${objective}**\n\n` +
-              `**Goal ID**: \`${goalId}\`\n- **Project**: \`${targetProjectId}\`\n\n` +
-              `**Milestone Breakdown**:\n${breakdownText}\n` +
-              `${planDirectiveText}`;
-
-            const planReply = this.channelService.sendMessage({
-              channelId,
-              senderId: boss.id,
-              senderType: 'agent',
-              content: planMsg,
-              productivityScore: 100,
-            });
-
-            this.broadcastEvent('message:created', {
-              id: planReply.id,
-              channelId: planReply.channelId,
-              senderId: planReply.senderId,
-              senderName: boss.displayName.replace(/^@/, ''),
-              senderType: 'agent',
-              content: planReply.content,
-              createdAt: planReply.createdAt,
-              productivityScore: planReply.productivityScore,
-            });
-
-            // Trigger autonomous execution of Phase 1 milestone wired to active task
+            // Trigger autonomous execution of Phase 1 milestone wired to active task with authentic LLM formulation
             const executionDirective = {
               id: `msg-plan-exec-${now}`,
               channelId,
               senderId: 'user-operator',
-              senderType: 'human',
-              content: planDirectiveText,
+              senderType: 'human' as const,
+              content: `[PLAN EXECUTION DIRECTIVE]: Begin executing Phase 1: "${activeStep}" for objective "${objective}". Review requirements, execute tasks, verify implementation, and coordinate deliverables.`,
               createdAt: now + 1,
               taskId: createdTasks[0]?.id || undefined,
             };
-            this.executeSequentialAgents([boss], channelId, executionDirective).catch((err) => {
+            this.executeSequentialAgents([boss], channelId, executionDirective as any).catch((err) => {
               console.error('[KIN CORE] Plan execution error:', err);
             });
             return;
@@ -3752,30 +3815,7 @@ export class CoreServer {
           const ollamaInfo = await this.getLocalOllamaModels();
           const engineSummary = `WAL (${dbSizeKb} KB) | Ollama: ${ollamaInfo.online ? `${ollamaInfo.models.length} model(s)` : 'offline'}`;
 
-          if (boss) {
-            const boostNotice = this.channelService.sendMessage({
-              channelId,
-              senderId: boss.id,
-              senderType: 'agent',
-              content: `🚀 **Boost Mode Engaged**: Maximum Autonomy & Architectural Verification\n` +
-                `- **Target**: \`${boostTopic || 'Complete workspace verification and stress test'}\`\n` +
-                `- **Repository Status**: ${gitSummaryText}\n` +
-                `- **Active Tasks**: ${running} running, ${pending} ready\n` +
-                `- **Engine Status**: ${engineSummary}\n` +
-                `- **Workforce Directive**: Initiating deep verification pass and autonomous execution...`,
-              productivityScore: 100,
-            });
-            this.broadcastEvent('message:created', {
-              id: boostNotice.id,
-              channelId: boostNotice.channelId,
-              senderId: boostNotice.senderId,
-              senderName: boss.displayName.replace(/^@/, ''),
-              senderType: 'agent',
-              content: boostNotice.content,
-              createdAt: boostNotice.createdAt,
-              productivityScore: boostNotice.productivityScore,
-            });
-          }
+
 
           const boostDirective = `[🚀 BOOST MODE: MAXIMUM AUTONOMY & ARCHITECTURAL VERIFICATION]\n` +
             `Audit Target: ${boostTopic || 'Complete workspace verification and stress test'}\n` +
@@ -4767,10 +4807,33 @@ export class CoreServer {
       // 13b. GET /api/approvals — List approvals
       if (req.method === 'GET' && pathname === '/api/approvals') {
         const statusFilter = parsedUrl.searchParams.get('status');
-        const rows = statusFilter
-          ? this.db.query<any>('SELECT * FROM approvals WHERE status = ? ORDER BY created_at DESC', statusFilter)
-          : this.db.query<any>('SELECT * FROM approvals ORDER BY created_at DESC');
-        return this.sendJson(res, 200, { approvals: rows });
+        const projFilter = parsedUrl.searchParams.get('projectId');
+        let sql = `SELECT a.*, COALESCE(r.project_id, ag.project_id) as project_id
+                   FROM approvals a
+                   LEFT JOIN agent_runs r ON a.run_id = r.id
+                   LEFT JOIN agent_identities ag ON a.agent_id = ag.id`;
+        const params: any[] = [];
+        const wheres: string[] = [];
+
+        if (statusFilter) {
+          wheres.push('a.status = ?');
+          params.push(statusFilter);
+        }
+        if (projFilter) {
+          wheres.push('(r.project_id = ? OR ag.project_id = ? OR (r.project_id IS NULL AND ag.project_id IS NULL AND ? = \'proj-kin\'))');
+          params.push(projFilter, projFilter, projFilter);
+        }
+        if (wheres.length > 0) {
+          sql += ' WHERE ' + wheres.join(' AND ');
+        }
+        sql += ' ORDER BY a.created_at DESC';
+
+        const rows = this.db.query<any>(sql, ...params);
+        const mappedRows = rows.map((r: any) => ({
+          ...r,
+          projectId: r.project_id || (projFilter || 'proj-kin'),
+        }));
+        return this.sendJson(res, 200, { approvals: mappedRows });
       }
 
       // 14. POST /api/approvals/:approvalId/resolve — Resolve approval gate
@@ -4946,6 +5009,7 @@ export class CoreServer {
           riskLevel,
           status: 'pending',
           createdAt: now,
+          projectId: agent?.projectId || this.activeProjectId,
         };
 
         this.broadcastEvent('approval:created', approvalItem);
@@ -8224,6 +8288,7 @@ export class CoreServer {
           actionSummary: sanitizedParams?.command || sanitizedParams?.url || sanitizedParams?.path || sanitizedParams?.reason || JSON.stringify(sanitizedParams || {}),
           riskLevel: details.riskLevel || 'CRITICAL',
           actionPayload: sanitizedParams,
+          projectId: run.projectId || freshIdentity.projectId || this.activeProjectId,
         });
         this.kernel.transitionState(run.id, 'waiting_for_approval', loopResult.reason || 'Requires interactive human approval');
         if (loopResult.interrupted) {
@@ -8636,4 +8701,35 @@ export class CoreServer {
       }
     }
   }
+
+  private computeModelAvailability(
+    activeModelId: string | undefined,
+    ollamaInfo: { online: boolean; models: string[] },
+    configuredProviders: Set<string>,
+    activeCredsCount: number
+  ): { modelAvailable: boolean; modelStatus: string } {
+    const modelId = (activeModelId || '').trim();
+    const isInherit = !modelId || modelId === 'inherit';
+
+    if (isInherit) {
+      const hasLocal = ollamaInfo.online && Array.isArray(ollamaInfo.models) && ollamaInfo.models.length > 0;
+      const hasProv = activeCredsCount > 0;
+      const modelAvailable = hasLocal || hasProv;
+      const modelStatus = modelAvailable ? 'ready' : (ollamaInfo.online ? 'unconfigured' : 'offline');
+      return { modelAvailable, modelStatus };
+    }
+
+    const isOllama = modelId.startsWith('ollama/') || !modelId.includes('/');
+    const cleanModel = modelId.replace(/^ollama\//, '').toLowerCase();
+    const isLocalReady = isOllama && ollamaInfo.online && Array.isArray(ollamaInfo.models) && ollamaInfo.models.some((m) => {
+      const lower = m.toLowerCase();
+      return lower === cleanModel || lower.startsWith(cleanModel) || cleanModel.startsWith(lower);
+    });
+    const prov = modelId.includes('/') ? modelId.split('/')[0].toLowerCase() : 'ollama';
+    const isProvReady = !isOllama && configuredProviders.has(prov);
+    const modelAvailable = isOllama ? isLocalReady : isProvReady;
+    const modelStatus = modelAvailable ? 'ready' : (isOllama && !ollamaInfo.online ? 'offline' : 'unconfigured');
+    return { modelAvailable, modelStatus };
+  }
 }
+

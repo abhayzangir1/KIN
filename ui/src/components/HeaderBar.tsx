@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useKinStore } from '../store/kinStore.js';
-import { Folder, Plus, X, Play, Copy, Check, Shield, Activity, Network, Sparkles, Monitor } from 'lucide-react';
+import { Folder, Plus, X, Play, Copy, Check, Shield, Activity } from 'lucide-react';
 
 export const HeaderBar: React.FC = () => {
   const {
@@ -16,8 +16,6 @@ export const HeaderBar: React.FC = () => {
     autonomyMode,
     setAutonomyMode,
     projectAnalytics,
-    setSwarmMapOpen,
-    setSkillsModalOpen,
     setDesktopControlModalOpen,
     browserStatus,
     activeTakeover,
@@ -186,26 +184,6 @@ export const HeaderBar: React.FC = () => {
           </select>
         </div>
 
-        {/* Swarm Map Trigger Button */}
-        <button
-          onClick={() => setSwarmMapOpen(true)}
-          className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-sans font-semibold transition shadow-sm"
-          title="Open Autonomous Workforce Swarm Map"
-        >
-          <Network className="w-3.5 h-3.5 text-emerald-400" />
-          <span>Swarm Map</span>
-        </button>
-
-        {/* Skills Registry Button */}
-        <button
-          onClick={() => setSkillsModalOpen(true)}
-          className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/40 text-[11px] font-sans font-semibold transition shadow-sm"
-          title="Open Procedural Skills Engine & Bundles"
-        >
-          <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-          <span>Skills</span>
-        </button>
-
         {/* Live Machine Control Glowing Indicator */}
         {isMachineControlActive && (
           <div
@@ -222,16 +200,6 @@ export const HeaderBar: React.FC = () => {
             </button>
           </div>
         )}
-
-        {/* Desktop & Web Control Center Button */}
-        <button
-          onClick={() => setDesktopControlModalOpen(true)}
-          className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-[11px] font-sans font-semibold transition shadow-sm"
-          title="Open Desktop GUI, Windows, Browser & Routines"
-        >
-          <Monitor className="w-3.5 h-3.5 text-blue-400" />
-          <span>Desktop & Web</span>
-        </button>
       </div>
     </header>
   );

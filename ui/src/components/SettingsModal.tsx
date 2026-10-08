@@ -17,6 +17,10 @@ import {
   Key,
   Award,
   ArrowRight,
+  Monitor,
+  Network,
+  Sun,
+  Moon,
 } from 'lucide-react';
 
 export const SettingsModal: React.FC = () => {
@@ -41,9 +45,15 @@ export const SettingsModal: React.FC = () => {
     availableModels,
     fetchAvailableModels,
     isLoadingModels,
+    setSkillsModalOpen,
+    setSwarmMapOpen,
+    setDesktopControlModalOpen,
+    browserStatus,
+    theme,
+    setTheme,
   } = useKinStore();
 
-  const [activeTab, setActiveTab] = useState<'general' | 'models' | 'credentials' | 'evaluations' | 'database' | 'layout' | 'about'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'models' | 'credentials' | 'skills' | 'desktop' | 'evaluations' | 'database' | 'layout' | 'about'>('general');
   const [modelTierFilter, setModelTierFilter] = useState<'all' | 'free' | 'paid'>('all');
   const [isQueryingModels, setIsQueryingModels] = useState(false);
   const [vacuumStatus, setVacuumStatus] = useState<string | null>(null);
@@ -161,6 +171,30 @@ export const SettingsModal: React.FC = () => {
             >
               <Key className="w-4 h-4 shrink-0" />
               <span>BYOK Credentials</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('skills')}
+              className={`flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-medium transition text-left ${
+                activeTab === 'skills'
+                  ? 'bg-purple-600/20 text-purple-400 border border-purple-500/30'
+                  : 'text-[#8b949e] hover:bg-[#161b22] hover:text-kin-text'
+              }`}
+            >
+              <Sparkles className="w-4 h-4 shrink-0" />
+              <span>Skills & Engine</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('desktop')}
+              className={`flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-medium transition text-left ${
+                activeTab === 'desktop'
+                  ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
+                  : 'text-[#8b949e] hover:bg-[#161b22] hover:text-kin-text'
+              }`}
+            >
+              <Monitor className="w-4 h-4 shrink-0" />
+              <span>Desktop & Web</span>
             </button>
 
             <button
@@ -335,6 +369,53 @@ export const SettingsModal: React.FC = () => {
                       <span className="text-xs font-semibold text-kin-text">Active Project Repository Root</span>
                       <p className="text-[11px] font-mono text-[#8b949e]">{activeProject?.repoPath || 'D:\\KIN'}</p>
                     </div>
+                  </div>
+                </div>
+
+                {/* Minimalist Appearance & Theme Selector */}
+                <div className="space-y-2 pt-2 border-t border-[#21262d]">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-bold text-kin-text flex items-center space-x-1.5">
+                        {theme === 'light' ? <Sun className="w-3.5 h-3.5 text-amber-500" /> : <Moon className="w-3.5 h-3.5 text-amber-300" />}
+                        <span>Interface Appearance & Minimalist Theme</span>
+                      </h4>
+                      <p className="text-[11px] text-[#8b949e]">
+                        Clean, borderless layout with subtle marginal boundaries modeled after Antigravity and Codex.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setTheme('dark')}
+                      className={`p-3 rounded-lg border text-left transition cursor-pointer ${
+                        theme === 'dark'
+                          ? 'bg-[#161b22] border-emerald-500 text-white shadow-sm ring-1 ring-emerald-500/50'
+                          : 'bg-[#131b2e]/60 border-[#30363d] text-[#8b949e] hover:border-[#64748b]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold text-kin-text">Obsidian Dark</span>
+                        {theme === 'dark' && <Check className="w-3.5 h-3.5 text-emerald-400" />}
+                      </div>
+                      <p className="text-[10px] text-[#8b949e]">High contrast deep dark mode for focus and low eye strain.</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTheme('light')}
+                      className={`p-3 rounded-lg border text-left transition cursor-pointer ${
+                        theme === 'light'
+                          ? 'bg-white border-emerald-500 text-slate-900 shadow-sm ring-1 ring-emerald-500/50'
+                          : 'bg-[#131b2e]/60 border-[#30363d] text-[#8b949e] hover:border-[#64748b]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold text-kin-text">Minimal Light</span>
+                        {theme === 'light' && <Check className="w-3.5 h-3.5 text-emerald-600" />}
+                      </div>
+                      <p className="text-[10px] text-[#8b949e]">Clean off-white surfaces, slate typography, minimal borders.</p>
+                    </button>
                   </div>
                 </div>
 
@@ -641,6 +722,142 @@ export const SettingsModal: React.FC = () => {
                     <div className="p-2 rounded bg-[#0d1117] border border-[#21262d]">
                       <span className="text-blue-400 font-bold block">Scoped Grants</span>
                       Per-agent permissioning
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SKILLS TAB */}
+            {activeTab === 'skills' && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-sm font-semibold text-kin-text mb-1 flex items-center space-x-2">
+                    <Sparkles className="w-4 h-4 text-purple-400" />
+                    <span>Skills Engine & Procedural Capabilities</span>
+                  </h3>
+                  <p className="text-xs text-[#8b949e]">
+                    Inspect procedural capabilities, bundle policies, domain actions, and sandboxed execution tools available to the workforce.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-lg bg-[#161b22] border border-[#30363d] space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-xs font-bold text-kin-text">Procedural Skills Registry</div>
+                      <div className="text-[11px] text-[#8b949e]">
+                        Browse official plugins, domain skills, and autonomous tool definitions.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSkillsModalOpen(true);
+                        setSettingsModalOpen(false);
+                      }}
+                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-lg transition cursor-pointer"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Open Skills Registry</span>
+                      <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 pt-1 text-[11px] font-mono text-[#8b949e]">
+                    <div className="p-2.5 rounded bg-[#0d1117] border border-[#21262d]">
+                      <span className="text-purple-400 font-bold block mb-0.5">Sandboxed I/O</span>
+                      Safe workspace read/write
+                    </div>
+                    <div className="p-2.5 rounded bg-[#0d1117] border border-[#21262d]">
+                      <span className="text-emerald-400 font-bold block mb-0.5">Live MCP Tools</span>
+                      Model Context Protocol servers
+                    </div>
+                    <div className="p-2.5 rounded bg-[#0d1117] border border-[#21262d]">
+                      <span className="text-blue-400 font-bold block mb-0.5">Domain Skills</span>
+                      Specialized agent procedures
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-lg bg-[#161b22] border border-[#30363d] flex items-center justify-between">
+                  <div>
+                    <div className="text-xs font-bold text-kin-text flex items-center space-x-2">
+                      <Network className="w-4 h-4 text-emerald-400" />
+                      <span>Workforce Swarm Topology Map</span>
+                    </div>
+                    <div className="text-[11px] text-[#8b949e] mt-0.5">
+                      Visualize active inter-agent peer relationships, channel memberships, and turn communication DAG.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSwarmMapOpen(true);
+                      setSettingsModalOpen(false);
+                    }}
+                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-lg transition cursor-pointer"
+                  >
+                    <Network className="w-3.5 h-3.5" />
+                    <span>Launch Swarm Map</span>
+                    <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* DESKTOP & WEB TAB */}
+            {activeTab === 'desktop' && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-sm font-semibold text-kin-text mb-1 flex items-center space-x-2">
+                    <Monitor className="w-4 h-4 text-blue-400" />
+                    <span>Desktop GUI & Browser Automation Control</span>
+                  </h3>
+                  <p className="text-xs text-[#8b949e]">
+                    Supervise local machine interaction, active desktop application windows, and headless browser sessions.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-lg bg-[#161b22] border border-[#30363d] space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-xs font-bold text-kin-text">Desktop Control Center</div>
+                      <div className="text-[11px] text-[#8b949e]">
+                        Inspect live GDI+ desktop display, running application windows, and browser session state.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDesktopControlModalOpen(true);
+                        setSettingsModalOpen(false);
+                      }}
+                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-lg transition cursor-pointer"
+                    >
+                      <Monitor className="w-3.5 h-3.5" />
+                      <span>Launch Desktop & Web Center</span>
+                      <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
+                    </button>
+                  </div>
+
+                  <div className="p-2.5 rounded bg-[#0d1117] border border-[#21262d] flex items-center justify-between text-xs font-mono">
+                    <span className="text-[#8b949e]">Live Browser Engine:</span>
+                    <span className={browserStatus?.active ? 'text-emerald-400 font-bold' : 'text-[#64748b]'}>
+                      {browserStatus?.active ? '🟢 Puppeteer Session Active' : '⚪ Standby / Idle'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 pt-1 text-[11px] font-mono text-[#8b949e]">
+                    <div className="p-2.5 rounded bg-[#0d1117] border border-[#21262d]">
+                      <span className="text-blue-400 font-bold block mb-0.5">Desktop GDI+</span>
+                      Native screen capture & input
+                    </div>
+                    <div className="p-2.5 rounded bg-[#0d1117] border border-[#21262d]">
+                      <span className="text-emerald-400 font-bold block mb-0.5">App Discovery</span>
+                      Local installed applications
+                    </div>
+                    <div className="p-2.5 rounded bg-[#0d1117] border border-[#21262d]">
+                      <span className="text-amber-400 font-bold block mb-0.5">Human Takeover</span>
+                      Instant Esc pause/resume
                     </div>
                   </div>
                 </div>

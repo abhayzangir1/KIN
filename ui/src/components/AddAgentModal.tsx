@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useKinStore } from '../store/kinStore.js';
+import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
 import { X, UserPlus, UserCheck, Bot } from 'lucide-react';
 
 export const AddAgentModal: React.FC = () => {
@@ -13,6 +13,9 @@ export const AddAgentModal: React.FC = () => {
     addChannelMember,
     hireAgent,
     availableModels,
+    ollamaStatus,
+    credentials,
+    addCustomModel,
   } = useKinStore();
 
   const [tab, setTab] = useState<'assign' | 'hire'>('assign');
@@ -22,6 +25,7 @@ export const AddAgentModal: React.FC = () => {
   const [displayName, setDisplayName] = useState('');
   const [roleTitle, setRoleTitle] = useState('');
   const [activeModelId, setActiveModelId] = useState('ollama/qwen2.5-coder:3b');
+  const [customModelInput, setCustomModelInput] = useState('');
   const [modelTierFilter, setModelTierFilter] = useState<'all' | 'free' | 'paid'>('all');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [error, setError] = useState('');
@@ -39,9 +43,14 @@ export const AddAgentModal: React.FC = () => {
     return true;
   });
 
-  // Available project agents not already in this channel
-  const availableToAssign = agents.filter(
+  // All unassigned agents
+  const unassignedAgents = agents.filter(
     (ag) => !channelMembers.some((m) => m.id === ag.id)
+  );
+
+  // Available project agents with ready models not already in this channel
+  const availableToAssign = unassignedAgents.filter(
+    (ag) => isAgentAvailable(ag, ollamaStatus, credentials, availableModels)
   );
 
   const handleAssign = async (e: React.FormEvent) => {
@@ -150,8 +159,17 @@ export const AddAgentModal: React.FC = () => {
                   ))}
                 </select>
               ) : (
-                <div className="p-3 rounded bg-[#1e293b]/30 border border-[#1e293b] text-[#94a3b8] italic">
-                  All agents in this project are already members of #{activeChannel?.name || 'this channel'}.
+                <div className="p-3 rounded bg-[#1e293b]/30 border border-[#1e293b] text-[#94a3b8] italic text-center space-y-1">
+                  <div>
+                    {unassignedAgents.length > 0
+                      ? 'Unassigned agents exist in this project, but their assigned models are currently offline or missing API credentials.'
+                      : `All agents in this project are already members of #${activeChannel?.name || 'this channel'}.`}
+                  </div>
+                  {unassignedAgents.length > 0 && (
+                    <div className="text-[10px] text-blue-400 not-italic">
+                      Configure models in <strong>Settings → BYOK &amp; Credentials</strong> or start Ollama to make them available.
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -302,6 +320,36 @@ export const AddAgentModal: React.FC = () => {
                   </option>
                 )}
               </select>
+
+              {/* Manual Model ID Assignment */}
+              <div className="pt-1 space-y-1">
+                <div className="flex items-center justify-between text-[10px] text-[#64748b]">
+                  <span>Assign / Type Any Model ID</span>
+                  <span className="text-[9px] font-mono text-[#475569]">e.g. openai/gpt-4o, anthropic/claude-3-7-sonnet</span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <input
+                    type="text"
+                    placeholder="e.g. openai/gpt-4o or qwen2.5-coder:7b"
+                    value={customModelInput}
+                    onChange={(e) => setCustomModelInput(e.target.value)}
+                    className="flex-1 bg-[#090d16] border border-[#2d3748] rounded px-2 py-1 text-[11px] text-kin-text font-mono placeholder-[#475569] focus:outline-none focus:border-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!customModelInput.trim()) return;
+                      const mId = customModelInput.trim();
+                      await addCustomModel(mId);
+                      setActiveModelId(mId);
+                      setCustomModelInput('');
+                    }}
+                    className="px-2.5 py-1 rounded bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 border border-blue-500/40 text-[10px] font-mono font-medium transition cursor-pointer whitespace-nowrap"
+                  >
+                    + Set Model
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="space-y-1">
