@@ -1200,7 +1200,9 @@ The following are reference sources, not mandatory dependencies:
 
 ---
 
-# 30. Capability Evolution — Governed Computer Use & Timed Autonomy
+# 30. Capability Evolution — Proposed Governed Computer Use & Timed Autonomy
+
+> Sections 30–31 are retained design proposals, not a report of current implementation. Present-tense wording in these sections describes the intended product behavior. Consult [Current implementation notes](PROJECT_STATUS.md) for source-checked implementation scope and limitations.
 
 ### 30.1 In-App Scheduler & Timed Autonomy
 - **Antigravity-Style Scheduler:** Agents can wake themselves using non-blocking timers (`schedule` / `timer`) rather than busy-polling on GPU/CPU.
@@ -1227,7 +1229,7 @@ The following are reference sources, not mandatory dependencies:
 
 ---
 
-# 31. Runtime Recovery and Collaborative Work
+# 31. Proposed Runtime Recovery and Collaborative Work
 
 ### 31.1 Turn-by-Turn Checkpointing & Crash Recovery
 - **Granular Checkpointing:** Every turn of execution within `agent_loop.ts` persists an immutable turn checkpoint (`onTurnCheckpoint`) containing model messages, tool invocation arguments, tool execution results, and updated token usage to SQLite `agent_runs.checkpoint_data`.
@@ -1290,7 +1292,7 @@ The following are reference sources, not mandatory dependencies:
 
 ---
 
-# 32. Final decision ledger — what was selected from the three specifications
+# 32. Proposed decision ledger — selected direction from the source specifications
 
 This section is the canonical resolution of the differences among the supplied PRD, v9 Unified PRD/TRD, and v9 Final Master Plan.
 

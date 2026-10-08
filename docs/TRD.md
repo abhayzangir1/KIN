@@ -16,7 +16,7 @@
 
 # 0. Architecture decision record
 
-## 0.1 Final architecture
+## 0.1 Selected target architecture
 
 KIN is engineered as a local-first, modular monolith composed of three primary layers operating over ultra-low-latency local IPC:
 
@@ -35,13 +35,13 @@ graph TD
         AgentLoop["AgentLoopRunner (Multi-Turn ReAct Loop & Checkpointer)"]
         ContextCompiler["ContextCompiler (5-Block Prompt + Goal Ancestry)"]
         ToolGateway["ToolGateway (Capability Tags, OCC Hashing & Jails)"]
-        DesktopCtrl["DesktopController & BrowserController (Isolated Profiles)"]
+        DesktopCtrl["DesktopController & BrowserController (Target: dedicated browser profiles)"]
         SkillEngine["SkillEngine & RecoveryEngine (Self-Correction & Evals)"]
     end
 
     subgraph Storage ["Durable Persistence Layer (Localhost)"]
         SQLite["SQLite 3 with WAL Mode (kin_storage.sqlite)"]
-        FSJail["Worktree & Sandbox Jails (.kin/worktrees/)"]
+        FSJail["Target: worktree and path controls (.kin/worktrees/; not an OS sandbox)"]
         Profiles["Persistent Browser Profiles (.kin/browser_profiles/)"]
     end
 
@@ -378,7 +378,7 @@ All system state is persisted in an authoritative local SQLite database running 
    - `state CHECK (state IN ('created', 'queued', 'running', 'waiting_for_tool', 'waiting_for_approval', 'waiting_for_agent', 'waiting_for_model', 'recovering', 'quota_paused', 'resuming', 'paused', 'completed', 'failed', 'cancelled'))`
    - `heartbeat_at INTEGER NOT NULL`: Enforces 15-second heartbeat leases.
    - `quota_resets_at INTEGER`: Stores backoff expiry for paused runs.
-   - `interrupted_turn INTEGER DEFAULT 0`: Checkpoint turn marker for zero-loss recovery.
+   - `interrupted_turn INTEGER DEFAULT 0`: Checkpoint turn marker intended to support recovery; this does not imply lossless replay.
 4. **Goals & Distributed Task Leases (`tasks`)**:
    - `claimed_by_run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL`
    - `lease_expires_at INTEGER`: Milliseconds timestamp lease.
@@ -1162,7 +1162,7 @@ All automated execution still passes through the Tool/Policy Gateway.
 
 # 24. Self-correction architecture
 
-Self-correction is implemented inside the Agent Kernel rather than as a separate model service.
+The target design places self-correction inside the Agent Kernel rather than in a separate model service. This is a design requirement, not a statement that the current runtime fully implements the behavior.
 
 ```text
 agent action
@@ -1913,7 +1913,7 @@ Crash recovery, concurrency/failure injection, prompt-injection defenses, packag
 
 ---
 
-# 50. Final architecture decision ledger
+# 50. Target architecture decision ledger
 
 | Technical area | Final selection | Extracted from / why | Rejected or deferred |
 |---|---|---|---|
@@ -1956,44 +1956,6 @@ Crash recovery, concurrency/failure injection, prompt-injection defenses, packag
 
 ---
 
-# 51. Runtime Resilience, OpenRouter BYOK, Concurrency Fast-Path & UI Baselines
-
-### 51.1 ModelGateway & OpenRouter BYOK Architecture
-The `ModelGateway` (`core/src/execution/model_gateway.ts`) standardizes multi-provider LLM invocations with unified token metrics, scoped credential resolution, and resilient retry policies:
-- **Zero Data Retention (ZDR) Compliance**: Validates OpenRouter models with endpoint routing to compliant models (e.g. `openrouter/qwen/qwen3.8-27b:free`).
-- **Reasoning Token Normalization**: Supports models outputting thoughts to `message.reasoning` (e.g., DeepSeek R1, Qwen 3.8) by extracting `(choiceMsg?.content || choiceMsg?.reasoning || data?.choices?.[0]?.text || '').trim()`.
-- **HTTP 429 Exponential Backoff**: When external providers return rate-limit responses, the gateway retries with jittered exponential backoff before triggering a non-destructive Quota Pause checkpoint.
-- **Spend Tracking (`onUsage`)**: Live token spend tracking accounting for prompt, completion, and total tokens across runs.
-
-### 51.2 Dedicated `/btw` Concurrency Fast-Path
-Under heavy agent execution where turn-locks serialize `channelQueues`, side inquiries submitted via `/btw <query>` execute through an immediate router interceptor (`core/src/server/core_server.ts`):
-- **Bypasses Serial Queue**: Answers immediately without queuing behind long-running multi-turn agent loops.
-- **HTTP 201 Ephemeral Contract**: Returns `{ sideQuery: true, agentId, content }` directly with an immutable `💡 [Side Query / BTW]` badge.
-- **Zero Task DAG Pollution**: Operates purely out-of-band without creating spurious tasks or corrupting active project states.
-
-### 51.3 Dynamic Memory Governor Tiers
-The `ComputerSupervisor` (`core/src/computer/computer_supervisor.ts`) continuously monitors host free memory metrics to dynamically gate heavy local processes:
-- **Normal Tier (> 2.5 GB Free)**: Full multi-browser and shell concurrency allowed up to max budget.
-- **Low Tier (500 MB – 2.5 GB Free)**: Throttles browser instances to 1 and limits shell task concurrency to prevent host thrashing.
-- **Critical Tier (< 500 MB Free)**: Rejects new browser and shell allocations with HTTP 503 and forces 3-minute idle context eviction.
-
-### 51.4 Visual Architecture & UI Component Baselines
-The live application state is captured and preserved across 8 high-resolution 1080p architectural references:
-1. `01_app_interface_workbench.png`: Master command center, streaming execution transcript, project task board, and unified prompt bar.
-2. `02_swarm_map_topology.png`: Interactive Swarm Map topology canvas illustrating agent specialist roles, task DAG dependencies, and live delegations.
-3. `03_settings_and_credentials.png`: Central BYOK credential vault (OpenRouter, Anthropic, OpenAI, Ollama) and hardware governor limits.
-4. `04_agent_inspector_teamwork.png`: Agent Inspector drawer featuring collaboration matrices, transcripts, and quantitative benchmark evals.
-5. `05_crash_recovery_banner.png`: Docked Crash Recovery Warning Banner with 1-click `Resume All`, `Inspect State`, and `Discard`.
-6. `06_quota_pause_banner.png`: HTTP 429 Quota Guard banner featuring live countdown timer and 1-click `Switch to Ollama` fallback.
-7. `07_decisions_and_adr.png`: Architectural Decision Records (ADR) and interactive `/grill-me` synthesis modal.
-8. `08_desktop_and_web_control.png`: Governed desktop and web control modal demonstrating serialized single-flight execution queue input serialization and persistent profile management.
-
-### 51.5 Remote Debugging (Port 9222) & OpenRouter Free Models Catalog
-- **Physical Chrome Remote Debugging**: `BrowserController` continuously tests `http://127.0.0.1:9222/json/version`. If the user runs Chrome with `--remote-debugging-port=9222`, KIN connects directly via `puppeteer.connect` to access active browser sessions (GitHub, developer portals, web tools) without credential re-entry. If inactive, it launches dedicated visible Chrome with `--remote-debugging-port=9222` and isolated profiles.
-- **OpenRouter Free-Tier Cloud Models**: Integrated into the Agent Inspector and Settings modal with zero token spend overhead: `deepseek/deepseek-r1:free`, `meta-llama/llama-3.3-70b-instruct:free`, `google/gemini-2.0-flash-exp:free`, and `qwen/qwen-2.5-coder-32b-instruct:free`.
-
----
-
-# 52. Final architecture statement
+# 51. Target architecture statement
 
 > **Tauri 2 provides the desktop shell and native boundary. TypeScript/Node provides the local KIN core. SQLite and the local filesystem provide durable state. The Agent Kernel provides bounded autonomy. The Context Compiler controls context. Memory and Skills turn experience into reusable capability. The Model Gateway normalizes models. The Tool/Policy Gateways control execution. The Recovery layer makes failures survivable. Self-improvement evolves skills, strategies and workforce structure through evidence-gated loops, while user permissions and approval policy remain authoritative.**
