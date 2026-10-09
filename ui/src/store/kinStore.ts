@@ -6,6 +6,59 @@
 
 import { create } from 'zustand';
 
+let cachedIpcToken: string | null = null;
+
+export async function getIpcToken(): Promise<string | null> {
+  if (cachedIpcToken) return cachedIpcToken;
+  if (typeof window !== 'undefined' && '__TAURI__' in window) {
+    try {
+      const tauri = (window as any).__TAURI__;
+      const invoke = tauri?.core?.invoke || tauri?.tauri?.invoke || tauri?.invoke;
+      if (typeof invoke === 'function') {
+        const token = await invoke('get_ipc_token');
+        if (token && typeof token === 'string') {
+          cachedIpcToken = token.trim();
+          return cachedIpcToken;
+        }
+      }
+    } catch {}
+  }
+  return null;
+}
+
+export function getApiBaseUrl(): string {
+  if (typeof window !== 'undefined' && '__TAURI__' in window) {
+    return 'http://127.0.0.1:54321';
+  }
+  return '';
+}
+
+// Global browser fetch interceptor for desktop Tauri support and IPC authentication injection
+if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    let url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+    const isTauri = '__TAURI__' in window;
+    if (isTauri && url.startsWith('/api/')) {
+      url = `http://127.0.0.1:54321${url}`;
+    }
+
+    const headers = new Headers(init?.headers || (typeof input === 'object' && 'headers' in input ? (input as Request).headers : {}));
+    if (isTauri && !headers.has('Authorization')) {
+      const token = await getIpcToken();
+      if (token) {
+        headers.set('Authorization', `Bearer ${token}`);
+      }
+    }
+
+    if (typeof input === 'string' || input instanceof URL) {
+      return nativeFetch(url, { ...init, headers });
+    } else {
+      return nativeFetch(new Request(url, { ...init, headers }));
+    }
+  };
+}
+
 export interface ProjectItem {
   id: string;
   workspaceId: string;
@@ -1380,9 +1433,13 @@ export const useKinStore = create<KinState>((set, get) => ({
       eventSourceInstance = null;
     }
 
-    try {
-      const sse = new EventSource('/api/events');
-      eventSourceInstance = sse;
+    (async () => {
+      try {
+        const token = await getIpcToken();
+        const base = getApiBaseUrl();
+        const sseUrl = token ? `${base}/api/events?token=${encodeURIComponent(token)}` : `${base}/api/events`;
+        const sse = new EventSource(sseUrl);
+        eventSourceInstance = sse;
 
       sse.addEventListener('agent:deleted', (e) => {
         try {
@@ -2131,6 +2188,7 @@ export const useKinStore = create<KinState>((set, get) => ({
     } catch (err) {
       console.error('[KIN UI] SSE connection error:', err);
     }
+    })();
   },
 
   closeSSE: () => {

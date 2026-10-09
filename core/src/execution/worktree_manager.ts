@@ -11,6 +11,24 @@ import * as path from 'node:path';
 
 const execFileAsync = promisify(execFile);
 
+class AsyncMutex {
+  private queue = Promise.resolve();
+
+  public async runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    let release: () => void;
+    const wait = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ticket = this.queue.then(() => fn());
+    this.queue = this.queue.then(() => wait);
+    try {
+      return await ticket;
+    } finally {
+      release!();
+    }
+  }
+}
+
 export interface WorktreeProvisionResult {
   worktreePath: string;
   branch: string;
@@ -26,6 +44,7 @@ export interface MergeResult {
 }
 
 export class WorktreeManager {
+  private static mergeMutex = new AsyncMutex();
   private readonly projectRoot: string;
   private readonly worktreesDir: string;
 
@@ -121,56 +140,68 @@ export class WorktreeManager {
    * Safely merges the feature branch into the target base branch in the root repo.
    */
   public async verifyAndMerge(worktreePath: string, branchName: string, baseBranch: string = 'main'): Promise<MergeResult> {
-    try {
-      // 1. Dry-run merge check via git merge-tree
-      const { stdout: headSha } = await execFileAsync('git', ['rev-parse', baseBranch], { cwd: this.projectRoot });
-      const { stdout: branchSha } = await execFileAsync('git', ['rev-parse', branchName], { cwd: this.projectRoot });
-
+    return WorktreeManager.mergeMutex.runExclusive(async () => {
       try {
-        await execFileAsync('git', ['merge-tree', headSha.trim(), branchSha.trim()], { cwd: this.projectRoot });
-      } catch (conflictError: any) {
+        const isGit = await this.checkIsGitRepo(this.projectRoot);
+        const repoRoot = isGit ? this.projectRoot : path.join(this.projectRoot, '.kin', '.git_shadow');
+
+        // 1. Dry-run merge check via git merge-tree
+        const { stdout: headSha } = await execFileAsync('git', ['rev-parse', baseBranch], { cwd: repoRoot });
+        const { stdout: branchSha } = await execFileAsync('git', ['rev-parse', branchName], { cwd: repoRoot });
+
+        try {
+          await execFileAsync('git', ['merge-tree', headSha.trim(), branchSha.trim()], { cwd: repoRoot });
+        } catch (conflictError: any) {
+          return {
+            success: false,
+            cleanMerge: false,
+            error: `Merge conflict detected: ${conflictError.message}`,
+          };
+        }
+
+        // 2. Perform merge in repoRoot
+        await execFileAsync('git', ['checkout', baseBranch], { cwd: repoRoot });
+        await execFileAsync('git', ['merge', '--no-ff', '-m', `Merge ${branchName}`, branchName], {
+          cwd: repoRoot,
+        });
+
+        const { stdout: finalCommit } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot });
+
+        // If shadow repo, sync merged files back to this.projectRoot
+        if (!isGit) {
+          this.copyProjectAssets(repoRoot, this.projectRoot);
+        }
+
+        // 3. Post-merge prune: Remove the worktree immediately
+        await this.removeWorktree(worktreePath);
+
+        return {
+          success: true,
+          cleanMerge: true,
+          commitSha: finalCommit.trim(),
+        };
+      } catch (e: any) {
         return {
           success: false,
           cleanMerge: false,
-          error: `Merge conflict detected: ${conflictError.message}`,
+          error: e.message,
         };
       }
-
-      // 2. Perform merge in root repo
-      await execFileAsync('git', ['checkout', baseBranch], { cwd: this.projectRoot });
-      await execFileAsync('git', ['merge', '--no-ff', '-m', `Merge ${branchName}`, branchName], {
-        cwd: this.projectRoot,
-      });
-
-      const { stdout: finalCommit } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: this.projectRoot });
-
-      // 3. Post-merge prune: Remove the worktree immediately
-      await this.removeWorktree(worktreePath);
-
-      return {
-        success: true,
-        cleanMerge: true,
-        commitSha: finalCommit.trim(),
-      };
-    } catch (e: any) {
-      return {
-        success: false,
-        cleanMerge: false,
-        error: e.message,
-      };
-    }
+    });
   }
 
   /**
    * Post-merge prune: safely removes the worktree and prunes git metadata.
    */
   public async removeWorktree(worktreePath: string): Promise<void> {
+    const isGit = await this.checkIsGitRepo(this.projectRoot);
+    const repoRoot = isGit ? this.projectRoot : path.join(this.projectRoot, '.kin', '.git_shadow');
     try {
       await execFileAsync('git', ['worktree', 'remove', '--force', worktreePath], {
-        cwd: this.projectRoot,
+        cwd: repoRoot,
       });
       await execFileAsync('git', ['worktree', 'prune'], {
-        cwd: this.projectRoot,
+        cwd: repoRoot,
       });
     } catch {
       // If git worktree command failed (e.g. metadata was already unlinked), clean filesystem directly
@@ -178,7 +209,7 @@ export class WorktreeManager {
         fs.rmSync(worktreePath, { recursive: true, force: true });
       }
       try {
-        await execFileAsync('git', ['worktree', 'prune'], { cwd: this.projectRoot });
+        await execFileAsync('git', ['worktree', 'prune'], { cwd: repoRoot });
       } catch {
         // Ignored
       }
@@ -194,6 +225,26 @@ export class WorktreeManager {
     }
   }
 
+  private copyProjectAssets(sourceDir: string, targetDir: string): void {
+    if (!fs.existsSync(sourceDir)) return;
+    const entries = fs.readdirSync(sourceDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name === '.kin' || entry.name === 'node_modules' || entry.name === '.git') {
+        continue;
+      }
+      const srcPath = path.join(sourceDir, entry.name);
+      const dstPath = path.join(targetDir, entry.name);
+      try {
+        if (entry.isDirectory()) {
+          fs.mkdirSync(dstPath, { recursive: true });
+          this.copyProjectAssets(srcPath, dstPath);
+        } else if (entry.isFile()) {
+          fs.copyFileSync(srcPath, dstPath);
+        }
+      } catch {}
+    }
+  }
+
   private async ensureShadowGitRepo(dir: string): Promise<string> {
     const shadowDir = path.join(dir, '.kin', '.git_shadow');
     if (!fs.existsSync(shadowDir)) {
@@ -201,8 +252,9 @@ export class WorktreeManager {
       await execFileAsync('git', ['init', '--initial-branch=main'], { cwd: shadowDir });
       await execFileAsync('git', ['config', 'user.name', 'KIN Shadow'], { cwd: shadowDir });
       await execFileAsync('git', ['config', 'user.email', 'kin-shadow@local'], { cwd: shadowDir });
-      // Create empty initial commit
-      await execFileAsync('git', ['commit', '--allow-empty', '-m', 'Initial shadow commit'], { cwd: shadowDir });
+      this.copyProjectAssets(dir, shadowDir);
+      await execFileAsync('git', ['add', '-A'], { cwd: shadowDir });
+      await execFileAsync('git', ['commit', '--allow-empty', '-m', 'Initial shadow commit with project assets'], { cwd: shadowDir });
     }
     return shadowDir;
   }

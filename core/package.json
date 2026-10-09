@@ -10,7 +10,8 @@
     "build": "tsc && node -e \"import('node:fs').then(fs => { fs.mkdirSync('dist/storage', {recursive:true}); fs.copyFileSync('src/storage/schema.sql', 'dist/storage/schema.sql'); })\"",
     "dev": "tsc -w",
     "daemon": "node dist/start_daemon.js",
-    "test": "vitest run --fileParallelism=false",
+    "package:binary": "node scripts/package_binary.js",
+    "test": "vitest run --fileParallelism=false --pool=threads",
     "test:foundation": "vitest run test/foundation.test.ts"
   },
   "dependencies": {

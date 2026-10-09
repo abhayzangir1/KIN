@@ -6,6 +6,7 @@
 
 import { SecretVault } from './secret_vault.js';
 import { KinDatabase } from '../storage/db.js';
+import { EventLedger } from './event_ledger.js';
 
 export class SecretBroker {
   private static instance: SecretBroker;
@@ -43,19 +44,19 @@ export class SecretBroker {
   /**
    * Recursively scans an object or string and substitutes {{vault:KEY}} placeholders with decrypted values.
    */
-  public resolvePlaceholders<T = any>(input: T): T {
+  public resolvePlaceholders<T = any>(input: T, callerAgentId?: string): T {
     if (typeof input === 'string') {
-      return this.resolveString(input) as unknown as T;
+      return this.resolveString(input, callerAgentId) as unknown as T;
     }
 
     if (Array.isArray(input)) {
-      return input.map((item) => this.resolvePlaceholders(item)) as unknown as T;
+      return input.map((item) => this.resolvePlaceholders(item, callerAgentId)) as unknown as T;
     }
 
     if (input !== null && typeof input === 'object') {
       const result: Record<string, any> = {};
       for (const [key, value] of Object.entries(input)) {
-        result[key] = this.resolvePlaceholders(value);
+        result[key] = this.resolvePlaceholders(value, callerAgentId);
       }
       return result as T;
     }
@@ -63,7 +64,7 @@ export class SecretBroker {
     return input;
   }
 
-  private resolveString(str: string): string {
+  private resolveString(str: string, callerAgentId?: string): string {
     const vaultPattern = /\{\{vault:([a-zA-Z0-9_\-.:]+)\}\}/g;
     return str.replace(vaultPattern, (_match, keyName) => {
       // 1. If keyName is already a vault ciphertext (e.g. vault:v1:...), decrypt directly
@@ -79,13 +80,32 @@ export class SecretBroker {
       let ciphertextToDecrypt = keyName;
       if (this.db) {
         try {
-          const row = this.db.queryOne<{ secret_hash: string }>(
-            `SELECT secret_hash FROM managed_credentials WHERE key_alias = ? OR id = ? OR provider = ? LIMIT 1`,
+          const row = this.db.queryOne<{ secret_hash: string; scoped_grants_json?: string }>(
+            `SELECT secret_hash, scoped_grants_json FROM managed_credentials WHERE key_alias = ? OR id = ? OR provider = ? LIMIT 1`,
             keyName,
             keyName,
             keyName
           );
           if (row?.secret_hash) {
+            if (callerAgentId && row.scoped_grants_json) {
+              try {
+                const grants: string[] = JSON.parse(row.scoped_grants_json);
+                if (Array.isArray(grants) && grants.length > 0 && !grants.includes(callerAgentId)) {
+                  try {
+                    EventLedger.getInstance().record({
+                      eventType: 'SECURITY_ALERT',
+                      entityType: 'agent',
+                      entityId: callerAgentId,
+                      payload: {
+                        reason: `Unauthorized secret placeholder access attempt for key '${keyName}'`,
+                        keyName,
+                      },
+                    });
+                  } catch {}
+                  return `[DENIED_UNAUTHORIZED_KEY_ACCESS:${keyName}]`;
+                }
+              } catch {}
+            }
             ciphertextToDecrypt = row.secret_hash;
           }
         } catch {}

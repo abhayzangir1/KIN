@@ -242,17 +242,20 @@ export class ComputerSupervisor {
           fs.mkdirSync(masterUserDataDir, { recursive: true });
         }
 
+        const launchArgs = [
+          '--disable-infobars',
+          '--window-size=1280,800',
+        ];
+        if (process.env.KIN_BROWSER_NO_SANDBOX === 'true') {
+          launchArgs.push('--no-sandbox', '--disable-setuid-sandbox');
+        }
+
         this.masterBrowser = await puppeteer.launch({
           executablePath,
           headless: headless ? true : false,
           userDataDir: masterUserDataDir,
           defaultViewport: { width: 1280, height: 800 },
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-infobars',
-            '--window-size=1280,800',
-          ],
+          args: launchArgs,
         });
 
         this.masterBrowser.on('disconnected', () => {

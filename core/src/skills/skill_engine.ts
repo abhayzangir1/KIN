@@ -288,7 +288,8 @@ export class SkillEngine {
    */
   public async executeSkill(
     idOrNameOrSkill: string | Partial<Skill>,
-    params: Record<string, any> = {}
+    params: Record<string, any> = {},
+    executionContext: { agentId?: string; runId?: string; channelId?: string; projectId?: string } = {}
   ): Promise<{ success: boolean; output?: any; error?: string }> {
     const skill = typeof idOrNameOrSkill === 'object' && idOrNameOrSkill !== null
       ? (idOrNameOrSkill as Skill)
@@ -306,9 +307,12 @@ export class SkillEngine {
         success: true,
         output: {
           name: skill.name,
+          skillName: skill.name,
           description: skill.description,
           instructions: skill.instructions,
           parameters: params,
+          input: params,
+          message: `Skill '${skill.name}' applied successfully.`,
         },
       };
     }
@@ -316,6 +320,9 @@ export class SkillEngine {
     try {
       const sandbox = {
         params,
+        input: params,
+        context: executionContext,
+        executionContext,
         Buffer,
         JSON,
         Math,
@@ -338,18 +345,21 @@ export class SkillEngine {
         (async () => {
           ${skill.handlerCode}
           if (typeof module !== 'undefined' && typeof module.exports === 'function') {
-            return await module.exports(params);
+            return await module.exports(params, executionContext);
           }
-          if (typeof handler === 'function') {
-            return await handler(params);
-          }
-          if (typeof execute === 'function') {
-            return await execute(params);
+          if (typeof module !== 'undefined' && typeof module.exports?.run === 'function') {
+            return await module.exports.run(params, executionContext);
           }
           if (typeof run === 'function') {
-            return await run(params);
+            return await run(params, executionContext);
           }
-          return typeof result !== 'undefined' ? result : { executed: true };
+          if (typeof handler === 'function') {
+            return await handler(params, executionContext);
+          }
+          if (typeof execute === 'function') {
+            return await execute(params, executionContext);
+          }
+          return typeof result !== 'undefined' ? result : (typeof module !== 'undefined' && module.exports && Object.keys(module.exports).length > 0 ? module.exports : { executed: true });
         })()
       `;
 

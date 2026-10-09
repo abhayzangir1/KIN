@@ -25,6 +25,7 @@ import { Sentinel } from '../security/sentinel.js';
 import { SecretBroker } from '../security/secret_broker.js';
 import { ExecutionNodeRouter, ExecutionNodeInfo } from './execution_node.js';
 import { EventLedger } from '../security/event_ledger.js';
+import { OutputSpiller } from '../context/output_spiller.js';
 
 export class StaleWriteConflictError extends Error {
   public code = 'STALE_WRITE_CONFLICT';
@@ -466,7 +467,47 @@ export class ToolGateway {
           required: ['displayName', 'roleTitle'],
         },
       },
+      {
+        name: 'execute_skill',
+        description: 'Execute an active procedural skill or tool extension with structured parameters.',
+        parameters: {
+          type: 'object',
+          properties: {
+            skillName: { type: 'string', description: 'Name or ID of the active skill to execute' },
+            input: { type: 'object', description: 'Input parameters and options for the skill' },
+          },
+          required: ['skillName'],
+        },
+      },
+      {
+        name: 'read_spill',
+        description: 'Read a bounded excerpt of a spilled large observation file from disk.',
+        parameters: {
+          type: 'object',
+          properties: {
+            hash: { type: 'string', description: 'SHA-256 hash or filename of the spilled output log' },
+            offset: { type: 'number', description: 'Character offset to start reading from (default: 0)' },
+            limit: { type: 'number', description: 'Maximum characters to read (default: 4000)' },
+          },
+          required: ['hash'],
+        },
+      },
     ];
+
+    if (this.skillEngine) {
+      try {
+        const activeSkills = this.skillEngine.listSkills('active');
+        for (const s of activeSkills) {
+          if (s.skillType === 'tool_extension' && s.parameters) {
+            schemas.push({
+              name: `skill_${s.name.replace(/[^a-zA-Z0-9_]/g, '_')}`,
+              description: s.description || s.instructions.slice(0, 200),
+              parameters: typeof s.parameters === 'object' ? (s.parameters as any) : { type: 'object' },
+            });
+          }
+        }
+      } catch {}
+    }
 
     const mcp = this.mcpClient;
     if (mcp) {
@@ -496,11 +537,15 @@ export class ToolGateway {
       case 'createSkill':
       case 'import_skill':
       case 'importSkill':
-        return { primary: 'skills:manage', aliases: ['skills:manage', 'skills', 'skill', 'agent:coordinate', 'create_skill', 'createSkill', 'import_skill', 'importSkill', '*'] };
+      case 'execute_skill':
+      case 'executeSkill':
+        return { primary: 'skills:manage', aliases: ['skills:manage', 'skills', 'skill', 'agent:coordinate', 'create_skill', 'createSkill', 'import_skill', 'importSkill', 'execute_skill', 'executeSkill', '*'] };
 
+      case 'read_spill':
+      case 'readSpill':
       case 'readFile':
       case 'listDirectory':
-        return { primary: 'fs:read', aliases: ['fs:read', 'fs_read', 'read', 'fs'] };
+        return { primary: 'fs:read', aliases: ['fs:read', 'fs_read', 'read', 'fs', 'read_spill', 'readSpill'] };
 
       case 'writeFile':
         return { primary: 'fs:write', aliases: ['fs:write', 'fs_write', 'write', 'fs'] };
@@ -780,7 +825,10 @@ export class ToolGateway {
           if (!this.skillEngine) {
             throw new Error('SkillEngine is not configured in ToolGateway.');
           }
-          const sRes = await this.skillEngine.executeSkill(params.skillId || params.name, params.params || params.arguments || {});
+          const sRes = await this.skillEngine.executeSkill(
+            params.skillName || params.skillId || params.name,
+            params.input || params.params || params.arguments || {}
+          );
           return {
             success: sRes.success,
             output: sRes.output as T,
@@ -869,6 +917,29 @@ export class ToolGateway {
           } else {
             throw new Error("import_skill requires either 'directoryPath' or 'bundleJson'");
           }
+        }
+
+        // Spilled Output Reader
+        case 'read_spill':
+        case 'readSpill': {
+          const hashOrFileName = params.hash || params.hashOrFileName || params.fileName || params.file;
+          if (!hashOrFileName) throw new Error("read_spill requires 'hash' or 'fileName' parameter");
+          const offset = typeof params.offset === 'number' ? params.offset : 0;
+          const limit = typeof params.limit === 'number' ? params.limit : 4000;
+          const outputSpiller = new OutputSpiller();
+          const fullContent = outputSpiller.readSpillFile(hashOrFileName);
+          const sliced = fullContent.slice(offset, offset + limit);
+          return {
+            success: true,
+            output: {
+              content: sliced,
+              offset,
+              length: sliced.length,
+              totalBytes: Buffer.byteLength(fullContent, 'utf-8'),
+              hasMore: offset + sliced.length < fullContent.length,
+            } as T,
+            riskLevel: risk,
+          };
         }
 
         // Filesystem & Shell
@@ -1655,20 +1726,202 @@ export class ToolGateway {
   }
 
   /**
+   * Normalizes a filesystem path across Windows, macOS, and Linux:
+   * Strips verbatim/extended-length prefixes, resolves path separators,
+   * and normalizes Windows drive letters to uppercase.
+   */
+  public normalizeFsPath(p: string): string {
+    let norm = path.normalize(p);
+    if (norm.startsWith('\\\\?\\UNC\\')) {
+      norm = '\\\\' + norm.slice(8);
+    } else if (norm.startsWith('\\\\?\\')) {
+      norm = norm.slice(4);
+    }
+    norm = path.resolve(norm);
+    if (process.platform === 'win32') {
+      if (/^[a-zA-Z]:/.test(norm)) {
+        norm = norm[0].toUpperCase() + norm.slice(1);
+      }
+    }
+    return norm;
+  }
+
+  /**
+   * Evaluates if two paths reference the identical physical directory or file,
+   * accounting for Windows case-insensitivity and drive letters.
+   */
+  public isSameFsPath(p1: string, p2: string): boolean {
+    const norm1 = this.normalizeFsPath(p1);
+    const norm2 = this.normalizeFsPath(p2);
+    if (process.platform === 'win32') {
+      return norm1.toLowerCase() === norm2.toLowerCase();
+    }
+    return norm1 === norm2;
+  }
+
+  /**
+   * Checks whether childPath is strictly confined within rootPath,
+   * accounting for platform-specific casing, separators, and relative escapes.
+   */
+  public isPathWithinRoot(childPath: string, rootPath: string): boolean {
+    const normChild = this.normalizeFsPath(childPath);
+    const normRoot = this.normalizeFsPath(rootPath);
+
+    if (this.isSameFsPath(normChild, normRoot)) {
+      return true;
+    }
+
+    const rel = path.relative(normRoot, normChild);
+    if (
+      rel === '..' ||
+      rel.startsWith(`..${path.sep}`) ||
+      rel.startsWith('../') ||
+      rel.startsWith('..\\') ||
+      path.isAbsolute(rel)
+    ) {
+      return false;
+    }
+
+    if (process.platform === 'win32') {
+      const relLower = path.win32.relative(normRoot.toLowerCase(), normChild.toLowerCase());
+      if (
+        relLower === '..' ||
+        relLower.startsWith('..\\') ||
+        relLower.startsWith('../') ||
+        path.win32.isAbsolute(relLower)
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
    * Validates that target path stays strictly inside worktreeRoot.
+   * Handles directory junctions, symbolic links, hardlink traversal,
+   * case-insensitivity, and drive letter normalization across all platforms.
    */
   public resolveJailedPath(targetPath: string, worktreeRoot: string): string {
-    const root = path.resolve(worktreeRoot);
-    const resolved = path.resolve(root, targetPath);
-    const relative = path.relative(root, resolved);
+    const root = this.normalizeFsPath(worktreeRoot);
+    const canonicalRoot = fs.existsSync(root) ? this.normalizeFsPath(fs.realpathSync(root)) : root;
+    const resolved = path.resolve(canonicalRoot, targetPath);
 
-    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    // 1. Initial confinement check
+    if (!this.isPathWithinRoot(resolved, canonicalRoot)) {
       throw new Error(
         `SECURITY JAIL VIOLATION: Path '${targetPath}' escapes worktree root '${worktreeRoot}'`
       );
     }
 
+    // 2. Existing path verification (symlinks, junctions, hardlinks)
+    if (fs.existsSync(resolved)) {
+      // fs.realpathSync resolves directory junctions on Windows and symlinks on Unix
+      const canonicalTarget = this.normalizeFsPath(fs.realpathSync(resolved));
+      if (!this.isPathWithinRoot(canonicalTarget, canonicalRoot)) {
+        throw new Error(
+          `SECURITY JAIL VIOLATION: Path '${targetPath}' escapes worktree root via symlink`
+        );
+      }
+
+      // Check for hardlinks or reparse anomalies
+      try {
+        const lstat = fs.lstatSync(resolved);
+        if (lstat.isSymbolicLink()) {
+          const linkTarget = fs.readlinkSync(resolved);
+          const resolvedLink = path.isAbsolute(linkTarget)
+            ? this.normalizeFsPath(linkTarget)
+            : this.normalizeFsPath(path.resolve(path.dirname(resolved), linkTarget));
+          if (!this.isPathWithinRoot(resolvedLink, canonicalRoot)) {
+            throw new Error(
+              `SECURITY JAIL VIOLATION: Path '${targetPath}' escapes worktree root via symlink`
+            );
+          }
+        } else if (lstat.isFile() && (lstat.nlink ?? 1) > 1) {
+          this.verifyHardlinkConfinement(targetPath, resolved, canonicalRoot, lstat);
+        }
+      } catch (err: any) {
+        if (err.message?.includes('SECURITY JAIL VIOLATION')) {
+          throw err;
+        }
+      }
+    } else {
+      // 3. Non-existent path verification: walk up directory hierarchy to ensure no parent is an escaped symlink or junction
+      let checkDir = path.dirname(resolved);
+      while (checkDir && !this.isSameFsPath(checkDir, canonicalRoot) && !fs.existsSync(checkDir)) {
+        const parent = path.dirname(checkDir);
+        if (parent === checkDir) break;
+        checkDir = parent;
+      }
+
+      if (fs.existsSync(checkDir)) {
+        const canonicalParent = this.normalizeFsPath(fs.realpathSync(checkDir));
+        if (!this.isPathWithinRoot(canonicalParent, canonicalRoot)) {
+          throw new Error(
+            `SECURITY JAIL VIOLATION: Path '${targetPath}' escapes worktree root via symlink`
+          );
+        }
+      }
+    }
+
     return resolved;
+  }
+
+  /**
+   * Verifies that a hardlinked file does not share an inode with any file outside worktreeRoot.
+   * If stat.nlink > 1, counts how many files inside canonicalRoot share (dev, ino).
+   * If internal link count < stat.nlink, at least one link exists outside the jail.
+   */
+  public verifyHardlinkConfinement(
+    targetPath: string,
+    resolvedFile: string,
+    canonicalRoot: string,
+    stat: fs.Stats
+  ): void {
+    if (!stat.isFile() || !stat.nlink || stat.nlink <= 1) {
+      return;
+    }
+
+    const targetDev = stat.dev;
+    const targetIno = stat.ino;
+
+    let internalLinks = 0;
+    const queue = [canonicalRoot];
+
+    while (queue.length > 0) {
+      const currentDir = queue.pop()!;
+      let entries: fs.Dirent[];
+      try {
+        entries = fs.readdirSync(currentDir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        const fullPath = path.join(currentDir, entry.name);
+        try {
+          const entryStat = fs.lstatSync(fullPath);
+          if (entryStat.isDirectory()) {
+            if (!entryStat.isSymbolicLink()) {
+              queue.push(fullPath);
+            }
+          } else if (entryStat.isFile()) {
+            if (entryStat.dev === targetDev && entryStat.ino === targetIno) {
+              internalLinks++;
+              if (internalLinks >= stat.nlink) {
+                return;
+              }
+            }
+          }
+        } catch {}
+      }
+    }
+
+    if (internalLinks < stat.nlink) {
+      throw new Error(
+        `SECURITY JAIL VIOLATION: Path '${targetPath}' escapes worktree root via hardlink to external inode`
+      );
+    }
   }
 
   private async handleReadFile(
@@ -1778,6 +2031,16 @@ export class ToolGateway {
       : encoding === 'base64'
       ? Buffer.from(safeContent, 'base64')
       : Buffer.from(safeContent, 'utf-8');
+
+    // Hardlink copy-on-write decoupling: if target shares an inode with multiple links, sever before writing
+    if (fs.existsSync(target)) {
+      try {
+        const lstat = fs.lstatSync(target);
+        if (lstat.isFile() && (lstat.nlink ?? 1) > 1) {
+          fs.unlinkSync(target);
+        }
+      } catch {}
+    }
 
     while (attempts < maxAttempts) {
       try {

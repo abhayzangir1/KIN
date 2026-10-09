@@ -20,7 +20,19 @@ export class SecretVault {
 
   constructor(options?: SecretVaultOptions) {
     const cwd = process.cwd();
-    this.keyFilePath = options?.keyFilePath || path.resolve(cwd, '.kin', 'vault.key');
+    const homeDir = process.env.USERPROFILE || process.env.HOME || process.env.APPDATA || cwd;
+    const homeKeyPath = path.resolve(homeDir, '.kin', 'vault.key');
+    const localKeyPath = path.resolve(cwd, '.kin', 'vault.key');
+
+    if (options?.keyFilePath) {
+      this.keyFilePath = options.keyFilePath;
+    } else if (fs.existsSync(homeKeyPath)) {
+      this.keyFilePath = homeKeyPath;
+    } else if (fs.existsSync(localKeyPath)) {
+      this.keyFilePath = localKeyPath;
+    } else {
+      this.keyFilePath = homeKeyPath;
+    }
 
     if (options?.masterKey) {
       if (Buffer.isBuffer(options.masterKey)) {
@@ -48,6 +60,10 @@ export class SecretVault {
 
   public static resetInstance(): void {
     SecretVault.instance = null;
+  }
+
+  public getKeyFilePath(): string {
+    return this.keyFilePath;
   }
 
   private deriveKeyFromString(rawKey: string): Buffer {

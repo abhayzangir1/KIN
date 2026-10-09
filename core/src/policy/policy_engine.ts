@@ -62,18 +62,19 @@ export class PolicyEngine {
    * Evaluates an agent action against capability attenuation and autonomy mode.
    */
   public evaluateAction(request: ActionEvaluationRequest): PolicyEvaluationResult {
-    // 1. Monotonic Capability Attenuation Check
-    // If agent is a subagent (has parentRunId), its capabilities cannot exceed parent capabilities
+    // 1. Role-Based Baseline & Interactive Escalation Check
+    // If agent is a subagent (has parentRunId), baseline capabilities are permitted.
+    // If an action requires capabilities exceeding parent/baseline, prompt for interactive operator approval.
     if (request.parentRunId && request.parentCapabilities) {
       const parentHasCapability = request.agentCapabilities.every((cap) =>
-        request.parentCapabilities!.includes(cap)
+        request.parentCapabilities!.includes(cap) || request.parentCapabilities!.includes('*')
       );
 
       if (!parentHasCapability) {
         return {
           allowed: false,
-          requiresInteractiveApproval: false,
-          reason: `SECURITY DENIAL: Monotonic capability attenuation violated. Subagent cannot hold capabilities exceeding its parent.`,
+          requiresInteractiveApproval: true,
+          reason: `Monotonic capability attenuation violated: Capability elevation requested: Subagent requires capabilities beyond parent baseline, prompting for interactive operator approval.`,
         };
       }
     }

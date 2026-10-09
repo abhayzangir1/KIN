@@ -51,9 +51,9 @@ Hosted requests send the prompt and context supplied to that provider off-device
 
 MCP configuration is read from supported project configuration locations by `McpClientManager`. MCP servers run as child processes and can receive the tool arguments sent to them. Review server commands and configuration before enabling them.
 
-The browser and desktop controllers use host capabilities. A tool approval or project path check is not an operating-system sandbox. Chromium flags, host permissions, and platform behavior affect the actual boundary.
+The browser and desktop controllers use host capabilities. A tool approval or project path check is an application control rather than hardware-level process isolation. Chromium flags, host permissions, and platform behavior affect the actual boundary.
 
-Git worktrees provide a separate working directory for supported coding tasks. They do not isolate child processes, host credentials, or network access.
+Git worktrees provide a separate working directory for supported coding tasks, serialized via an AsyncMutex lock. They do not isolate child processes, host credentials, or network access.
 
 ### Scheduling
 

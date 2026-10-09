@@ -81,6 +81,9 @@ export interface AgentIdentity {
   fallbackModelId?: string;
   isOrchestrator: boolean;
   isEphemeral: boolean;
+  roleTitle?: string;
+  systemPrompt?: string;
+  capabilities?: string[];
   createdAt: number;
   updatedAt: number;
 }
@@ -205,6 +208,8 @@ export interface Evidence {
   type: 'test_output' | 'build_log' | 'artifact_hash' | 'human_signoff';
   contentUri: string;
   verified: boolean;
+  verifiedBy?: string;
+  verificationPayloadJson?: string;
   createdAt: number;
 }
 
@@ -309,6 +314,10 @@ export interface AgentEvaluation {
   score: number;
   passed: boolean;
   rubricMetricsJson: string;
+  testCasesRun?: number;
+  testCasesPassed?: number;
+  testCasesJson?: string;
+  executionLogs?: string;
   evaluatorNotes?: string;
   createdAt: number;
 }
@@ -318,6 +327,7 @@ export interface ManagedCredential {
   provider: string;
   keyAlias: string;
   secretHash: string;
+  maskedKey?: string;
   scopedGrantsJson: string;
   maxSpendTokens?: number;
   currentSpendTokens: number;

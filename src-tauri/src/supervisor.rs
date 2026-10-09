@@ -73,9 +73,174 @@ mod windows_impl {
     }
 }
 
+#[cfg(unix)]
+pub mod unix_impl {
+    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::{Mutex, OnceLock};
+    use std::time::Duration;
+
+    // Up to 64 tracked process groups for lock-free async-signal-safe fallback in signal handlers
+    const MAX_ATOMIC_PGIDS: usize = 64;
+    static ATOMIC_PGIDS: [AtomicI32; MAX_ATOMIC_PGIDS] = {
+        const INIT: AtomicI32 = AtomicI32::new(0);
+        [INIT; MAX_ATOMIC_PGIDS]
+    };
+
+    fn get_child_pgids() -> &'static Mutex<Vec<i32>> {
+        static CHILD_PGIDS: OnceLock<Mutex<Vec<i32>>> = OnceLock::new();
+        CHILD_PGIDS.get_or_init(|| Mutex::new(Vec::new()))
+    }
+
+    static HANDLERS_INSTALLED: OnceLock<()> = OnceLock::new();
+
+    extern "C" fn handle_termination_signal(sig: libc::c_int) {
+        UnixProcessSupervisor::cleanup_signal_safe();
+        unsafe {
+            libc::signal(sig, libc::SIG_DFL);
+            libc::raise(sig);
+        }
+    }
+
+    extern "C" fn handle_process_exit() {
+        UnixProcessSupervisor::cleanup();
+    }
+
+    fn install_signal_handlers_once() {
+        HANDLERS_INSTALLED.get_or_init(|| {
+            unsafe {
+                libc::signal(libc::SIGINT, handle_termination_signal as _);
+                libc::signal(libc::SIGTERM, handle_termination_signal as _);
+                libc::signal(libc::SIGHUP, handle_termination_signal as _);
+                libc::atexit(handle_process_exit);
+            }
+        });
+    }
+
+    pub struct UnixProcessSupervisor;
+
+    impl UnixProcessSupervisor {
+        pub fn new() -> Self {
+            install_signal_handlers_once();
+            Self
+        }
+
+        pub fn register_child_pgid(pgid: i32) {
+            if pgid <= 1 {
+                return;
+            }
+            install_signal_handlers_once();
+
+            // 1. Primary thread-safe tracking via Mutex<Vec<i32>>
+            if let Ok(mut lock) = get_child_pgids().lock() {
+                if !lock.contains(&pgid) {
+                    lock.push(pgid);
+                }
+            }
+
+            // 2. Lockless atomic mirror for signal handlers
+            for slot in &ATOMIC_PGIDS {
+                let current = slot.load(Ordering::Relaxed);
+                if current == pgid {
+                    break;
+                }
+                if current == 0 {
+                    if slot.compare_exchange(0, pgid, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
+                        break;
+                    }
+                }
+            }
+        }
+
+        /// Comprehensive two-phase cleanup: SIGTERM, brief grace delay, then SIGKILL.
+        /// Invoked on Drop, upon process exit (atexit), or explicitly.
+        pub fn cleanup() {
+            let pgids: Vec<i32> = {
+                if let Ok(mut lock) = get_child_pgids().lock() {
+                    lock.drain(..).filter(|&p| p > 1).collect()
+                } else if let Ok(mut lock) = get_child_pgids().try_lock() {
+                    lock.drain(..).filter(|&p| p > 1).collect()
+                } else {
+                    Vec::new()
+                }
+            };
+
+            for slot in &ATOMIC_PGIDS {
+                slot.store(0, Ordering::SeqCst);
+            }
+
+            if pgids.is_empty() {
+                return;
+            }
+
+            // Phase 1: Graceful termination via SIGTERM
+            for &pgid in &pgids {
+                unsafe {
+                    libc::kill(-pgid, libc::SIGTERM);
+                }
+            }
+
+            // Grace period for graceful shutdown
+            std::thread::sleep(Duration::from_millis(200));
+
+            // Phase 2: Unconditional kill via SIGKILL to eliminate any lingering orphans
+            for &pgid in &pgids {
+                unsafe {
+                    libc::kill(-pgid, libc::SIGKILL);
+                }
+            }
+        }
+
+        /// Async-signal-safe cleanup invoked directly from signal handlers
+        pub fn cleanup_signal_safe() {
+            if let Ok(mut lock) = get_child_pgids().try_lock() {
+                for pgid in lock.drain(..).filter(|&p| p > 1) {
+                    unsafe {
+                        libc::kill(-pgid, libc::SIGTERM);
+                    }
+                }
+            } else {
+                for slot in &ATOMIC_PGIDS {
+                    let pgid = slot.swap(0, Ordering::SeqCst);
+                    if pgid > 1 {
+                        unsafe {
+                            libc::kill(-pgid, libc::SIGTERM);
+                        }
+                    }
+                }
+            }
+
+            std::thread::sleep(Duration::from_millis(200));
+
+            for slot in &ATOMIC_PGIDS {
+                let pgid = slot.swap(0, Ordering::SeqCst);
+                if pgid > 1 {
+                    unsafe {
+                        libc::kill(-pgid, libc::SIGKILL);
+                    }
+                }
+            }
+        }
+    }
+
+    impl Drop for UnixProcessSupervisor {
+        fn drop(&mut self) {
+            Self::cleanup();
+        }
+    }
+}
+
 pub struct ProcessSupervisor {
     #[cfg(windows)]
     win_job: Option<windows_impl::WinJobSupervisor>,
+    #[cfg(unix)]
+    unix_sup: Option<unix_impl::UnixProcessSupervisor>,
+}
+
+impl Drop for ProcessSupervisor {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        unix_impl::UnixProcessSupervisor::cleanup();
+    }
 }
 
 static GLOBAL_SUPERVISOR: OnceLock<Mutex<Option<ProcessSupervisor>>> = OnceLock::new();
@@ -89,11 +254,18 @@ impl ProcessSupervisor {
         let supervisor = Self {
             #[cfg(windows)]
             win_job: Some(windows_impl::WinJobSupervisor::new()?),
+            #[cfg(unix)]
+            unix_sup: Some(unix_impl::UnixProcessSupervisor::new()),
         };
 
         let mut lock = get_supervisor().lock().unwrap();
         *lock = Some(supervisor);
         Ok(())
+    }
+
+    pub fn shutdown() {
+        #[cfg(unix)]
+        unix_impl::UnixProcessSupervisor::cleanup();
     }
 
     #[cfg(windows)]
@@ -108,7 +280,10 @@ impl ProcessSupervisor {
     }
 
     #[cfg(not(windows))]
-    pub fn assign_raw_handle(_process_handle: i32) -> Result<(), String> {
+    pub fn assign_raw_handle(pid: i32) -> Result<(), String> {
+        #[cfg(unix)]
+        unix_impl::UnixProcessSupervisor::register_child_pgid(pid);
+        let _ = pid;
         Ok(())
     }
 
@@ -128,9 +303,95 @@ impl ProcessSupervisor {
             return Ok(());
         }
 
-        println!("[KIN SUPERVISOR] Daemon not detected on port {}. Spawning...", DEFAULT_PORT);
+        println!("[KIN SUPERVISOR] Daemon not detected on port {}. Checking for sidecar or dev script...", DEFAULT_PORT);
 
         let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf()));
+
+        // 1. Check for standalone sidecar binary
+        let sidecar_names = [
+            "kin-core.exe",
+            "kin-core",
+            "kin-core-x86_64-pc-windows-msvc.exe",
+            "kin-core-x86_64-pc-windows-gnu.exe",
+            "kin-core-x86_64-unknown-linux-gnu",
+            "kin-core-aarch64-unknown-linux-gnu",
+            "kin-core-x86_64-apple-darwin",
+            "kin-core-aarch64-apple-darwin",
+        ];
+
+        let mut sidecar_search_dirs = Vec::new();
+        if let Some(ref ed) = exe_dir {
+            sidecar_search_dirs.push(ed.clone());
+            sidecar_search_dirs.push(ed.join("binaries"));
+            sidecar_search_dirs.push(ed.join("../Resources"));
+            sidecar_search_dirs.push(ed.join("../MacOS"));
+        }
+        sidecar_search_dirs.push(current_dir.join("src-tauri").join("binaries"));
+        sidecar_search_dirs.push(current_dir.join("binaries"));
+        sidecar_search_dirs.push(current_dir.clone());
+
+        let mut found_sidecar: Option<PathBuf> = None;
+        'outer: for dir in &sidecar_search_dirs {
+            for name in &sidecar_names {
+                let candidate = dir.join(name);
+                if candidate.is_file() {
+                    found_sidecar = Some(candidate);
+                    break 'outer;
+                }
+            }
+        }
+
+        if let Some(sidecar_path) = found_sidecar {
+            println!("[KIN SUPERVISOR] Found standalone sidecar binary at: {:?}", sidecar_path);
+            let mut command = Command::new(&sidecar_path);
+            command.env("KIN_PORT", DEFAULT_PORT.to_string());
+            if let Some(parent) = sidecar_path.parent() {
+                command.current_dir(parent);
+            }
+
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                // CREATE_NO_WINDOW = 0x08000000
+                command.creation_flags(0x08000000);
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::CommandExt;
+                command.process_group(0);
+            }
+
+            let mut child = command.spawn().map_err(|e| format!("Failed to spawn sidecar daemon: {}", e))?;
+
+            #[cfg(windows)]
+            {
+                use std::os::windows::io::AsRawHandle;
+                let _ = Self::assign_raw_handle(child.as_raw_handle());
+            }
+            #[cfg(unix)]
+            {
+                let pid = child.id() as i32;
+                unix_impl::UnixProcessSupervisor::register_child_pgid(pid);
+            }
+
+            // Wait briefly for daemon port to be ready
+            for _ in 0..15 {
+                std::thread::sleep(Duration::from_millis(300));
+                if let Ok(Some(status)) = child.try_wait() {
+                    eprintln!("[KIN SUPERVISOR] Sidecar daemon exited prematurely with status: {:?}", status);
+                    break;
+                }
+                if Self::is_daemon_active(DEFAULT_PORT) {
+                    println!("[KIN SUPERVISOR] Sidecar daemon successfully bound to port {}", DEFAULT_PORT);
+                    return Ok(());
+                }
+            }
+
+            println!("[KIN SUPERVISOR] Sidecar failed to bind to port {}. Falling back to development runner...", DEFAULT_PORT);
+        }
+
+        // 2. Fall back to development start_daemon.js via Node
         let candidate_paths = [
             current_dir.join("core").join("dist").join("start_daemon.js"),
             current_dir.join("dist").join("start_daemon.js"),
@@ -150,7 +411,7 @@ impl ProcessSupervisor {
         let script_path = match found_script {
             Some(p) => p,
             None => {
-                return Err("Unable to locate start_daemon.js in search paths".to_string());
+                return Err("Unable to locate start_daemon.js or sidecar binary in search paths".to_string());
             }
         };
 
@@ -179,6 +440,11 @@ impl ProcessSupervisor {
             // CREATE_NO_WINDOW = 0x08000000
             command.creation_flags(0x08000000);
         }
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
 
         let child = command.spawn().map_err(|e| format!("Failed to spawn daemon: {}", e))?;
 
@@ -186,6 +452,11 @@ impl ProcessSupervisor {
         {
             use std::os::windows::io::AsRawHandle;
             let _ = Self::assign_raw_handle(child.as_raw_handle());
+        }
+        #[cfg(unix)]
+        {
+            let pid = child.id() as i32;
+            unix_impl::UnixProcessSupervisor::register_child_pgid(pid);
         }
 
         // Wait briefly for daemon port to be ready

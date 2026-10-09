@@ -57,7 +57,25 @@ pub fn kin_register_child_process(pid: u32) -> Result<(), String> {
 
     #[cfg(not(windows))]
     {
-        let _ = pid;
-        Ok(())
+        ProcessSupervisor::assign_raw_handle(pid as i32)
     }
+}
+
+#[tauri::command]
+pub fn get_ipc_token() -> Result<String, String> {
+    let current_dir = env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let candidates = [
+        current_dir.join(".kin").join("ipc_auth.token"),
+        current_dir.join("..").join(".kin").join("ipc_auth.token"),
+    ];
+
+    for path in &candidates {
+        if path.exists() {
+            if let Ok(token) = std::fs::read_to_string(path) {
+                return Ok(token.trim().to_string());
+            }
+        }
+    }
+
+    Err("IPC authentication token not found in .kin directory".to_string())
 }

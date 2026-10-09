@@ -39,6 +39,7 @@ import { SecretVault } from '../security/secret_vault.js';
 import { SecretBroker } from '../security/secret_broker.js';
 import { GoalRepository } from '../domain/goal_repository.js';
 import { WorktreeManager } from '../execution/worktree_manager.js';
+import { BenchmarkEvaluator } from '../evaluation/benchmark_evaluator.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface CoreServerOptions {
@@ -163,15 +164,25 @@ export class CoreServer {
     this.kernel = new AgentKernel(this.db);
     const lastResolvedCredIdByProvider = new Map<string, string>();
     this.modelGateway = new ModelGateway({
-      apiKeyResolver: (provider: string) => {
+      apiKeyResolver: (provider: string, callerAgentId?: string) => {
         try {
-          const row = this.db.queryOne<any>(
-            'SELECT id, secret_hash FROM managed_credentials WHERE provider = ? AND is_active = 1 ORDER BY updated_at DESC LIMIT 1',
+          const rows = this.db.query<any>(
+            'SELECT id, secret_hash, scoped_grants_json FROM managed_credentials WHERE provider = ? AND is_active = 1 ORDER BY updated_at DESC',
             provider
           );
-          if (row && row.secret_hash) {
-            lastResolvedCredIdByProvider.set(provider, row.id);
-            return row.secret_hash;
+          for (const row of rows) {
+            if (row && row.secret_hash) {
+              if (callerAgentId && row.scoped_grants_json) {
+                try {
+                  const grants: string[] = JSON.parse(row.scoped_grants_json);
+                  if (Array.isArray(grants) && grants.length > 0 && !grants.includes(callerAgentId)) {
+                    continue;
+                  }
+                } catch {}
+              }
+              lastResolvedCredIdByProvider.set(provider, row.id);
+              return row.secret_hash;
+            }
           }
         } catch {}
         if (provider === 'openrouter') return process.env.OPENROUTER_API_KEY;
@@ -1508,8 +1519,9 @@ export class CoreServer {
     const parsedUrl = new URL(req.url ?? '/', 'http://127.0.0.1');
     const pathname = parsedUrl.pathname;
 
-    // Enforce local loopback IPC token authentication when enabled
-    if (this.requireIpcAuth && this.ipcAuthToken) {
+    // Enforce local loopback IPC token authentication when enabled (exempting public health probes)
+    const isHealthProbe = pathname === '/api/health' || pathname === '/health';
+    if (this.requireIpcAuth && this.ipcAuthToken && !isHealthProbe) {
       const authHeader = req.headers['authorization'] || '';
       const xIpcToken = req.headers['x-ipc-token'] as string;
       const queryToken = parsedUrl.searchParams.get('token');
@@ -4303,15 +4315,13 @@ export class CoreServer {
               this.taskRepo.createDecision(newDec);
               this.broadcastEvent('decision:created', newDec);
 
-              // Clear proposed_replanning_json and advance status on active goals
-              const activeGoals = this.taskRepo.listGoals(targetProjectId).filter((g) => g.proposedReplanning);
+              // Apply proposed_replanning_json and advance status on active goals
+              const activeGoals = this.goalRepo.listGoals(targetProjectId).filter((g) => g.proposedReplanning);
               for (const ag of activeGoals) {
-                this.taskRepo.updateGoal({
-                  ...ag,
-                  proposedReplanning: undefined,
-                  progressSummary: `Operator confirmed plan choice: ${choiceText}`,
-                  updatedAt: Date.now(),
-                });
+                if (ag.proposedReplanning) {
+                  this.goalRepo.applyReplanning(ag.id, ag.proposedReplanning);
+                }
+                this.goalRepo.updateGoalProgress(ag.id, `Operator confirmed plan choice: ${choiceText}`);
               }
 
               const decReply = this.channelService.sendMessage({
@@ -7080,14 +7090,22 @@ export class CoreServer {
           try {
             if (r.rubric_metrics_json) rubricScores = JSON.parse(r.rubric_metrics_json);
           } catch {}
+          let testCases: any[] = [];
+          try {
+            if (r.test_cases_json) testCases = JSON.parse(r.test_cases_json);
+          } catch {}
           return {
             id: r.id,
             agentId: r.agent_id,
             projectId: this.activeProjectId,
+            score: r.score,
+            passed: Boolean(r.passed),
             rubricScores,
             benchmarkSuite: r.test_suite_name,
-            testCasesRun: 12,
-            testCasesPassed: r.passed ? 12 : 10,
+            testCasesRun: r.test_cases_run !== undefined ? r.test_cases_run : (testCases.length || 0),
+            testCasesPassed: r.test_cases_passed !== undefined ? r.test_cases_passed : (r.passed ? (testCases.length || 0) : 0),
+            testCases,
+            executionLogs: r.execution_logs || '',
             feedbackNotes: r.evaluator_notes,
             evaluatedAt: r.created_at,
           };
@@ -7103,41 +7121,23 @@ export class CoreServer {
         if (!agent) {
           return this.sendJson(res, 404, { error: 'Agent not found' });
         }
-        const now = Date.now();
-        const evalId = `eval-${now}-${Math.random().toString(36).slice(2, 6)}`;
-        const benchmarkSuite = 'KIN Runtime Hardening Benchmark';
-        const rubricScores = {
-          accuracy: 96,
-          reasoning: 94,
-          toolCompetence: 98,
-          safetyAdherence: 100,
-          overall: 97,
-        };
-        const feedbackNotes = `Agent ${agent.displayName} verified across multi-turn execution, tool authorization gates, crash resilience, and quota pause recovery. Zero hallucination detected.`;
-
-        this.db.execute(
-          `INSERT INTO agent_evaluations (id, agent_id, test_suite_name, score, passed, rubric_metrics_json, evaluator_notes, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          evalId,
-          agentId,
-          benchmarkSuite,
-          rubricScores.overall,
-          1,
-          JSON.stringify(rubricScores),
-          feedbackNotes,
-          now
-        );
+        const evaluator = new BenchmarkEvaluator(this.db);
+        const evalResult = await evaluator.evaluate(agent);
 
         const evaluation = {
-          id: evalId,
+          id: evalResult.evalId,
           agentId,
           projectId: agent.projectId || this.activeProjectId,
-          rubricScores,
-          benchmarkSuite,
-          testCasesRun: 12,
-          testCasesPassed: 12,
-          feedbackNotes,
-          evaluatedAt: now,
+          score: evalResult.score,
+          passed: evalResult.passed,
+          rubricScores: evalResult.rubricScores,
+          benchmarkSuite: evalResult.testSuiteName,
+          testCasesRun: evalResult.testCasesRun,
+          testCasesPassed: evalResult.testCasesPassed,
+          testCases: evalResult.testCases,
+          executionLogs: evalResult.executionLogs,
+          feedbackNotes: evalResult.feedbackNotes,
+          evaluatedAt: evalResult.createdAt,
         };
 
         this.broadcastEvent('agent:evaluation_created', evaluation);
@@ -7147,18 +7147,14 @@ export class CoreServer {
       // 69. GET /api/settings/credentials — List managed credentials (BYOK)
       if (req.method === 'GET' && pathname === '/api/settings/credentials') {
         const rows = this.db.query<any>(
-          'SELECT id, provider, key_alias, secret_hash, scoped_grants_json, max_spend_tokens, current_spend_tokens, is_active, created_at, updated_at FROM managed_credentials ORDER BY created_at DESC'
+          'SELECT id, provider, key_alias, secret_hash, masked_key, scoped_grants_json, max_spend_tokens, current_spend_tokens, is_active, created_at, updated_at FROM managed_credentials ORDER BY created_at DESC'
         );
         const credentials = rows.map((r) => {
           let scopedAgentIds: string[] = [];
           try {
             if (r.scoped_grants_json) scopedAgentIds = JSON.parse(r.scoped_grants_json);
           } catch {}
-          let rawKey = r.secret_hash || '';
-          try {
-            rawKey = SecretVault.getInstance().decrypt(r.secret_hash);
-          } catch {}
-          const maskedKey = rawKey.length > 8 ? `${rawKey.slice(0, 4)}...${rawKey.slice(-4)}` : '****...****';
+          const maskedKey = r.masked_key || '****...****';
           return {
             id: r.id,
             provider: r.provider,
@@ -7201,12 +7197,13 @@ export class CoreServer {
         const encryptedKey = SecretVault.getInstance().encrypt(apiKey);
 
         this.db.execute(
-          `INSERT INTO managed_credentials (id, provider, key_alias, secret_hash, scoped_grants_json, max_spend_tokens, current_spend_tokens, is_active, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO managed_credentials (id, provider, key_alias, secret_hash, masked_key, scoped_grants_json, max_spend_tokens, current_spend_tokens, is_active, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           credId,
           provider,
           keyName,
           encryptedKey,
+          masked,
           JSON.stringify(scopedAgentIds),
           Number(monthlyQuotaTokens),
           0,
@@ -7283,29 +7280,26 @@ export class CoreServer {
         const scopedAgentIds = body.scopedAgentIds || body.scopedGrants || (existing.scoped_grants_json ? JSON.parse(existing.scoped_grants_json) : []);
 
         let encryptedKey = existing.secret_hash;
+        let maskedKey = existing.masked_key || '****...****';
         const apiKey = body.apiKey || body.secret || body.value;
         if (apiKey && apiKey !== '****...****' && !apiKey.includes('...')) {
           encryptedKey = SecretVault.getInstance().encrypt(apiKey);
+          maskedKey = apiKey.length > 8 ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}` : '****...****';
         }
 
         this.db.execute(
           `UPDATE managed_credentials 
-           SET provider = ?, key_alias = ?, secret_hash = ?, scoped_grants_json = ?, max_spend_tokens = ?, updated_at = ?
+           SET provider = ?, key_alias = ?, secret_hash = ?, masked_key = ?, scoped_grants_json = ?, max_spend_tokens = ?, updated_at = ?
            WHERE id = ?`,
           provider,
           keyName,
           encryptedKey,
+          maskedKey,
           JSON.stringify(scopedAgentIds),
           monthlyQuotaTokens,
           now,
           credId
         );
-
-        let rawKey = '';
-        try {
-          rawKey = SecretVault.getInstance().decrypt(encryptedKey);
-        } catch {}
-        const maskedKey = rawKey.length > 8 ? `${rawKey.slice(0, 4)}...${rawKey.slice(-4)}` : '****...****';
 
         const updatedCred = {
           id: credId,
@@ -8664,24 +8658,58 @@ export class CoreServer {
               let evidenceType = expectedType || 'artifact_hash';
               let isVerified = 0;
 
-              if (worktreeCommitSha) {
-                contentUri = `git://commit/${worktreeCommitSha}`;
-                evidenceType = 'artifact_hash';
-                isVerified = 1;
-              } else if (loopResult.actions && loopResult.actions.length > 0) {
-                // Verifiable artifact grounding: Only record evidence when a real file exists on disk
-                for (const act of loopResult.actions) {
-                  if (act.error) continue;
-                  const candidatePath = (act as any).result?.filePath || act.output?.filePath || act.params?.filePath || act.params?.path || act.params?.outputFile;
-                  if (candidatePath && typeof candidatePath === 'string') {
-                    const fullPath = path.isAbsolute(candidatePath) ? candidatePath : path.resolve(repoRoot, candidatePath);
-                    if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
-                      const fileHash = crypto.createHash('sha256').update(fs.readFileSync(fullPath)).digest('hex');
-                      const normPath = fullPath.replace(/\\/g, '/');
-                      contentUri = `file://${normPath}?sha256=${fileHash}`;
-                      evidenceType = (expectedType === 'test_output' || expectedType === 'build_log') ? expectedType : 'artifact_hash';
-                      isVerified = 1;
-                      break;
+              // 1. If verificationSpec contains a verification command, execute it to prove acceptance
+              if (currentTask.verificationSpec?.command) {
+                try {
+                  const cmdOutput = childProcess.execSync(currentTask.verificationSpec.command, {
+                    cwd: repoRoot,
+                    timeout: 30000,
+                    encoding: 'utf-8',
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                  });
+                  const expectedExitCode = currentTask.verificationSpec.expectedExitCode ?? 0;
+                  if (expectedExitCode === 0) {
+                    const logDir = path.resolve(repoRoot, '.kin', 'verification_logs');
+                    if (!fs.existsSync(logDir)) {
+                      fs.mkdirSync(logDir, { recursive: true });
+                    }
+                    const logFile = path.resolve(logDir, `task-${activeTaskId}-${Date.now()}.log`);
+                    fs.writeFileSync(logFile, cmdOutput || 'Command succeeded with exit code 0');
+                    const fileHash = crypto.createHash('sha256').update(fs.readFileSync(logFile)).digest('hex');
+                    const normPath = logFile.replace(/\\/g, '/');
+                    contentUri = `file://${normPath}?sha256=${fileHash}`;
+                    evidenceType = (expectedType === 'build_log' || expectedType === 'test_output') ? expectedType : 'test_output';
+                    isVerified = 1;
+                  }
+                } catch (cmdErr: any) {
+                  isVerified = 0;
+                }
+              }
+
+              // 2. If not verified by command, verify commit SHA or generated artifact matching verificationSpec
+              if (isVerified === 0) {
+                if (worktreeCommitSha && (!expectedType || expectedType === 'artifact_hash')) {
+                  contentUri = `git://commit/${worktreeCommitSha}`;
+                  evidenceType = 'artifact_hash';
+                  isVerified = 1;
+                } else if (loopResult.actions && loopResult.actions.length > 0) {
+                  // Verifiable artifact grounding: Only record evidence when a real file exists on disk
+                  for (const act of loopResult.actions) {
+                    if (act.error) continue;
+                    const candidatePath = (act as any).result?.filePath || act.output?.filePath || act.params?.filePath || act.params?.path || act.params?.outputFile;
+                    if (candidatePath && typeof candidatePath === 'string') {
+                      const fullPath = path.isAbsolute(candidatePath) ? candidatePath : path.resolve(repoRoot, candidatePath);
+                      if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+                        const fileHash = crypto.createHash('sha256').update(fs.readFileSync(fullPath)).digest('hex');
+                        const normPath = fullPath.replace(/\\/g, '/');
+                        const candidateType = (candidatePath.endsWith('.log') || candidatePath.endsWith('.txt')) ? 'build_log' : 'artifact_hash';
+                        if (!expectedType || expectedType === candidateType || expectedType === 'artifact_hash') {
+                          contentUri = `file://${normPath}?sha256=${fileHash}`;
+                          evidenceType = expectedType || candidateType;
+                          isVerified = 1;
+                          break;
+                        }
+                      }
                     }
                   }
                 }
@@ -8690,14 +8718,20 @@ export class CoreServer {
               if (isVerified === 1 && contentUri) {
                 try {
                   this.db.execute(
-                    `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, created_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                    `INSERT INTO evidence (id, task_id, run_id, type, content_uri, verified, verified_by, verification_payload_json, created_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     evidenceId,
                     activeTaskId,
                     run.id,
                     evidenceType,
                     contentUri,
                     isVerified,
+                    freshIdentity.id,
+                    JSON.stringify({
+                      commitSha: worktreeCommitSha || null,
+                      verificationSpec: currentTask.verificationSpec || null,
+                      actionsCount: loopResult.actions?.length || 0,
+                    }),
                     Date.now()
                   );
 
@@ -8711,6 +8745,7 @@ export class CoreServer {
                       contentUri,
                       runId: run.id,
                       agentId: freshIdentity.id,
+                      verifiedBy: freshIdentity.id,
                     },
                   });
                 } catch (evErr) {
@@ -8719,10 +8754,10 @@ export class CoreServer {
 
                 const promotedTaskIds = this.taskRepo.completeTask(activeTaskId, evidenceId, run.id) || [];
                 EventLedger.getInstance().record({
-                  eventType: 'TASK_COMPLETED',
-                  entityType: 'task',
-                  entityId: activeTaskId,
-                  payload: { runId: run.id, evidenceId, promotedTaskIds },
+                    eventType: 'TASK_COMPLETED',
+                    entityType: 'task',
+                    entityId: activeTaskId,
+                    payload: { runId: run.id, evidenceId, promotedTaskIds },
                 });
                 this.broadcastEvent('task:updated', { taskId: activeTaskId, status: 'completed', evidenceBundleId: evidenceId });
 
@@ -8744,11 +8779,11 @@ export class CoreServer {
                 this.broadcastEvent('task:updated', { taskId: activeTaskId, status: 'review', reason: reviewReason });
               }
 
-              // Advance next ready task in this goal to running and dispatch real worker run
+              // Advance all ready tasks in this goal to running and dispatch real worker runs
               if (currentTask.goalId) {
                 const siblingTasks = this.taskRepo.listTasksByGoal(currentTask.goalId);
-                const nextReady = siblingTasks.find((t) => t.id !== activeTaskId && t.status === 'ready');
-                if (nextReady) {
+                const readyTasks = siblingTasks.filter((t) => t.id !== activeTaskId && t.status === 'ready');
+                for (const nextReady of readyTasks) {
                   this.broadcastEvent('task:updated', { taskId: nextReady.id, status: 'ready' });
 
                   const nextWorker = (nextReady.assignedAgentId ? this.agentRepo.getIdentity(nextReady.assignedAgentId) : null) || freshIdentity;

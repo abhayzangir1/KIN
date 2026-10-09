@@ -700,7 +700,30 @@ export class AgentLoopRunner {
               postState.domSnippet || ''
             );
             if (authCheck.requiresUserAuth) {
-              recoveryNote += `\n🔒 [HUMAN AUTHORIZATION PROTOCOL TRIGGERED]: ${authCheck.promptInstructions}\nExecution paused for user authorization.`;
+              const durationMs = Date.now() - startTime;
+              actions.push({
+                toolName: toolCall.name,
+                params: toolCall.params,
+                output: toolOutput,
+                error: toolError,
+                durationMs,
+              });
+              if (options.onToolEnd) {
+                options.onToolEnd(toolCall.name, toolOutput, toolError);
+              }
+              return {
+                finalContent: `🔒 [HUMAN AUTHORIZATION PROTOCOL TRIGGERED]: ${authCheck.promptInstructions}\nExecution suspended waiting for user authorization.`,
+                turnCount: currentTurn,
+                actions,
+                requiresApproval: true,
+                pendingApprovalDetails: {
+                  toolName: toolCall.name,
+                  params: toolCall.params,
+                  riskLevel: 'CRITICAL',
+                  authProtocol: true,
+                  promptInstructions: authCheck.promptInstructions,
+                },
+              };
             }
           } else if (toolCall.name.startsWith('desktop')) {
             postState = {
@@ -815,8 +838,6 @@ export class AgentLoopRunner {
       if (rawObservationStr.length > 4000) {
         const spill = this.outputSpiller.processOutput(rawObservationStr, toolCall.name);
         rawObservationStr = spill.content;
-      } else if (rawObservationStr.length > 10000) {
-        rawObservationStr = rawObservationStr.slice(0, 10000) + '\n... [observation truncated to 10,000 characters for context limit safety]';
       }
 
       // Sanitize payment details and sensitive tokens before injecting into model context

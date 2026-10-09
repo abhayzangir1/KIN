@@ -2076,7 +2076,7 @@ export const AgentInspector: React.FC = () => {
                               {Object.entries(ev.rubricMetrics).map(([metric, val]) => (
                                 <div key={metric} className="flex justify-between items-center text-[#94a3b8] font-mono">
                                   <span className="capitalize">{metric.replace(/([A-Z])/g, ' $1')}</span>
-                                  <span className="text-white font-bold">{Math.round((val as number) * 100)}%</span>
+                                  <span className="text-white font-bold">{Math.round((val as number) > 1 ? (val as number) : (val as number) * 100)}%</span>
                                 </div>
                               ))}
                             </div>

@@ -161,6 +161,8 @@ CREATE TABLE IF NOT EXISTS evidence (
     type TEXT NOT NULL CHECK (type IN ('test_output', 'build_log', 'artifact_hash', 'human_signoff')),
     content_uri TEXT NOT NULL,
     verified BOOLEAN NOT NULL DEFAULT 0,
+    verified_by TEXT,
+    verification_payload_json TEXT,
     created_at INTEGER NOT NULL
 );
 
@@ -372,6 +374,10 @@ CREATE TABLE IF NOT EXISTS agent_evaluations (
     score INTEGER NOT NULL,
     passed BOOLEAN NOT NULL DEFAULT 0,
     rubric_metrics_json TEXT NOT NULL DEFAULT '{}',
+    test_cases_run INTEGER NOT NULL DEFAULT 0,
+    test_cases_passed INTEGER NOT NULL DEFAULT 0,
+    test_cases_json TEXT NOT NULL DEFAULT '[]',
+    execution_logs TEXT,
     evaluator_notes TEXT,
     created_at INTEGER NOT NULL
 );
@@ -382,6 +388,7 @@ CREATE TABLE IF NOT EXISTS managed_credentials (
     provider TEXT NOT NULL,
     key_alias TEXT NOT NULL,
     secret_hash TEXT NOT NULL,
+    masked_key TEXT,
     scoped_grants_json TEXT NOT NULL DEFAULT '[]',
     max_spend_tokens INTEGER,
     current_spend_tokens INTEGER NOT NULL DEFAULT 0,

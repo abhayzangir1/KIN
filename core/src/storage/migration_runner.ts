@@ -49,19 +49,47 @@ export class MigrationRunner {
   }
 
   public runMigrations(): MigrationReport {
-    // Determine path to schema.sql
-    const currentDir = path.dirname(fileURLToPath(import.meta.url));
-    let schemaPath = path.join(currentDir, 'schema.sql');
-    if (!fs.existsSync(schemaPath)) {
-      const srcPath = path.resolve(currentDir, '../../src/storage/schema.sql');
-      if (fs.existsSync(srcPath)) {
-        schemaPath = srcPath;
-      } else {
-        throw new Error(`Migration schema file not found at: ${schemaPath} or ${srcPath}`);
+    // Determine path to schema.sql safely across ESM, CJS, and bundled environments
+    let currentDir = process.cwd();
+    try {
+      if (typeof import.meta !== 'undefined' && (import.meta as any)?.url) {
+        currentDir = path.dirname(fileURLToPath((import.meta as any).url));
+      } else if (typeof __dirname !== 'undefined') {
+        currentDir = __dirname;
+      }
+    } catch {}
+
+    const candidatePaths = [
+      path.join(currentDir, 'schema.sql'),
+      path.join(currentDir, 'storage', 'schema.sql'),
+      path.resolve(currentDir, '../../src/storage/schema.sql'),
+      path.resolve(currentDir, '../src/storage/schema.sql'),
+      path.resolve(currentDir, '../../storage/schema.sql'),
+      path.resolve(process.cwd(), 'schema.sql'),
+      path.resolve(process.cwd(), 'src/storage/schema.sql'),
+      path.resolve(process.cwd(), 'core/src/storage/schema.sql'),
+      path.resolve(process.cwd(), 'dist/storage/schema.sql'),
+      path.resolve(process.cwd(), 'core/dist/storage/schema.sql'),
+      path.resolve(path.dirname(process.execPath), 'schema.sql'),
+      path.resolve(path.dirname(process.execPath), 'storage/schema.sql'),
+    ];
+
+    let schemaSql = '';
+    for (const p of candidatePaths) {
+      if (fs.existsSync(p)) {
+        try {
+          const content = fs.readFileSync(p, 'utf-8');
+          if (content.trim().length > 0) {
+            schemaSql = content;
+            break;
+          }
+        } catch {}
       }
     }
 
-    const schemaSql = fs.readFileSync(schemaPath, 'utf-8');
+    if (!schemaSql) {
+      throw new Error(`Migration schema file not found in search paths: ${candidatePaths.slice(0, 4).join(', ')}`);
+    }
 
     // Execute schema in a synchronous transaction
     this.db.transactionSync(() => {
@@ -247,6 +275,42 @@ export class MigrationRunner {
             DROP TABLE schedules;
             ALTER TABLE schedules_dg_tmp RENAME TO schedules;
           `);
+        }
+      }
+
+      // Pre-migration: evidence table verification columns
+      if (existingTables.includes('evidence')) {
+        const evidenceCols = this.db.query<{ name: string }>("PRAGMA table_info(evidence);").map((c) => c.name);
+        if (!evidenceCols.includes('verified_by')) {
+          this.db.exec('ALTER TABLE evidence ADD COLUMN verified_by TEXT;');
+        }
+        if (!evidenceCols.includes('verification_payload_json')) {
+          this.db.exec('ALTER TABLE evidence ADD COLUMN verification_payload_json TEXT;');
+        }
+      }
+
+      // Pre-migration: agent_evaluations table real test suite columns
+      if (existingTables.includes('agent_evaluations')) {
+        const evalCols = this.db.query<{ name: string }>("PRAGMA table_info(agent_evaluations);").map((c) => c.name);
+        if (!evalCols.includes('test_cases_run')) {
+          this.db.exec('ALTER TABLE agent_evaluations ADD COLUMN test_cases_run INTEGER NOT NULL DEFAULT 0;');
+        }
+        if (!evalCols.includes('test_cases_passed')) {
+          this.db.exec('ALTER TABLE agent_evaluations ADD COLUMN test_cases_passed INTEGER NOT NULL DEFAULT 0;');
+        }
+        if (!evalCols.includes('test_cases_json')) {
+          this.db.exec("ALTER TABLE agent_evaluations ADD COLUMN test_cases_json TEXT NOT NULL DEFAULT '[]';");
+        }
+        if (!evalCols.includes('execution_logs')) {
+          this.db.exec('ALTER TABLE agent_evaluations ADD COLUMN execution_logs TEXT;');
+        }
+      }
+
+      // Pre-migration: managed_credentials table masked_key column
+      if (existingTables.includes('managed_credentials')) {
+        const credCols = this.db.query<{ name: string }>("PRAGMA table_info(managed_credentials);").map((c) => c.name);
+        if (!credCols.includes('masked_key')) {
+          this.db.exec('ALTER TABLE managed_credentials ADD COLUMN masked_key TEXT;');
         }
       }
 

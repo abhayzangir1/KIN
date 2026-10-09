@@ -95,7 +95,7 @@ export class Sentinel {
     if (typeof paramsOrDigest === 'string') {
       paramDigest = paramsOrDigest;
     } else if (paramsOrDigest && typeof paramsOrDigest === 'object') {
-      paramDigest = this.computeApprovalDigest(toolName, runId, paramsOrDigest);
+      paramDigest = this.computeApprovalDigest(toolName, runId || '*', paramsOrDigest);
     }
 
     this.validApprovalTokens.set(token, {

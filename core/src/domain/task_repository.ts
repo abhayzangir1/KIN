@@ -545,17 +545,27 @@ export class TaskRepository {
       throw new Error(`Cannot complete task '${taskId}': Evidence type '${evidenceRecord.type}' does not match expected artifact type '${task.verificationSpec.expectedArtifactType}'. Task remains in review.`);
     }
 
-    const result = this.db.execute(
-      `UPDATE tasks
-       SET status = 'completed', evidence_bundle_id = ?, claimed_by_run_id = NULL, lease_expires_at = NULL, updated_at = ?
-       WHERE id = ? AND status IN ('running', 'review')`,
-      evidenceBundleId,
-      Date.now(),
-      taskId
-    );
+    const result = expectedRunId
+      ? this.db.execute(
+          `UPDATE tasks
+           SET status = 'completed', evidence_bundle_id = ?, claimed_by_run_id = NULL, lease_expires_at = NULL, updated_at = ?
+           WHERE id = ? AND (claimed_by_run_id = ? OR claimed_by_run_id IS NULL) AND status IN ('running', 'review')`,
+          evidenceBundleId,
+          Date.now(),
+          taskId,
+          expectedRunId
+        )
+      : this.db.execute(
+          `UPDATE tasks
+           SET status = 'completed', evidence_bundle_id = ?, claimed_by_run_id = NULL, lease_expires_at = NULL, updated_at = ?
+           WHERE id = ? AND status IN ('running', 'review')`,
+          evidenceBundleId,
+          Date.now(),
+          taskId
+        );
 
     if (Number(result.changes) === 0) {
-      throw new Error(`Failed to complete task '${taskId}': Task is not in running/review status.`);
+      throw new Error(`Failed to complete task '${taskId}': Task is not in running/review status or run claim mismatch (stale run).`);
     }
 
     // Check if dependent tasks can now transition from 'backlog' to 'ready'

@@ -6,7 +6,7 @@ pub mod ipc;
 pub mod jail;
 pub mod supervisor;
 
-use ipc::{kin_get_os_info, kin_register_child_process, kin_validate_path};
+use ipc::{get_ipc_token, kin_get_os_info, kin_register_child_process, kin_validate_path};
 use supervisor::ProcessSupervisor;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -21,6 +21,7 @@ pub fn run() {
     // 2. Build and run Tauri application
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
+            get_ipc_token,
             kin_get_os_info,
             kin_validate_path,
             kin_register_child_process

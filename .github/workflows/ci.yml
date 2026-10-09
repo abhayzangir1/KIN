@@ -1,0 +1,78 @@
+name: KIN CI / CD Quality Gates
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gate:
+    name: Build & Verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux System Dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev pkg-config libdbus-1-dev
+
+      - name: Clean Install npm dependencies
+        run: npm ci
+
+      - name: Build Core and UI Workspaces
+        run: npm run build
+
+      - name: Run Core Vitest Test Suite
+        run: npm run test --workspace=core
+
+      - name: Tauri Cargo Check
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Tauri Cargo Test
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Package Standalone Sidecar Binary
+        run: node core/scripts/package_binary.js
+
+      - name: Verify Core Daemon Boot & API Health Check
+        shell: bash
+        run: |
+          echo "Launching KIN Core daemon..."
+          node core/dist/start_daemon.js &
+          DAEMON_PID=$!
+          
+          # Allow daemon initialization
+          sleep 4
+          
+          echo "Querying daemon health endpoint..."
+          curl -sS --fail --retry 5 --retry-delay 1 --retry-connrefused http://127.0.0.1:54321/api/health
+          
+          echo "Daemon verified operational. Stopping background process..."
+          kill -9 $DAEMON_PID 2>/dev/null || taskkill //F //PID $DAEMON_PID 2>/dev/null || true

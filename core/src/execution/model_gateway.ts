@@ -18,6 +18,7 @@ export interface ModelInvocationParams {
   temperature?: number;
   maxTokens?: number;
   onToken?: (token: string) => void;
+  callerAgentId?: string;
 }
 
 export interface ModelInvocationResult {
@@ -58,7 +59,7 @@ export interface ProviderReadiness {
 }
 
 export interface ModelGatewayOptions {
-  apiKeyResolver?: (provider: string) => string | undefined;
+  apiKeyResolver?: (provider: string, callerAgentId?: string) => string | undefined;
   onUsage?: (provider: string, tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }) => void;
   openrouterApiKey?: string;
   openaiApiKey?: string;
@@ -75,7 +76,7 @@ export class ModelGateway {
   private anthropicApiKey?: string;
   private deepseekApiKey?: string;
   private geminiApiKey?: string;
-  private apiKeyResolver?: (provider: string) => string | undefined;
+  private apiKeyResolver?: (provider: string, callerAgentId?: string) => string | undefined;
   private onUsage?: (provider: string, tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }) => void;
   private customEndpoints: Map<string, { baseUrl: string; apiKey?: string }> = new Map();
   private validatedProviders: Map<string, boolean> = new Map();
@@ -98,7 +99,7 @@ export class ModelGateway {
     this.customEndpoints.set(name.toLowerCase(), { baseUrl, apiKey });
   }
 
-  public setApiKeyResolver(resolver: (provider: string) => string | undefined) {
+  public setApiKeyResolver(resolver: (provider: string, callerAgentId?: string) => string | undefined) {
     this.apiKeyResolver = resolver;
   }
 
@@ -106,10 +107,10 @@ export class ModelGateway {
     this.onUsage = handler;
   }
 
-  public resolveApiKey(provider: string): string | undefined {
+  public resolveApiKey(provider: string, callerAgentId?: string): string | undefined {
     let rawKey: string | undefined;
     if (this.apiKeyResolver) {
-      const resolved = this.apiKeyResolver(provider);
+      const resolved = this.apiKeyResolver(provider, callerAgentId);
       if (resolved) rawKey = resolved;
     }
     if (!rawKey) {
@@ -118,6 +119,12 @@ export class ModelGateway {
       else if (provider === 'anthropic') rawKey = this.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
       else if (provider === 'deepseek') rawKey = this.deepseekApiKey || process.env.DEEPSEEK_API_KEY;
       else if (provider === 'gemini') rawKey = this.geminiApiKey || process.env.GEMINI_API_KEY;
+      else {
+        const custom = this.customEndpoints.get(provider.toLowerCase());
+        if (custom && custom.apiKey) {
+          rawKey = custom.apiKey;
+        }
+      }
     }
     if (rawKey) {
       return SecretVault.getInstance().decrypt(rawKey);
@@ -611,7 +618,7 @@ export class ModelGateway {
       } else if (provider === 'openrouter') {
         return await this.invokeOpenRouter(modelName, params, startTime);
       } else if (provider === 'openai') {
-        const apiKey = this.resolveApiKey('openai');
+        const apiKey = this.resolveApiKey('openai', params.callerAgentId);
         return await this.invokeOpenAiCompatible(
           'https://api.openai.com/v1/chat/completions',
           apiKey,
@@ -621,7 +628,7 @@ export class ModelGateway {
           'openai'
         );
       } else if (provider === 'deepseek') {
-        const apiKey = this.resolveApiKey('deepseek');
+        const apiKey = this.resolveApiKey('deepseek', params.callerAgentId);
         return await this.invokeOpenAiCompatible(
           'https://api.deepseek.com/v1/chat/completions',
           apiKey,
@@ -633,7 +640,7 @@ export class ModelGateway {
       } else if (provider === 'anthropic') {
         return await this.invokeAnthropic(modelName, params, startTime);
       } else if (provider === 'gemini') {
-        const apiKey = this.resolveApiKey('gemini');
+        const apiKey = this.resolveApiKey('gemini', params.callerAgentId);
         return await this.invokeOpenAiCompatible(
           'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
           apiKey,
@@ -646,7 +653,7 @@ export class ModelGateway {
         const custom = this.customEndpoints.get(provider)
           || this.customEndpoints.get(modelName)
           || this.customEndpoints.values().next().value!;
-        const apiKey = custom.apiKey || this.resolveApiKey(provider) || this.resolveApiKey(modelName);
+        const apiKey = custom.apiKey || this.resolveApiKey(provider, params.callerAgentId) || this.resolveApiKey(modelName, params.callerAgentId);
         const url = custom.baseUrl.endsWith('/chat/completions')
           ? custom.baseUrl
           : `${custom.baseUrl.replace(/\/$/, '')}/chat/completions`;
@@ -660,7 +667,7 @@ export class ModelGateway {
         );
       } else {
         // Check if provider is an OpenRouter namespace or model slug (e.g. meta-llama/..., qwen/...)
-        const openRouterKey = this.resolveApiKey('openrouter');
+        const openRouterKey = this.resolveApiKey('openrouter', params.callerAgentId);
         if (openRouterKey && (modelName.includes('/') || params.modelId.includes(':free') || params.modelId.includes('/'))) {
           return await this.invokeOpenRouter(params.modelId, params, startTime);
         }
@@ -882,7 +889,7 @@ export class ModelGateway {
     startTime: number,
     retryCount: number = 0
   ): Promise<ModelInvocationResult> {
-    const apiKey = this.resolveApiKey('openrouter');
+    const apiKey = this.resolveApiKey('openrouter', params.callerAgentId);
     if (!apiKey) {
       throw new Error('API key for OPENROUTER is not set in managed credentials or environment.');
     }
@@ -1092,7 +1099,7 @@ export class ModelGateway {
     params: ModelInvocationParams,
     startTime: number
   ): Promise<ModelInvocationResult> {
-    const apiKey = this.resolveApiKey('anthropic');
+    const apiKey = this.resolveApiKey('anthropic', params.callerAgentId);
     if (!apiKey) {
       throw new Error('ANTHROPIC_API_KEY is not set in environment or managed credentials.');
     }
