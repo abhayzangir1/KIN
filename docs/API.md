@@ -26,7 +26,7 @@ The current core source contains route handlers for these areas:
 | Models and credentials | `/api/models*`, `/api/settings/credentials*` |
 | Skills and learning | `/api/skills*`, `/api/learning/*` |
 | Schedules and routines | `/api/projects/:id/schedules`, `/api/schedules/:id/*`, routine routes |
-| MCP and external control | `/api/mcp/tools`, `/api/browser/*`, `/api/system/apps/*`, `/api/system/windows/*`, `/api/system/desktop/*` |
+| MCP and external control | `/api/mcp/tools`, `/api/mcp/reload`, `/api/browser/*`, `/api/system/apps/*`, `/api/system/windows/*`, `/api/system/desktop/*` |
 
 Not every route is intended as a stable public API. Inspect the handler and its caller before relying on a route for automation or compatibility.
 
