@@ -1,6 +1,6 @@
 # KIN architecture
 
-This document summarizes the architecture represented by the current source. It describes code boundaries, not a guarantee that every subsystem is complete or verified in a packaged application. See [Current implementation notes](PROJECT_STATUS.md) for scope and limits. Product and technical requirements are maintained separately in [PRD](PRD.md) and [TRD](TRD.md).
+This document summarizes the architecture represented by the current source. It describes code boundaries, not an assurance that every subsystem is complete or verified in a packaged application. See [Current implementation notes](PROJECT_STATUS.md) for scope and limits. Product and technical requirements are maintained separately in [PRD](PRD.md) and [TRD](TRD.md).
 
 ## Runtime overview
 
@@ -37,7 +37,7 @@ flowchart TD
 
 `AgentKernel` manages run records, run admission, state transitions, and recovery data. `AgentLoopRunner` performs model turns and tool calls. `ContextCompiler` gathers agent, project, task, channel, memory, and skill context. `WakeupQueue` coalesces pending wakeups in process memory; durable run and task state is stored separately.
 
-Task leases coordinate claims in SQLite. The source includes checkpointing and startup recovery paths, but those mechanisms should not be read as exact replay or lossless recovery guarantees.
+Task leases coordinate claims in SQLite. The source includes checkpointing and startup recovery paths, but those mechanisms should not be read as exact replay or lossless recovery assurances.
 
 ### Models and credentials
 
@@ -57,7 +57,7 @@ Git worktrees provide a separate working directory for supported coding tasks. T
 
 ### Scheduling
 
-`SchedulerService` stores one-shot and recurring schedules in SQLite. Recurring schedules use a five-field cron parser and next-occurrence calculator in `cron_calendar.ts`. The service records dispatch attempts and supports retry paths. Scheduler state does not guarantee that a target model or downstream task will complete successfully.
+`SchedulerService` stores one-shot and recurring schedules in SQLite. Recurring schedules use a five-field cron parser and next-occurrence calculator in `cron_calendar.ts`. The service records dispatch attempts and supports retry paths. Scheduler state does not ensure that a target model or downstream task will complete successfully.
 
 ## Data and trust boundaries
 

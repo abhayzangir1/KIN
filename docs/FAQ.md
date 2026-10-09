@@ -14,7 +14,7 @@ The model gateway contains adapters and discovery paths for Ollama and several h
 
 ## Does KIN have a plugin marketplace?
 
-The source includes MCP server configuration and tool integration, plus a skills system. That is not a general marketplace with centralized discovery, publisher verification, compatibility guarantees, or managed updates.
+The source includes MCP server configuration and tool integration, plus a skills system. That is not a general marketplace with centralized discovery, publisher verification, compatibility assurances, or managed updates.
 
 ## Are agents and computer actions sandboxed?
 
@@ -22,7 +22,7 @@ Application capability checks, approvals, filesystem path handling, and Git work
 
 ## What happens if a run or schedule fails?
 
-The source has run recovery, schedule attempt records, and explicit retry paths. Their availability does not guarantee that a particular interrupted task resumes or that a scheduled agent completes its work. Inspect the run, task, and schedule records.
+The source has run recovery, schedule attempt records, and explicit retry paths. Their availability does not ensure that a particular interrupted task resumes or that a scheduled agent completes its work. Inspect the run, task, and schedule records.
 
 ## Can I use the desktop installer on another machine?
 

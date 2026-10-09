@@ -704,9 +704,12 @@ describe('KIN Audit Remediation Suite (2026-10-07 Findings Verification)', () =>
   // NEW-15: Version consistency across workspace
   describe('NEW-15: Release Version Reconciliation', () => {
     it('ensures root and workspace package.json versions are aligned to 0.1.0', () => {
-      const rootPkg = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), '../package.json'), 'utf-8'));
-      const corePkg = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf-8'));
-      const uiPkg = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), '../ui/package.json'), 'utf-8'));
+      const rootDir = fs.existsSync(path.resolve(process.cwd(), 'package.json')) && fs.existsSync(path.resolve(process.cwd(), 'core'))
+        ? process.cwd()
+        : path.resolve(process.cwd(), '..');
+      const rootPkg = JSON.parse(fs.readFileSync(path.resolve(rootDir, 'package.json'), 'utf-8'));
+      const corePkg = JSON.parse(fs.readFileSync(path.resolve(rootDir, 'core/package.json'), 'utf-8'));
+      const uiPkg = JSON.parse(fs.readFileSync(path.resolve(rootDir, 'ui/package.json'), 'utf-8'));
 
       expect(rootPkg.version).toBe('0.1.0');
       expect(corePkg.version).toBe('0.1.0');
@@ -717,7 +720,10 @@ describe('KIN Audit Remediation Suite (2026-10-07 Findings Verification)', () =>
   // NEW-16 & Invariant Check: Banned Words
   describe('NEW-16 & Invariant: Banned Terms Scan Across Documentation', () => {
     it('verifies docs contain zero banned words', () => {
-      const docsDir = path.resolve(process.cwd(), '../docs');
+      const rootDir = fs.existsSync(path.resolve(process.cwd(), 'package.json')) && fs.existsSync(path.resolve(process.cwd(), 'core'))
+        ? process.cwd()
+        : path.resolve(process.cwd(), '..');
+      const docsDir = path.resolve(rootDir, 'docs');
       if (!fs.existsSync(docsDir)) return;
 
       const banned = ['operating system', 'guarantee', '100%', 'bulletproof'];

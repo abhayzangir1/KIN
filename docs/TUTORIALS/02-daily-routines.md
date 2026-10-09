@@ -1,6 +1,6 @@
 # Timers and recurring routines
 
-KIN's source includes one-shot schedules and recurring five-field cron schedules. A schedule firing wakes an agent; it does not guarantee that the requested work finishes successfully.
+KIN's source includes one-shot schedules and recurring five-field cron schedules. A schedule firing wakes an agent; it does not ensure that the requested work finishes successfully.
 
 ## Try a one-time reminder
 

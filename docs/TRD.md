@@ -41,7 +41,7 @@ graph TD
 
     subgraph Storage ["Durable Persistence Layer (Localhost)"]
         SQLite["SQLite 3 with WAL Mode (kin_storage.sqlite)"]
-        FSJail["Target: worktree and path controls (.kin/worktrees/; not an OS sandbox)"]
+        FSJail["Target: worktree and path controls (.kin/worktrees/; not a platform sandbox)"]
         Profiles["Persistent Browser Profiles (.kin/browser_profiles/)"]
     end
 
