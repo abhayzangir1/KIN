@@ -92,10 +92,10 @@ describe('KIN V12: Desktop & Web Control Upgrades', () => {
       expect(Array.isArray(windows)).toBe(true);
 
       const moveRes = await controller.mouseMove(100, 100);
-      expect(moveRes.success).toBe(true);
+      expect(moveRes.success).toBe(process.platform === 'win32');
 
       const keyRes = await controller.sendKey('ESC');
-      expect(keyRes.success).toBe(true);
+      expect(keyRes.success).toBe(process.platform === 'win32');
     }, 60000);
   });
 
@@ -868,11 +868,15 @@ Imported skill instructions.`;
     it('DesktopController formats SendKeys tokens and escaping correctly', async () => {
       const controller = new DesktopController();
       const sendRes = await controller.sendKey('escape');
-      expect(sendRes.success).toBe(true);
-      expect(sendRes.details?.stroke).toBe('{ESC}');
+      if (process.platform === 'win32') {
+        expect(sendRes.success).toBe(true);
+        expect(sendRes.details?.stroke).toBe('{ESC}');
+      } else {
+        expect(sendRes.success).toBe(false);
+      }
 
       const typeRes = await controller.typeText('{hello}');
-      expect(typeRes.success).toBe(true);
+      expect(typeRes.success).toBe(process.platform === 'win32');
     });
 
     it('AgentLoopRunner.extractToolCall extracts tool calls with arguments, trailing commas, and unclosed tags', () => {

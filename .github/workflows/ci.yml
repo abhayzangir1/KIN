@@ -14,6 +14,8 @@ jobs:
   quality-gate:
     name: Build & Verify (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      KIN_HEADLESS: 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -49,6 +51,9 @@ jobs:
       - name: Build Core and UI Workspaces
         run: npm run build
 
+      - name: Package Standalone Sidecar Binary
+        run: node core/scripts/package_binary.js
+
       - name: Run Core Vitest Test Suite
         run: npm run test --workspace=core
 
@@ -57,9 +62,6 @@ jobs:
 
       - name: Tauri Cargo Test
         run: cargo test --manifest-path src-tauri/Cargo.toml
-
-      - name: Package Standalone Sidecar Binary
-        run: node core/scripts/package_binary.js
 
       - name: Verify Standalone Binary Boot & API Health Check
         shell: bash
@@ -87,4 +89,4 @@ jobs:
           curl -sS --fail --retry 5 --retry-delay 1 --retry-connrefused http://127.0.0.1:54321/api/health
           
           echo "Daemon verified operational. Stopping background process..."
-          kill -9 $DAEMON_PID 2>/dev/null || taskkill //F //PID $DAEMON_PID 2>/dev/null || true
+          kill -9 $DAEMON_PID 2>/dev/null || taskkill //F //PID $DAEMON_PID 2>/dev/null || taskkill //F //IM kin-core.exe 2>/dev/null || true

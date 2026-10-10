@@ -220,7 +220,7 @@ export class BrowserController {
           );
         }
 
-        const headless = options.headless ?? (process.env.KIN_HEADLESS === 'true' ? true : false);
+        const headless = options.headless ?? (process.env.KIN_HEADLESS === 'true' || process.env.CI === 'true' || (!process.env.DISPLAY && process.platform === 'linux'));
 
         const launchArgs = [
           '--disable-infobars',

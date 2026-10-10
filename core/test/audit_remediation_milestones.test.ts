@@ -371,7 +371,7 @@ describe('KIN Comprehensive Audit Remediation & Runtime Hardening (Milestones 1-
       try {
         // Standard in-jail path
         const validPath = gateway.resolveJailedPath('src/index.ts', worktreeDir);
-        expect(validPath).toBe(path.resolve(worktreeDir, 'src/index.ts'));
+        expect(validPath).toBe(path.resolve(fs.realpathSync(worktreeDir), 'src/index.ts'));
 
         // Direct directory traversal escape
         expect(() => {
@@ -475,7 +475,7 @@ describe('KIN Comprehensive Audit Remediation & Runtime Hardening (Milestones 1-
 
         // 2. Regular contained files resolve cleanly without false positives
         const valid = gateway.resolveJailedPath('safe_file.txt', worktreeDir);
-        expect(valid).toBe(safeInsideFile);
+        expect(valid).toBe(fs.realpathSync(safeInsideFile));
       } finally {
         try { fs.unlinkSync(insideLink); } catch {}
         try { fs.rmSync(outsideDir, { recursive: true, force: true }); } catch {}

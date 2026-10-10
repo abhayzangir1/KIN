@@ -2315,7 +2315,8 @@ export class ToolGateway {
   public resolveJailedPath(targetPath: string, worktreeRoot: string): string {
     const root = this.normalizeFsPath(worktreeRoot);
     const canonicalRoot = fs.existsSync(root) ? this.normalizeFsPath(fs.realpathSync(root)) : root;
-    const resolved = path.resolve(canonicalRoot, targetPath);
+    const sanitizedTarget = targetPath.replace(/\\/g, '/');
+    const resolved = path.resolve(canonicalRoot, sanitizedTarget);
 
     // 1. Initial confinement check
     if (!this.isPathWithinRoot(resolved, canonicalRoot)) {

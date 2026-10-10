@@ -136,10 +136,19 @@ export class DesktopController {
         // Registry enumeration fallback
       }
     } else {
-      // macOS / Linux fallbacks
+      // macOS fallbacks
       addApp('Terminal', '/System/Applications/Utilities/Terminal.app', 'system');
       addApp('VS Code', '/Applications/Visual Studio Code.app', 'development');
       addApp('Google Chrome', '/Applications/Google Chrome.app', 'browser');
+
+      if (process.platform === 'linux') {
+        addApp('bash', '/bin/bash', 'system');
+        addApp('bash', '/usr/bin/bash', 'system');
+        addApp('curl', '/usr/bin/curl', 'development');
+        addApp('git', '/usr/bin/git', 'development');
+        addApp('Google Chrome', '/usr/bin/google-chrome', 'browser');
+        addApp('Chromium', '/usr/bin/chromium-browser', 'browser');
+      }
     }
 
     return apps.sort((a, b) => a.name.localeCompare(b.name));
