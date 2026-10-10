@@ -340,6 +340,62 @@ export interface ManagedCredential {
   updatedAt: number;
 }
 
+export interface Tier1ProjectMemory {
+  key: string;
+  type: string;
+  value: unknown;
+}
+
+export interface Tier2ChannelMemory {
+  key: string;
+  type: string;
+  value: unknown;
+}
+
+export interface Tier3PrivateMemory {
+  key: string;
+  type: string;
+  value: unknown;
+}
+
+export interface Tier4DirectMessageMemory {
+  isDirectMessage: boolean;
+  participants: string[];
+}
+
+export interface TieredCompiledMemory {
+  tier1Project?: Tier1ProjectMemory[];
+  tier2Channel?: Tier2ChannelMemory[];
+  tier3Private?: Tier3PrivateMemory[];
+  tier4DirectMessage?: Tier4DirectMessageMemory;
+}
+
+export interface RunnerExecutionContext {
+  runId: string;
+  taskId?: string;
+  agentId: string;
+  projectId?: string;
+  channelId?: string;
+  triggerMessageId?: string;
+  systemPrompt?: string;
+  toolSchemas?: Array<{ name: string; description?: string; parameters?: Record<string, unknown> }>;
+  initialMessages?: Array<{ role: string; content: string }>;
+  allowedCapabilities?: string[];
+  maxTurns?: number;
+  abortSignal?: AbortSignal;
+  [key: string]: unknown;
+}
+
+export interface RunnerExecutionResult {
+  runId: string;
+  status: 'completed' | 'interrupted' | 'failed' | 'cancelled';
+  outputSnippet?: string;
+  error?: string;
+  turnsExecuted?: number;
+  tokensUsed?: number;
+  [key: string]: unknown;
+}
+
 export interface RunnerAdapterInfo {
   readonly id: string;
   readonly name: string;
@@ -350,5 +406,28 @@ export interface RunnerAdapter {
   readonly id: string;
   readonly name: string;
   readonly version: string;
-  execute(options: any): Promise<any>;
+  execute(options: RunnerExecutionContext | any): Promise<RunnerExecutionResult | any>;
 }
+
+export interface ContextCompileInput {
+  agentDefinition: AgentDefinition;
+  agentIdentity: AgentIdentity;
+  project?: Project;
+  toolSchemas: Array<{ name: string; description: string; parameters: Record<string, unknown> }>;
+  projectDecisions: Array<{ key: string; decision: string }>;
+  compactionSnapshot?: unknown;
+  trajectoryMessages: Message[];
+  activeChannel?: { id: string; name: string; topic?: string; isPrivate?: boolean; channelType?: ChannelType; participantIds?: string[] };
+  channelPeers?: string[];
+  assignedChannels?: string[];
+  projectAgents?: string[];
+  crossChannelSummaries?: Array<{ channelName: string; topic?: string; recentMessages: Array<{ senderName: string; content: string }> }>;
+  scopedMemories?: Tier1ProjectMemory[];
+  projectMemories?: Tier1ProjectMemory[];
+  channelMemories?: Tier2ChannelMemory[];
+  agentPrivateMemories?: Tier3PrivateMemory[];
+  dmContext?: Tier4DirectMessageMemory;
+  goalAncestry?: unknown;
+}
+
+

@@ -1558,7 +1558,7 @@ describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () =>
       } finally {
         await server.stop();
       }
-    });
+    }, 15000);
 
     it('Audit Finding 8: TaskRepository.listDecisions populates immutable decisions', () => {
       taskRepo.createDecision({

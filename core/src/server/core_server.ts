@@ -1990,9 +1990,10 @@ export class CoreServer {
 
         const id = `proj-${Date.now()}`;
         const now = Date.now();
+        const workspaceId = 'ws-default';
         const project = {
           id,
-          workspaceId: 'ws-default',
+          workspaceId,
           name: body.name.trim(),
           repoPath: body.repoPath?.trim() || `D:\\${body.name.trim()}`,
           settings: { defaultBranch: 'main' },
@@ -2013,8 +2014,10 @@ export class CoreServer {
           createdAt: now,
         });
 
-        // Add default orchestrator @Boss to the new project's general channel
-        this.workspaceRepo.addChannelMember(channelId, 'agent-boss');
+        // Seed dedicated project-scoped Boss and add to project general channel
+        const projectBoss = this.agentRepo.ensureProjectBoss(id, workspaceId);
+        this.workspaceRepo.addChannelMember(channelId, projectBoss.id);
+        this.broadcastEvent('agent:created', projectBoss);
 
         // Set as active project only if explicitly requested
         if (body.activate) {
@@ -2051,6 +2054,7 @@ export class CoreServer {
           return this.sendJson(res, 404, { error: `Project '${projectId}' not found` });
         }
         this.activeProjectId = projectId;
+        this.agentRepo.ensureProjectBoss(projectId);
         const targetRepoRoot = (proj as any).repoRoot || proj.repoPath;
         if (targetRepoRoot) {
           try {
@@ -2589,7 +2593,7 @@ export class CoreServer {
         const targetProjId = requestedProjId || this.activeProjectId || 'proj-kin';
         const activeProject = this.workspaceRepo.getProject(targetProjId) || projects.find((p) => p.id === targetProjId) || projects[0];
         
-        let channels = this.workspaceRepo.listChannels(activeProject?.id || 'proj-kin');
+        let channels = this.workspaceRepo.listChannels(activeProject?.id || 'proj-kin', true);
         if (channels.length === 0 && activeProject) {
           // Fallback create general channel
           this.workspaceRepo.createChannel({
@@ -2600,10 +2604,10 @@ export class CoreServer {
             isPrivate: false,
             createdAt: Date.now(),
           });
-          channels = this.workspaceRepo.listChannels(activeProject.id);
+          channels = this.workspaceRepo.listChannels(activeProject.id, true);
         }
 
-        const activeChannelId = channels[0]?.id || 'chan-general';
+        const activeChannelId = channels.find((c) => !c.isPrivate)?.id || channels[0]?.id || 'chan-general';
         const messages = this.channelService.getMessages(activeChannelId, 100);
 
         // Fetch agents in active project
@@ -5144,6 +5148,7 @@ export class CoreServer {
                 {
                   runId: approvalRow.run_id,
                   agentId: approvalRow.agent_id,
+                  projectId: projId,
                   worktreeRoot,
                   autonomyMode: 'FULL_ACCESS', // Explicit operator authorization overrides gate
                   allowedCapabilities: ['*'],

@@ -672,7 +672,7 @@ export class AgentLoopRunner {
       // Compute Effective Capabilities: @Boss retains full platform authority (*); specialists strictly inherit definition capabilities
       const effectiveCapabilities = options.allowedCapabilities !== undefined
         ? options.allowedCapabilities
-        : (options.agentId === 'agent-boss' ? ['*'] : ['fs:read', 'fs:write', 'agent:hire', 'agent:delegate']);
+        : ((options.agentId === 'agent-boss' || options.agentId.startsWith('agent-boss-')) ? ['*'] : ['fs:read', 'fs:write', 'agent:hire', 'agent:delegate']);
 
       // Route to ToolGateway
       let toolAbortSignal = options.getAbortSignal ? options.getAbortSignal() : undefined;

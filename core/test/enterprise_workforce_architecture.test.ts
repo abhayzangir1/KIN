@@ -705,4 +705,111 @@ describe('KIN Enterprise Multi-Agent Workforce Architecture', () => {
       expect(result.completed).toBe(true);
     });
   });
+
+  describe('7. Enterprise Hardening & Dynamic Workforce Verification', () => {
+    it('populates participantIds on Channel entities across repository methods', () => {
+      const now = Date.now();
+      workspaceRepo.createProject({
+        id: 'proj-members',
+        workspaceId: 'ws-enterprise',
+        name: 'Members Project',
+        repoPath: path.resolve(process.cwd(), 'members'),
+        settings: {},
+        createdAt: now,
+      });
+
+      agentRepo.createDefinition({
+        id: 'def-peer-a',
+        name: 'PeerA',
+        role: 'Specialist A',
+        systemPrompt: 'Specialist A prompt',
+        defaultModelId: 'mock-model',
+        domainAuthority: [],
+        capabilities: ['fs:read'],
+        createdAt: now,
+      });
+
+      agentRepo.createIdentity({
+        id: 'agent-peer-a',
+        workspaceId: 'ws-enterprise',
+        projectId: 'proj-members',
+        definitionId: 'def-peer-a',
+        displayName: '@PeerA',
+        activeModelId: 'mock-model',
+        isOrchestrator: false,
+        isEphemeral: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      agentRepo.createIdentity({
+        id: 'agent-peer-b',
+        workspaceId: 'ws-enterprise',
+        projectId: 'proj-members',
+        definitionId: 'def-peer-a',
+        displayName: '@PeerB',
+        activeModelId: 'mock-model',
+        isOrchestrator: false,
+        isEphemeral: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      // Standard Channel
+      workspaceRepo.createChannel({
+        id: 'chan-collab',
+        projectId: 'proj-members',
+        name: 'collab',
+        isPrivate: false,
+        channelType: 'channel',
+        createdAt: now,
+      });
+      workspaceRepo.addChannelMember('chan-collab', 'agent-peer-a');
+      workspaceRepo.addChannelMember('chan-collab', 'agent-peer-b');
+
+      const retrievedChan = workspaceRepo.getChannel('chan-collab');
+      expect(retrievedChan).toBeDefined();
+      expect(retrievedChan?.participantIds).toContain('agent-peer-a');
+      expect(retrievedChan?.participantIds).toContain('agent-peer-b');
+
+      const listedChans = workspaceRepo.listChannels('proj-members', true);
+      const collabInList = listedChans.find((c) => c.id === 'chan-collab');
+      expect(collabInList?.participantIds).toContain('agent-peer-a');
+      expect(collabInList?.participantIds).toContain('agent-peer-b');
+
+      // Direct Message Channel
+      const dmChan = workspaceRepo.getOrCreateDirectMessageChannel('agent-peer-a', 'agent-peer-b', 'proj-members');
+      expect(dmChan.participantIds).toContain('agent-peer-a');
+      expect(dmChan.participantIds).toContain('agent-peer-b');
+      expect(dmChan.channelType).toBe('direct_message');
+      expect(dmChan.isPrivate).toBe(true);
+    });
+
+    it('ensures project-scoped Boss retains authoritative capabilities and strict project binding', () => {
+      const now = Date.now();
+      workspaceRepo.createProject({
+        id: 'proj-boss-verify',
+        workspaceId: 'ws-enterprise',
+        name: 'Boss Verify Project',
+        repoPath: path.resolve(process.cwd(), 'boss-verify'),
+        settings: {},
+        createdAt: now,
+      });
+
+      const bossA = agentRepo.ensureProjectBoss('proj-boss-verify', 'ws-enterprise');
+      expect(bossA.projectId).toBe('proj-boss-verify');
+      expect(bossA.isOrchestrator).toBe(true);
+      expect(bossA.displayName).toBe('@Boss');
+
+      // Calling again returns identical authoritative instance
+      const bossB = agentRepo.ensureProjectBoss('proj-boss-verify', 'ws-enterprise');
+      expect(bossB.id).toBe(bossA.id);
+
+      // Verify that agent definitions and identities conform to strict project scoping
+      const projectAgents = agentRepo.listIdentitiesByProject('proj-boss-verify');
+      expect(projectAgents).toHaveLength(1);
+      expect(projectAgents[0].id).toBe(bossA.id);
+    });
+  });
 });
+

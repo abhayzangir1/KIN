@@ -161,6 +161,7 @@ export class WorkspaceRepository {
       topic: row.topic ?? undefined,
       isPrivate: row.is_private === 1,
       channelType: (row.channel_type as any) || (row.is_private === 1 ? 'direct_message' : 'channel'),
+      participantIds: this.listChannelMemberIds(row.id),
       createdAt: row.created_at,
     };
   }
@@ -186,6 +187,7 @@ export class WorkspaceRepository {
       topic: r.topic ?? undefined,
       isPrivate: r.is_private === 1,
       channelType: (r.channel_type as any) || (r.is_private === 1 ? 'direct_message' : 'channel'),
+      participantIds: this.listChannelMemberIds(r.id),
       createdAt: r.created_at,
     }));
   }
@@ -197,6 +199,7 @@ export class WorkspaceRepository {
     if (existing) {
       this.addChannelMember(dmId, agentA);
       this.addChannelMember(dmId, agentB);
+      existing.participantIds = this.listChannelMemberIds(dmId);
       return existing;
     }
     const now = Date.now();
@@ -207,11 +210,13 @@ export class WorkspaceRepository {
       topic: `Private coworker direct message between ${agentA} and ${agentB}`,
       isPrivate: true,
       channelType: 'direct_message',
+      participantIds: [agentA, agentB],
       createdAt: now,
     };
     this.createChannel(channel);
     this.addChannelMember(dmId, agentA);
     this.addChannelMember(dmId, agentB);
+    channel.participantIds = this.listChannelMemberIds(dmId);
     return channel;
   }
 

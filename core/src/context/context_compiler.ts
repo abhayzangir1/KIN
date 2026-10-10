@@ -4,7 +4,17 @@
 // Dynamic variables are strictly isolated to Block 5.
 // ============================================================================
 
-import { AgentDefinition, AgentIdentity, Message, Project } from '../domain/types.js';
+import {
+  AgentDefinition,
+  AgentIdentity,
+  Message,
+  Project,
+  ChannelType,
+  Tier1ProjectMemory,
+  Tier2ChannelMemory,
+  Tier3PrivateMemory,
+  Tier4DirectMessageMemory,
+} from '../domain/types.js';
 import { CompactionSnapshot } from './context_compactor.js';
 
 export interface ToolDefinitionSchema {
@@ -44,16 +54,16 @@ export interface ContextCompileInput {
   projectDecisions: Array<{ key: string; decision: string }>;
   compactionSnapshot?: CompactionSnapshot;
   trajectoryMessages: Message[];
-  activeChannel?: { id: string; name: string; topic?: string; isPrivate?: boolean; channelType?: 'channel' | 'direct_message' | 'meeting' };
+  activeChannel?: { id: string; name: string; topic?: string; isPrivate?: boolean; channelType?: ChannelType; participantIds?: string[] };
   channelPeers?: string[];
   assignedChannels?: string[];
   projectAgents?: string[];
   crossChannelSummaries?: CrossChannelSummary[];
-  scopedMemories?: Array<{ key: string; type: string; value: unknown }>;
-  projectMemories?: Array<{ key: string; type: string; value: unknown }>;
-  channelMemories?: Array<{ key: string; type: string; value: unknown }>;
-  agentPrivateMemories?: Array<{ key: string; type: string; value: unknown }>;
-  dmContext?: { isDirectMessage: boolean; participants: string[] };
+  scopedMemories?: Tier1ProjectMemory[];
+  projectMemories?: Tier1ProjectMemory[];
+  channelMemories?: Tier2ChannelMemory[];
+  agentPrivateMemories?: Tier3PrivateMemory[];
+  dmContext?: Tier4DirectMessageMemory;
   goalAncestry?: GoalAncestryChain;
 }
 
