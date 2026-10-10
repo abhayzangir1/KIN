@@ -296,6 +296,34 @@ impl ProcessSupervisor {
         }
     }
 
+    pub fn resolve_data_dir() -> PathBuf {
+        #[cfg(windows)]
+        {
+            if let Ok(appdata) = std::env::var("APPDATA") {
+                return PathBuf::from(appdata).join("kin");
+            }
+            if let Ok(userprofile) = std::env::var("USERPROFILE") {
+                return PathBuf::from(userprofile).join("AppData").join("Roaming").join("kin");
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(home) = std::env::var("HOME") {
+                return PathBuf::from(home).join("Library").join("Application Support").join("kin");
+            }
+        }
+        #[cfg(not(any(windows, target_os = "macos")))]
+        {
+            if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+                return PathBuf::from(xdg).join("kin");
+            }
+            if let Ok(home) = std::env::var("HOME") {
+                return PathBuf::from(home).join(".local").join("share").join("kin");
+            }
+        }
+        PathBuf::from(".kin")
+    }
+
     pub fn spawn_core_daemon_if_needed() -> Result<(), String> {
         const DEFAULT_PORT: u16 = 54321;
         if Self::is_daemon_active(DEFAULT_PORT) {
@@ -346,6 +374,9 @@ impl ProcessSupervisor {
             println!("[KIN SUPERVISOR] Found standalone sidecar binary at: {:?}", sidecar_path);
             let mut command = Command::new(&sidecar_path);
             command.env("KIN_PORT", DEFAULT_PORT.to_string());
+            let kin_data_dir = Self::resolve_data_dir();
+            let _ = std::fs::create_dir_all(&kin_data_dir);
+            command.env("KIN_DATA_DIR", kin_data_dir.to_string_lossy().to_string());
             if let Some(parent) = sidecar_path.parent() {
                 command.current_dir(parent);
             }
@@ -433,6 +464,9 @@ impl ProcessSupervisor {
         command.arg(&script_path);
         command.current_dir(&working_dir);
         command.env("KIN_PORT", DEFAULT_PORT.to_string());
+        let kin_data_dir = Self::resolve_data_dir();
+        let _ = std::fs::create_dir_all(&kin_data_dir);
+        command.env("KIN_DATA_DIR", kin_data_dir.to_string_lossy().to_string());
 
         #[cfg(windows)]
         {

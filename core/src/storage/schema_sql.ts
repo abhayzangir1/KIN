@@ -1,8 +1,8 @@
--- ============================================================================
--- KIN CORE — AUTHORITATIVE SQLITE DATABASE SCHEMA
--- Version: 1.0 (Production Baseline)
--- ============================================================================
+// ============================================================================
+// EMBEDDED SQLITE SCHEMA SQL FOR STANDALONE BINARIES & RECOVERY
+// ============================================================================
 
+export const EMBEDDED_SCHEMA_SQL = `
 -- Workspaces & Projects
 CREATE TABLE IF NOT EXISTS workspaces (
     id TEXT PRIMARY KEY,
@@ -413,3 +413,4 @@ CREATE INDEX IF NOT EXISTS idx_tasks_claimed_run ON tasks(claimed_by_run_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_lease ON tasks(lease_expires_at) WHERE status = 'running';
 CREATE INDEX IF NOT EXISTS idx_agent_evals_agent ON agent_evaluations(agent_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_managed_creds_provider ON managed_credentials(provider, key_alias);
+`;

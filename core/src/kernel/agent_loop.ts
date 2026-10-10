@@ -51,6 +51,10 @@ export interface AgentLoopOptions {
   checkTakeoverStatus?: () => 'continue' | 'pause' | 'abort';
   getSteerDirectives?: () => string[];
   getModelId?: () => string;
+  agentRepo?: any;
+  onModelSwitched?: (newModelId: string) => void;
+  getAbortSignal?: () => AbortSignal | undefined;
+  renewAbortSignal?: () => AbortSignal | undefined;
 }
 
 export interface AgentLoopAction {
@@ -406,12 +410,30 @@ export class AgentLoopRunner {
           (watchdogTimer as any).unref();
         }
 
+        let abortSignal = options.getAbortSignal ? options.getAbortSignal() : undefined;
+        if (abortSignal?.aborted && options.renewAbortSignal) {
+          abortSignal = options.renewAbortSignal();
+        }
         response = await this.modelGateway.invoke({
           modelId: currentModelId,
           fallbackModelId: options.fallbackModelId,
           messages: conversationHistory,
           onToken: options.onToken,
+          signal: abortSignal,
         });
+
+        // M2: In-flight model fallback turn persistence
+        if (response?.switchedModelId) {
+          options.modelId = response.switchedModelId;
+          if (options.onModelSwitched) {
+            options.onModelSwitched(response.switchedModelId);
+          }
+          if (options.agentRepo && options.agentId) {
+            try {
+              options.agentRepo.updateIdentity(options.agentId, { activeModelId: response.switchedModelId });
+            } catch {}
+          }
+        }
 
         // Record token usage and enforce hard run budgets
         if (response?.tokensUsed && options.onTokenUsage) {
@@ -430,6 +452,36 @@ export class AgentLoopRunner {
           }
         }
       } catch (err: any) {
+        const isAbort =
+          err?.name === 'AbortError' ||
+          err === 'steer' ||
+          (options.getAbortSignal && options.getAbortSignal()?.aborted);
+
+        if (isAbort) {
+          if (options.renewAbortSignal) {
+            try { options.renewAbortSignal(); } catch {}
+          }
+          // Mid-task steering interrupt: drain steer directives and pivot immediately
+          let steerDirectives: string[] = [];
+          if (options.getSteerDirectives) {
+            steerDirectives = options.getSteerDirectives() || [];
+          }
+
+          if (steerDirectives.length > 0) {
+            const steerNotes = steerDirectives.map((s) => `- "${s}"`).join('\n');
+            conversationHistory.push({
+              role: 'user',
+              content: `⚠️ [PRIORITY MID-EXECUTION STEERING DIRECTIVE FROM HUMAN OPERATOR]:\n${steerNotes}\nThe human operator redirected the active task in real-time. Immediately adapt your plan, acknowledge what was previously being done, and pivot to address this priority instruction.`,
+            });
+            continue;
+          }
+
+          // If steer was already injected into history on this turn right before abort:
+          const lastMsg = conversationHistory[conversationHistory.length - 1];
+          if (lastMsg && lastMsg.role === 'user' && lastMsg.content.includes('[PRIORITY MID-EXECUTION STEERING DIRECTIVE')) {
+            continue;
+          }
+        }
         const errMsg = err?.message || String(err);
         if (this.isQuotaError(errMsg)) {
           const resetAt = Date.now() + 15 * 60 * 1000;

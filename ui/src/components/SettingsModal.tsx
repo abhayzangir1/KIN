@@ -56,6 +56,7 @@ export const SettingsModal: React.FC = () => {
     availableModels,
     fetchAvailableModels,
     isLoadingModels,
+    addCustomModel,
     setSkillsModalOpen,
     setSwarmMapOpen,
     setDesktopControlModalOpen,
@@ -69,6 +70,48 @@ export const SettingsModal: React.FC = () => {
   const [isQueryingModels, setIsQueryingModels] = useState(false);
   const [vacuumStatus, setVacuumStatus] = useState<string | null>(null);
   const [isOptimizing, setIsOptimizing] = useState(false);
+
+  // Custom Model Registration State
+  const [customModelId, setCustomModelId] = useState('');
+  const [customModelName, setCustomModelName] = useState('');
+  const [customBaseUrl, setCustomBaseUrl] = useState('');
+  const [customApiKey, setCustomApiKey] = useState('');
+  const [customContextWindow, setCustomContextWindow] = useState('128000');
+  const [customModelStatus, setCustomModelStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [isRegisteringCustom, setIsRegisteringCustom] = useState(false);
+
+  const handleRegisterCustomModel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customModelId.trim()) {
+      setCustomModelStatus({ type: 'error', message: 'Model ID is required (e.g., custom/my-model or deepseek/deepseek-chat)' });
+      return;
+    }
+    setIsRegisteringCustom(true);
+    setCustomModelStatus(null);
+    try {
+      const parsedCtx = parseInt(customContextWindow, 10);
+      const res = await addCustomModel(customModelId.trim(), {
+        name: customModelName.trim() || undefined,
+        baseUrl: customBaseUrl.trim() || undefined,
+        apiKey: customApiKey.trim() || undefined,
+        contextWindow: isNaN(parsedCtx) || parsedCtx <= 0 ? 128000 : parsedCtx,
+      });
+      if (res.success) {
+        setCustomModelStatus({ type: 'success', message: `Model "${customModelId.trim()}" registered successfully.` });
+        setCustomModelId('');
+        setCustomModelName('');
+        setCustomBaseUrl('');
+        setCustomApiKey('');
+        setCustomContextWindow('128000');
+      } else {
+        setCustomModelStatus({ type: 'error', message: res.error || 'Failed to register custom model' });
+      }
+    } catch (err: any) {
+      setCustomModelStatus({ type: 'error', message: err?.message || 'Error registering custom model' });
+    } finally {
+      setIsRegisteringCustom(false);
+    }
+  };
 
   // BYOK Credentials State
   const [showCredForm, setShowCredForm] = useState(false);
@@ -746,6 +789,118 @@ export const SettingsModal: React.FC = () => {
                       </div>
                     );
                   })()}
+                </div>
+
+                {/* Custom Model Registration Card */}
+                <div className="p-4 rounded-lg bg-[#161b22] border border-[#30363d] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-[#8b949e] flex items-center space-x-1.5">
+                      <Plus className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Register Custom Model Endpoint</span>
+                    </h4>
+                    <span className="text-[10px] text-[#8b949e]">OpenAI Compatible / Self-Hosted</span>
+                  </div>
+                  <p className="text-xs text-[#8b949e]">
+                    Register custom OpenAI-compatible inference endpoints, local vLLM/Ollama models, or external proxies.
+                  </p>
+
+                  {customModelStatus && (
+                    <div
+                      className={`p-2 rounded text-xs flex items-center space-x-1.5 ${
+                        customModelStatus.type === 'success'
+                          ? 'bg-emerald-950/40 border border-emerald-500/40 text-emerald-400'
+                          : 'bg-red-950/40 border border-red-500/40 text-red-400'
+                      }`}
+                    >
+                      {customModelStatus.type === 'success' ? (
+                        <Check className="w-3.5 h-3.5 shrink-0" />
+                      ) : (
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      )}
+                      <span>{customModelStatus.message}</span>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleRegisterCustomModel} className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-medium text-[#8b949e] mb-1">
+                          Model ID <span className="text-red-400">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={customModelId}
+                          onChange={(e) => setCustomModelId(e.target.value)}
+                          placeholder="custom/my-model or deepseek/deepseek-chat"
+                          className="w-full bg-[#0d1117] border border-[#30363d] rounded px-2.5 py-1.5 text-xs text-kin-text placeholder-[#484f58] focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium text-[#8b949e] mb-1">Display Name</label>
+                        <input
+                          type="text"
+                          value={customModelName}
+                          onChange={(e) => setCustomModelName(e.target.value)}
+                          placeholder="Optional friendly name"
+                          className="w-full bg-[#0d1117] border border-[#30363d] rounded px-2.5 py-1.5 text-xs text-kin-text placeholder-[#484f58] focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="col-span-2">
+                        <label className="block text-[11px] font-medium text-[#8b949e] mb-1">Base URL</label>
+                        <input
+                          type="text"
+                          value={customBaseUrl}
+                          onChange={(e) => setCustomBaseUrl(e.target.value)}
+                          placeholder="https://api.together.xyz/v1 or http://localhost:8000/v1"
+                          className="w-full bg-[#0d1117] border border-[#30363d] rounded px-2.5 py-1.5 text-xs text-kin-text placeholder-[#484f58] focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium text-[#8b949e] mb-1">Context Window</label>
+                        <input
+                          type="number"
+                          value={customContextWindow}
+                          onChange={(e) => setCustomContextWindow(e.target.value)}
+                          placeholder="128000"
+                          className="w-full bg-[#0d1117] border border-[#30363d] rounded px-2.5 py-1.5 text-xs text-kin-text placeholder-[#484f58] focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-medium text-[#8b949e] mb-1">API Key / Token (Optional)</label>
+                      <input
+                        type="password"
+                        value={customApiKey}
+                        onChange={(e) => setCustomApiKey(e.target.value)}
+                        placeholder="Bearer token or leave blank if local / not needed"
+                        className="w-full bg-[#0d1117] border border-[#30363d] rounded px-2.5 py-1.5 text-xs text-kin-text placeholder-[#484f58] focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+
+                    <div className="flex justify-end pt-1">
+                      <button
+                        type="submit"
+                        disabled={isRegisteringCustom || !customModelId.trim()}
+                        className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-sm transition disabled:opacity-50 cursor-pointer"
+                      >
+                        {isRegisteringCustom ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Registering...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Register Model</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
                 </div>
 
                 {/* BYOK Quick Action */}

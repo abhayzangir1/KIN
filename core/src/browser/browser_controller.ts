@@ -7,6 +7,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import puppeteer, { Browser, Page } from 'puppeteer-core';
+import { getDataDirectory } from '../storage/data_directory.js';
 
 export interface BrowserSessionInfo {
   active: boolean;
@@ -94,17 +95,19 @@ export class BrowserController {
         this.pageProvider = customProfileDirOrOptions.pageProvider;
       }
 
+      const dataDir = getDataDirectory();
       if (customProfileDirOrOptions.profileDir) {
         this.profileDir = customProfileDirOrOptions.profileDir;
       } else if (customProfileDirOrOptions.agentId) {
-        this.profileDir = path.resolve(process.cwd(), '.kin', 'browser_profiles', customProfileDirOrOptions.agentId);
+        this.profileDir = path.resolve(dataDir, '.kin', 'browser_profiles', customProfileDirOrOptions.agentId);
       } else {
-        this.profileDir = path.resolve(process.cwd(), '.kin', 'browser_profile');
+        this.profileDir = path.resolve(dataDir, '.kin', 'browser_profile');
       }
     } else {
+      const dataDir = getDataDirectory();
       this.profileDir =
         customProfileDirOrOptions ||
-        path.resolve(process.cwd(), '.kin', 'browser_profile');
+        path.resolve(dataDir, '.kin', 'browser_profile');
     }
 
     if (!fs.existsSync(this.profileDir)) {

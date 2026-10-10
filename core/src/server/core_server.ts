@@ -74,9 +74,11 @@ export class CoreServer {
   private sseClients: Set<http.ServerResponse> = new Set();
   private activeProjectId: string = 'proj-kin';
   private dbPath: string;
-  private activeAgentExecutions: Map<string, { agentId: string; channelId: string; startedAt: number; triggerMessageId?: string }> = new Map();
+  private activeAgentExecutions: Map<string, { agentId: string; channelId: string; startedAt: number; triggerMessageId?: string; runId?: string }> = new Map();
+  private runAbortControllers: Map<string, AbortController> = new Map();
   private agentQueues: Map<string, Promise<void>> = new Map();
   private channelQueues: Map<string, Promise<void>> = new Map();
+  private activeDelegations: Map<string, number> = new Map();
   private pendingSteers: Array<{
     id: string;
     channelId: string;
@@ -190,6 +192,7 @@ export class CoreServer {
         if (provider === 'anthropic') return process.env.ANTHROPIC_API_KEY;
         if (provider === 'deepseek') return process.env.DEEPSEEK_API_KEY;
         if (provider === 'gemini') return process.env.GEMINI_API_KEY;
+        if (provider === 'groq') return process.env.GROQ_API_KEY;
         return undefined;
       },
       onUsage: (provider: string, tokensUsed: { totalTokens: number }) => {
@@ -357,6 +360,16 @@ export class CoreServer {
         }
         admitted = this.kernel.admitNextQueuedRun();
       }
+
+      // Dispatch durable queued messages from prior sessions for idle channels
+      try {
+        const channelsWithQueued = this.db.query<{ channel_id: string }>(
+          'SELECT DISTINCT channel_id FROM queued_messages'
+        );
+        for (const row of channelsWithQueued) {
+          this.processNextQueuedMessage(row.channel_id).catch(() => {});
+        }
+      } catch {}
     } catch (err) {
       console.warn('[KIN CORE] Startup queue dispatch notice:', err);
     }
@@ -1752,6 +1765,30 @@ export class CoreServer {
         const detectedProvider = slashIdx !== -1 ? trimmed.substring(0, slashIdx).toLowerCase() : (body.provider || 'custom');
         const modelName = body.name?.trim() || trimmed;
         const now = Date.now();
+        const validTypes = ['ollama', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'openrouter', 'custom'];
+        const providerType = validTypes.includes(detectedProvider) ? detectedProvider : 'custom';
+
+        const existingProv = this.db.queryOne<any>('SELECT id, base_url, api_key_ref FROM providers WHERE id = ?', detectedProvider);
+        if (!existingProv) {
+          this.db.execute(
+            `INSERT INTO providers (id, name, provider_type, base_url, api_key_ref, is_active, created_at)
+             VALUES (?, ?, ?, ?, ?, 1, ?)`,
+            detectedProvider,
+            detectedProvider,
+            providerType,
+            body.baseUrl || null,
+            body.apiKey || null,
+            now
+          );
+        } else if (body.baseUrl || body.apiKey) {
+          this.db.execute(
+            `UPDATE providers SET base_url = COALESCE(?, base_url), api_key_ref = COALESCE(?, api_key_ref), is_active = 1 WHERE id = ?`,
+            body.baseUrl || null,
+            body.apiKey || null,
+            detectedProvider
+          );
+        }
+
         this.db.execute(
           `INSERT OR REPLACE INTO models (id, provider_id, name, context_window, max_output_tokens, supports_tools, supports_vision, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1768,6 +1805,7 @@ export class CoreServer {
           const endpointName = detectedProvider === 'custom' ? (slashIdx !== -1 ? trimmed.substring(slashIdx + 1) : modelName) : detectedProvider;
           this.modelGateway.registerCustomProvider(endpointName, body.baseUrl, body.apiKey);
           this.modelGateway.registerCustomProvider('custom', body.baseUrl, body.apiKey);
+          this.modelGateway.registerCustomProvider(detectedProvider, body.baseUrl, body.apiKey);
         }
         const customModel = {
           id: trimmed,
@@ -2713,7 +2751,106 @@ export class CoreServer {
             Array.from(this.activeAgentExecutions.entries()).map(([aId, e]) => [aId, e.channelId])
           ),
           pendingRecoveries: this.pendingRecoveries,
+          queuedMessages: this.db.query<{
+            id: string;
+            channel_id: string;
+            sender_id: string;
+            content: string;
+            metadata_json: string;
+            created_at: number;
+          }>('SELECT * FROM queued_messages WHERE channel_id = ? ORDER BY created_at ASC', activeChannelId).map((r) => ({
+            id: r.id,
+            channelId: r.channel_id,
+            senderId: r.sender_id,
+            content: r.content,
+            metadata: JSON.parse(r.metadata_json || '{}'),
+            createdAt: r.created_at,
+          })),
         });
+      }
+
+      // 8e. GET /api/channels/:channelId/queue — List queued messages for channel
+      const channelQueueMatch = pathname.match(/^\/api\/channels\/([^/]+)\/queue$/);
+      if (req.method === 'GET' && channelQueueMatch) {
+        const channelId = channelQueueMatch[1];
+        const rows = this.db.query<{
+          id: string;
+          channel_id: string;
+          sender_id: string;
+          content: string;
+          metadata_json: string;
+          created_at: number;
+        }>('SELECT * FROM queued_messages WHERE channel_id = ? ORDER BY created_at ASC', channelId);
+
+        return this.sendJson(res, 200, {
+          queuedMessages: rows.map((r) => ({
+            id: r.id,
+            channelId: r.channel_id,
+            senderId: r.sender_id,
+            content: r.content,
+            metadata: JSON.parse(r.metadata_json || '{}'),
+            createdAt: r.created_at,
+          })),
+        });
+      }
+
+      // 8f. POST /api/channels/:channelId/queue — Enqueue message for channel
+      if (req.method === 'POST' && channelQueueMatch) {
+        const channelId = channelQueueMatch[1];
+        const body = await this.parseJsonBody<{ content: string; senderId?: string; metadata?: any }>(req);
+
+        if (!body.content || !body.content.trim()) {
+          return this.sendJson(res, 400, { error: 'content cannot be empty' });
+        }
+
+        const id = `qmsg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+        const now = Date.now();
+        const senderId = body.senderId || 'user-operator';
+        const metadataJson = JSON.stringify(body.metadata || {});
+
+        this.db.execute(
+          `INSERT INTO queued_messages (id, channel_id, sender_id, content, metadata_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          id,
+          channelId,
+          senderId,
+          body.content.trim(),
+          metadataJson,
+          now
+        );
+
+        const queuedMsg = {
+          id,
+          channelId,
+          senderId,
+          content: body.content.trim(),
+          metadata: body.metadata || {},
+          createdAt: now,
+        };
+
+        this.broadcastEvent('message:queued', { message: queuedMsg });
+
+        // If channel is completely idle, process immediately
+        const activeInChan = Array.from(this.activeAgentExecutions.values()).filter((e) => e.channelId === channelId);
+        if (activeInChan.length === 0) {
+          this.processNextQueuedMessage(channelId).catch((err) => {
+            console.error('[KIN CORE] Immediate queue processing notice:', err);
+          });
+        }
+
+        return this.sendJson(res, 201, { success: true, message: queuedMsg });
+      }
+
+      // 8g. DELETE /api/channels/:channelId/queue/:msgId — Delete specific queued message
+      const channelQueueItemMatch = pathname.match(/^\/api\/channels\/([^/]+)\/queue\/([^/]+)$/);
+      if (req.method === 'DELETE' && channelQueueItemMatch) {
+        const channelId = channelQueueItemMatch[1];
+        const msgId = channelQueueItemMatch[2];
+
+        this.db.execute('DELETE FROM queued_messages WHERE channel_id = ? AND id = ?', channelId, msgId);
+        this.broadcastEvent('queue:deleted', { channelId, messageId: msgId });
+
+        return this.sendJson(res, 200, { success: true, messageId: msgId });
       }
 
       // 9. GET /api/channels/:channelId/messages
@@ -2743,7 +2880,7 @@ export class CoreServer {
       // 10. POST /api/channels/:channelId/messages
       if (req.method === 'POST' && channelMessagesMatch) {
         const channelId = channelMessagesMatch[1];
-        const body = await this.parseJsonBody<{ content: string; senderId?: string; senderType?: 'human' | 'agent' | 'system' }>(req);
+        const body = await this.parseJsonBody<{ content: string; senderId?: string; senderType?: 'human' | 'agent' | 'system'; isSteer?: boolean }>(req);
 
         if (!body.content || !body.content.trim()) {
           return this.sendJson(res, 400, { error: 'Message content cannot be empty' });
@@ -2992,9 +3129,10 @@ export class CoreServer {
                  !activeAgentNames.some((n) => n === clean);
         }) || (/@([a-zA-Z0-9_-]+)/i.test(body.content) && !activeAgentNames.some((n) => body.content.toLowerCase().includes(`@${n}`)));
 
+        const explicitSteer = body.isSteer === true;
         let isSteer = false;
-        // Only treat as a steer if the channel is currently running an agent AND the user is NOT directing this message to another specialist!
-        if (isAgentActiveInChannel && !targetedOtherAgent && !hasNonActiveMention) {
+        // Only treat as a steer if explicitSteer is true OR (channel is currently running an agent AND not directing to another specialist)
+        if (explicitSteer || (isAgentActiveInChannel && !targetedOtherAgent && !hasNonActiveMention)) {
           isSteer = true;
           let targetAgentId: string | undefined;
           for (const ag of allProjectAgents) {
@@ -3004,14 +3142,38 @@ export class CoreServer {
             }
           }
 
-          this.pendingSteers.push({
-            id: `steer-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            channelId,
-            directive: body.content.trim(),
-            targetAgentId,
-            consumedByAgentIds: [],
-            timestamp: Date.now(),
-          });
+          const trimmedDirective = body.content.trim();
+          const now = Date.now();
+          const isDuplicate = this.pendingSteers.some((s) =>
+            s.channelId === channelId &&
+            s.directive === trimmedDirective &&
+            (now - s.timestamp) < 2000
+          );
+
+          if (!isDuplicate) {
+            this.pendingSteers.push({
+              id: `steer-${now}-${Math.random().toString(36).slice(2, 6)}`,
+              channelId,
+              directive: trimmedDirective,
+              targetAgentId,
+              consumedByAgentIds: [],
+              timestamp: now,
+            });
+
+            // Immediate abort of in-flight inference for active runs in this channel
+            for (const exec of this.activeAgentExecutions.values()) {
+              if (exec.channelId === channelId && exec.runId) {
+                const currentCtrl = this.runAbortControllers.get(exec.runId);
+                if (currentCtrl) {
+                  try {
+                    currentCtrl.abort('steer');
+                  } catch {}
+                  // Immediately replace with fresh AbortController for subsequent turns of this run
+                  this.runAbortControllers.set(exec.runId, new AbortController());
+                }
+              }
+            }
+          }
 
           // Dynamically update active tasks in project DAG for this channel and target agent
           try {
@@ -4911,9 +5073,13 @@ export class CoreServer {
             'SELECT channel_id FROM messages WHERE sender_id = ? ORDER BY created_at DESC LIMIT 1',
             approvalRow.agent_id
           );
-          const targetChanId = latestMsg?.channel_id || 'chan-general';
+          const targetChanId = run?.channelId || latestMsg?.channel_id || 'chan-general';
 
-          if (body.approved) {
+          if (isApproved) {
+            let toolSuccess = false;
+            let toolOutput: any = null;
+            let toolError: string | undefined;
+
             try {
               const payload = JSON.parse(approvalRow.action_payload_json || '{}');
               const approvalToken = this.toolGateway.generateApprovalToken(
@@ -4934,6 +5100,8 @@ export class CoreServer {
                   approvalToken,
                 }
               );
+              toolSuccess = true;
+              toolOutput = toolExecutionResult?.output !== undefined ? toolExecutionResult.output : toolExecutionResult;
 
               if (run) {
                 this.kernel.transitionState(approvalRow.run_id, 'running', `Action ${approvalRow.tool_name} approved and executed by operator.`);
@@ -4943,25 +5111,60 @@ export class CoreServer {
                 channelId: targetChanId,
                 senderId: approvalRow.agent_id,
                 senderType: 'system',
-                content: `✅ **OPERATOR AUTHORIZED & EXECUTED**\nTool: \`${approvalRow.tool_name}\`\nOutput:\n\`\`\`json\n${JSON.stringify(toolExecutionResult?.output || toolExecutionResult, null, 2)}\n\`\`\``,
+                content: `✅ **OPERATOR AUTHORIZED & EXECUTED**\nTool: \`${approvalRow.tool_name}\`\nOutput:\n\`\`\`json\n${JSON.stringify(toolOutput, null, 2)}\n\`\`\``,
                 productivityScore: 100,
               });
             } catch (execErr: any) {
-              toolExecutionResult = { success: false, error: execErr.message };
+              toolSuccess = false;
+              toolError = execErr.message || String(execErr);
+              toolExecutionResult = { success: false, error: toolError };
+
               if (run) {
-                this.kernel.transitionState(approvalRow.run_id, 'failed', `Approved action ${approvalRow.tool_name} failed: ${execErr.message}`);
+                this.kernel.transitionState(approvalRow.run_id, 'running', `Approved action ${approvalRow.tool_name} returned error: ${toolError}. Resuming agent loop for self-correction.`);
               }
+
               this.channelService.sendMessage({
                 channelId: targetChanId,
                 senderId: approvalRow.agent_id,
                 senderType: 'system',
-                content: `⚠️ **EXECUTION ERROR ON OPERATOR APPROVAL**\nTool: \`${approvalRow.tool_name}\` failed: ${execErr.message}`,
+                content: `⚠️ **EXECUTION ERROR ON OPERATOR APPROVAL**\nTool: \`${approvalRow.tool_name}\` failed: ${toolError}`,
                 productivityScore: 0,
+              });
+            }
+
+            // Resume agent execution with the tool observation (success or error)
+            if (agentIdentity) {
+              const observationTrigger = {
+                id: `approval-obs-${Date.now()}`,
+                channelId: targetChanId,
+                senderId: 'system',
+                senderType: 'system' as const,
+                content: toolSuccess
+                  ? `[OPERATOR APPROVED TOOL OBSERVATION]: Tool '${approvalRow.tool_name}' executed successfully with output:\n${typeof toolOutput === 'string' ? toolOutput : JSON.stringify(toolOutput, null, 2)}\nPlease incorporate this observation and proceed with the task.`
+                  : `[OPERATOR APPROVED TOOL ERROR]: Tool '${approvalRow.tool_name}' failed with error:\n${toolError}\nPlease self-correct or report the issue.`,
+                taskId: run?.taskId,
+                createdAt: Date.now(),
+              };
+              this.enqueueChannelExecution(targetChanId, () =>
+                this.enqueueAgentExecution(agentIdentity.id, () =>
+                  this.executeAgentResponse(agentIdentity, targetChanId, observationTrigger, 0, undefined, approvalRow.run_id)
+                )
+              ).catch((resumeErr) => {
+                console.error('[KIN CORE] Error resuming agent response after approval:', resumeErr);
               });
             }
           } else {
             if (run) {
               this.kernel.transitionState(approvalRow.run_id, 'cancelled', `Action ${approvalRow.tool_name} rejected by operator.`);
+              if (run.taskId) {
+                try {
+                  this.taskRepo.releaseTaskLease(run.taskId, run.id, false);
+                  this.taskRepo.updateTaskStatus(run.taskId, 'blocked');
+                  this.broadcastEvent('task:updated', { taskId: run.taskId, status: 'blocked', reason: `Action ${approvalRow.tool_name} rejected by operator.` });
+                } catch (tErr) {
+                  console.warn('[KIN CORE] Notice releasing task lease on approval reject:', tErr);
+                }
+              }
             }
             this.channelService.sendMessage({
               channelId: targetChanId,
@@ -7071,8 +7274,8 @@ export class CoreServer {
         const runId = switchToOllamaMatch[1];
         const ollamaInfo = await this.getLocalOllamaModels();
         const selectedModel = (ollamaInfo.online && ollamaInfo.models.length > 0)
-          ? `ollama:${ollamaInfo.models[0]}`
-          : 'ollama:llama3';
+          ? `ollama/${ollamaInfo.models[0]}`
+          : 'ollama/llama3';
         const ok = await this.resumeInterruptedRun(runId, selectedModel);
         return this.sendJson(res, 200, { success: ok, runId, model: selectedModel });
       }
@@ -7867,11 +8070,33 @@ export class CoreServer {
     );
   }
 
+  private incrementDelegation(channelId: string): void {
+    this.activeDelegations.set(channelId, (this.activeDelegations.get(channelId) || 0) + 1);
+  }
+
+  private decrementDelegation(channelId: string): void {
+    const cur = this.activeDelegations.get(channelId) || 1;
+    const nextVal = Math.max(0, cur - 1);
+    if (nextVal === 0) {
+      this.activeDelegations.delete(channelId);
+      this.processNextQueuedMessage(channelId).catch(() => {});
+    } else {
+      this.activeDelegations.set(channelId, nextVal);
+    }
+  }
+
   private enqueueChannelExecution(channelId: string, fn: () => Promise<void>): Promise<void> {
     const prev = this.channelQueues.get(channelId) || Promise.resolve();
     const next = prev.then(fn, fn).finally(() => {
       if (this.channelQueues.get(channelId) === next) {
         this.channelQueues.delete(channelId);
+      }
+      const activeInChan = Array.from(this.activeAgentExecutions.values()).filter((e) => e.channelId === channelId);
+      const delegationsInChan = this.activeDelegations.get(channelId) || 0;
+      if (activeInChan.length === 0 && delegationsInChan === 0) {
+        this.processNextQueuedMessage(channelId).catch((qErr) => {
+          console.warn('[KIN CORE] Notice processing next queued message on channel queue idle:', qErr);
+        });
       }
     });
     this.channelQueues.set(channelId, next);
@@ -7890,10 +8115,19 @@ export class CoreServer {
   }
 
   private async executeSequentialAgents(agents: any[], channelId: string, userMsg: any): Promise<void> {
-    for (const agent of agents) {
-      await this.enqueueChannelExecution(channelId, () =>
-        this.enqueueAgentExecution(agent.id, () => this.executeAgentResponse(agent, channelId, userMsg))
-      );
+    if (agents.length > 1) {
+      this.incrementDelegation(channelId);
+    }
+    try {
+      for (const agent of agents) {
+        await this.enqueueChannelExecution(channelId, () =>
+          this.enqueueAgentExecution(agent.id, () => this.executeAgentResponse(agent, channelId, userMsg))
+        );
+      }
+    } finally {
+      if (agents.length > 1) {
+        this.decrementDelegation(channelId);
+      }
     }
   }
 
@@ -7963,6 +8197,16 @@ export class CoreServer {
           throw spawnErr;
         }
       }
+
+      const abortController = new AbortController();
+      this.runAbortControllers.set(run.id, abortController);
+      this.activeAgentExecutions.set(agent.id, {
+        agentId: agent.id,
+        channelId,
+        startedAt: Date.now(),
+        triggerMessageId: triggerMsg?.id,
+        runId: run.id,
+      });
 
       // Claim atomic task lease if task is associated
       const activeTaskId = triggerMsg?.taskId || run?.taskId;
@@ -8336,6 +8580,16 @@ export class CoreServer {
           }
         },
         checkTakeoverStatus: () => this.getTakeoverStatus(run.id),
+        getAbortSignal: () => this.runAbortControllers.get(run.id)?.signal || abortController.signal,
+        renewAbortSignal: () => {
+          const freshCtrl = new AbortController();
+          this.runAbortControllers.set(run.id, freshCtrl);
+          return freshCtrl.signal;
+        },
+        agentRepo: this.agentRepo,
+        onModelSwitched: (newModelId: string) => {
+          freshIdentity.activeModelId = newModelId;
+        },
         getModelId: () => (this.agentRepo.getIdentity(freshIdentity.id)?.activeModelId || freshIdentity.activeModelId),
         getSteerDirectives: () => {
           const matchingSteers = this.pendingSteers.filter((s) => {
@@ -8616,7 +8870,16 @@ export class CoreServer {
             this.taskRepo.releaseTaskLease(activeTaskId, run.id, wasAlreadyFailed);
           } catch {}
         }
-      } else if (loopResult.actions && loopResult.actions.some((a: any) => !!a.error)) {
+      } else if (
+        loopResult.actions &&
+        loopResult.actions.some((a: any) => !!a.error) &&
+        !(
+          loopResult.finalContent &&
+          loopResult.finalContent.trim().length > 0 &&
+          (!loopResult.actions[loopResult.actions.length - 1]?.error ||
+            loopResult.actions.slice(loopResult.actions.findIndex((a: any) => !!a.error) + 1).some((a: any) => !a.error))
+        )
+      ) {
         const errorList = loopResult.actions.filter((a: any) => !!a.error).map((a: any) => a.error).join('; ');
         const failMsg = `Agent execution recorded action errors during turn execution: ${errorList}`;
         this.kernel.transitionState(run.id, 'failed', failMsg);
@@ -8640,6 +8903,32 @@ export class CoreServer {
         this.broadcastEvent('agent:state', { agentId: agent.id, channelId, status: 'idle' });
         return;
       } else {
+        // Pre-completion steer check: evaluate remaining steers BEFORE marking run/task complete
+        const remainingSteers = this.pendingSteers.filter((s) => {
+          if (s.channelId !== channelId) return false;
+          if (s.consumedByAgentIds.includes(freshIdentity.id)) return false;
+          if (s.targetAgentId && s.targetAgentId !== freshIdentity.id) return false;
+          return true;
+        });
+
+        if (remainingSteers.length > 0) {
+          for (const s of remainingSteers) {
+            s.consumedByAgentIds.push(freshIdentity.id);
+          }
+          const steerNotes = remainingSteers.map((s) => `- "${s.directive}"`).join('\n');
+          const pivotTrigger = {
+            id: `steer-followup-${Date.now()}`,
+            channelId,
+            senderId: 'user-operator',
+            senderType: 'human' as const,
+            content: `⚠️ [PRIORITY MID-EXECUTION STEERING DIRECTIVE FROM HUMAN OPERATOR]:\n${steerNotes}\nThe human operator redirected the task in real-time. Immediately acknowledge what was just stated and pivot to address this priority instruction.`,
+            createdAt: Date.now(),
+          };
+          // Re-execute pivot turn with fresh context without completing task or bounding depth
+          await this.executeAgentResponse(freshIdentity, channelId, pivotTrigger, recursionDepth + 1, undefined, undefined, undefined, run.id);
+          return;
+        }
+
         this.kernel.transitionState(run.id, 'completed');
 
         // Automatic DAG task advancement upon successful run completion
@@ -8712,6 +9001,14 @@ export class CoreServer {
                       }
                     }
                   }
+                }
+
+                // 3. Analytical task evidence generation when task has no file mutations but finished successfully
+                if (isVerified === 0 && loopResult.finalContent && loopResult.finalContent.trim().length > 0) {
+                  const analysisHash = crypto.createHash('sha256').update(loopResult.finalContent.trim()).digest('hex');
+                  contentUri = `memo://analysis/run/${run.id}?sha256=${analysisHash}`;
+                  evidenceType = expectedType || 'analysis_summary';
+                  isVerified = 1;
                 }
               }
 
@@ -8855,7 +9152,7 @@ export class CoreServer {
         if (s.targetAgentId && s.targetAgentId !== freshIdentity.id) return false;
         return true;
       });
-      if (remainingSteers.length > 0 && recursionDepth < 3) {
+      if (remainingSteers.length > 0) {
         for (const s of remainingSteers) {
           s.consumedByAgentIds.push(freshIdentity.id);
         }
@@ -8901,11 +9198,16 @@ export class CoreServer {
               content: `[COORDINATION FROM ${freshIdentity.displayName}]: ${out.directive}`,
               createdAt: Date.now(),
             };
-            this.enqueueChannelExecution(channelId, () =>
-              this.enqueueAgentExecution(targetPeer.id, () =>
-                this.executeAgentResponse(targetPeer, channelId, peerTrigger, recursionDepth + 1, undefined, undefined, undefined, run.id)
-              )
-            );
+            this.incrementDelegation(channelId);
+            this.enqueueChannelExecution(channelId, async () => {
+              try {
+                await this.enqueueAgentExecution(targetPeer.id, () =>
+                  this.executeAgentResponse(targetPeer, channelId, peerTrigger, recursionDepth + 1, undefined, undefined, undefined, run.id)
+                );
+              } finally {
+                this.decrementDelegation(channelId);
+              }
+            });
           }
         }
 
@@ -8925,11 +9227,16 @@ export class CoreServer {
               content: `[ONBOARDING DIRECTIVE FROM ${freshIdentity.displayName}]: You have been onboarded as ${out.role || 'Specialist'} into this channel for project ${targetProjectId}. Introduce yourself, state your domain capabilities, and begin assisting.`,
               createdAt: Date.now(),
             };
-            this.enqueueChannelExecution(channelId, () =>
-              this.enqueueAgentExecution(newAgent.id, () =>
-                this.executeAgentResponse(newAgent, channelId, recruitTrigger, recursionDepth + 1, undefined, undefined, undefined, run.id)
-              )
-            );
+            this.incrementDelegation(channelId);
+            this.enqueueChannelExecution(channelId, async () => {
+              try {
+                await this.enqueueAgentExecution(newAgent.id, () =>
+                  this.executeAgentResponse(newAgent, channelId, recruitTrigger, recursionDepth + 1, undefined, undefined, undefined, run.id)
+                );
+              } finally {
+                this.decrementDelegation(channelId);
+              }
+            });
           }
         }
 
@@ -8989,11 +9296,16 @@ export class CoreServer {
                   content: agentReply.content,
                   createdAt: Date.now(),
                 };
-                this.enqueueChannelExecution(channelId, () =>
-                  this.enqueueAgentExecution(peerAgent.id, () =>
-                    this.executeAgentResponse(peerAgent, channelId, peerTrigger, recursionDepth + 1, undefined, undefined, undefined, run.id)
-                  )
-                );
+                this.incrementDelegation(channelId);
+                this.enqueueChannelExecution(channelId, async () => {
+                  try {
+                    await this.enqueueAgentExecution(peerAgent.id, () =>
+                      this.executeAgentResponse(peerAgent, channelId, peerTrigger, recursionDepth + 1, undefined, undefined, undefined, run.id)
+                    );
+                  } finally {
+                    this.decrementDelegation(channelId);
+                  }
+                });
                 break; // Coordinate with first mentioned peer per turn to maintain orderly conversation flow
               }
             }
@@ -9042,8 +9354,18 @@ export class CoreServer {
         });
       } catch {}
     } finally {
-      if (recursionDepth === 0) {
-        this.activeAgentExecutions.delete(agent.id);
+      if (run?.id) {
+        this.runAbortControllers.delete(run.id);
+      }
+      this.activeAgentExecutions.delete(agent.id);
+      const activeInChan = Array.from(this.activeAgentExecutions.values()).filter((e) => e.channelId === channelId);
+      const delegationsInChan = this.activeDelegations.get(channelId) || 0;
+      if (activeInChan.length === 0 && delegationsInChan === 0) {
+        try {
+          await this.processNextQueuedMessage(channelId);
+        } catch (qErr) {
+          console.warn('[KIN CORE] Notice processing next queued message:', qErr);
+        }
       }
       try {
         const admittedRun = this.kernel.admitNextQueuedRun();
@@ -9077,6 +9399,92 @@ export class CoreServer {
         console.warn('[KIN CORE] Notice admitting next queued run:', admitErr);
       }
     }
+  }
+
+  /**
+   * FIFO dequeue dispatcher: When channel is idle (0 executing agents),
+   * retrieves the oldest queued message, deletes it from queued_messages,
+   * sends it to the channel, and triggers agent activation.
+   */
+  public async processNextQueuedMessage(channelId: string): Promise<boolean> {
+    const activeInChan = Array.from(this.activeAgentExecutions.values()).filter((e) => e.channelId === channelId);
+    const delegationsInChan = this.activeDelegations.get(channelId) || 0;
+    if (activeInChan.length > 0 || delegationsInChan > 0) {
+      return false;
+    }
+
+    const nextMsg = this.db.queryOne<{
+      id: string;
+      channel_id: string;
+      sender_id: string;
+      content: string;
+      metadata_json: string;
+      created_at: number;
+    }>('SELECT * FROM queued_messages WHERE channel_id = ? ORDER BY created_at ASC LIMIT 1', channelId);
+
+    if (!nextMsg) {
+      return false;
+    }
+
+    this.db.execute('DELETE FROM queued_messages WHERE id = ?', nextMsg.id);
+    this.broadcastEvent('queue:dequeued', { channelId, messageId: nextMsg.id });
+
+    const channel = this.workspaceRepo.getChannel(channelId);
+    if (!channel) return false;
+
+    const userMsg = this.channelService.sendMessage({
+      channelId,
+      senderId: nextMsg.sender_id || 'user-operator',
+      senderType: 'human',
+      content: nextMsg.content,
+      productivityScore: 100,
+    });
+
+    this.broadcastEvent('message:created', {
+      id: userMsg.id,
+      channelId: userMsg.channelId,
+      senderId: userMsg.senderId,
+      senderName: 'Human',
+      senderType: 'human',
+      content: userMsg.content,
+      createdAt: userMsg.createdAt,
+      isSteer: false,
+    });
+
+    const allProjectAgents = this.agentRepo.listIdentitiesByProject(channel.projectId || this.activeProjectId);
+    let memberIds = this.workspaceRepo.listChannelMemberIds(channelId);
+    if (memberIds.length === 0 && !channel?.isPrivate) {
+      this.workspaceRepo.addChannelMember(channelId, 'agent-boss');
+      memberIds = ['agent-boss'];
+    }
+    const channelMembers = memberIds
+      .map((id) => allProjectAgents.find((a) => a.id === id) || this.agentRepo.getIdentity(id))
+      .filter(Boolean) as AgentIdentity[];
+
+    const definitionsMap = new Map<string, AgentDefinition>();
+    for (const ag of allProjectAgents) {
+      const def = this.agentRepo.getDefinition(ag.definitionId);
+      if (def) definitionsMap.set(ag.definitionId, def);
+    }
+
+    const routing = this.activationEngine.evaluateChannelRouting({
+      channelId,
+      isPrivate: channel?.isPrivate,
+      message: userMsg,
+      channelMembers,
+      allProjectAgents,
+      definitionsMap,
+    });
+
+    const boss = routing.fallbackOrchestrator || allProjectAgents.find((a) => a.isOrchestrator) || allProjectAgents[0] || this.agentRepo.getIdentity('agent-boss');
+    const targetAgents = routing.targetAgents.length > 0 ? routing.targetAgents : (boss ? [boss] : []);
+    if (targetAgents.length > 0) {
+      this.executeSequentialAgents(targetAgents, channelId, userMsg).catch((err) => {
+        console.error('[KIN CORE] Dequeued message execution notice:', err);
+      });
+    }
+
+    return true;
   }
 
   private computeModelAvailability(

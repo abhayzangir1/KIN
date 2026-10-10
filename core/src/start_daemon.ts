@@ -5,14 +5,16 @@
 
 import { CoreServer } from './server/core_server.js';
 import * as path from 'node:path';
-
 import * as fs from 'node:fs';
+import { getDataDirectory } from './storage/data_directory.js';
 
 function resolveDbPath(): string {
   if (process.env.KIN_DB_PATH) {
     return path.resolve(process.env.KIN_DB_PATH);
   }
+  const dataDir = getDataDirectory();
   const candidates = [
+    path.resolve(dataDir, 'kin_storage.sqlite'),
     path.resolve(process.cwd(), 'kin_storage.sqlite'),
     path.resolve(process.cwd(), '..', 'kin_storage.sqlite'),
     path.resolve(process.cwd(), 'core', 'kin_storage.sqlite'),
@@ -22,7 +24,7 @@ function resolveDbPath(): string {
       return c;
     }
   }
-  return path.resolve(process.cwd(), 'kin_storage.sqlite');
+  return path.resolve(dataDir, 'kin_storage.sqlite');
 }
 
 const dbPath = resolveDbPath();

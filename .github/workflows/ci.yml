@@ -61,11 +61,23 @@ jobs:
       - name: Package Standalone Sidecar Binary
         run: node core/scripts/package_binary.js
 
-      - name: Verify Core Daemon Boot & API Health Check
+      - name: Verify Standalone Binary Boot & API Health Check
         shell: bash
         run: |
-          echo "Launching KIN Core daemon..."
-          node core/dist/start_daemon.js &
+          echo "Determining packaged binary path..."
+          if [ -f "./src-tauri/binaries/kin-core.exe" ]; then
+            BINARY_PATH="./src-tauri/binaries/kin-core.exe"
+          elif [ -f "./src-tauri/binaries/kin-core" ]; then
+            BINARY_PATH="./src-tauri/binaries/kin-core"
+          elif [ -f "./core/binaries/kin-core.exe" ]; then
+            BINARY_PATH="./core/binaries/kin-core.exe"
+          elif [ -f "./core/binaries/kin-core" ]; then
+            BINARY_PATH="./core/binaries/kin-core"
+          else
+            BINARY_PATH="node core/dist/start_daemon.js"
+          fi
+          echo "Launching packaged daemon: $BINARY_PATH"
+          $BINARY_PATH &
           DAEMON_PID=$!
           
           # Allow daemon initialization

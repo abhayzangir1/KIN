@@ -651,7 +651,10 @@ interface KinState {
   isLoadingModels: boolean;
   fetchAvailableModels: () => Promise<void>;
   discoverModels: (provider: string, apiKey?: string) => Promise<{ success: boolean; count?: number; error?: string }>;
-  addCustomModel: (modelId: string, name?: string) => Promise<{ success: boolean; model?: AvailableModelItem; error?: string }>;
+  addCustomModel: (
+    modelId: string,
+    optionsOrName?: string | { name?: string; provider?: string; contextWindow?: number; baseUrl?: string; apiKey?: string }
+  ) => Promise<{ success: boolean; model?: AvailableModelItem; error?: string }>;
   isConnected: boolean;
   terminalHistory: Array<{ command: string; output: string; exitCode: number }>;
   
@@ -739,6 +742,7 @@ interface KinState {
 
   // Queued Messages
   queuedMessages: QueuedMessage[];
+  streamingDrafts: Record<string, string>;
   // Channel execution tracking (agentId -> channelId)
   activeAgentChannels: Record<string, string>;
   // Swarm Map & Execution Trajectory
@@ -796,8 +800,9 @@ interface KinState {
   fetchScheduleAttempts: (scheduleId: string) => Promise<ScheduleAttemptItem[]>;
 
   // Actions
+  fetchQueuedMessages: (channelId?: string) => Promise<void>;
   queueMessage: (channelId: string, content: string) => void;
-  dequeueMessage: (id: string) => void;
+  dequeueMessage: (id: string, channelId?: string) => void | Promise<void>;
   promoteQueuedToSteer: (id: string) => Promise<void>;
   setSwarmMapOpen: (open: boolean) => void;
   setSelectedSwarmAgentId: (id: string) => void;
@@ -840,7 +845,7 @@ interface KinState {
   runTerminalCommand: (command: string) => Promise<void>;
   clearTerminalHistory: () => void;
   updateAgentContract: (agentId: string, roleTitle: string, activeModelId: string, systemPrompt?: string) => Promise<void>;
-  sendMessage: (content: string, overrideChannelId?: string) => Promise<void>;
+  sendMessage: (content: string, overrideChannelId?: string, isSteer?: boolean) => Promise<{ success: boolean; error?: string }>;
   setAutonomyMode: (mode: 'AUTO' | 'ALWAYS_ASK' | 'FULL_ACCESS') => Promise<void>;
   resolveApproval: (approvalId: string, approved: boolean) => Promise<void>;
   setActiveInspectorTab: (tab: KinState['activeInspectorTab']) => void;
@@ -953,6 +958,7 @@ export const useKinStore = create<KinState>((set, get) => ({
   credentials: [],
   grillMeSession: null,
   queuedMessages: [],
+  streamingDrafts: {},
   activeAgentChannels: {},
   isSwarmMapOpen: false,
   selectedSwarmAgentId: 'agent-boss',
@@ -1106,11 +1112,13 @@ export const useKinStore = create<KinState>((set, get) => ({
         projectAnalytics: data.projectAnalytics,
         ollamaStatus: data.ollamaStatus || { online: false, models: [] },
         activeAgentChannels: data.activeAgentChannels || {},
+        queuedMessages: data.queuedMessages || [],
         isConnected: true,
       });
 
       if (!chosenChannelId.startsWith('dm-')) {
         await get().fetchChannelMembers(chosenChannelId);
+        await get().fetchQueuedMessages(chosenChannelId);
       }
 
       await get().fetchArtifacts(data.activeProject?.id || targetProj);
@@ -1475,7 +1483,13 @@ export const useKinStore = create<KinState>((set, get) => ({
               ? [...state.messages, msg]
               : state.messages;
 
+            const nextDrafts = { ...state.streamingDrafts };
+            if (msg.channelId) {
+              delete nextDrafts[msg.channelId];
+            }
+
             return {
+              streamingDrafts: nextDrafts,
               messages: nextActiveMessages,
               channels: updatedChannels,
               channelMessagesCache: nextCache,
@@ -1486,18 +1500,70 @@ export const useKinStore = create<KinState>((set, get) => ({
         }
       });
 
+      sse.addEventListener('agent:token', (e) => {
+        try {
+          const { channelId, token } = JSON.parse(e.data);
+          if (channelId && token) {
+            set((state) => ({
+              streamingDrafts: {
+                ...state.streamingDrafts,
+                [channelId]: (state.streamingDrafts[channelId] || '') + token,
+              },
+            }));
+          }
+        } catch {}
+      });
+
+      sse.addEventListener('message:queued', (e) => {
+        try {
+          const { message } = JSON.parse(e.data);
+          if (message) {
+            set((state) => ({
+              queuedMessages: state.queuedMessages.some((q) => q.id === message.id)
+                ? state.queuedMessages
+                : [...state.queuedMessages, message],
+            }));
+          }
+        } catch {}
+      });
+
+      sse.addEventListener('queue:dequeued', (e) => {
+        try {
+          const { messageId } = JSON.parse(e.data);
+          if (messageId) {
+            set((state) => ({
+              queuedMessages: state.queuedMessages.filter((q) => q.id !== messageId),
+            }));
+          }
+        } catch {}
+      });
+
+      sse.addEventListener('queue:deleted', (e) => {
+        try {
+          const { messageId } = JSON.parse(e.data);
+          if (messageId) {
+            set((state) => ({
+              queuedMessages: state.queuedMessages.filter((q) => q.id !== messageId),
+            }));
+          }
+        } catch {}
+      });
+
       sse.addEventListener('agent:state', (e) => {
         try {
           const { agentId, channelId, status } = JSON.parse(e.data);
           set((state) => {
             const nextActive = { ...state.activeAgentChannels };
+            const nextDrafts = { ...state.streamingDrafts };
             if (status === 'thinking' || status === 'working') {
               if (channelId) nextActive[agentId] = channelId;
             } else {
               delete nextActive[agentId];
+              if (channelId) delete nextDrafts[channelId];
             }
             return {
               activeAgentChannels: nextActive,
+              streamingDrafts: nextDrafts,
               agents: state.agents.map((a) => (a.id === agentId ? { ...a, status } : a)),
               channelMembers: state.channelMembers.map((a) => (a.id === agentId ? { ...a, status } : a)),
             };
@@ -2234,6 +2300,7 @@ export const useKinStore = create<KinState>((set, get) => ({
       }
       if (!channelId.startsWith('dm-')) {
         await get().fetchChannelMembers(channelId);
+        await get().fetchQueuedMessages(channelId);
       }
     } catch (err) {
       console.error(`[KIN UI] Failed to load messages for channel ${channelId}:`, err);
@@ -2341,8 +2408,44 @@ export const useKinStore = create<KinState>((set, get) => ({
     }
   },
 
-  queueMessage: (channelId: string, content: string) => {
+  fetchQueuedMessages: async (channelId?: string) => {
+    const cId = channelId || get().activeChannelId;
+    if (!cId) return;
+    try {
+      const res = await fetch(`/api/channels/${cId}/queue`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.queuedMessages)) {
+          set({ queuedMessages: data.queuedMessages });
+        }
+      }
+    } catch (err) {
+      console.warn('[KIN UI] Notice fetching queued messages:', err);
+    }
+  },
+
+  queueMessage: async (channelId: string, content: string) => {
     if (!content.trim()) return;
+    try {
+      const res = await fetch(`/api/channels/${channelId}/queue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: content.trim() }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.message) {
+          set((state) => ({
+            queuedMessages: state.queuedMessages.some((q) => q.id === data.message.id)
+              ? state.queuedMessages
+              : [...state.queuedMessages, data.message],
+          }));
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('[KIN UI] Notice posting to queue endpoint, using local fallback:', err);
+    }
     const item: QueuedMessage = {
       id: `qm-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       channelId,
@@ -2352,26 +2455,40 @@ export const useKinStore = create<KinState>((set, get) => ({
     set((state) => ({ queuedMessages: [...state.queuedMessages, item] }));
   },
 
-  dequeueMessage: (id: string) => {
+  dequeueMessage: async (id: string, channelId?: string) => {
+    const cId = channelId || get().queuedMessages.find((q) => q.id === id)?.channelId || get().activeChannelId;
     set((state) => ({ queuedMessages: state.queuedMessages.filter((q) => q.id !== id) }));
+    try {
+      await fetch(`/api/channels/${cId}/queue/${id}`, { method: 'DELETE' });
+    } catch {}
   },
 
   promoteQueuedToSteer: async (id: string) => {
     const item = get().queuedMessages.find((q) => q.id === id);
     if (!item) return;
-    get().dequeueMessage(id);
-    await get().sendMessage(item.content, item.channelId);
+    get().dequeueMessage(id, item.channelId);
+    await get().sendMessage(item.content, item.channelId, true);
   },
 
-  sendMessage: async (content: string, overrideChannelId?: string) => {
+  sendMessage: async (content: string, overrideChannelId?: string, isSteer?: boolean): Promise<{ success: boolean; error?: string }> => {
     const channelId = overrideChannelId || get().activeChannelId;
     try {
       const res = await fetch(`/api/channels/${channelId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, ...(isSteer ? { isSteer: true } : {}) }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      if (!res.ok) {
+        let errMessage = `HTTP ${res.status}: ${res.statusText}`;
+        try {
+          const errBody = await res.json();
+          if (errBody?.error) errMessage = errBody.error;
+        } catch {
+          const text = await res.text().catch(() => '');
+          if (text) errMessage = text;
+        }
+        return { success: false, error: errMessage };
+      }
       const data = await res.json();
       if (data.routing) {
         set((state) => ({
@@ -2403,8 +2520,10 @@ export const useKinStore = create<KinState>((set, get) => ({
           };
         });
       }
-    } catch (err) {
+      return { success: true };
+    } catch (err: any) {
       console.error('[KIN UI] Failed to send message:', err);
+      return { success: false, error: err?.message || 'Network error sending message' };
     }
   },
 
@@ -3679,12 +3798,18 @@ export const useKinStore = create<KinState>((set, get) => ({
     }
   },
 
-  addCustomModel: async (modelId: string, name?: string) => {
+  addCustomModel: async (
+    modelId: string,
+    optionsOrName?: string | { name?: string; provider?: string; contextWindow?: number; baseUrl?: string; apiKey?: string }
+  ) => {
     try {
+      const payload = typeof optionsOrName === 'string'
+        ? { modelId, name: optionsOrName }
+        : { modelId, ...(optionsOrName || {}) };
       const res = await fetch('/api/models/custom', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ modelId, name }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (res.ok) {

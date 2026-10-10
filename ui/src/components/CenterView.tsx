@@ -57,6 +57,7 @@ export const CenterView: React.FC = () => {
     setActiveRightTab,
     steerNotification,
     queuedMessages,
+    streamingDrafts,
     activeAgentChannels,
     queueMessage,
     dequeueMessage,
@@ -136,6 +137,9 @@ export const CenterView: React.FC = () => {
   const [dismissedRoutingChannels, setDismissedRoutingChannels] = useState<Record<string, boolean>>({});
   const [grillMeAnswers, setGrillMeAnswers] = useState<Record<string, string>>({});
   const [inspectingRecovery, setInspectingRecovery] = useState<any | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const isSteeringRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -442,17 +446,26 @@ export const CenterView: React.FC = () => {
     return null;
   };
 
-  const handleSend = (e: React.FormEvent) => {
+  const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim()) return;
+    if (!inputText.trim() || isSending) return;
     if (isChannelExecuting && !inputText.trim().startsWith('/') && !inputText.trim().startsWith('>')) {
       handleQueueNext();
       return;
     }
-    sendMessage(inputText.trim());
-    setInputText('');
-    setShowMentionMenu(false);
-    setShowSlashMenu(false);
+    const textToSend = inputText.trim();
+    setSendError(null);
+    setIsSending(true);
+    const res = await sendMessage(textToSend);
+    setIsSending(false);
+    if (res && !res.success) {
+      setSendError(res.error || 'Failed to deliver message');
+    } else {
+      setInputText('');
+      setSendError(null);
+      setShowMentionMenu(false);
+      setShowSlashMenu(false);
+    }
   };
 
   if (activeMainView === 'automations') {
@@ -807,6 +820,24 @@ export const CenterView: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* Live In-Flight Streaming Token Draft Bubble */}
+        {streamingDrafts && streamingDrafts[activeChannelId] && (
+          <div className="p-3.5 rounded-xl bg-[#091122] border border-blue-500/40 shadow-lg space-y-2 animate-fadeIn">
+            <div className="flex items-center justify-between text-xs text-blue-300 font-mono">
+              <div className="flex items-center space-x-2">
+                <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                <span className="font-bold">Streaming Response...</span>
+              </div>
+              <span className="text-[10px] text-[#64748b]">Live In-Flight Tokens</span>
+            </div>
+            <div className="font-mono text-xs text-[#cbd5e1] whitespace-pre-wrap leading-relaxed">
+              {streamingDrafts[activeChannelId]}
+              <span className="inline-block w-1.5 h-3.5 bg-blue-400 ml-1 animate-pulse align-middle" />
+            </div>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -1368,6 +1399,22 @@ export const CenterView: React.FC = () => {
           </div>
         )}
 
+        {sendError && (
+          <div className="px-3 py-2 bg-red-950/80 border border-red-500/60 rounded-xl text-xs text-red-200 flex items-center justify-between shadow-lg animate-fadeIn">
+            <div className="flex items-center space-x-2">
+              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+              <span>{sendError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSendError(null)}
+              className="text-red-400 hover:text-white p-0.5 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         <form
           onSubmit={handleSend}
           onDragOver={(e) => {
@@ -1496,11 +1543,29 @@ export const CenterView: React.FC = () => {
             {isChannelExecuting && inputText.trim() && (
               <button
                 type="button"
-                onClick={() => {
-                  sendMessage(inputText.trim());
-                  setInputText('');
+                disabled={isSending || isSteeringRef.current}
+                onClick={async () => {
+                  if (isSteeringRef.current || isSending || !inputText.trim()) return;
+                  isSteeringRef.current = true;
+                  const textToSend = inputText.trim();
+                  setSendError(null);
+                  setIsSending(true);
+                  try {
+                    const res = await sendMessage(textToSend, undefined, true);
+                    if (res && !res.success) {
+                      setSendError(res.error || 'Failed to deliver steer directive');
+                    } else {
+                      setInputText('');
+                      setSendError(null);
+                    }
+                  } finally {
+                    setIsSending(false);
+                    setTimeout(() => {
+                      isSteeringRef.current = false;
+                    }, 600);
+                  }
                 }}
-                className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-amber-600/30 hover:bg-amber-600/50 text-amber-200 border border-amber-500/50 text-xs font-semibold transition shrink-0"
+                className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-amber-600/30 hover:bg-amber-600/50 text-amber-200 border border-amber-500/50 text-xs font-semibold transition shrink-0 cursor-pointer disabled:opacity-50"
                 title="Inject as immediate priority steer directive right into active loop"
               >
                 <Zap className="w-3.5 h-3.5 text-amber-400" />

@@ -28,7 +28,7 @@ describe('KIN Phase 0: Storage & Persistence Engine', () => {
     }
   });
 
-  it('initializes all 28 authoritative tables and passes PRAGMA integrity_check', () => {
+  it('initializes all 29 authoritative tables and passes PRAGMA integrity_check', () => {
     const integrity = db.queryOne<{ integrity_check: string }>('PRAGMA integrity_check;');
     expect(integrity?.integrity_check).toBe('ok');
 
@@ -36,7 +36,8 @@ describe('KIN Phase 0: Storage & Persistence Engine', () => {
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%';"
     ).map((r) => r.name);
 
-    expect(tables).toHaveLength(28);
+    expect(tables).toHaveLength(29);
+    expect(tables).toContain('queued_messages');
     expect(tables).toContain('workspaces');
     expect(tables).toContain('agent_identities');
     expect(tables).toContain('agent_runs');

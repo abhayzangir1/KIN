@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useKinStore } from '../store/kinStore.js';
 import {
   ShieldAlert,
@@ -33,6 +33,8 @@ export const HumanTakeoverBanner: React.FC = () => {
   const [isSteerOpen, setIsSteerOpen] = useState(false);
   const [steerText, setSteerText] = useState('');
   const [steerSent, setSteerSent] = useState(false);
+  const [isSteerSending, setIsSteerSending] = useState(false);
+  const isSteerSendingRef = useRef(false);
 
   const isDm = activeChannelId?.startsWith('dm-') || false;
   const targetAgentId = isDm ? activeChannelId.replace(/^dm-/, '') : null;
@@ -121,14 +123,23 @@ export const HumanTakeoverBanner: React.FC = () => {
   // Handle Steer Submission
   const handleSendSteer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!steerText.trim()) return;
+    if (!steerText.trim() || isSteerSendingRef.current || isSteerSending) return;
+    isSteerSendingRef.current = true;
+    setIsSteerSending(true);
     const text = steerText.trim();
     setSteerText('');
     setIsSteerOpen(false);
     const targetChan = activeTakeover?.channelId || activeChannelId;
-    await sendMessage(`⚠️ [STEER DIRECTIVE]: ${text}`, targetChan);
-    setSteerSent(true);
-    setTimeout(() => setSteerSent(false), 3000);
+    try {
+      await sendMessage(`⚠️ [STEER DIRECTIVE]: ${text}`, targetChan, true);
+      setSteerSent(true);
+      setTimeout(() => setSteerSent(false), 3000);
+    } finally {
+      setIsSteerSending(false);
+      setTimeout(() => {
+        isSteerSendingRef.current = false;
+      }, 600);
+    }
   };
 
   const isFinancial = activeTakeover?.financialGate || activeTakeover?.riskLevel === 'CRITICAL';

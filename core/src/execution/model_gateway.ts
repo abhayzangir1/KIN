@@ -19,6 +19,7 @@ export interface ModelInvocationParams {
   maxTokens?: number;
   onToken?: (token: string) => void;
   callerAgentId?: string;
+  signal?: AbortSignal;
 }
 
 export interface ModelInvocationResult {
@@ -33,6 +34,8 @@ export interface ModelInvocationResult {
   };
   durationMs: number;
   isError?: boolean;
+  isAborted?: boolean;
+  switchedModelId?: string;
 }
 
 export interface DiscoveredModel {
@@ -66,6 +69,7 @@ export interface ModelGatewayOptions {
   anthropicApiKey?: string;
   deepseekApiKey?: string;
   geminiApiKey?: string;
+  groqApiKey?: string;
   ollamaHost?: string;
 }
 
@@ -76,6 +80,7 @@ export class ModelGateway {
   private anthropicApiKey?: string;
   private deepseekApiKey?: string;
   private geminiApiKey?: string;
+  private groqApiKey?: string;
   private apiKeyResolver?: (provider: string, callerAgentId?: string) => string | undefined;
   private onUsage?: (provider: string, tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }) => void;
   private customEndpoints: Map<string, { baseUrl: string; apiKey?: string }> = new Map();
@@ -91,6 +96,7 @@ export class ModelGateway {
     this.anthropicApiKey = options?.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
     this.deepseekApiKey = options?.deepseekApiKey || process.env.DEEPSEEK_API_KEY;
     this.geminiApiKey = options?.geminiApiKey || process.env.GEMINI_API_KEY;
+    this.groqApiKey = options?.groqApiKey || process.env.GROQ_API_KEY;
     this.apiKeyResolver = options?.apiKeyResolver;
     this.onUsage = options?.onUsage;
   }
@@ -119,6 +125,7 @@ export class ModelGateway {
       else if (provider === 'anthropic') rawKey = this.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
       else if (provider === 'deepseek') rawKey = this.deepseekApiKey || process.env.DEEPSEEK_API_KEY;
       else if (provider === 'gemini') rawKey = this.geminiApiKey || process.env.GEMINI_API_KEY;
+      else if (provider === 'groq') rawKey = this.groqApiKey || process.env.GROQ_API_KEY;
       else {
         const custom = this.customEndpoints.get(provider.toLowerCase());
         if (custom && custom.apiKey) {
@@ -608,6 +615,10 @@ export class ModelGateway {
   /**
    * Invokes the assigned model directly without autonomous routing.
    */
+  public async invokeModel(params: ModelInvocationParams): Promise<ModelInvocationResult> {
+    return this.invoke(params);
+  }
+
   public async invoke(params: ModelInvocationParams): Promise<ModelInvocationResult> {
     const startTime = Date.now();
     const [provider, modelName] = this.parseModelId(params.modelId);
@@ -649,6 +660,16 @@ export class ModelGateway {
           startTime,
           'gemini'
         );
+      } else if (provider === 'groq') {
+        const apiKey = this.resolveApiKey('groq', params.callerAgentId);
+        return await this.invokeOpenAiCompatible(
+          'https://api.groq.com/openai/v1/chat/completions',
+          apiKey,
+          modelName,
+          params,
+          startTime,
+          'groq'
+        );
       } else if (this.customEndpoints.has(provider) || (provider === 'custom' && this.customEndpoints.has(modelName)) || (provider === 'custom' && this.customEndpoints.size === 1)) {
         const custom = this.customEndpoints.get(provider)
           || this.customEndpoints.get(modelName)
@@ -679,7 +700,12 @@ export class ModelGateway {
             modelId: params.fallbackModelId,
             fallbackModelId: undefined,
           });
-          if (!fallbackRes.isError) return fallbackRes;
+          if (!fallbackRes.isError) {
+            return {
+              ...fallbackRes,
+              switchedModelId: params.fallbackModelId,
+            };
+          }
         }
 
         // Fallback for unrecognized provider
@@ -693,6 +719,9 @@ export class ModelGateway {
         };
       }
     } catch (err: any) {
+      if (err?.name === 'AbortError' || params.signal?.aborted) {
+        throw err;
+      }
       if (params.fallbackModelId && params.fallbackModelId !== params.modelId) {
         try {
           const fallbackRes = await this.invoke({
@@ -700,7 +729,12 @@ export class ModelGateway {
             modelId: params.fallbackModelId,
             fallbackModelId: undefined,
           });
-          if (!fallbackRes.isError) return fallbackRes;
+          if (!fallbackRes.isError) {
+            return {
+              ...fallbackRes,
+              switchedModelId: params.fallbackModelId,
+            };
+          }
         } catch {
           // ignore fallback error and return primary error report
         }
@@ -719,12 +753,23 @@ export class ModelGateway {
     }
   }
 
-  private parseModelId(modelId: string): [string, string] {
-    const slashIdx = modelId.indexOf('/');
-    if (slashIdx === -1) {
-      return ['ollama', modelId];
+  public parseModelId(modelId: string): [string, string] {
+    return ModelGateway.parseModelId(modelId);
+  }
+
+  public static parseModelId(modelId: string): [string, string] {
+    const colonIdx = modelId.indexOf(':');
+    if (colonIdx !== -1) {
+      const prefix = modelId.substring(0, colonIdx).toLowerCase();
+      if (['ollama', 'openai', 'anthropic', 'gemini', 'groq', 'deepseek', 'custom', 'openrouter'].includes(prefix)) {
+        return [prefix, modelId.substring(colonIdx + 1)];
+      }
     }
-    return [modelId.substring(0, slashIdx).toLowerCase(), modelId.substring(slashIdx + 1)];
+    const slashIdx = modelId.indexOf('/');
+    if (slashIdx !== -1) {
+      return [modelId.substring(0, slashIdx).toLowerCase(), modelId.substring(slashIdx + 1)];
+    }
+    return ['ollama', modelId];
   }
 
   private async invokeOllama(
@@ -736,10 +781,12 @@ export class ModelGateway {
     const timeoutMs = process.env.KIN_OLLAMA_TIMEOUT_MS
       ? parseInt(process.env.KIN_OLLAMA_TIMEOUT_MS, 10)
       : 180000; // 3 minutes default to allow cold-loading large model weights into VRAM
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const combinedSignal = params.signal ? (AbortSignal as any).any([timeoutSignal, params.signal]) : timeoutSignal;
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: combinedSignal,
       body: JSON.stringify({
         model: modelName,
         messages: params.messages,
@@ -904,6 +951,7 @@ export class ModelGateway {
         'HTTP-Referer': 'https://github.com/abhayzangir1/KIN',
         'X-Title': 'KIN Workforce Platform',
       },
+      signal: params.signal,
       body: JSON.stringify({
         model: modelName,
         messages: params.messages,
@@ -1015,6 +1063,7 @@ export class ModelGateway {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
+      signal: params.signal,
       body: JSON.stringify({
         model: modelName,
         messages: params.messages,
@@ -1117,6 +1166,7 @@ export class ModelGateway {
         'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
       },
+      signal: params.signal,
       body: JSON.stringify({
         model: modelName,
         system: systemMsg,

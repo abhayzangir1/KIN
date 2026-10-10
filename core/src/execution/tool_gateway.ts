@@ -105,7 +105,7 @@ export class ToolGateway {
     this.desktopController = options?.desktopController ?? new DesktopController();
     this.browserController = options?.browserController ?? new BrowserController();
     this.financialSafety = options?.financialSafety ?? new FinancialSafetyShield();
-    this.policyEngine = options?.policyEngine ?? new PolicyEngine();
+    this.policyEngine = options?.policyEngine ?? Sentinel.getInstance().getPolicyEngine();
     this.scheduler = options?.scheduler;
     this.db = options?.db;
     this.computerSupervisor = options?.computerSupervisor;
@@ -118,7 +118,7 @@ export class ToolGateway {
   }
 
   public getPolicyEngine(): PolicyEngine {
-    return this.policyEngine;
+    return this.policyEngine ?? Sentinel.getInstance().getPolicyEngine();
   }
 
   public setMcpClient(mcpClient: McpClientManager): void {

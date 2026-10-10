@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { KinDatabase } from './db.js';
+import { EMBEDDED_SCHEMA_SQL } from './schema_sql.js';
 
 export interface MigrationReport {
   success: boolean;
@@ -19,6 +20,7 @@ const REQUIRED_TABLES = [
   'channels',
   'channel_members',
   'messages',
+  'queued_messages',
   'goals',
   'tasks',
   'task_dependencies',
@@ -43,9 +45,11 @@ const REQUIRED_TABLES = [
 
 export class MigrationRunner {
   private db: KinDatabase;
+  private forceEmbedded: boolean = false;
 
-  constructor(db: KinDatabase) {
+  constructor(db: KinDatabase, options?: { forceEmbedded?: boolean }) {
     this.db = db;
+    this.forceEmbedded = Boolean(options?.forceEmbedded);
   }
 
   public runMigrations(): MigrationReport {
@@ -75,20 +79,26 @@ export class MigrationRunner {
     ];
 
     let schemaSql = '';
-    for (const p of candidatePaths) {
-      if (fs.existsSync(p)) {
-        try {
-          const content = fs.readFileSync(p, 'utf-8');
-          if (content.trim().length > 0) {
-            schemaSql = content;
-            break;
-          }
-        } catch {}
+    if (!this.forceEmbedded) {
+      for (const p of candidatePaths) {
+        if (fs.existsSync(p)) {
+          try {
+            const content = fs.readFileSync(p, 'utf-8');
+            if (content.trim().length > 0) {
+              schemaSql = content;
+              break;
+            }
+          } catch {}
+        }
       }
     }
 
     if (!schemaSql) {
-      throw new Error(`Migration schema file not found in search paths: ${candidatePaths.slice(0, 4).join(', ')}`);
+      if (EMBEDDED_SCHEMA_SQL && EMBEDDED_SCHEMA_SQL.trim().length > 0) {
+        schemaSql = EMBEDDED_SCHEMA_SQL;
+      } else {
+        throw new Error(`Migration schema file not found in search paths: ${candidatePaths.slice(0, 4).join(', ')}`);
+      }
     }
 
     // Execute schema in a synchronous transaction
@@ -222,7 +232,25 @@ export class MigrationRunner {
           if (!runCols.includes('interrupted_turn')) {
             this.db.exec('ALTER TABLE agent_runs ADD COLUMN interrupted_turn INTEGER DEFAULT 0;');
           }
+          if (!runCols.includes('model_id')) {
+            this.db.exec('ALTER TABLE agent_runs ADD COLUMN model_id TEXT;');
+          }
         }
+      }
+
+      // Pre-migration: queued_messages table
+      if (!existingTables.includes('queued_messages')) {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS queued_messages (
+            id TEXT PRIMARY KEY,
+            channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+            sender_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at INTEGER NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_queued_messages_channel ON queued_messages(channel_id, created_at);
+        `);
       }
 
       // Pre-migration: tasks table lease columns

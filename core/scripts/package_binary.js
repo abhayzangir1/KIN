@@ -169,4 +169,16 @@ if (fs.existsSync(seaConfigPath)) {
   try { fs.unlinkSync(seaConfigPath); } catch {}
 }
 
+// Copy schema.sql into distribution folders
+const schemaSrc = path.resolve(coreDir, 'src', 'storage', 'schema.sql');
+if (fs.existsSync(schemaSrc)) {
+  try {
+    fs.copyFileSync(schemaSrc, path.resolve(tauriBinariesDir, 'schema.sql'));
+    fs.copyFileSync(schemaSrc, path.resolve(coreBinariesDir, 'schema.sql'));
+    console.log('[KIN PACKAGE] Successfully bundled schema.sql into binaries distributions.');
+  } catch (schemaErr) {
+    console.warn('[KIN PACKAGE] Warning bundling schema.sql:', schemaErr.message);
+  }
+}
+
 console.log('[KIN PACKAGE] Sidecar packaging complete.');

@@ -8,6 +8,7 @@ import { KinDatabase } from '../storage/db.js';
 import { Schedule, ScheduleType, ScheduleStatus, ScheduleAttempt } from '../domain/types.js';
 import { validateCronExpression, getNextCronOccurrence } from './cron_calendar.js';
 import { v4 as uuidv4 } from 'uuid';
+import { SecretBroker } from '../security/secret_broker.js';
 
 export interface CreateOneShotParams {
   projectId: string;
@@ -536,7 +537,10 @@ export class SchedulerService {
     executedAt: number
   ): void {
     try {
-      const payload = JSON.stringify({ attemptNumber, status, errorMessage });
+      const sanitizedError = errorMessage ? SecretBroker.getInstance(this.db).redactSecrets(errorMessage) : undefined;
+      const rawPayload = { attemptNumber, status, errorMessage: sanitizedError };
+      const sanitizedPayload = SecretBroker.getInstance(this.db).sanitizePayload(rawPayload);
+      const payload = JSON.stringify(sanitizedPayload);
       this.db.execute(
         `INSERT INTO event_journal (event_type, entity_type, entity_id, run_id, payload_json, created_at)
          VALUES ('schedule_attempt', 'schedule', ?, NULL, ?, ?)`,
