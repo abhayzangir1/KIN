@@ -299,7 +299,7 @@ export class DesktopController {
   /**
    * Focuses / brings a specific window to the foreground.
    */
-  public async focusWindow(titleOrPid: string | number): Promise<InteractionResult> {
+  public async focusWindow(titleOrPid: string | number, abortSignal?: AbortSignal): Promise<InteractionResult> {
     if (!this.isWindows) {
       return { success: false, action: 'focusWindow', error: 'Focus window only supported on Windows' };
     }
@@ -373,7 +373,7 @@ public static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
         }
       `;
 
-      const res = await this.runPowerShell(psScript);
+      const res = await this.runPowerShell(psScript, abortSignal);
       if (res.exitCode !== 0 || res.stdout.includes('NOT_FOUND')) {
         return { success: false, action: 'focusWindow', error: `Window '${titleOrPid}' not found` };
       }
@@ -400,7 +400,7 @@ public static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
   /**
    * Closes a window gracefully by title or PID.
    */
-  public async closeWindow(titleOrPid: string | number): Promise<InteractionResult> {
+  public async closeWindow(titleOrPid: string | number, abortSignal?: AbortSignal): Promise<InteractionResult> {
     if (!this.isWindows) {
       return { success: false, action: 'closeWindow', error: 'Close window only supported on Windows' };
     }
@@ -421,7 +421,7 @@ public static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
         Write-Output "CLOSED"
       `;
 
-      const res = await this.runPowerShell(psScript);
+      const res = await this.runPowerShell(psScript, abortSignal);
       if (res.exitCode !== 0 || res.stdout.includes('NOT_FOUND')) {
         return { success: false, action: 'closeWindow', error: `Window '${titleOrPid}' not found` };
       }
@@ -609,7 +609,7 @@ public static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
   /**
    * Moves the cursor to (x, y) coordinates.
    */
-  public async mouseMove(x: number, y: number): Promise<InteractionResult> {
+  public async mouseMove(x: number, y: number, options?: { smooth?: boolean; steps?: number; abortSignal?: AbortSignal }): Promise<InteractionResult> {
     if (!this.isWindows) {
       return { success: false, action: 'mouseMove', error: 'Desktop GUI automation is only supported on Windows host environments.' };
     }
@@ -619,7 +619,7 @@ public static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
         Add-Type -AssemblyName System.Windows.Forms
         [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${Math.round(x)}, ${Math.round(y)})
       `;
-      const res = await this.runPowerShell(psScript);
+      const res = await this.runPowerShell(psScript, options?.abortSignal);
       if (res.exitCode !== 0) {
         return { success: false, action: 'mouseMove', error: res.stderr || 'PowerShell mouseMove failed' };
       }
@@ -635,7 +635,7 @@ public static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
   public async mouseClick(
     x: number,
     y: number,
-    options: { button?: 'left' | 'right' | 'middle'; doubleClick?: boolean } = {}
+    options: { button?: 'left' | 'right' | 'middle'; doubleClick?: boolean; abortSignal?: AbortSignal } = {}
   ): Promise<InteractionResult> {
     const button = options.button || 'left';
     const double = Boolean(options.doubleClick);
@@ -675,7 +675,7 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
         }
       `;
 
-      const res = await this.runPowerShell(psScript);
+      const res = await this.runPowerShell(psScript, options.abortSignal);
       if (res.exitCode !== 0) {
         return { success: false, action: 'mouseClick', error: res.stderr || 'PowerShell mouseClick failed' };
       }
@@ -688,7 +688,7 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
   /**
    * Types text using keyboard input synthesis.
    */
-  public async typeText(text: string): Promise<InteractionResult> {
+  public async typeText(text: string, abortSignal?: AbortSignal): Promise<InteractionResult> {
     if (!this.isWindows) {
       return { success: false, action: 'typeText', error: 'Desktop GUI automation is only supported on Windows host environments.' };
     }
@@ -710,7 +710,7 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
         }
       `;
 
-      const res = await this.runPowerShell(psScript);
+      const res = await this.runPowerShell(psScript, abortSignal);
       if (res.exitCode !== 0) {
         return { success: false, action: 'typeText', error: res.stderr || 'PowerShell typeText failed' };
       }
@@ -723,7 +723,7 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
   /**
    * Sends hotkey combination (e.g. key: 's', modifiers: ['ctrl']).
    */
-  public async sendKey(key: string, modifiers: string[] = []): Promise<InteractionResult> {
+  public async sendKey(key: string, modifiers: string[] = [], abortSignal?: AbortSignal): Promise<InteractionResult> {
     if (!this.isWindows) {
       return { success: false, action: 'sendKey', error: 'Desktop GUI automation is only supported on Windows host environments.' };
     }
@@ -766,7 +766,7 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
         }
       `;
 
-      const res = await this.runPowerShell(psScript);
+      const res = await this.runPowerShell(psScript, abortSignal);
       if (res.exitCode !== 0) {
         return { success: false, action: 'sendKey', error: res.stderr || 'PowerShell sendKey failed' };
       }
@@ -780,7 +780,11 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
    * Helper to execute PowerShell scripts via stdin streaming,
    * bypassing the 8191-character Windows command-line limit and preventing command injection hazards.
    */
-  private runPowerShell(script: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  public runPowerShell(script: string, abortSignal?: AbortSignal): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    if (abortSignal?.aborted) {
+      return Promise.resolve({ stdout: '', stderr: 'PowerShell execution cancelled by operator via AbortSignal', exitCode: 1 });
+    }
+
     return new Promise((resolve) => {
       const child = childProcess.spawn(
         'powershell',
@@ -800,6 +804,29 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
         resolve({ stdout: '', stderr: 'PowerShell execution timed out', exitCode: 1 });
       }, 20000);
 
+      let abortListener: (() => void) | undefined;
+      if (abortSignal) {
+        abortListener = () => {
+          if (killed) return;
+          killed = true;
+          clearTimeout(timer);
+          try {
+            if (child.pid) {
+              if (this.isWindows) {
+                childProcess.exec(`taskkill /pid ${child.pid} /T /F`);
+              } else {
+                try {
+                  childProcess.exec(`pkill -P ${child.pid}`);
+                } catch {}
+                child.kill('SIGKILL');
+              }
+            }
+          } catch {}
+          resolve({ stdout: '', stderr: 'PowerShell execution cancelled by operator via AbortSignal', exitCode: 1 });
+        };
+        abortSignal.addEventListener('abort', abortListener, { once: true });
+      }
+
       child.stdout.on('data', (d) => {
         stdout += d.toString('utf-8');
       });
@@ -811,6 +838,9 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
       child.on('close', (code) => {
         if (killed) return;
         clearTimeout(timer);
+        if (abortSignal && abortListener) {
+          abortSignal.removeEventListener('abort', abortListener);
+        }
         resolve({
           stdout: stdout || '',
           stderr: stderr || '',
@@ -821,6 +851,9 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
       child.on('error', (err) => {
         if (killed) return;
         clearTimeout(timer);
+        if (abortSignal && abortListener) {
+          abortSignal.removeEventListener('abort', abortListener);
+        }
         resolve({
           stdout: '',
           stderr: err.message,
@@ -833,6 +866,9 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
         child.stdin.end();
       } catch (writeErr: any) {
         clearTimeout(timer);
+        if (abortSignal && abortListener) {
+          abortSignal.removeEventListener('abort', abortListener);
+        }
         resolve({
           stdout: '',
           stderr: writeErr.message,

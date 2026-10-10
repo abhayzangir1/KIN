@@ -208,6 +208,18 @@ export class AgentLoopRunner {
 
       currentTurn++;
 
+      // Check for mid-task steering directives at turn boundary
+      if (options.getSteerDirectives) {
+        const turnSteers = options.getSteerDirectives();
+        if (turnSteers && turnSteers.length > 0) {
+          const steerNotes = turnSteers.map((s) => `- "${s}"`).join('\n');
+          conversationHistory.push({
+            role: 'user',
+            content: `⚠️ [PRIORITY MID-EXECUTION STEERING DIRECTIVE FROM HUMAN OPERATOR]:\n${steerNotes}\nThe human operator redirected the active task in real-time. Immediately adapt your plan, acknowledge what was previously being done, and pivot to address this priority instruction.`,
+          });
+        }
+      }
+
       // Multi-turn context compaction to prevent prompt context bloat
       if (conversationHistory.length > 4) {
         const estimatedTokens = conversationHistory.reduce((acc, m) => acc + Math.ceil(m.content.length / 4), 0);
@@ -382,6 +394,7 @@ export class AgentLoopRunner {
       let watchdogTimer: NodeJS.Timeout | null = null;
 
       let modelLeaseLost = false;
+      let abortSignal: AbortSignal | undefined;
       try {
         watchdogTimer = setInterval(async () => {
           if (Date.now() - invokeStartTime > maxCeilingMs) {
@@ -410,7 +423,7 @@ export class AgentLoopRunner {
           (watchdogTimer as any).unref();
         }
 
-        let abortSignal = options.getAbortSignal ? options.getAbortSignal() : undefined;
+        abortSignal = options.getAbortSignal ? options.getAbortSignal() : undefined;
         if (abortSignal?.aborted && options.renewAbortSignal) {
           abortSignal = options.renewAbortSignal();
         }
@@ -455,6 +468,7 @@ export class AgentLoopRunner {
         const isAbort =
           err?.name === 'AbortError' ||
           err === 'steer' ||
+          (abortSignal && abortSignal.aborted) ||
           (options.getAbortSignal && options.getAbortSignal()?.aborted);
 
         if (isAbort) {
@@ -661,6 +675,11 @@ export class AgentLoopRunner {
         : (options.agentId === 'agent-boss' ? ['*'] : ['fs:read', 'fs:write', 'agent:hire', 'agent:delegate']);
 
       // Route to ToolGateway
+      let toolAbortSignal = options.getAbortSignal ? options.getAbortSignal() : undefined;
+      if (toolAbortSignal?.aborted && options.renewAbortSignal) {
+        toolAbortSignal = options.renewAbortSignal();
+      }
+
       const toolCtx: ToolExecutionContext = {
         runId: options.runId,
         agentId: options.agentId,
@@ -669,7 +688,28 @@ export class AgentLoopRunner {
         worktreeRoot: options.worktreeRoot,
         autonomyMode: options.autonomyMode,
         allowedCapabilities: effectiveCapabilities,
+        abortSignal: toolAbortSignal,
       };
+
+      // Check if already aborted before invoking tool
+      if (toolAbortSignal?.aborted) {
+        if (options.renewAbortSignal) {
+          try { options.renewAbortSignal(); } catch {}
+        }
+        let steerDirectives: string[] = [];
+        if (options.getSteerDirectives) {
+          steerDirectives = options.getSteerDirectives() || [];
+        }
+        if (steerDirectives.length > 0) {
+          const steerNotes = steerDirectives.map((s) => `- "${s}"`).join('\n');
+          conversationHistory.push({ role: 'assistant', content });
+          conversationHistory.push({
+            role: 'user',
+            content: `⚠️ [PRIORITY MID-EXECUTION STEERING DIRECTIVE FROM HUMAN OPERATOR]:\n${steerNotes}\nThe human operator redirected the active task in real-time. Immediately adapt your plan, acknowledge what was previously being done, and pivot to address this priority instruction.`,
+          });
+          continue;
+        }
+      }
 
         let toolWatchdogTimer: NodeJS.Timeout | null = null;
         let toolLeaseLost = false;
@@ -704,6 +744,67 @@ export class AgentLoopRunner {
             clearInterval(toolWatchdogTimer);
             toolWatchdogTimer = null;
           }
+        }
+
+        const wasToolAborted =
+          (toolAbortSignal && toolAbortSignal.aborted) ||
+          (options.getAbortSignal && options.getAbortSignal()?.aborted) ||
+          (res.error && (
+            res.error.includes('cancelled by operator via AbortSignal') ||
+            res.error.includes('AbortSignal is already triggered')
+          ));
+
+        if (wasToolAborted) {
+          toolError = res.error || 'Tool execution cancelled by operator via AbortSignal.';
+          const durationMs = Date.now() - startTime;
+          actions.push({
+            toolName: toolCall.name,
+            params: toolCall.params,
+            output: undefined,
+            error: toolError,
+            durationMs,
+          });
+
+          if (options.onToolEnd) {
+            options.onToolEnd(toolCall.name, undefined, toolError);
+          }
+
+          if (options.renewAbortSignal) {
+            try { options.renewAbortSignal(); } catch {}
+          }
+
+          let steerDirectives: string[] = [];
+          if (options.getSteerDirectives) {
+            steerDirectives = options.getSteerDirectives() || [];
+          }
+
+          conversationHistory.push({ role: 'assistant', content });
+          conversationHistory.push({
+            role: 'user',
+            content: `<observation>\n[TOOL EXECUTION CANCELLED]: Action '${toolCall.name}' was cancelled mid-flight by operator directive.\n</observation>`,
+          });
+
+          if (steerDirectives.length > 0) {
+            const steerNotes = steerDirectives.map((s) => `- "${s}"`).join('\n');
+            conversationHistory.push({
+              role: 'user',
+              content: `⚠️ [PRIORITY MID-EXECUTION STEERING DIRECTIVE FROM HUMAN OPERATOR]:\n${steerNotes}\nThe human operator redirected the active task in real-time while '${toolCall.name}' was executing. Immediately adapt your plan, acknowledge what was previously being done, and pivot to address this priority instruction.`,
+            });
+            continue;
+          }
+
+          const takeover = options.checkTakeoverStatus ? options.checkTakeoverStatus() : 'continue';
+          if (takeover === 'abort') {
+            return {
+              finalContent: `Execution halted: Operator intervened and terminated the run during execution of tool '${toolCall.name}'.`,
+              turnCount: currentTurn,
+              actions,
+              isAborted: true,
+              reason: `Operator abort takeover during tool execution.`,
+            };
+          }
+
+          continue;
         }
 
         if (toolLeaseLost) {

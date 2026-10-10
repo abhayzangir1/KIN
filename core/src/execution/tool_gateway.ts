@@ -1059,6 +1059,13 @@ export class ToolGateway {
 
         // Unified Computer Use Capability (First-class Desktop GUI Automation)
         case 'computer': {
+          if (context.abortSignal?.aborted) {
+            return {
+              success: false,
+              error: 'Desktop execution cancelled by operator via AbortSignal.',
+              riskLevel: risk,
+            };
+          }
           const action = params.action;
           switch (action) {
             case 'screenshot': {
@@ -1071,7 +1078,7 @@ export class ToolGateway {
                 const coords = params.coordinate || [params.x, params.y];
                 const x = coords[0] ?? params.x;
                 const y = coords[1] ?? params.y;
-                const res = await this.desktopController.mouseMove(x, y);
+                const res = await this.desktopController.mouseMove(x, y, { abortSignal: context.abortSignal });
                 return { success: res.success, output: res as T, error: res.error, riskLevel: risk };
               });
             }
@@ -1087,6 +1094,7 @@ export class ToolGateway {
                 const res = await this.desktopController.mouseClick(x, y, {
                   button: params.button || 'left',
                   doubleClick: false,
+                  abortSignal: context.abortSignal,
                 });
                 return { success: res.success, output: res as T, error: res.error, riskLevel: risk };
               });
@@ -1102,6 +1110,7 @@ export class ToolGateway {
                 const res = await this.desktopController.mouseClick(x, y, {
                   button: 'right',
                   doubleClick: false,
+                  abortSignal: context.abortSignal,
                 });
                 return { success: res.success, output: res as T, error: res.error, riskLevel: risk };
               });
@@ -1117,19 +1126,20 @@ export class ToolGateway {
                 const res = await this.desktopController.mouseClick(x, y, {
                   button: 'left',
                   doubleClick: true,
+                  abortSignal: context.abortSignal,
                 });
                 return { success: res.success, output: res as T, error: res.error, riskLevel: risk };
               });
             }
             case 'type': {
               return this.executeWithDesktopLock(context, async () => {
-                const res = await this.desktopController.typeText(params.text || '');
+                const res = await this.desktopController.typeText(params.text || '', context.abortSignal);
                 return { success: res.success, output: res as T, error: res.error, riskLevel: risk };
               });
             }
             case 'key': {
               return this.executeWithDesktopLock(context, async () => {
-                const res = await this.desktopController.sendKey(params.key, params.modifiers || []);
+                const res = await this.desktopController.sendKey(params.key, params.modifiers || [], context.abortSignal);
                 return { success: res.success, output: res as T, error: res.error, riskLevel: risk };
               });
             }
@@ -1147,6 +1157,13 @@ export class ToolGateway {
 
         // Unified Application Control Capability (VS Code, WhatsApp, Browsers, etc.)
         case 'application': {
+          if (context.abortSignal?.aborted) {
+            return {
+              success: false,
+              error: 'Application execution cancelled by operator via AbortSignal.',
+              riskLevel: risk,
+            };
+          }
           const action = params.action || 'list';
           switch (action) {
             case 'list':
@@ -1169,14 +1186,14 @@ export class ToolGateway {
             case 'focus': {
               return this.executeWithDesktopLock(context, async () => {
                 const target = params.target || params.titleOrPid || params.title || params.pid;
-                const res = await this.desktopController.focusWindow(target);
+                const res = await this.desktopController.focusWindow(target, context.abortSignal);
                 return { success: res.success, output: res as T, error: res.error, riskLevel: risk };
               });
             }
             case 'close': {
               return this.executeWithDesktopLock(context, async () => {
                 const target = params.target || params.titleOrPid || params.title || params.pid;
-                const res = await this.desktopController.closeWindow(target);
+                const res = await this.desktopController.closeWindow(target, context.abortSignal);
                 return { success: res.success, output: res as T, error: res.error, riskLevel: risk };
               });
             }
@@ -1187,6 +1204,13 @@ export class ToolGateway {
 
         // Unified Persistent Browser Automation Capability
         case 'browser': {
+          if (context.abortSignal?.aborted) {
+            return {
+              success: false,
+              error: 'Browser execution cancelled by operator via AbortSignal.',
+              riskLevel: risk,
+            };
+          }
           const bc = await this.getEffectiveBrowserController(context);
           const action = params.action || 'navigate';
           switch (action) {
@@ -1227,7 +1251,7 @@ export class ToolGateway {
                 script: params.script,
                 coordinates: params.coordinates,
               };
-              const res = await bc.executeStep(stepAction);
+              const res = await bc.executeStep(stepAction, context.abortSignal);
               return { success: res.success, output: res as T, error: res.error, riskLevel: risk };
             }
             case 'close': {
@@ -2131,6 +2155,23 @@ export class ToolGateway {
       );
 
       if (abortSignal) {
+        if (abortSignal.aborted) {
+          hasAborted = true;
+          try {
+            if (child.pid) {
+              if (isWin) {
+                exec(`taskkill /pid ${child.pid} /T /F`);
+              } else {
+                try {
+                  exec(`pkill -P ${child.pid}`);
+                } catch {}
+                child.kill('SIGKILL');
+              }
+            }
+          } catch {}
+          return reject(new Error('Shell execution cancelled by operator via AbortSignal.'));
+        }
+
         abortSignal.addEventListener('abort', () => {
           hasAborted = true;
           try {
@@ -2138,6 +2179,9 @@ export class ToolGateway {
               if (isWin) {
                 exec(`taskkill /pid ${child.pid} /T /F`);
               } else {
+                try {
+                  exec(`pkill -P ${child.pid}`);
+                } catch {}
                 child.kill('SIGKILL');
               }
             }

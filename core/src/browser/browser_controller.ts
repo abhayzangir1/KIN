@@ -558,8 +558,11 @@ export class BrowserController {
   /**
    * Executes a structured web automation step with state and trajectory tracking.
    */
-  public async executeStep(stepAction: WebStepAction): Promise<WebStepResult> {
+  public async executeStep(stepAction: WebStepAction, abortSignal?: AbortSignal): Promise<WebStepResult> {
     const startTime = Date.now();
+    if (abortSignal?.aborted) {
+      return this.recordStep(stepAction, false, null, 'Browser step cancelled by operator via AbortSignal.', 0);
+    }
     try {
       const { page } = await this.ensureBrowser();
       let output: any = null;
@@ -617,7 +620,22 @@ export class BrowserController {
           break;
         }
         case 'wait': {
-          await new Promise((r) => setTimeout(r, 1500));
+          if (abortSignal?.aborted) throw new Error('Browser step cancelled by operator via AbortSignal.');
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(() => {
+              if (cleanup) cleanup();
+              resolve();
+            }, 1500);
+            let cleanup: (() => void) | undefined;
+            if (abortSignal) {
+              const onAbort = () => {
+                clearTimeout(timer);
+                reject(new Error('Browser step cancelled by operator via AbortSignal.'));
+              };
+              abortSignal.addEventListener('abort', onAbort, { once: true });
+              cleanup = () => abortSignal.removeEventListener('abort', onAbort);
+            }
+          });
           output = { waitedMs: 1500 };
           break;
         }

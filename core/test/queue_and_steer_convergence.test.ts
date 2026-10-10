@@ -398,5 +398,134 @@ describe('Message Queuing & Mid-Execution Steering Convergence', () => {
       expect(result.turnCount).toBe(2);
       expect(turnCount).toBe(2);
     });
+
+    it('ToolGateway handleExecuteShell cancels in-flight process tree immediately when AbortSignal triggers', async () => {
+      const { ToolGateway } = await import('../src/execution/tool_gateway.js');
+      const gateway = new ToolGateway(server.getDatabase());
+      const abortCtrl = new AbortController();
+
+      const isWin = process.platform === 'win32';
+      const longCommand = isWin ? 'ping 127.0.0.1 -n 30' : 'sleep 30';
+
+      const startTime = Date.now();
+      const execPromise = (gateway as any).handleExecuteShell(longCommand, process.cwd(), 30000, abortCtrl.signal);
+
+      // Trigger steer abort after 50ms while command is actively running
+      setTimeout(() => {
+        abortCtrl.abort('steer');
+      }, 50);
+
+      await expect(execPromise).rejects.toThrow(/Shell execution cancelled by operator via AbortSignal/);
+      const elapsedMs = Date.now() - startTime;
+
+      // Must terminate child process in well under 3000ms (not waiting 30000ms timeout)
+      expect(elapsedMs).toBeLessThan(3000);
+    });
+
+    it('AgentLoopRunner terminates in-flight tool immediately on steer abort, records cancellation, and pivots on turn 2', async () => {
+      const { AgentLoopRunner } = await import('../src/kernel/agent_loop.js');
+
+      let turnCount = 0;
+      let abortController = new AbortController();
+      let toolExecutionStarted = false;
+
+      const mockModelGateway: any = {
+        invoke: async (params: any) => {
+          turnCount++;
+          if (turnCount === 1) {
+            // Turn 1: Model requests long-running tool execution
+            return {
+              content: '<tool_call>{"name": "executeShell", "parameters": {"command": "sleep 30"}}</tool_call>',
+              tokensUsed: { promptTokens: 10, completionTokens: 15, totalTokens: 25 },
+              durationMs: 50,
+            };
+          }
+          // Turn 2: Model receives cancelled observation and human steering directive
+          expect(params.signal?.aborted).toBeFalsy();
+          expect(params.messages.some((m: any) => m.content.includes('[TOOL EXECUTION CANCELLED]'))).toBe(true);
+          expect(params.messages.some((m: any) => m.content.includes('PRIORITY MID-EXECUTION STEERING DIRECTIVE'))).toBe(true);
+          return {
+            content: 'Acknowledged cancellation of sleep tool and pivoted to address steer directive.',
+            tokensUsed: { promptTokens: 15, completionTokens: 20, totalTokens: 35 },
+            durationMs: 50,
+          };
+        },
+      };
+
+      const mockToolGateway: any = {
+        getToolSchemas: () => [{ name: 'executeShell', description: 'Executes shell command' }],
+        getBrowserController: () => ({ getStatus: () => ({ currentUrl: '', pageTitle: '' }) }),
+        executeTool: async (toolName: string, params: any, context: any) => {
+          toolExecutionStarted = true;
+          // Simulate in-flight long-running tool that listens to context.abortSignal
+          return new Promise((resolve) => {
+            const signal = context.abortSignal;
+            if (signal?.aborted) {
+              return resolve({
+                success: false,
+                error: 'Shell execution cancelled by operator via AbortSignal.',
+                riskLevel: 'LOW',
+              });
+            }
+            if (signal) {
+              signal.addEventListener('abort', () => {
+                resolve({
+                  success: false,
+                  error: 'Shell execution cancelled by operator via AbortSignal.',
+                  riskLevel: 'LOW',
+                });
+              }, { once: true });
+            }
+          });
+        },
+      };
+
+      const loopRunner = new AgentLoopRunner(
+        mockModelGateway,
+        mockToolGateway,
+        {} as any,
+        { matchSkills: () => [] } as any
+      );
+
+      let steerDrained = false;
+      const startTime = Date.now();
+
+      // Trigger steer abort after 50ms while tool is executing
+      setTimeout(() => {
+        expect(toolExecutionStarted).toBe(true);
+        abortController.abort('steer');
+      }, 50);
+
+      const result = await loopRunner.execute({
+        modelId: 'ollama/llama3',
+        userPrompt: 'Run build command',
+        systemPrompt: 'System instructions',
+        worktreeRoot: process.cwd(),
+        autonomyMode: 'AUTO',
+        maxTurns: 3,
+        allowedCapabilities: ['*'],
+        getAbortSignal: () => abortController.signal,
+        renewAbortSignal: () => {
+          abortController = new AbortController();
+          return abortController.signal;
+        },
+        getSteerDirectives: () => {
+          if (!steerDrained) {
+            steerDrained = true;
+            return ['Operator priority steer: Cancel build and check git status instead'];
+          }
+          return [];
+        },
+      });
+
+      const elapsedMs = Date.now() - startTime;
+      expect(elapsedMs).toBeLessThan(3000); // Did not wait for timeout
+      expect(result.turnCount).toBe(2);
+      expect(turnCount).toBe(2);
+      expect(result.actions.length).toBe(1);
+      expect(result.actions[0].toolName).toBe('executeShell');
+      expect(result.actions[0].error).toContain('cancelled by operator via AbortSignal');
+      expect(result.finalContent).toContain('Acknowledged cancellation of sleep tool');
+    });
   });
 });
