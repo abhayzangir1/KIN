@@ -10,7 +10,9 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { exec } from 'node:child_process';
 import { v4 as uuidv4 } from 'uuid';
-import { AutonomyMode, RiskLevel } from '../domain/types.js';
+import { AutonomyMode, RiskLevel, AgentIdentity } from '../domain/types.js';
+import { MemoryRepository } from '../domain/memory_repository.js';
+import { AgentRepository } from '../domain/agent_repository.js';
 import { DesktopController } from '../computer/desktop_controller.js';
 import { BrowserController, WebStepAction } from '../browser/browser_controller.js';
 import { FinancialSafetyShield } from '../policy/financial_safety.js';
@@ -84,11 +86,44 @@ export class ToolGateway {
   private computerSupervisor?: ComputerSupervisor;
   private skillEngine?: SkillEngine;
   private mcpClient?: McpClientManager;
+  private memoryRepo?: MemoryRepository;
+  private agentRepo?: AgentRepository;
   private agentHiredCallback?: (agent: any, channelId?: string) => void;
+  private directMessageCallback?: (params: { senderAgentId: string; recipientAgentId: string; projectId: string; content: string }) => Promise<{ channelId: string }>;
+  private assignCoworkerCallback?: (coworker: AgentIdentity, channelId: string) => void;
+  private callMeetingCallback?: (params: { channelId: string; topic: string; agenda: string; participantIds: string[] }) => void;
   private singleUseApprovalTokens: Map<string, { toolName: string; runId?: string; expiresAt: number }> = new Map();
 
   public setAgentHiredCallback(cb: (agent: any, channelId?: string) => void): void {
     this.agentHiredCallback = cb;
+  }
+
+  public setDirectMessageCallback(cb: (params: { senderAgentId: string; recipientAgentId: string; projectId: string; content: string }) => Promise<{ channelId: string }>): void {
+    this.directMessageCallback = cb;
+  }
+
+  public setAssignCoworkerCallback(cb: (coworker: AgentIdentity, channelId: string) => void): void {
+    this.assignCoworkerCallback = cb;
+  }
+
+  public setCallMeetingCallback(cb: (params: { channelId: string; topic: string; agenda: string; participantIds: string[] }) => void): void {
+    this.callMeetingCallback = cb;
+  }
+
+  public setMemoryRepository(repo: MemoryRepository): void {
+    this.memoryRepo = repo;
+  }
+
+  public getMemoryRepository(): MemoryRepository | undefined {
+    return this.memoryRepo;
+  }
+
+  public setAgentRepository(repo: AgentRepository): void {
+    this.agentRepo = repo;
+  }
+
+  public getAgentRepository(): AgentRepository | undefined {
+    return this.agentRepo;
   }
 
   constructor(options?: {
@@ -101,6 +136,8 @@ export class ToolGateway {
     skillEngine?: SkillEngine;
     policyEngine?: PolicyEngine;
     mcpClient?: McpClientManager;
+    memoryRepo?: MemoryRepository;
+    agentRepo?: AgentRepository;
   }) {
     this.desktopController = options?.desktopController ?? new DesktopController();
     this.browserController = options?.browserController ?? new BrowserController();
@@ -111,6 +148,8 @@ export class ToolGateway {
     this.computerSupervisor = options?.computerSupervisor;
     this.skillEngine = options?.skillEngine;
     this.mcpClient = options?.mcpClient;
+    this.memoryRepo = options?.memoryRepo ?? (this.db ? new MemoryRepository(this.db) : undefined);
+    this.agentRepo = options?.agentRepo ?? (this.db ? new AgentRepository(this.db) : undefined);
   }
 
   public setPolicyEngine(policyEngine: PolicyEngine): void {
@@ -492,6 +531,94 @@ export class ToolGateway {
           required: ['hash'],
         },
       },
+      {
+        name: 'rememberPrivate',
+        description: 'Record a private thought, learned insight, or personal working scratchpad in agent-private memory scope.',
+        parameters: {
+          type: 'object',
+          properties: {
+            key: { type: 'string', description: 'Unique identifier or key for this private memory' },
+            value: { description: 'Value, reflection, or note to store' },
+            type: { type: 'string', description: 'Optional memory type (e.g. working_state, semantic, episodic)' },
+          },
+          required: ['key', 'value'],
+        },
+      },
+      {
+        name: 'recallPrivate',
+        description: 'Query personal private memories recorded by this agent identity.',
+        parameters: {
+          type: 'object',
+          properties: {
+            key: { type: 'string', description: 'Optional specific memory key to look up' },
+            type: { type: 'string', description: 'Optional memory type filter' },
+          },
+        },
+      },
+      {
+        name: 'rememberProject',
+        description: 'Record or propose shared project-level knowledge, decision, or architectural note in project memory scope.',
+        parameters: {
+          type: 'object',
+          properties: {
+            key: { type: 'string', description: 'Identifier or topic for this project memory' },
+            value: { description: 'Knowledge or decision content to record' },
+            type: { type: 'string', description: 'Optional memory type (e.g. semantic, decision, procedural)' },
+          },
+          required: ['key', 'value'],
+        },
+      },
+      {
+        name: 'sendDirectMessage',
+        description: 'Initiate or reply to a private 1-on-1 direct message with another coworker in this project. Non-member agents cannot access this conversation.',
+        parameters: {
+          type: 'object',
+          properties: {
+            recipient: { type: 'string', description: 'Name or ID of coworker agent in this project (e.g. @Architect, @QA)' },
+            message: { type: 'string', description: 'Message or instruction content for the recipient agent' },
+          },
+          required: ['recipient', 'message'],
+        },
+      },
+      {
+        name: 'assignCoworker',
+        description: 'Assign an existing coworker agent from this project into a conversation channel.',
+        parameters: {
+          type: 'object',
+          properties: {
+            coworker: { type: 'string', description: 'Name or ID of existing project coworker (e.g. @Developer, @QA)' },
+            channelId: { type: 'string', description: 'Target channel ID (defaults to current channel)' },
+          },
+          required: ['coworker'],
+        },
+      },
+      {
+        name: 'callMeeting',
+        description: 'Convene a dedicated department or meeting channel with an agenda and invited project coworkers.',
+        parameters: {
+          type: 'object',
+          properties: {
+            topic: { type: 'string', description: 'Short meeting title or topic slug (e.g. architecture-sync, security-review)' },
+            agenda: { type: 'string', description: 'Discussion agenda and objectives for the meeting' },
+            participants: { type: 'array', items: { type: 'string' }, description: 'Coworker agent names or IDs to invite' },
+          },
+          required: ['topic'],
+        },
+      },
+      {
+        name: 'delegateToAgent',
+        description: 'Delegate a task to a project coworker either in the current channel or via private direct message.',
+        parameters: {
+          type: 'object',
+          properties: {
+            agent: { type: 'string', description: 'Target coworker agent name or ID' },
+            instruction: { type: 'string', description: 'Task instructions and expected deliverables' },
+            private: { type: 'boolean', description: 'Whether to deliver via private direct message (default: false)' },
+            channelId: { type: 'string', description: 'Target channel if delegating publicly' },
+          },
+          required: ['agent', 'instruction'],
+        },
+      },
     ];
 
     if (this.skillEngine) {
@@ -583,18 +710,35 @@ export class ToolGateway {
       case 'listSchedules':
         return { primary: 'schedule:cron', aliases: ['schedule:cron', 'schedule', 'cron'] };
 
+      case 'rememberPrivate':
+      case 'recallPrivate':
+      case 'rememberProject':
+      case 'remember_private':
+      case 'recall_private':
+      case 'remember_project':
+        return { primary: 'memory:manage', aliases: ['memory:manage', 'memory:write', 'memory:read', 'memory', 'agent:coordinate', '*'] };
+
+      case 'sendDirectMessage':
+      case 'send_direct_message':
+      case 'directMessage':
       case 'delegateToAgent':
       case 'delegate_to_agent':
       case 'coordinateWithAgent':
       case 'coordinate_with_agent':
       case 'delegateTask':
       case 'delegate':
-        return { primary: 'agent:delegate', aliases: ['agent:delegate', 'delegate', 'agent', 'coordinateWithAgent', 'coordinate_with_agent', 'delegate_to_agent', 'delegateTask'] };
+        return { primary: 'agent:delegate', aliases: ['agent:delegate', 'delegate', 'agent', 'sendDirectMessage', 'send_direct_message', 'coordinateWithAgent', 'coordinate_with_agent', 'delegate_to_agent', 'delegateTask', '*'] };
 
       case 'hireSpecialist':
       case 'hire_specialist':
       case 'hireAgent':
-        return { primary: 'agent:hire', aliases: ['agent:hire', 'agent:delegate', 'agent', 'hire', 'hireSpecialist', 'hire_specialist', 'hireAgent', '*'] };
+      case 'assignCoworker':
+      case 'assign_coworker':
+      case 'inviteToChannel':
+      case 'callMeeting':
+      case 'call_meeting':
+      case 'conveneMeeting':
+        return { primary: 'agent:hire', aliases: ['agent:hire', 'agent:delegate', 'agent', 'hire', 'hireSpecialist', 'hire_specialist', 'hireAgent', 'assignCoworker', 'assign_coworker', 'callMeeting', 'call_meeting', '*'] };
 
       default:
         return { primary: 'fs:read', aliases: ['fs:read', 'fs_read', 'read', 'fs'] };
@@ -1401,10 +1545,34 @@ export class ToolGateway {
         case 'coordinate_with_agent':
         case 'delegateTask':
         case 'delegate': {
-          const target = params.targetAgent || params.agentName || params.target || params.agent;
-          const directive = params.directive || params.instructions || params.task || params.message;
+          const target = params.targetAgent || params.agentName || params.target || params.agent || params.coworker;
+          const directive = params.directive || params.instructions || params.task || params.message || params.instruction;
+          const isPrivate = Boolean(params.private || params.directMessage || params.isPrivate);
           if (!target || !directive) {
-            throw new Error("delegateToAgent requires 'targetAgent' and 'directive' parameters");
+            throw new Error("delegateToAgent requires 'targetAgent' (or 'agent') and 'directive' (or 'instruction') parameters");
+          }
+          if (isPrivate) {
+            return await this.dispatchToolExecution<T>(
+              'sendDirectMessage',
+              { recipient: target, message: directive },
+              context,
+              risk
+            );
+          }
+          const targetProjectId = context.projectId || 'proj-kin';
+          const channelId = params.channelId || context.channelId || 'chan-general';
+          let coworker: AgentIdentity | undefined;
+          if (this.agentRepo) {
+            coworker = this.agentRepo.getIdentityByProjectAndName(targetProjectId, String(target))
+              || this.agentRepo.getIdentity(String(target));
+          }
+          if (this.db && coworker) {
+            this.db.execute(
+              `INSERT OR IGNORE INTO channel_members (channel_id, agent_id, joined_at) VALUES (?, ?, ?)`,
+              channelId,
+              coworker.id,
+              Date.now()
+            );
           }
           return {
             success: true,
@@ -1412,7 +1580,7 @@ export class ToolGateway {
               delegated: true,
               targetAgent: target,
               directive,
-              channelId: params.channelId,
+              channelId,
               message: `Delegation directive dispatched to ${target}: "${directive}"`,
             } as T,
             riskLevel: risk,
@@ -1487,8 +1655,7 @@ export class ToolGateway {
           if (this.db) {
             const existing = this.db.queryOne<{ id: string; definition_id: string; display_name: string; active_model_id: string }>(
               `SELECT id, definition_id, display_name, active_model_id FROM agent_identities 
-               WHERE (project_id = ? OR (id = 'agent-boss' AND is_orchestrator = 1))
-                 AND display_name = ? COLLATE NOCASE`,
+               WHERE project_id = ? AND display_name = ? COLLATE NOCASE`,
               projectId,
               normalizedName
             );
@@ -1602,6 +1769,310 @@ export class ToolGateway {
           };
         }
 
+        case 'rememberPrivate':
+        case 'remember_private': {
+          const key = params.key || params.title;
+          const value = params.value ?? params.content ?? params.thought;
+          const type = params.type || 'working_state';
+          if (!key) {
+            throw new Error("rememberPrivate requires 'key' parameter");
+          }
+          if (this.memoryRepo) {
+            this.memoryRepo.setMemory({
+              scope: 'agent_private',
+              scopeId: context.agentId,
+              key,
+              value,
+              type,
+            });
+          }
+          return {
+            success: true,
+            output: {
+              remembered: true,
+              scope: 'agent_private',
+              agentId: context.agentId,
+              key,
+              value,
+              message: `Recorded private memory '${key}' for agent ${context.agentId}.`,
+            } as T,
+            riskLevel: risk,
+          };
+        }
+
+        case 'recallPrivate':
+        case 'recall_private': {
+          const key = params.key;
+          const type = params.type;
+          let memories: any[] = [];
+          if (this.memoryRepo) {
+            if (key) {
+              const mem = this.memoryRepo.getMemory('agent_private', context.agentId, key);
+              if (mem) memories = [mem];
+            } else {
+              memories = this.memoryRepo.listMemories('agent_private', context.agentId, type);
+            }
+          }
+          return {
+            success: true,
+            output: {
+              memories: memories.map((m) => ({ key: m.key, type: m.type, value: m.value, updatedAt: m.updatedAt })),
+              count: memories.length,
+            } as T,
+            riskLevel: risk,
+          };
+        }
+
+        case 'rememberProject':
+        case 'remember_project': {
+          const key = params.key || params.title;
+          const value = params.value ?? params.decision ?? params.content;
+          const type = params.type || 'semantic';
+          const targetProjectId = context.projectId || 'proj-kin';
+          if (!key) {
+            throw new Error("rememberProject requires 'key' parameter");
+          }
+          if (this.memoryRepo) {
+            this.memoryRepo.setMemory({
+              scope: 'project',
+              scopeId: targetProjectId,
+              key,
+              value,
+              type,
+            });
+          }
+          return {
+            success: true,
+            output: {
+              remembered: true,
+              scope: 'project',
+              projectId: targetProjectId,
+              key,
+              value,
+              message: `Recorded project knowledge '${key}' in project ${targetProjectId}.`,
+            } as T,
+            riskLevel: risk,
+          };
+        }
+
+        case 'sendDirectMessage':
+        case 'send_direct_message':
+        case 'directMessage': {
+          const rawRecipient = params.recipient || params.recipientAgent || params.recipientId || params.targetAgent;
+          const content = params.message || params.content;
+          if (!rawRecipient || !content) {
+            throw new Error("sendDirectMessage requires 'recipient' and 'message' parameters");
+          }
+          const targetProjectId = context.projectId || 'proj-kin';
+          let recipientAgent: AgentIdentity | undefined;
+          if (this.agentRepo) {
+            recipientAgent = this.agentRepo.getIdentityByProjectAndName(targetProjectId, String(rawRecipient))
+              || this.agentRepo.getIdentity(String(rawRecipient));
+          }
+          if (!recipientAgent || recipientAgent.projectId !== targetProjectId) {
+            throw new Error(`Coworker '${rawRecipient}' not found in project '${targetProjectId}'. Cannot send direct message across project boundary.`);
+          }
+
+          let dmChannelId = '';
+          if (this.directMessageCallback) {
+            const cbRes = await this.directMessageCallback({
+              senderAgentId: context.agentId,
+              recipientAgentId: recipientAgent.id,
+              projectId: targetProjectId,
+              content: String(content),
+            });
+            dmChannelId = cbRes?.channelId || '';
+          } else if (this.db) {
+            const [minId, maxId] = [context.agentId, recipientAgent.id].sort();
+            dmChannelId = `dm-${minId}-${maxId}`;
+            const now = Date.now();
+            this.db.execute(
+              `INSERT OR IGNORE INTO channels (id, project_id, name, topic, is_private, channel_type, created_at)
+               VALUES (?, ?, ?, ?, 1, 'direct_message', ?)`,
+              dmChannelId,
+              targetProjectId,
+              `DM: ${context.agentId} ↔ ${recipientAgent.displayName}`,
+              `Private 1-on-1 direct message between ${context.agentId} and ${recipientAgent.displayName}`,
+              now
+            );
+            this.db.execute(
+              `INSERT OR IGNORE INTO channel_members (channel_id, agent_id, joined_at) VALUES (?, ?, ?)`,
+              dmChannelId,
+              context.agentId,
+              now
+            );
+            this.db.execute(
+              `INSERT OR IGNORE INTO channel_members (channel_id, agent_id, joined_at) VALUES (?, ?, ?)`,
+              dmChannelId,
+              recipientAgent.id,
+              now
+            );
+            this.db.execute(
+              `INSERT INTO messages (id, channel_id, sender_id, sender_type, content, mentions_json, productivity_score, created_at)
+               VALUES (?, ?, ?, 'agent', ?, '[]', 100, ?)`,
+              `msg-${uuidv4()}`,
+              dmChannelId,
+              context.agentId,
+              String(content),
+              now
+            );
+          }
+
+          return {
+            success: true,
+            output: {
+              sent: true,
+              channelId: dmChannelId,
+              recipientId: recipientAgent.id,
+              recipientName: recipientAgent.displayName,
+              message: `Sent private direct message to ${recipientAgent.displayName} in channel #${dmChannelId}.`,
+            } as T,
+            riskLevel: risk,
+          };
+        }
+
+        case 'assignCoworker':
+        case 'assign_coworker':
+        case 'inviteToChannel': {
+          const rawCoworker = params.coworker || params.agentName || params.agentId;
+          const targetChannelId = params.channelId || context.channelId;
+          if (!rawCoworker) {
+            throw new Error("assignCoworker requires 'coworker' parameter");
+          }
+          if (!targetChannelId) {
+            throw new Error("assignCoworker requires 'channelId' parameter");
+          }
+          const targetProjectId = context.projectId || 'proj-kin';
+          let coworker: AgentIdentity | undefined;
+          if (this.agentRepo) {
+            coworker = this.agentRepo.getIdentityByProjectAndName(targetProjectId, String(rawCoworker))
+              || this.agentRepo.getIdentity(String(rawCoworker));
+          }
+          if (!coworker || coworker.projectId !== targetProjectId) {
+            throw new Error(`Coworker '${rawCoworker}' not found in project '${targetProjectId}'. Agents cannot cross project boundaries.`);
+          }
+
+          const now = Date.now();
+          if (this.db) {
+            this.db.execute(
+              `INSERT OR IGNORE INTO channel_members (channel_id, agent_id, joined_at) VALUES (?, ?, ?)`,
+              targetChannelId,
+              coworker.id,
+              now
+            );
+          }
+
+          if (this.assignCoworkerCallback) {
+            try {
+              this.assignCoworkerCallback(coworker, targetChannelId);
+            } catch (cbErr) {
+              console.warn('[TOOL GATEWAY] assignCoworkerCallback error:', cbErr);
+            }
+          }
+
+          return {
+            success: true,
+            output: {
+              assigned: true,
+              agentId: coworker.id,
+              displayName: coworker.displayName,
+              channelId: targetChannelId,
+              message: `Assigned coworker ${coworker.displayName} to channel #${targetChannelId}.`,
+            } as T,
+            riskLevel: risk,
+          };
+        }
+
+        case 'callMeeting':
+        case 'call_meeting':
+        case 'conveneMeeting': {
+          const rawTopic = params.topic || params.name || params.title;
+          const agenda = params.agenda || params.description || '';
+          const participants = Array.isArray(params.participants) ? params.participants : (Array.isArray(params.coworkers) ? params.coworkers : []);
+          if (!rawTopic) {
+            throw new Error("callMeeting requires 'topic' parameter");
+          }
+          const targetProjectId = context.projectId || 'proj-kin';
+          const now = Date.now();
+          const slug = String(rawTopic).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+          const channelId = `chan-meeting-${slug || now}`;
+
+          const resolvedCoworkers: AgentIdentity[] = [];
+          if (this.agentRepo) {
+            for (const p of participants) {
+              const found = this.agentRepo.getIdentityByProjectAndName(targetProjectId, String(p))
+                || this.agentRepo.getIdentity(String(p));
+              if (found && found.projectId === targetProjectId) {
+                resolvedCoworkers.push(found);
+              }
+            }
+          }
+
+          if (this.db) {
+            this.db.execute(
+              `INSERT OR IGNORE INTO channels (id, project_id, name, topic, is_private, channel_type, created_at)
+               VALUES (?, ?, ?, ?, 0, 'meeting', ?)`,
+              channelId,
+              targetProjectId,
+              `meeting-${slug || 'session'}`,
+              agenda ? `${rawTopic}: ${agenda}` : String(rawTopic),
+              now
+            );
+            this.db.execute(
+              `INSERT OR IGNORE INTO channel_members (channel_id, agent_id, joined_at) VALUES (?, ?, ?)`,
+              channelId,
+              context.agentId,
+              now
+            );
+            for (const c of resolvedCoworkers) {
+              this.db.execute(
+                `INSERT OR IGNORE INTO channel_members (channel_id, agent_id, joined_at) VALUES (?, ?, ?)`,
+                channelId,
+                c.id,
+                now
+              );
+            }
+            if (agenda) {
+              this.db.execute(
+                `INSERT INTO messages (id, channel_id, sender_id, sender_type, content, mentions_json, productivity_score, created_at)
+                 VALUES (?, ?, ?, 'agent', ?, '[]', 100, ?)`,
+                `msg-${uuidv4()}`,
+                channelId,
+                context.agentId,
+                `📅 **Meeting Convened**: "${rawTopic}"\n\n**Agenda**: ${agenda}\n\n**Participants**: ${resolvedCoworkers.map((c) => c.displayName).join(', ') || 'All invited specialists'}`,
+                now
+              );
+            }
+          }
+
+          if (this.callMeetingCallback) {
+            try {
+              this.callMeetingCallback({
+                channelId,
+                topic: String(rawTopic),
+                agenda,
+                participantIds: [context.agentId, ...resolvedCoworkers.map((c) => c.id)],
+              });
+            } catch (cbErr) {
+              console.warn('[TOOL GATEWAY] callMeetingCallback error:', cbErr);
+            }
+          }
+
+          return {
+            success: true,
+            output: {
+              convened: true,
+              channelId,
+              topic: String(rawTopic),
+              agenda,
+              participants: resolvedCoworkers.map((c) => c.displayName),
+              participantCount: resolvedCoworkers.length + 1,
+              message: `Convened meeting channel #${channelId} with topic "${rawTopic}".`,
+            } as T,
+            riskLevel: risk,
+          };
+        }
+
         default:
           return {
             success: false,
@@ -1653,6 +2124,21 @@ export class ToolGateway {
       toolName === 'desktopListWindows' ||
       toolName === 'browserInspect' ||
       toolName === 'browserScreenshot' ||
+      toolName === 'rememberPrivate' ||
+      toolName === 'remember_private' ||
+      toolName === 'recallPrivate' ||
+      toolName === 'recall_private' ||
+      toolName === 'rememberProject' ||
+      toolName === 'remember_project' ||
+      toolName === 'sendDirectMessage' ||
+      toolName === 'send_direct_message' ||
+      toolName === 'directMessage' ||
+      toolName === 'assignCoworker' ||
+      toolName === 'assign_coworker' ||
+      toolName === 'inviteToChannel' ||
+      toolName === 'callMeeting' ||
+      toolName === 'call_meeting' ||
+      toolName === 'conveneMeeting' ||
       toolName === 'delegateToAgent' ||
       toolName === 'delegate_to_agent' ||
       toolName === 'coordinateWithAgent' ||

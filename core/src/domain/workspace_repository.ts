@@ -127,14 +127,16 @@ export class WorkspaceRepository {
   }
 
   public createChannel(channel: Channel): void {
+    const channelType = channel.channelType || (channel.isPrivate ? 'direct_message' : 'channel');
     this.db.execute(
-      `INSERT INTO channels (id, project_id, name, topic, is_private, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO channels (id, project_id, name, topic, is_private, channel_type, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       channel.id,
       channel.projectId,
       channel.name,
       channel.topic ?? null,
       channel.isPrivate ? 1 : 0,
+      channelType,
       channel.createdAt
     );
   }
@@ -146,6 +148,7 @@ export class WorkspaceRepository {
       name: string;
       topic: string | null;
       is_private: number;
+      channel_type?: string | null;
       created_at: number;
     }>('SELECT * FROM channels WHERE id = ?', id);
 
@@ -157,6 +160,7 @@ export class WorkspaceRepository {
       name: row.name,
       topic: row.topic ?? undefined,
       isPrivate: row.is_private === 1,
+      channelType: (row.channel_type as any) || (row.is_private === 1 ? 'direct_message' : 'channel'),
       createdAt: row.created_at,
     };
   }
@@ -171,6 +175,7 @@ export class WorkspaceRepository {
       name: string;
       topic: string | null;
       is_private: number;
+      channel_type?: string | null;
       created_at: number;
     }>(query, projectId);
 
@@ -180,8 +185,34 @@ export class WorkspaceRepository {
       name: r.name,
       topic: r.topic ?? undefined,
       isPrivate: r.is_private === 1,
+      channelType: (r.channel_type as any) || (r.is_private === 1 ? 'direct_message' : 'channel'),
       createdAt: r.created_at,
     }));
+  }
+
+  public getOrCreateDirectMessageChannel(agentA: string, agentB: string, projectId: string): Channel {
+    const [p1, p2] = [agentA, agentB].sort();
+    const dmId = `dm-${p1}-${p2}`;
+    const existing = this.getChannel(dmId);
+    if (existing) {
+      this.addChannelMember(dmId, agentA);
+      this.addChannelMember(dmId, agentB);
+      return existing;
+    }
+    const now = Date.now();
+    const channel: Channel = {
+      id: dmId,
+      projectId,
+      name: `dm-${p1}-${p2}`,
+      topic: `Private coworker direct message between ${agentA} and ${agentB}`,
+      isPrivate: true,
+      channelType: 'direct_message',
+      createdAt: now,
+    };
+    this.createChannel(channel);
+    this.addChannelMember(dmId, agentA);
+    this.addChannelMember(dmId, agentB);
+    return channel;
   }
 
   public addChannelMember(channelId: string, agentId: string): void {

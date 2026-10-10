@@ -113,7 +113,17 @@ export const CenterView: React.FC = () => {
     '@Agent';
 
   const isDm = activeChannelId.startsWith('dm-');
-  const targetAgentId = isDm ? activeChannelId.replace(/^dm-/, '') : null;
+  const activeChanObj = channels.find((c) => c.id === activeChannelId);
+  const isAgentToAgentDm = React.useMemo(() => {
+    if (!activeChannelId) return false;
+    if (activeChanObj?.channelType === 'direct_message' || activeChanObj?.isPrivate) {
+      if (activeChannelId.startsWith('dm-') && activeChannelId.replace(/^dm-/, '').split('-agent-').length > 1) return true;
+      if (activeChanObj?.memberIds && activeChanObj.memberIds.length >= 2) return true;
+      if (activeChannelId.startsWith('dm-') && !agents.some((a) => `dm-${a.id}` === activeChannelId)) return true;
+    }
+    return false;
+  }, [activeChannelId, activeChanObj, agents]);
+  const targetAgentId = (isDm && !isAgentToAgentDm) ? activeChannelId.replace(/^dm-/, '') : null;
   const isChannelExecuting =
     Object.values(activeAgentChannels).includes(activeChannelId) ||
     (isDm && !!targetAgentId && (activeAgentChannels[targetAgentId] === activeChannelId || agents.some((a) => a.id === targetAgentId && (a.status === 'thinking' || a.status === 'working')))) ||
@@ -476,7 +486,20 @@ export const CenterView: React.FC = () => {
     <main className="flex-1 flex flex-col h-full bg-[#0a0f1d] min-w-0 relative">
       {/* Context Scope Header Bar */}
       <div className="px-4 py-2 border-b border-[#1e293b] bg-[#0c1222] flex items-center justify-between text-xs">
-        {isDm ? (
+        {isAgentToAgentDm ? (
+          <div className="flex items-center space-x-2 truncate">
+            <span className="w-2.5 h-2.5 rounded-full bg-indigo-400 shadow-[0_0_6px_#818cf8]" />
+            <div className="flex items-center space-x-2">
+              <span className="font-bold text-indigo-300 text-sm">{activeChannel?.name || activeChannelId}</span>
+              <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono">
+                Operator Inspection Mode
+              </span>
+            </div>
+            <span className="text-[#64748b] text-[11px] truncate hidden md:inline">
+              Private coworker direct message thread
+            </span>
+          </div>
+        ) : isDm ? (
           <div className="flex items-center space-x-2 truncate">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]" />
             <div className="flex items-center space-x-2">
@@ -551,6 +574,21 @@ export const CenterView: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Operator Inspection Mode Banner for Coworker DMs */}
+      {isAgentToAgentDm && (
+        <div className="mx-4 mt-2 px-3.5 py-2 rounded-xl bg-indigo-950/70 border border-indigo-500/50 text-indigo-200 text-xs flex items-center justify-between shadow-lg animate-fadeIn">
+          <div className="flex items-center space-x-2">
+            <Shield className="w-4 h-4 text-indigo-400 shrink-0" />
+            <span>
+              <strong>Operator Inspection Mode:</strong> Live confidential coworker direct message. Non-member agents cannot access this transcript.
+            </span>
+          </div>
+          <span className="font-mono text-[10px] uppercase bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/30">
+            Read-Only Audit Visibility
+          </span>
+        </div>
+      )}
 
       {/* System Health Diagnostics Warning Banner */}
       {systemHealth && systemHealth.status !== 'healthy' && !dismissHealthBanner && (

@@ -5,6 +5,7 @@ target/
 # Build outputs
 dist/
 build/
+binaries/
 *.exe
 *.dll
 

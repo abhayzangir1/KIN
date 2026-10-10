@@ -49,6 +49,16 @@ describe('KIN Phase 0/1: Domain Repositories & Execution Contracts', () => {
       updatedAt: now,
     });
 
+    workspaceRepo.createProject({
+      id: 'proj-1',
+      workspaceId: 'ws-1',
+      name: 'Project 1',
+      repoPath: '/workspace',
+      settings: {},
+      createdAt: now,
+      updatedAt: now,
+    });
+
     agentRepo.createDefinition({
       id: 'def-frontend',
       name: 'Frontend Lead',
@@ -63,6 +73,7 @@ describe('KIN Phase 0/1: Domain Repositories & Execution Contracts', () => {
     agentRepo.createIdentity({
       id: 'agent-fe-1',
       workspaceId: 'ws-1',
+      projectId: 'proj-1',
       definitionId: 'def-frontend',
       displayName: '@FrontendLead',
       activeModelId: 'anthropic/claude-3-5-sonnet',
@@ -125,6 +136,7 @@ describe('KIN Phase 0/1: Domain Repositories & Execution Contracts', () => {
     agentRepo.createIdentity({
       id: 'agent-worker-a',
       workspaceId: 'ws-dag',
+      projectId: 'proj-dag',
       definitionId: 'def-worker',
       displayName: '@WorkerA',
       activeModelId: 'anthropic/claude-3-5-sonnet',
@@ -137,6 +149,7 @@ describe('KIN Phase 0/1: Domain Repositories & Execution Contracts', () => {
     agentRepo.createIdentity({
       id: 'agent-worker-b',
       workspaceId: 'ws-dag',
+      projectId: 'proj-dag',
       definitionId: 'def-worker',
       displayName: '@WorkerB',
       activeModelId: 'openai/gpt-4o',

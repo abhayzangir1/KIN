@@ -201,13 +201,20 @@ export class Sentinel {
       case 'cancelSchedule':
       case 'listSchedules':
         return { primary: 'schedule:cron', aliases: ['schedule:cron', 'schedule', 'cron'] };
+      case 'rememberPrivate':
+      case 'recallPrivate':
+      case 'rememberProject':
+        return { primary: 'memory:manage', aliases: ['memory:manage', 'memory:write', 'memory:read', 'memory', 'agent:coordinate', '*'] };
+      case 'sendDirectMessage':
       case 'delegateToAgent':
       case 'proposePlanAdjustment':
-        return { primary: 'agent:delegate', aliases: ['agent:delegate', 'delegate', 'agent', 'proposePlanAdjustment', '*'] };
+        return { primary: 'agent:delegate', aliases: ['agent:delegate', 'delegate', 'agent', 'proposePlanAdjustment', 'sendDirectMessage', '*'] };
       case 'hireSpecialist':
       case 'hire_specialist':
       case 'hireAgent':
-        return { primary: 'agent:hire', aliases: ['agent:hire', 'agent:delegate', 'delegate', 'agent', 'hireSpecialist', 'hire_specialist', 'hireAgent', '*'] };
+      case 'assignCoworker':
+      case 'callMeeting':
+        return { primary: 'agent:hire', aliases: ['agent:hire', 'agent:delegate', 'delegate', 'agent', 'hireSpecialist', 'hire_specialist', 'hireAgent', 'assignCoworker', 'callMeeting', '*'] };
       default:
         return { primary: 'fs:read', aliases: ['fs:read', 'fs_read', 'read', 'fs'] };
     }

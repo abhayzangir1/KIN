@@ -44,12 +44,16 @@ export interface ContextCompileInput {
   projectDecisions: Array<{ key: string; decision: string }>;
   compactionSnapshot?: CompactionSnapshot;
   trajectoryMessages: Message[];
-  activeChannel?: { id: string; name: string; topic?: string; isPrivate?: boolean };
+  activeChannel?: { id: string; name: string; topic?: string; isPrivate?: boolean; channelType?: 'channel' | 'direct_message' | 'meeting' };
   channelPeers?: string[];
   assignedChannels?: string[];
   projectAgents?: string[];
   crossChannelSummaries?: CrossChannelSummary[];
   scopedMemories?: Array<{ key: string; type: string; value: unknown }>;
+  projectMemories?: Array<{ key: string; type: string; value: unknown }>;
+  channelMemories?: Array<{ key: string; type: string; value: unknown }>;
+  agentPrivateMemories?: Array<{ key: string; type: string; value: unknown }>;
+  dmContext?: { isDirectMessage: boolean; participants: string[] };
   goalAncestry?: GoalAncestryChain;
 }
 
@@ -99,9 +103,17 @@ export class ContextCompiler {
     }
 
     if (input.activeChannel) {
-      const channelLabel = input.activeChannel.isPrivate
+      let channelLabel = input.activeChannel.isPrivate
         ? `Direct Message thread with Human`
         : `#${input.activeChannel.name}${input.activeChannel.topic ? ` (${input.activeChannel.topic})` : ''}`;
+
+      if (input.dmContext?.isDirectMessage || input.activeChannel.channelType === 'direct_message') {
+        const participantList = input.dmContext?.participants?.length
+          ? input.dmContext.participants.join(', ')
+          : (input.channelPeers && input.channelPeers.length > 0 ? `${input.agentIdentity.displayName}, ${input.channelPeers.join(', ')}` : 'Participants');
+        channelLabel = `Direct Message thread (${participantList})`;
+      }
+
       block1Parts.push(
         `Active Channel Context:`,
         `- Current Channel / Context: ${channelLabel}`,
@@ -137,25 +149,40 @@ export class ContextCompiler {
       JSON.stringify(sortedTools, null, 2),
     ].join('\n\n');
 
-    // Block 3: Project Grounding Rules, Immutable Decisions & Persistent Memories
+    // Block 3: 4-Tier Memory Hierarchy & Grounding Rules
     const decisionsText =
       input.projectDecisions.length > 0
         ? input.projectDecisions.map((d) => `- ${d.key}: ${d.decision}`).join('\n')
         : 'No specific project constraints configured yet.';
 
-    const memoriesText =
-      input.scopedMemories && input.scopedMemories.length > 0
-        ? input.scopedMemories.map((m) => `- [${m.type}] ${m.key}: ${typeof m.value === 'object' ? JSON.stringify(m.value) : m.value}`).join('\n')
-        : 'No scoped memories recorded.';
+    const formatMemoryList = (mems?: Array<{ key: string; type: string; value: unknown }>) => {
+      if (!mems || mems.length === 0) return 'None recorded.';
+      return mems.map((m) => `- [${m.type}] ${m.key}: ${typeof m.value === 'object' ? JSON.stringify(m.value) : m.value}`).join('\n');
+    };
 
-    const block3 = [
-      `### PROJECT GROUNDING & CONSTRAINTS:`,
+    const effectiveProjectMemories = (input.projectMemories && input.projectMemories.length > 0)
+      ? input.projectMemories
+      : (input.scopedMemories || []);
+
+    const block3Sections = [
+      `### TIER 1: PROJECT-SHARED GROUNDING & KNOWLEDGE:`,
       input.project ? `Project: ${input.project.name} (Repo: ${input.project.repoPath})` : 'Standalone Workspace Mode',
-      `Authoritative Decisions:`,
-      decisionsText,
-      `Persistent Scoped Memories:`,
-      memoriesText,
-    ].join('\n\n');
+      `Authoritative Decisions:\n${decisionsText}`,
+      `Project Knowledge Base:\n${formatMemoryList(effectiveProjectMemories)}`,
+      `### TIER 2: CONVERSATION & CHANNEL-SCOPED CONTEXT:`,
+      `Channel Working Memory:\n${formatMemoryList(input.channelMemories)}`,
+      `### TIER 3: AGENT-PRIVATE MEMORY (Confidential to ${input.agentIdentity.displayName}):`,
+      `Personal Reflections & Working State:\n${formatMemoryList(input.agentPrivateMemories)}`,
+    ];
+
+    if (input.dmContext?.isDirectMessage) {
+      block3Sections.push(
+        `### TIER 4: PRIVATE DIRECT MESSAGE ISOLATION:`,
+        `Privacy Invariant: This conversation is strictly confidential between the participating members (${input.dmContext.participants.join(', ')}). Its contents and transcript are completely excluded from cross-channel summaries and non-member agents.`
+      );
+    }
+
+    const block3 = block3Sections.join('\n\n');
 
     // Block 4: Compaction Snapshot (if present)
     let block4: string | undefined;

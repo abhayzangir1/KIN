@@ -109,7 +109,7 @@ export class AgentRepository {
     return {
       id: row.id,
       workspaceId: row.workspace_id,
-      projectId: row.project_id ?? undefined,
+      projectId: row.project_id || 'proj-kin',
       definitionId: row.definition_id,
       displayName: row.display_name,
       avatarUrl: row.avatar_url ?? undefined,
@@ -141,7 +141,7 @@ export class AgentRepository {
       updated_at: number;
     }>(
       `SELECT * FROM agent_identities 
-       WHERE (project_id = ? OR (id = 'agent-boss' AND is_orchestrator = 1))
+       WHERE project_id = ?
          AND (display_name = ? COLLATE NOCASE OR display_name = ? COLLATE NOCASE OR display_name = ? COLLATE NOCASE)
        LIMIT 1`,
       projectId,
@@ -155,7 +155,7 @@ export class AgentRepository {
     return {
       id: row.id,
       workspaceId: row.workspace_id,
-      projectId: row.project_id ?? undefined,
+      projectId: row.project_id || projectId,
       definitionId: row.definition_id,
       displayName: row.display_name,
       avatarUrl: row.avatar_url ?? undefined,
@@ -207,7 +207,7 @@ export class AgentRepository {
     return rows.map((row) => ({
       id: row.id,
       workspaceId: row.workspace_id,
-      projectId: row.project_id ?? undefined,
+      projectId: row.project_id || 'proj-kin',
       definitionId: row.definition_id,
       displayName: row.display_name,
       avatarUrl: row.avatar_url ?? undefined,
@@ -236,7 +236,7 @@ export class AgentRepository {
       updated_at: number;
     }>(
       `SELECT * FROM agent_identities 
-       WHERE project_id = ? OR (id = 'agent-boss' AND is_orchestrator = 1)
+       WHERE project_id = ?
        ORDER BY is_orchestrator DESC, created_at ASC`,
       projectId
     );
@@ -244,7 +244,7 @@ export class AgentRepository {
     return rows.map((row) => ({
       id: row.id,
       workspaceId: row.workspace_id,
-      projectId: row.project_id ?? undefined,
+      projectId: row.project_id || projectId,
       definitionId: row.definition_id,
       displayName: row.display_name,
       avatarUrl: row.avatar_url ?? undefined,
@@ -256,4 +256,47 @@ export class AgentRepository {
       updatedAt: row.updated_at,
     }));
   }
+
+  public ensureProjectBoss(projectId: string, workspaceId: string = 'ws-default'): AgentIdentity {
+    const existing = this.listIdentitiesByProject(projectId).find(
+      (a) => a.isOrchestrator || a.displayName.toLowerCase() === '@boss' || a.displayName.toLowerCase() === 'boss'
+    );
+    if (existing) {
+      return existing;
+    }
+
+    const now = Date.now();
+    const defId = projectId === 'proj-kin' ? 'def-boss' : `def-boss-${projectId}`;
+    const agentId = projectId === 'proj-kin' ? 'agent-boss' : `agent-boss-${projectId}`;
+
+    if (!this.getDefinition(defId)) {
+      this.createDefinition({
+        id: defId,
+        name: 'Boss',
+        role: 'Workspace Orchestrator',
+        systemPrompt: 'You are @Boss, KIN’s workspace orchestrator for this project. Coordinate agents and tools for the current request. Follow the capabilities and project boundaries provided for this run, and ask when access or authority is unclear.',
+        defaultModelId: 'ollama/qwen2.5-coder:3b',
+        domainAuthority: ['Architecture', 'Orchestration', 'Engineering', 'Operations'],
+        capabilities: ['read', 'write', 'shell', 'worktree', 'delegate', 'agent:hire', 'agent:delegate', '*'],
+        createdAt: now,
+      });
+    }
+
+    const bossIdentity: AgentIdentity = {
+      id: agentId,
+      workspaceId,
+      projectId,
+      definitionId: defId,
+      displayName: '@Boss',
+      activeModelId: 'ollama/qwen2.5-coder:3b',
+      isOrchestrator: true,
+      isEphemeral: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    this.createIdentity(bossIdentity);
+    return bossIdentity;
+  }
 }
+

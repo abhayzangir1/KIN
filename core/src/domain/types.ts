@@ -73,7 +73,7 @@ export interface AgentDefinition {
 export interface AgentIdentity {
   id: string;
   workspaceId: string;
-  projectId?: string;
+  projectId: string;
   definitionId: string;
   displayName: string;
   avatarUrl?: string;
@@ -129,11 +129,15 @@ export interface FileRevision {
   updatedAt: number;
 }
 
+export type ChannelType = 'channel' | 'direct_message' | 'meeting';
+
 export interface Channel {
   id: string;
   projectId: string;
   name: string;
   topic?: string;
+  channelType?: ChannelType;
+  participantIds?: string[];
   isPrivate: boolean;
   createdAt: number;
 }
@@ -336,4 +340,15 @@ export interface ManagedCredential {
   updatedAt: number;
 }
 
+export interface RunnerAdapterInfo {
+  readonly id: string;
+  readonly name: string;
+  readonly version: string;
+}
 
+export interface RunnerAdapter {
+  readonly id: string;
+  readonly name: string;
+  readonly version: string;
+  execute(options: any): Promise<any>;
+}

@@ -29,6 +29,7 @@ import { SchedulerService } from '../automation/scheduler.js';
 import { SkillEngine } from '../skills/skill_engine.js';
 import { McpClientManager } from '../execution/mcp_client.js';
 import { AgentLoopRunner } from '../kernel/agent_loop.js';
+import { RunnerAdapterRegistry, NativeReActRunnerAdapter } from '../kernel/runner_adapter.js';
 import { DesktopController } from '../computer/desktop_controller.js';
 import { BrowserController } from '../browser/browser_controller.js';
 import { RecoveryEngine } from '../recovery/recovery_engine.js';
@@ -269,12 +270,51 @@ export class CoreServer {
       scheduler: this.scheduler,
       db: this.db,
       computerSupervisor: this.computerSupervisor,
+      memoryRepo: this.memoryRepo,
+      agentRepo: this.agentRepo,
     });
+    this.toolGateway.setMemoryRepository(this.memoryRepo);
+    this.toolGateway.setAgentRepository(this.agentRepo);
     this.toolGateway.setAgentHiredCallback((agent, channelId) => {
       this.broadcastEvent('agent:created', { agent });
       if (channelId) {
         this.broadcastEvent('channel:member_added', { channelId, agentId: agent.id });
       }
+    });
+    this.toolGateway.setDirectMessageCallback(async ({ senderAgentId, recipientAgentId, projectId, content }) => {
+      const dmChannel = this.workspaceRepo.getOrCreateDirectMessageChannel(senderAgentId, recipientAgentId, projectId);
+      const msg = this.channelService.sendMessage({
+        channelId: dmChannel.id,
+        senderId: senderAgentId,
+        senderType: 'agent',
+        content,
+        productivityScore: 1,
+      });
+      this.broadcastEvent('message:created', { message: msg, channelId: dmChannel.id });
+      this.broadcastEvent('channel:created', { channel: dmChannel });
+
+      const recipient = this.agentRepo.getIdentity(recipientAgentId);
+      if (recipient) {
+        this.enqueueAgentExecution(recipient.id, () =>
+          this.executeAgentResponse(recipient, dmChannel.id, msg)
+        );
+      }
+      return { channelId: dmChannel.id };
+    });
+    this.toolGateway.setAssignCoworkerCallback((coworker, channelId) => {
+      this.workspaceRepo.addChannelMember(channelId, coworker.id);
+      this.broadcastEvent('channel:member_added', { channelId, agentId: coworker.id, agent: coworker });
+    });
+    this.toolGateway.setCallMeetingCallback(({ channelId, topic, agenda, participantIds }) => {
+      this.broadcastEvent('channel:created', { channel: this.workspaceRepo.getChannel(channelId) });
+      const meetingMsg = this.channelService.sendMessage({
+        channelId,
+        senderId: 'system',
+        senderType: 'system',
+        content: `📅 Meeting convened: **${topic}**\n\nAgenda: ${agenda}\nParticipants: ${participantIds.join(', ')}`,
+        productivityScore: 0,
+      });
+      this.broadcastEvent('message:created', { message: meetingMsg, channelId });
     });
     this.desktopController = this.toolGateway.getDesktopController();
     this.browserController = this.toolGateway.getBrowserController();
@@ -299,6 +339,7 @@ export class CoreServer {
       this.recoveryEngine,
       this.financialSafety
     );
+    RunnerAdapterRegistry.register(new NativeReActRunnerAdapter(this.agentLoopRunner), true);
 
     // Initialize Event-Driven Coalesced Wakeup Queue (1000ms debounce)
     this.wakeupQueue = new WakeupQueue(1000, async (event, coalescedCount) => {
@@ -686,6 +727,9 @@ export class CoreServer {
     if (bossIdentity) {
       this.workspaceRepo.addChannelMember('chan-general', bossIdentity.id);
     }
+
+    // Ensure authoritative project Boss exists
+    this.agentRepo.ensureProjectBoss(this.activeProjectId, 'ws-default');
 
     // Ensure terminology invariant across all pre-existing database records
     try {
@@ -2258,6 +2302,7 @@ export class CoreServer {
           name: c.name,
           topic: c.topic,
           isPrivate: c.isPrivate,
+          channelType: c.channelType || (c.isPrivate ? 'direct_message' : 'channel'),
           createdAt: c.createdAt,
           memberIds: this.workspaceRepo.listChannelMemberIds(c.id),
         }));
@@ -2266,7 +2311,7 @@ export class CoreServer {
 
       // 7b. POST /api/channels — Create channel in project
       if (req.method === 'POST' && pathname === '/api/channels') {
-        const body = await this.parseJsonBody<{ projectId?: string; name: string; topic?: string }>(req);
+        const body = await this.parseJsonBody<{ projectId?: string; name: string; topic?: string; isPrivate?: boolean; channelType?: 'channel' | 'direct_message' | 'meeting' }>(req);
         if (!body.name || !body.name.trim()) {
           return this.sendJson(res, 400, { error: 'Channel name is required' });
         }
@@ -2275,13 +2320,16 @@ export class CoreServer {
         const channelId = `chan-${Date.now()}`;
         const now = Date.now();
         const cleanName = body.name.trim().toLowerCase().replace(/^#/, '');
+        const isPrivate = !!body.isPrivate;
+        const channelType = body.channelType || (isPrivate ? 'direct_message' : 'channel');
 
         const channel: Channel = {
           id: channelId,
           projectId,
           name: cleanName,
           topic: body.topic?.trim() || undefined,
-          isPrivate: false,
+          isPrivate,
+          channelType,
           createdAt: now,
         };
 
@@ -2724,6 +2772,8 @@ export class CoreServer {
             projectId: c.projectId,
             name: c.name,
             topic: c.topic,
+            isPrivate: c.isPrivate,
+            channelType: c.channelType || (c.isPrivate ? 'direct_message' : 'channel'),
             unreadCount: 0,
             memberIds: this.workspaceRepo.listChannelMemberIds(c.id),
           })),
@@ -8248,9 +8298,15 @@ export class CoreServer {
         .filter(Boolean)
         .map((name) => `#${name}`);
 
-      // 3. Compile cross-channel memory from other assigned channels
+      // 3. Compile cross-channel memory from other assigned channels (strictly excluding private DMs)
       const allAgentChannelIds = this.workspaceRepo.listAgentChannelIds(agent.id, targetProjectId);
-      const otherChannelIds = allAgentChannelIds.filter((id) => id !== channelId && !id.startsWith('dm-'));
+      const otherChannelIds = allAgentChannelIds.filter((id) => {
+        if (id === channelId) return false;
+        if (id.startsWith('dm-')) return false;
+        const c = this.workspaceRepo.getChannel(id);
+        if (c?.isPrivate || c?.channelType === 'direct_message') return false;
+        return true;
+      });
       const crossChannelSummaries = otherChannelIds.map((cId) => {
         const c = this.workspaceRepo.getChannel(cId);
         const msgs = this.channelService.getMessages(cId, 5);
@@ -8334,7 +8390,25 @@ export class CoreServer {
         }
       }
 
-      // Compile prompt with project grounding, channel context, peer awareness, and cross-channel memory
+      // Resolve 4-Tier Memory Scopes & DM Isolation Context
+      const isDm = channel?.channelType === 'direct_message' || channel?.isPrivate || channelId.startsWith('dm-');
+      const dmMembers = isDm ? this.workspaceRepo.listChannelMemberIds(channelId).map((mId) => {
+        const ag = allProjectAgents.find((a) => a.id === mId);
+        return ag?.displayName || mId;
+      }) : [];
+      const dmContext = isDm ? { isDirectMessage: true, participants: dmMembers } : undefined;
+
+      const projectMemories = this.memoryRepo
+        .listMemories('project', targetProjectId)
+        .map((m) => ({ key: m.key, type: m.value !== undefined ? String(m.type) : 'semantic', value: m.value }));
+      const channelMemories = this.memoryRepo
+        .listMemories('channel', channelId)
+        .map((m) => ({ key: m.key, type: m.value !== undefined ? String(m.type) : 'semantic', value: m.value }));
+      const agentPrivateMemories = this.memoryRepo
+        .listMemories('agent_private', agent.id)
+        .map((m) => ({ key: m.key, type: m.value !== undefined ? String(m.type) : 'semantic', value: m.value }));
+
+      // Compile prompt with 4-tier memory hierarchy, project grounding, channel context, and peer awareness
       const compiled = this.contextCompiler.compile({
         agentDefinition: def ?? {
           id: agent.definitionId,
@@ -8359,9 +8433,11 @@ export class CoreServer {
         assignedChannels,
         projectAgents: allProjectAgents.map((a) => a.displayName),
         crossChannelSummaries,
-        scopedMemories: this.memoryRepo
-          .listMemories('project', targetProjectId)
-          .map((m) => ({ key: m.key, type: m.value !== undefined ? String(m.type) : 'semantic', value: m.value })),
+        scopedMemories: projectMemories,
+        projectMemories,
+        channelMemories,
+        agentPrivateMemories,
+        dmContext,
         goalAncestry: goalAncestryChain,
       });
 
@@ -8493,7 +8569,8 @@ export class CoreServer {
         });
       }
 
-      const loopResult = await this.agentLoopRunner.execute({
+      const runnerAdapter = RunnerAdapterRegistry.getDefault();
+      const loopResult = await runnerAdapter.execute({
         runId: run.id,
         taskId: run.taskId,
         agentId: freshIdentity.id,

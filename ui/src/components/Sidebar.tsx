@@ -1,6 +1,6 @@
 import React from 'react';
 import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
-import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale, Trash2, Sun, Moon } from 'lucide-react';
+import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale, Trash2, Sun, Moon, Users } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
   const {
@@ -61,6 +61,21 @@ export const Sidebar: React.FC = () => {
     );
   }, [agents, ollamaStatus, credentials, availableModels]);
 
+  const standardChannels = React.useMemo(() => {
+    return channels.filter((c) => c.channelType !== 'direct_message' && !c.isPrivate && !c.id.startsWith('dm-'));
+  }, [channels]);
+
+  const coworkerDms = React.useMemo(() => {
+    return channels.filter((c) => {
+      if (c.channelType === 'direct_message' || c.isPrivate) {
+        if (c.id.startsWith('dm-') && c.id.replace(/^dm-/, '').split('-agent-').length > 1) return true;
+        if (c.memberIds && c.memberIds.length >= 2) return true;
+        if (c.id.startsWith('dm-') && c.id.replace(/^dm-/, '').includes('-') && !agents.some((a) => `dm-${a.id}` === c.id)) return true;
+      }
+      return false;
+    });
+  }, [channels, agents]);
+
   return (
     <aside
       style={{ width: `${sidebarWidth}px` }}
@@ -95,7 +110,7 @@ export const Sidebar: React.FC = () => {
           </div>
 
           <div className="space-y-0.5">
-            {channels.filter((c) => !c.id.startsWith('dm-')).map((chan) => {
+            {standardChannels.map((chan) => {
               const isActive = chan.id === activeChannelId;
               return (
                 <button
@@ -220,6 +235,67 @@ export const Sidebar: React.FC = () => {
                 >
                   Configure in Settings →
                 </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* COWORKER DIRECT MESSAGES SECTION */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-[#64748b]">
+            <div className="flex items-center space-x-1">
+              <Users className="w-3 h-3 text-[#64748b]" />
+              <span>Coworker Direct Messages</span>
+            </div>
+            <span className="text-[9px] font-mono text-[#475569]">
+              {coworkerDms.length}
+            </span>
+          </div>
+
+          <div className="space-y-0.5">
+            {coworkerDms.length > 0 ? (
+              coworkerDms.map((dm) => {
+                const isActive = activeChannelId === dm.id;
+                const memberNames = (dm.memberIds || [])
+                  .map((mId) => agents.find((a) => a.id === mId)?.displayName || mId)
+                  .join(' ↔ ');
+                const displayLabel = memberNames || dm.name || dm.id;
+
+                return (
+                  <button
+                    key={dm.id}
+                    onClick={() => {
+                      setActiveChannel(dm.id);
+                      setActiveMainView('chat');
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded transition cursor-pointer group ${
+                      isActive
+                        ? 'bg-indigo-600/20 border border-indigo-500/40 text-indigo-300 font-medium'
+                        : 'text-[#94a3b8] hover:bg-[#131b2e] hover:text-kin-text'
+                    }`}
+                    title={`Inspect Coworker DM: ${displayLabel}`}
+                  >
+                    <div className="flex items-center space-x-2 truncate">
+                      <span className="w-2 h-2 rounded-full bg-indigo-400 shadow-[0_0_4px_#818cf8] shrink-0" />
+                      <span className="truncate">{displayLabel}</span>
+                    </div>
+
+                    <div className="flex items-center space-x-1.5 shrink-0">
+                      {dm.unreadCount > 0 && !isActive && (
+                        <span className="px-1.5 py-0.2 rounded-full bg-indigo-500 text-black font-bold text-[9px]">
+                          {dm.unreadCount}
+                        </span>
+                      )}
+                      <span className="text-[9px] font-mono uppercase px-1 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                        Audit
+                      </span>
+                    </div>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="px-2.5 py-1.5 text-[10px] text-[#475569] italic">
+                No active coworker direct messages
               </div>
             )}
           </div>

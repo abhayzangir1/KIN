@@ -342,6 +342,14 @@ export class MigrationRunner {
         }
       }
 
+      // Pre-migration: channels table channel_type column
+      if (existingTables.includes('channels')) {
+        const channelCols = this.db.query<{ name: string }>("PRAGMA table_info(channels);").map((c) => c.name);
+        if (!channelCols.includes('channel_type')) {
+          this.db.exec("ALTER TABLE channels ADD COLUMN channel_type TEXT DEFAULT 'channel' CHECK (channel_type IN ('channel', 'direct_message', 'meeting'));");
+        }
+      }
+
       this.db.exec(schemaSql);
 
       // Verify and ensure column and index presence post-schema
@@ -351,6 +359,12 @@ export class MigrationRunner {
       }
       this.db.exec("UPDATE agent_identities SET project_id = 'proj-kin' WHERE project_id IS NULL;");
       this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_project_name ON agent_identities (project_id, display_name COLLATE NOCASE);");
+
+      const postChannelCols = this.db.query<{ name: string }>("PRAGMA table_info(channels);").map((c) => c.name);
+      if (!postChannelCols.includes('channel_type')) {
+        this.db.exec("ALTER TABLE channels ADD COLUMN channel_type TEXT DEFAULT 'channel' CHECK (channel_type IN ('channel', 'direct_message', 'meeting'));");
+      }
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_channel_members_agent ON channel_members(agent_id, channel_id);");
     });
 
     // Run integrity check

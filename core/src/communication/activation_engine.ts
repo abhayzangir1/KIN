@@ -34,7 +34,7 @@ export interface SpecialistMatchInfo {
 }
 
 export interface ChannelRoutingResult {
-  action: 'direct_response' | 'sequential_specialists' | 'orchestrator_fallback';
+  action: 'direct_response' | 'sequential_specialists' | 'orchestrator_fallback' | 'none';
   targetAgents: AgentIdentity[];
   reason: string;
   matchReason?: string;
@@ -191,8 +191,15 @@ export class ActivationEngine {
 
     // 1. Condition 1: Direct Message (DM)
     if (isPrivate || channelId.startsWith('dm-')) {
-      const targetAgentId = channelId.startsWith('dm-') ? channelId.replace(/^dm-/, '') : channelMembers[0]?.id;
-      const targetAgent = allProjectAgents.find((a) => a.id === targetAgentId) || channelMembers.find((a) => a.id === targetAgentId);
+      const otherMembers = channelMembers.filter((m) => m.id !== message.senderId);
+      let targetAgent: AgentIdentity | undefined = otherMembers[0];
+
+      if (!targetAgent && channelId.startsWith('dm-')) {
+        const rawId = channelId.replace(/^dm-/, '');
+        targetAgent = allProjectAgents.find((a) => a.id === rawId && a.id !== message.senderId)
+          || channelMembers.find((a) => a.id === rawId && a.id !== message.senderId);
+      }
+
       if (targetAgent) {
         return {
           action: 'direct_response',
@@ -201,6 +208,12 @@ export class ActivationEngine {
           matchReason: 'direct_mention',
         };
       }
+
+      return {
+        action: 'none',
+        targetAgents: [],
+        reason: 'private_dm_isolated',
+      };
     }
 
     // 2. Condition 2: Explicit @mentions

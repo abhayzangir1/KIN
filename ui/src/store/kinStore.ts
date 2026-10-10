@@ -117,6 +117,8 @@ export interface ChannelItem {
   topic?: string;
   unreadCount: number;
   memberIds?: string[];
+  isPrivate?: boolean;
+  channelType?: 'channel' | 'direct_message' | 'meeting';
 }
 
 export interface MessageItem {
@@ -1091,7 +1093,6 @@ export const useKinStore = create<KinState>((set, get) => ({
         autonomyMode: data.autonomyMode || 'AUTO',
         activeChannelId: chosenChannelId,
         channels: (data.channels || [])
-          .filter((c: any) => !c.id.startsWith('dm-'))
           .map((c: any) => {
             const existing = get().channels.find((ec) => ec.id === c.id);
             return {

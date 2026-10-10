@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS channels (
     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     topic TEXT,
+    channel_type TEXT DEFAULT 'channel' CHECK (channel_type IN ('channel', 'direct_message', 'meeting')),
     is_private BOOLEAN NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
 );
@@ -413,4 +414,5 @@ CREATE INDEX IF NOT EXISTS idx_tasks_claimed_run ON tasks(claimed_by_run_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_lease ON tasks(lease_expires_at) WHERE status = 'running';
 CREATE INDEX IF NOT EXISTS idx_agent_evals_agent ON agent_evaluations(agent_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_managed_creds_provider ON managed_credentials(provider, key_alias);
+CREATE INDEX IF NOT EXISTS idx_channel_members_agent ON channel_members(agent_id, channel_id);
 `;
