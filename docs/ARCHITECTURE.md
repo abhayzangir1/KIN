@@ -9,9 +9,10 @@ flowchart TD
   UI[React UI and Zustand store] -->|HTTP and SSE| Core[TypeScript CoreServer]
   Tauri[Tauri and Rust desktop shell] --> UI
   Core --> DB[(SQLite database)]
-  Core --> Kernel[AgentKernel and AgentLoopRunner]
-  Kernel --> Models[ModelGateway]
-  Kernel --> Tools[ToolGateway and Sentinel]
+  Core --> Adapters[RunnerAdapterRegistry]
+  Adapters --> NativeRunner[NativeReActRunnerAdapter / AgentLoopRunner]
+  NativeRunner --> Models[ModelGateway]
+  NativeRunner --> Tools[ToolGateway and Sentinel]
   Core --> Scheduler[SchedulerService]
   Tools --> MCP[MCP stdio processes]
   Tools --> Browser[Browser controller]
@@ -33,9 +34,20 @@ flowchart TD
 
 `core/src/storage/` initializes SQLite and migrations. Domain repositories manage projects, agents, tasks, goals, channels, and memory. The event ledger records structured events. Application state and project files are local by default, while integrations may make external requests.
 
-### Agent execution and context
+### Agent execution and workforce runtime
 
-`AgentKernel` manages run records, run admission, state transitions, and recovery data. `AgentLoopRunner` performs model turns and tool calls. `ContextCompiler` gathers agent, project, task, channel, memory, and skill context. `WakeupQueue` coalesces pending wakeups in process memory; durable run and task state is stored separately.
+KIN organizes agents within a project-scoped organization boundary. Every project maintains its own isolated Boss orchestrator (`agent-boss-${projectId}`) and specialist coworkers.
+
+- `RunnerAdapter`: A pluggable interface and registry (`core/src/kernel/runner_adapter.ts`) decoupling execution engines from KIN's state and security authority. The default engine is `NativeReActRunnerAdapter`, wrapping `AgentLoopRunner`.
+- `4-Tier Memory Scoping`:
+  - **Tier 1 (Project-Shared Memory)**: Project goals, architectural decisions, and project memories accessible to all project coworkers.
+  - **Tier 2 (Conversation-Scoped Context)**: Channel message trajectories and channel memories accessible to enrolled channel members.
+  - **Tier 3 (Agent-Private Memory)**: Personal agent reflections, learned skills, and scratchpad state (`scope: 'agent_private'`).
+  - **Tier 4 (Direct Message Privacy)**: Direct messages between the operator and an agent, or peer-to-peer between two coworker agents (`dm-${agentA}-${agentB}`), isolated strictly to participants.
+- `Workforce Coordination`: Tools for `hireSpecialist`, `assignCoworker` (channel enrollment), `callMeeting` (convening departments with agendas), and `delegateToAgent`.
+- `Operator Inspection Mode`: The operator can monitor peer coworker direct messages in real time with live thought streaming and intervention controls.
+- `ContextCompiler`: Gathers agent, project, task, channel, tiered memory, and skill context into deterministic prompt blocks.
+- `WakeupQueue`: Coalesces pending wakeups in process memory; durable run and task state is stored separately.
 
 Task leases coordinate claims in SQLite. The source includes checkpointing and startup recovery paths, but those mechanisms should not be read as exact replay or lossless recovery assurances.
 
@@ -80,7 +92,10 @@ Treat model output, browser content, MCP responses, imported skills, project fil
 | Area | Main path |
 |---|---|
 | HTTP/SSE API and service assembly | `core/src/server/core_server.ts` |
-| Run state and agent loop | `core/src/kernel/` |
+| Run state and execution loop | `core/src/kernel/agent_loop.ts` |
+| Pluggable runner adapters | `core/src/kernel/runner_adapter.ts` |
+| Context compiler and memory tiering | `core/src/context/context_compiler.ts` |
+| Communication and activation | `core/src/communication/` |
 | Domain persistence | `core/src/domain/` |
 | SQLite schema and migrations | `core/src/storage/` |
 | Model providers | `core/src/execution/model_gateway.ts` |

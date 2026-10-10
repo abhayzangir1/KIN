@@ -6,8 +6,12 @@ KIN is under active development. Features described here are present in source u
 
 ## What is in the repository
 
-- Projects, channels, direct-message views, agent identities and definitions, goals, tasks, and task dependencies.
-- A default orchestrator named `@Boss`, specialist agents, and agent runs coordinated through the local core.
+- Projects as organization boundaries, channels, direct-message views, agent identities and definitions, goals, tasks, and task dependencies.
+- Project-scoped Boss orchestrators (`@Boss`), specialist coworkers, and agent runs coordinated through the local core.
+- 4-tier memory scoping (project-shared memory, conversation-scoped context, agent-private memory, and direct-message privacy) with dedicated agent memory tools.
+- Coworker peer direct messaging (`dm-${agentA}-${agentB}`) with participant-only context isolation and UI Operator Inspection Mode.
+- Boss coordination tools for recruitment (`hireSpecialist`), coworker assignment (`assignCoworker`), department convening (`callMeeting`), and delegation (`delegateToAgent`).
+- A pluggable `RunnerAdapter` specification and registry decoupling execution engines from KIN's authoritative state and security plane.
 - A model gateway with provider integrations, credential settings, model discovery, custom model records, and an Ollama path. Provider availability depends on configuration and actual provider responses.
 - A tool gateway, approval and capability checks, skills, MCP stdio clients, schedules, browser control, and desktop-control paths.
 - A Tauri desktop shell and a browser-based development UI.

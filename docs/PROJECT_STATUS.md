@@ -1,6 +1,6 @@
 # Current implementation notes
 
-**Updated:** 2026-10-09
+**Updated:** 2026-10-10
 **Scope:** Source-level inventory of this checkout. This page is not a live runtime report, security certification, or promise that every listed path works on every host.
 
 ## Application shape
@@ -19,6 +19,12 @@ The daemon defaults to loopback address `127.0.0.1` on port `54321`. It uses a l
 The current source contains routes, persistence, UI, or runtime code for:
 
 - Projects, channels, messages, direct-message views, agents, goals, tasks, decisions, and approvals.
+- Project-scoped organization boundary with isolated agent identities and automatically seeded project-scoped Boss orchestrators (`agent-boss-${projectId}`).
+- 4-tier memory scoping: Project-shared memory (goals, architectural decisions, project memories), conversation-scoped context (channel messages and memories), agent-private memory (`agent_private`), and direct message privacy.
+- Dedicated agent memory management tools (`rememberPrivate`, `recallPrivate`, and `rememberProject`) with Sentinel capability gating.
+- Peer direct messaging (`dm-${agentA}-${agentB}`) with participant-only context isolation and real-time UI Operator Inspection Mode.
+- Boss coordination suite: `hireSpecialist`, `assignCoworker` (enrolling existing coworkers into channels), `callMeeting` (convening department channels with agendas), and `delegateToAgent`.
+- Pluggable `RunnerAdapter` specification and `RunnerAdapterRegistry` supporting execution engines, with `NativeReActRunnerAdapter` as the default ReAct execution loop.
 - Agent runs, queued runs, task leases with OCC fencing, checkpoints, recovery handling, and event delivery.
 - Deterministic benchmark evaluator (`BenchmarkEvaluator`) running test cases with authentic pass/fail metrics, execution logs, and SQLite persistence.
 - Provider-specific model discovery, custom model entries, credential management with zero-decryption listing, and local Ollama discovery/inference paths.
