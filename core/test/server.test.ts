@@ -755,4 +755,222 @@ describe('KIN Phase 1/2: Core IPC Server Integration & Authoritative State', () 
     expect(msgsData.messages.some((m: any) => m.content.includes('/schedule <duration>'))).toBe(true);
     expect(msgsData.messages.some((m: any) => m.content.includes('/routine <interval-seconds'))).toBe(true);
   });
+
+  it('POST /api/channels ensures strictly project-scoped @Boss is seeded as sole default member', async () => {
+    // Create a secondary project
+    const projRes = await fetch(`http://127.0.0.1:${port}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Secondary Alpha' }),
+    });
+    expect(projRes.status).toBe(201);
+    const projData: any = await projRes.json();
+    const secProjId = projData.project.id;
+
+    // Create a channel in the secondary project
+    const chanRes = await fetch(`http://127.0.0.1:${port}/api/channels`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'infra', projectId: secProjId }),
+    });
+    expect(chanRes.status).toBe(201);
+    const chanData: any = await chanRes.json();
+    expect(chanData.channel.memberIds.length).toBe(1);
+
+    // Verify member is the secondary project's Boss, NOT proj-kin's agent-boss
+    const bossId = chanData.channel.memberIds[0];
+    const bossListRes = await fetch(`http://127.0.0.1:${port}/api/projects/${secProjId}/agents`);
+    expect(bossListRes.status).toBe(200);
+    const bossListData: any = await bossListRes.json();
+    const bossAgent = bossListData.agents.find((a: any) => a.id === bossId);
+    expect(bossAgent).toBeDefined();
+    expect(bossAgent.projectId).toBe(secProjId);
+    expect(bossAgent.isOrchestrator).toBe(true);
+  });
+
+  it('PATCH /api/approvals/:id cleans up preservedWorktrees on execution error', async () => {
+    const runId = `run-fail-${Date.now()}`;
+    const approvalId = `appr-fail-${Date.now()}`;
+
+    // Access internal preservedWorktrees map
+    const preservedMap = (server as any).preservedWorktrees;
+    preservedMap.set(runId, {
+      worktreePath: 'C:\\nonexistent\\path',
+      branch: 'nonexistent-branch',
+      repoRoot: 'C:\\nonexistent',
+      createdAt: Date.now(),
+    });
+    preservedMap.set(approvalId, {
+      worktreePath: 'C:\\nonexistent\\path',
+      branch: 'nonexistent-branch',
+      repoRoot: 'C:\\nonexistent',
+      createdAt: Date.now(),
+    });
+
+    // Insert a valid agent_run and approval record targeting an invalid tool to trigger execution error in try block
+    const db = (server as any).db;
+    db.execute(
+      `INSERT INTO agent_runs (id, agent_id, project_id, state, heartbeat_at, created_at)
+       VALUES (?, 'agent-boss', 'proj-kin', 'waiting_for_approval', ?, ?)`,
+      runId,
+      Date.now(),
+      Date.now()
+    );
+    db.execute(
+      `INSERT INTO approvals (id, run_id, agent_id, tool_name, action_payload_json, risk_level, status, created_at, expires_at)
+       VALUES (?, ?, ?, 'invalidCrashingTool', '{}', 'HIGH', 'pending', ?, ?)`,
+      approvalId,
+      runId,
+      'agent-boss',
+      Date.now(),
+      Date.now() + 60000
+    );
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/approvals/${approvalId}/resolve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approved: true }),
+    });
+    expect(res.status).toBe(200);
+
+    // Both approvalId and runId must be cleaned up from preservedWorktrees
+    expect(preservedMap.has(approvalId)).toBe(false);
+    expect(preservedMap.has(runId)).toBe(false);
+  });
+
+  it('GET /api/state seeds project Boss into fallback general channel membership when channels list is empty', async () => {
+    // Create a new project without channels
+    const projRes = await fetch(`http://127.0.0.1:${port}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Empty Project Fallback' }),
+    });
+    expect(projRes.status).toBe(201);
+    const { project } = (await projRes.json()) as any;
+
+    // Delete any channels created for this project to simulate empty channels
+    const db = (server as any).db;
+    db.execute('DELETE FROM channel_members WHERE channel_id IN (SELECT id FROM channels WHERE project_id = ?)', project.id);
+    db.execute('DELETE FROM channels WHERE project_id = ?', project.id);
+
+    // Fetch state targeting this project
+    const stateRes = await fetch(`http://127.0.0.1:${port}/api/state?projectId=${project.id}`);
+    expect(stateRes.status).toBe(200);
+    const stateData: any = await stateRes.json();
+
+    const fallbackChan = stateData.channels.find((c: any) => c.name === 'general');
+    expect(fallbackChan).toBeDefined();
+
+    // Verify channel members include project Boss
+    const members = (server as any).workspaceRepo.listChannelMemberIds(fallbackChan.id);
+    expect(members.length).toBeGreaterThan(0);
+    const boss = (server as any).agentRepo.getIdentity(members[0]);
+    expect(boss).toBeDefined();
+    expect(boss.projectId).toBe(project.id);
+    expect(boss.isOrchestrator).toBe(true);
+  });
+
+  it('Peer DM turn limit notification is broadcast when recursion depth ceiling is reached', async () => {
+    const projRes = await fetch(`http://127.0.0.1:${port}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Peer DM Ceiling Proj' }),
+    });
+    expect(projRes.status).toBe(201);
+    const { project } = (await projRes.json()) as any;
+
+    const db = (server as any).db;
+    const now = Date.now();
+    const agentAId = `agent-peer-x-${now}`;
+    const agentBId = `agent-peer-y-${now}`;
+    const defAId = `def-peer-x-${now}`;
+    const defBId = `def-peer-y-${now}`;
+
+    db.execute(
+      `INSERT INTO agent_definitions (id, name, role, system_prompt, default_model_id, created_at)
+       VALUES (?, 'PeerX', 'Specialist', 'Prompt X', 'ollama/llama3', ?)`,
+      defAId,
+      now
+    );
+    db.execute(
+      `INSERT INTO agent_definitions (id, name, role, system_prompt, default_model_id, created_at)
+       VALUES (?, 'PeerY', 'Specialist', 'Prompt Y', 'ollama/llama3', ?)`,
+      defBId,
+      now
+    );
+    db.execute(
+      `INSERT INTO agent_identities (id, workspace_id, project_id, definition_id, display_name, active_model_id, is_orchestrator, is_ephemeral, created_at, updated_at)
+       VALUES (?, 'ws-default', ?, ?, '@PeerX', 'ollama/llama3', 0, 0, ?, ?)`,
+      agentAId,
+      project.id,
+      defAId,
+      now,
+      now
+    );
+    db.execute(
+      `INSERT INTO agent_identities (id, workspace_id, project_id, definition_id, display_name, active_model_id, is_orchestrator, is_ephemeral, created_at, updated_at)
+       VALUES (?, 'ws-default', ?, ?, '@PeerY', 'ollama/llama3', 0, 0, ?, ?)`,
+      agentBId,
+      project.id,
+      defBId,
+      now,
+      now
+    );
+
+    const dmChannelId = `dm-peerx-peery-${now}`;
+    (server as any).workspaceRepo.createChannel({
+      id: dmChannelId,
+      projectId: project.id,
+      name: `dm-peerx-peery`,
+      topic: 'Private DM',
+      channelType: 'direct_message',
+      isPrivate: true,
+      participantIds: [agentAId, agentBId],
+      createdAt: now,
+    });
+    (server as any).workspaceRepo.addChannelMember(dmChannelId, agentAId);
+    (server as any).workspaceRepo.addChannelMember(dmChannelId, agentBId);
+
+    // Mock modelGateway on server to return a message without completion token
+    const origModelGateway = (server as any).modelGateway;
+    (server as any).modelGateway = {
+      invoke: async () => ({
+        content: 'Responding to peer without completion token',
+        tokensUsed: { promptTokens: 10, completionTokens: 10, totalTokens: 20 },
+        durationMs: 25,
+      }),
+    };
+
+    const notifications: any[] = [];
+    const origBroadcast = (server as any).broadcastEvent.bind(server);
+    (server as any).broadcastEvent = (event: string, payload: any) => {
+      if (event === 'operator:notification') {
+        notifications.push(payload);
+      }
+      origBroadcast(event, payload);
+    };
+
+    try {
+      const agentAIdentity = (server as any).agentRepo.getIdentity(agentAId);
+      const triggerMsg = {
+        id: `msg-peer-trig-${now}`,
+        channelId: dmChannelId,
+        senderId: agentBId,
+        senderType: 'agent' as const,
+        content: 'Hey PeerX, what is your status?',
+        createdAt: now,
+      };
+
+      // Execute response with recursionDepth = 5 to trigger ceiling
+      await (server as any).executeAgentResponse(agentAIdentity, dmChannelId, triggerMsg, 5);
+
+      const ceilingNotif = notifications.find((n) => n.type === 'peer_dm_turn_limit');
+      expect(ceilingNotif).toBeDefined();
+      expect(ceilingNotif.channelId).toBe(dmChannelId);
+      expect(ceilingNotif.message).toContain('Turn depth ceiling reached');
+    } finally {
+      (server as any).modelGateway = origModelGateway;
+      (server as any).broadcastEvent = origBroadcast;
+    }
+  });
 });

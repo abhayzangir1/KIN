@@ -31,14 +31,14 @@ The primary product hierarchy is:
 
 ```text
 Workspace
-├── Projects
-│   ├── Teams
-│   ├── Agents
-│   ├── Channels
-│   ├── DMs
+├── Projects (Organizations)
+│   ├── Project Boss (@Boss)
+│   ├── Specialist Coworkers
+│   ├── Channels (Departments)
+│   ├── DMs (Peer Direct Messages)
 │   ├── Goals / Tasks
 │   ├── Artifacts
-│   ├── Memory / Knowledge
+│   ├── Memory / Knowledge (Project, Channel, Agent-Private, DM Scopes)
 │   └── Automations
 ├── Agent Library
 ├── Model / Provider Library
@@ -47,23 +47,22 @@ Workspace
 └── Settings
 ```
 
-Organization and Department layers remain supported as future/optional enterprise extensions, not hard dependencies of the first-run experience.
+In this architecture, **Projects represent Organizations** and **Channels represent Departments**. Each project provides strict organizational isolation for code repositories, specialist teams, task trees, and memory boundaries.
 
 ### 0.3 Orchestrator model
 
-There is one persistent **Default Orchestrator per workspace**.
+Each project maintains its own dedicated **Project Boss (`@Boss`)**.
 
-It is:
+The Project Boss is:
 
-- the primary human-facing counterpart;
-- an ordinary agent with configured role/capabilities;
-- able to answer or execute simple work itself;
-- able to create/select projects;
-- able to reuse, hire and spawn agents;
-- able to delegate recursively subject to policy;
-- never allowed to bypass permissions or approvals.
+- the primary human-facing counterpart for that project organization;
+- the authority responsible for recruiting specialist coworkers (`hireSpecialist`), assigning coworkers to department channels (`assignCoworker`), convening team meetings (`callMeeting`), and delegating tasks (`delegateToAgent`);
+- an agent with configured role and capabilities scoped to the project;
+- able to answer queries and execute project tasks directly;
+- bounded by strict capability tags and user-configured approval policies;
+- prohibited from crossing project organizational boundaries or assuming foreign project authority.
 
-Projects do not create competing Root Orchestrator authorities.
+Workspaces coordinate multiple projects, each with its dedicated Project Boss orchestrator.
 
 ### 0.4 Agent lifecycle model
 
@@ -213,11 +212,11 @@ A user who wants reproducible runs, evidence, task state, cost/usage visibility 
 
 # 4. First-run experience
 
-A new installation should start with:
+A new installation starts with:
 
 ```text
 Workspace
-└── Default Orchestrator
+└── Project Boss (@Boss)
 ```
 
 The first user-facing interaction is a message composer, not a configuration wizard.
@@ -226,7 +225,7 @@ Example:
 
 > Build the next release of my Android application, investigate the production issue, and prepare the release notes.
 
-The orchestrator should:
+The Project Boss should:
 
 1. understand the request;
 2. determine whether a project already exists;
@@ -501,7 +500,7 @@ KIN exposes two distinct graphs, projected cleanly into the user interface:
 ## Workforce graph (Swarm Map)
 
 Who manages, collaborates with or delegates to whom. The interactive Swarm Map visualizes:
-- Hierarchical reporting structures (e.g., Default Orchestrator -> Hired Specialists -> Domain Subagents);
+- Hierarchical reporting structures (e.g., Project Boss -> Hired Specialists -> Domain Subagents);
 - Real-time operational readiness, active model configurations, and strictly scoped project channels;
 - Direct recruitment affordances and interactive node focus.
 
@@ -1061,7 +1060,7 @@ Exact performance targets are specified in the TRD and must be benchmarked on re
 - Tauri desktop shell;
 - local Node/TypeScript core;
 - SQLite persistence;
-- default orchestrator;
+- project boss orchestrator;
 - one cloud-compatible provider plus Ollama/local endpoint;
 - persistent agents;
 - DMs/channels;
@@ -1119,7 +1118,7 @@ Exact performance targets are specified in the TRD and must be benchmarked on re
 A release is product-complete for the stated scope only if:
 
 1. A new user can submit a goal without configuring a workflow.
-2. The default orchestrator can answer, execute or delegate appropriately.
+2. The project boss orchestrator can answer, execute or delegate appropriately.
 3. Persistent agents retain identity across runs/restarts.
 4. Ephemeral agents can perform bounded jobs and return structured results.
 5. Agent activation does not wake every agent in a channel.
@@ -1303,7 +1302,7 @@ This section is the canonical resolution of the differences among the supplied P
 | Agent/product core | Local Node/TypeScript modular monolith | Better fit for current JS/TS agent ecosystem and adapter reuse | Python microservice fleet; Rust-only runtime |
 | Workspace hierarchy | Workspace-first | Lowest onboarding friction | Mandatory Organization→Department bureaucracy in V1 |
 | Enterprise hierarchy | Optional extension | Preserves future enterprise support without polluting core UX | V1 dependency |
-| Orchestrator | One Default Orchestrator per workspace | One human-facing authority, no duplicate project roots | Root Orchestrator per project |
+| Orchestrator | Project Boss (@Boss) per project | Strictly project-scoped organization authority | Global single-orchestrator bottleneck |
 | Orchestrator behavior | May execute simple work directly or delegate | Lowest-friction autonomy | Manager-only orchestrator |
 | Persistent agents | Stable identities reusable across projects with explicit membership | Strong coworker model + scope safety | Project-only identity semantics |
 | Ephemeral workers | Yes, bounded | Efficient for narrow jobs | Long-lived temporary sprawl |

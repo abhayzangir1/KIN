@@ -56,6 +56,7 @@ export interface AgentLoopOptions {
   onModelSwitched?: (newModelId: string) => void;
   getAbortSignal?: () => AbortSignal | undefined;
   renewAbortSignal?: () => AbortSignal | undefined;
+  watchdogIntervalMs?: number;
 }
 
 export interface AgentLoopAction {
@@ -417,7 +418,7 @@ export class AgentLoopRunner {
       // Invoke LLM (dynamically resolves active model if changed mid-execution)
       const currentModelId = options.getModelId ? options.getModelId() : options.modelId;
       let response;
-      const watchdogIntervalMs = 15000;
+      const watchdogIntervalMs = options.watchdogIntervalMs ?? 15000;
       const maxCeilingMs = 60 * 60 * 1000; // 60 minutes maximum ceiling for reasoning models
       const invokeStartTime = Date.now();
       let watchdogTimer: NodeJS.Timeout | null = null;
@@ -748,10 +749,22 @@ export class AgentLoopRunner {
         : ((options.agentId === 'agent-boss' || options.agentId.startsWith('agent-boss-')) ? ['*'] : ['fs:read', 'fs:write', 'agent:hire', 'agent:delegate']);
 
       // Route to ToolGateway
-      let toolAbortSignal = options.getAbortSignal ? options.getAbortSignal() : undefined;
-      if (toolAbortSignal?.aborted && options.renewAbortSignal) {
-        toolAbortSignal = options.renewAbortSignal();
+      let toolParentAbortSignal = options.getAbortSignal ? options.getAbortSignal() : undefined;
+      if (toolParentAbortSignal?.aborted && options.renewAbortSignal) {
+        toolParentAbortSignal = options.renewAbortSignal();
       }
+
+      const toolAbortController = new AbortController();
+      if (toolParentAbortSignal) {
+        if (toolParentAbortSignal.aborted) {
+          toolAbortController.abort((toolParentAbortSignal as any).reason || 'Aborted');
+        } else {
+          toolParentAbortSignal.addEventListener('abort', () => {
+            toolAbortController.abort((toolParentAbortSignal as any).reason || 'Aborted');
+          }, { once: true });
+        }
+      }
+      const toolAbortSignal = toolAbortController.signal;
 
       const toolCtx: ToolExecutionContext = {
         runId: options.runId,
@@ -793,9 +806,11 @@ export class AgentLoopRunner {
               const renewed = await options.onRenewLease!(options.taskId!);
               if (renewed === false) {
                 toolLeaseLost = true;
+                toolAbortController.abort('Task lease expired or was revoked during tool execution');
               }
             } catch {
               toolLeaseLost = true;
+              toolAbortController.abort('Task lease expired or was revoked during tool execution');
             }
           }, watchdogIntervalMs);
           if (toolWatchdogTimer && typeof (toolWatchdogTimer as any).unref === 'function') {
@@ -819,8 +834,33 @@ export class AgentLoopRunner {
           }
         }
 
+        if (toolLeaseLost) {
+          const durationMs = Date.now() - startTime;
+          const leaseLossErr = 'Task lease expired or was revoked during tool execution';
+          actions.push({
+            toolName: toolCall.name,
+            params: toolCall.params,
+            output: undefined,
+            error: leaseLossErr,
+            durationMs,
+          });
+          if (options.onToolEnd) {
+            options.onToolEnd(toolCall.name, undefined, leaseLossErr);
+          }
+          this.recordInterruptedTurn(options.runId, currentTurn);
+          return {
+            finalContent: `Execution halted: Task lease ownership for task '${options.taskId}' was lost or expired during execution of tool '${toolCall.name}'.`,
+            turnCount: currentTurn,
+            actions,
+            isAborted: true,
+            interruptedTurn: currentTurn,
+            reason: `Lost task lease ownership during tool execution.`,
+          };
+        }
+
         const wasToolAborted =
           (toolAbortSignal && toolAbortSignal.aborted) ||
+          (toolParentAbortSignal && toolParentAbortSignal.aborted) ||
           (options.getAbortSignal && options.getAbortSignal()?.aborted) ||
           (res.error && (
             res.error.includes('cancelled by operator via AbortSignal') ||
@@ -880,18 +920,6 @@ export class AgentLoopRunner {
           }
 
           continue;
-        }
-
-        if (toolLeaseLost) {
-          this.recordInterruptedTurn(options.runId, currentTurn);
-          return {
-            finalContent: `Execution halted: Task lease ownership for task '${options.taskId}' was lost or expired during execution of tool '${toolCall.name}'.`,
-            turnCount: currentTurn,
-            actions,
-            isAborted: true,
-            interruptedTurn: currentTurn,
-            reason: `Lost task lease ownership during tool execution.`,
-          };
         }
 
         if (res.requiresApproval) {

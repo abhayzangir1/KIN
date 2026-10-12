@@ -2610,14 +2610,8 @@ export class CoreServer {
         this.workspaceRepo.createChannel(channel);
 
         // Invariant: By default, a new channel has strictly ONE default agent: @Boss
-        const projectAgents = this.agentRepo.listIdentitiesByProject(projectId);
-        const boss =
-          projectAgents.find((a) => a.isOrchestrator) ||
-          projectAgents[0] ||
-          this.agentRepo.getIdentity('agent-boss');
-        if (boss) {
-          this.workspaceRepo.addChannelMember(channelId, boss.id);
-        }
+        const boss = this.agentRepo.ensureProjectBoss(projectId);
+        this.workspaceRepo.addChannelMember(channelId, boss.id);
 
         const channelItem = {
           id: channel.id,
@@ -2625,10 +2619,10 @@ export class CoreServer {
           name: channel.name,
           topic: channel.topic,
           unreadCount: 0,
-          memberIds: boss ? [boss.id] : [],
+          memberIds: [boss.id],
         };
 
-        this.broadcastEvent('channel:created', { channel: channelItem, members: boss ? [boss.id] : [] });
+        this.broadcastEvent('channel:created', { channel: channelItem, members: [boss.id] });
         return this.sendJson(res, 201, { channel: channelItem });
       }
 
@@ -2879,14 +2873,17 @@ export class CoreServer {
         let channels = this.workspaceRepo.listChannels(activeProject?.id || 'proj-kin', true);
         if (channels.length === 0 && activeProject) {
           // Fallback create general channel
+          const fallbackChanId = `chan-${activeProject.id}-gen`;
           this.workspaceRepo.createChannel({
-            id: `chan-${activeProject.id}-gen`,
+            id: fallbackChanId,
             projectId: activeProject.id,
             name: 'general',
             topic: 'General Discussion',
             isPrivate: false,
             createdAt: Date.now(),
           });
+          const boss = this.agentRepo.ensureProjectBoss(activeProject.id);
+          this.workspaceRepo.addChannelMember(fallbackChanId, boss.id);
           channels = this.workspaceRepo.listChannels(activeProject.id, true);
         }
 
@@ -5590,6 +5587,9 @@ Format strictly as JSON:
                   approvalToken,
                 }
               );
+              if (toolExecutionResult && toolExecutionResult.success === false) {
+                throw new Error(toolExecutionResult.error || `Execution failed for tool ${approvalRow.tool_name}`);
+              }
               toolSuccess = true;
               toolOutput = toolExecutionResult?.output !== undefined ? toolExecutionResult.output : toolExecutionResult;
 
@@ -5605,6 +5605,7 @@ Format strictly as JSON:
                 productivityScore: 100,
               });
             } catch (execErr: any) {
+              this.preservedWorktrees.delete(approvalRow.run_id);
               toolSuccess = false;
               toolError = execErr.message || String(execErr);
               toolExecutionResult = { success: false, error: toolError };
@@ -5640,6 +5641,7 @@ Format strictly as JSON:
                   this.executeAgentResponse(agentIdentity, targetChanId, observationTrigger, 0, undefined, approvalRow.run_id)
                 )
               ).catch((resumeErr) => {
+                this.preservedWorktrees.delete(approvalRow.run_id);
                 console.error('[KIN CORE] Error resuming agent response after approval:', resumeErr);
               });
             }
@@ -10114,7 +10116,7 @@ Format strictly as JSON:
               channelId,
               message: `Conversation completed: Completion token detected from @${agent.displayName.replace(/^@/, '')}. Automatic peer response halted.`,
             });
-          } else if (recursionDepth < 3) {
+          } else if (recursionDepth < 5) {
             const memberIds = this.workspaceRepo.listChannelMemberIds(channelId);
             const otherAgentId = memberIds.find((id) => id !== agent.id);
             const otherAgent = otherAgentId ? this.agentRepo.getIdentity(otherAgentId) : undefined;
@@ -10139,6 +10141,12 @@ Format strictly as JSON:
                 });
               }
             }
+          } else {
+            this.broadcastEvent('operator:notification', {
+              type: 'peer_dm_turn_limit',
+              channelId,
+              message: `Turn depth ceiling reached in peer DM channel ${channelId}. Automatic response paused.`,
+            });
           }
         }
       }

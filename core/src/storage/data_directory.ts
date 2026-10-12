@@ -3,7 +3,7 @@
 // ============================================================================
 
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { homedir } from 'node:os';
 import * as fs from 'node:fs';
 
 /**
@@ -46,12 +46,12 @@ export function getDataDirectory(): string {
   let baseDir: string;
   const platform = process.platform;
   if (platform === 'win32') {
-    baseDir = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+    baseDir = process.env.APPDATA || path.join(homedir(), 'AppData', 'Roaming');
   } else if (platform === 'darwin') {
-    baseDir = path.join(os.homedir(), 'Library', 'Application Support');
+    baseDir = path.join(homedir(), 'Library', 'Application Support');
   } else {
     // Linux / BSD / Unix
-    baseDir = process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share');
+    baseDir = process.env.XDG_DATA_HOME || path.join(homedir(), '.local', 'share');
   }
 
   const kinDataDir = path.join(baseDir, 'kin');

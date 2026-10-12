@@ -6,11 +6,13 @@ KIN is under active development. Features described here are present in source u
 
 ## What is in the repository
 
-- Projects as organization boundaries, channels, direct-message views, agent identities and definitions, goals, tasks, and task dependencies.
-- Project-scoped Boss orchestrators (`@Boss`), specialist coworkers, and agent runs coordinated through the local core.
-- 4-tier memory scoping (project-shared memory, conversation-scoped context, agent-private memory, and direct-message privacy) with dedicated agent memory tools.
-- Coworker peer direct messaging (`dm-${agentA}-${agentB}`) with participant-only context isolation and UI Operator Inspection Mode.
-- Boss coordination tools for recruitment (`hireSpecialist`), coworker assignment (`assignCoworker`), department convening (`callMeeting`), and delegation (`delegateToAgent`).
+- **Multi-Agent Workforce Architecture**:
+  - **Projects as Organizations**: Each project forms an isolated organizational boundary containing dedicated goals, task DAGs, workspaces, and teams.
+  - **Project-Scoped Boss Orchestrators (`@Boss`)**: Every project has an authoritative `@Boss` orchestrator responsible for requirements intake, task delegation, and workforce management without foreign project crosstalk.
+  - **Channels as Departments**: Channels serve as departmental collaboration spaces seeded by default with `@Boss`, with dynamic specialist enrollment.
+  - **Multi-Channel Workforce Coordination Suite**: Tools for dynamic recruitment (`hireSpecialist`), coworker channel assignment (`assignCoworker`), department convening (`callMeeting`), and recursive delegation (`delegateToAgent`).
+  - **Peer Direct Messaging**: Private agent-to-agent DMs (`dm-${agentA}-${agentB}`) with participant-only context isolation, completion token detection, turn depth limits (5-turn ceiling), and Operator Inspection Mode.
+  - **4-Tier Scoped Memory Fabric**: Strict separation across project knowledge (`rememberProject`), channel memory (`rememberChannel`), private agent state (`rememberPrivate`), and DM context.
 - A pluggable `RunnerAdapter` specification and registry decoupling execution engines from KIN's authoritative state and security plane.
 - A model gateway with provider integrations, credential settings, model discovery, custom model records, and an Ollama path. Provider availability depends on configuration and actual provider responses.
 - A tool gateway, approval and capability checks, skills, MCP stdio clients, schedules, browser control, and desktop-control paths.

@@ -21,9 +21,9 @@ if (Test-Path $tempStaging) {
 New-Item -ItemType Directory -Path "$tempStaging\KIN" -Force | Out-Null
 
 # 1. Copy source files and assets using robocopy
-$excludeDirs = @("node_modules", ".git", "target", "KIN_ZIP_STAGING")
+$excludeDirs = @("node_modules", ".git", "target", "KIN_ZIP_STAGING", ".kin")
 Write-Host ">>> Staging core repository files..."
-& robocopy "$kinDir" "$tempStaging\KIN" /E /XD node_modules .git target KIN_ZIP_STAGING /XF *.sqlite-wal *.sqlite-shm *.log /NFL /NDL /NJH /NJS /nc /ns /np
+& robocopy "$kinDir" "$tempStaging\KIN" /E /XD node_modules .git target KIN_ZIP_STAGING .kin /XF *.sqlite-wal *.sqlite-shm *.log *.sqlite /NFL /NDL /NJH /NJS /nc /ns /np
 
 # 2. Stage pre-packaged sidecar binary
 $sidecarSrc = "$kinDir\src-tauri\binaries\kin-core-x86_64-pc-windows-msvc.exe"

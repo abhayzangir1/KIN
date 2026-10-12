@@ -940,6 +940,28 @@ external integrations
 
 Actions with external side effects should carry an action id / idempotency key where the target supports it.
 
+## 16.1 Multi-Channel Workforce Coordination Tools
+
+The workforce coordination suite enables dynamic agent recruitment, channel assignment, meeting convening, and peer collaboration strictly within project organizational boundaries:
+
+### `hireSpecialist`
+- **Purpose**: Dynamically recruits and onboards a specialist agent into the active project organization.
+- **Parameters**: `name` (agent display name), `role` (domain role e.g., Backend Engineer, Security Analyst), `capabilities` (whitelisted capability tags), `systemPrompt` (specialized operational guidance), `modelId` (target model ID), `channelId` (originating department channel).
+- **Execution**: Registers a persistent agent definition and identity bound to `activeProjectId` and enrolls the agent strictly into the originating channel (`channelId`).
+- **Isolation Invariant**: Specialists are bound to their originating project and cannot access other project organizations.
+
+### `assignCoworker`
+- **Purpose**: Enrolls an existing project coworker into a specific channel (department).
+- **Parameters**: `coworker` (agent display name or ID), `channelId` (target channel ID, defaults to current channel).
+- **Execution**: Adds membership in `channel_members` for the specified channel, triggering real-time UI membership synchronization and channel presence events.
+- **Isolation Invariant**: Enforces that coworker and channel belong to the same project. Agents cannot be assigned across project boundaries.
+
+### `callMeeting`
+- **Purpose**: Convenes a dedicated cross-functional meeting or temporary department channel with an agenda and invited project coworkers.
+- **Parameters**: `topic` (short meeting topic or slug), `agenda` (structured meeting objectives and discussion points), `participants` (array of coworker names or IDs to invite).
+- **Execution**: Creates a dedicated meeting channel (`chan-meeting-<topic>`), enrolls the caller and all resolved coworkers, broadcasts channel creation events, and posts the formatted agenda.
+- **Isolation Invariant**: All participants must belong to the active project organization.
+
 ---
 
 # 17. Approval / Autonomy Engine
@@ -1924,7 +1946,7 @@ Crash recovery, concurrency/failure injection, prompt-injection defenses, packag
 | Persistence | SQLite WAL + filesystem | Local durability, concurrency, portability | Network database |
 | Eventing | Typed event journal | Replay/debug/audit without full event sourcing | Full CQRS/event-sourcing |
 | Agent state | Agent Definition / Identity / Runtime State / Run separation | Prevents semantic conflation | Session-only agent identity |
-| Orchestration | Workspace Default Orchestrator | One authority, low friction | Per-project root orchestrators |
+| Orchestration | Project Boss (@Boss) per project | Dedicated project organization authority | Global single-orchestrator bottleneck |
 | Execution | Agent Kernel | One execution authority | Multiple competing orchestration frameworks |
 | Context | Single Context Compiler | One authority | Per-framework context assembly |
 | Memory | Scoped local memory fabric | Privacy + retrieval | Flat shared memory |

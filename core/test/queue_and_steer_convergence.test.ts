@@ -527,5 +527,132 @@ describe('Message Queuing & Mid-Execution Steering Convergence', () => {
       expect(result.actions[0].error).toContain('cancelled by operator via AbortSignal');
       expect(result.finalContent).toContain('Acknowledged cancellation of sleep tool');
     });
+
+    it('AgentLoopRunner immediately terminates in-flight tool and halts execution when watchdog detects task lease loss', async () => {
+      const { AgentLoopRunner } = await import('../src/kernel/agent_loop.js');
+
+      let abortedViaLeaseLoss = false;
+      const mockModelGateway: any = {
+        invoke: async () => ({
+          content: '<tool_call>{"name": "executeShell", "parameters": {"command": "long_worker"}}</tool_call>',
+          tokensUsed: { promptTokens: 10, completionTokens: 15, totalTokens: 25 },
+          durationMs: 50,
+        }),
+      };
+
+      const mockToolGateway: any = {
+        getToolSchemas: () => [{ name: 'executeShell', description: 'Executes shell command' }],
+        getBrowserController: () => ({ getStatus: () => ({ currentUrl: '', pageTitle: '' }) }),
+        executeTool: async (toolName: string, params: any, context: any) => {
+          return new Promise((resolve) => {
+            const signal = context.abortSignal;
+            if (signal) {
+              signal.addEventListener('abort', () => {
+                abortedViaLeaseLoss = true;
+                resolve({
+                  success: false,
+                  error: 'Task lease expired or was revoked during tool execution',
+                  riskLevel: 'LOW',
+                });
+              }, { once: true });
+            }
+          });
+        },
+      };
+
+      const loopRunner = new AgentLoopRunner(
+        mockModelGateway,
+        mockToolGateway,
+        {} as any,
+        { matchSkills: () => [] } as any
+      );
+
+      const result = await loopRunner.execute({
+        modelId: 'ollama/llama3',
+        userPrompt: 'Run task under lease',
+        systemPrompt: 'System instructions',
+        worktreeRoot: process.cwd(),
+        autonomyMode: 'AUTO',
+        maxTurns: 3,
+        allowedCapabilities: ['*'],
+        taskId: 'task-lease-123',
+        watchdogIntervalMs: 50,
+        onRenewLease: async () => {
+          return false;
+        },
+      });
+
+      expect(abortedViaLeaseLoss).toBe(true);
+      expect(result.isAborted).toBe(true);
+      expect(result.reason).toContain('Lost task lease ownership during tool execution');
+      expect(result.finalContent).toContain('lease ownership for task \'task-lease-123\' was lost or expired');
+    });
+
+    it('AgentLoopRunner immediately terminates tool and emits onToolEnd when onRenewLease throws an exception', async () => {
+      const { AgentLoopRunner } = await import('../src/kernel/agent_loop.js');
+
+      let abortedViaLeaseException = false;
+      let toolEndCalled = false;
+      const mockModelGateway: any = {
+        invoke: async () => ({
+          content: '<tool_call>{"name": "executeShell", "parameters": {"command": "long_worker"}}</tool_call>',
+          tokensUsed: { promptTokens: 10, completionTokens: 15, totalTokens: 25 },
+          durationMs: 50,
+        }),
+      };
+
+      const mockToolGateway: any = {
+        getToolSchemas: () => [{ name: 'executeShell', description: 'Executes shell command' }],
+        getBrowserController: () => ({ getStatus: () => ({ currentUrl: '', pageTitle: '' }) }),
+        executeTool: async (toolName: string, params: any, context: any) => {
+          return new Promise((resolve) => {
+            const signal = context.abortSignal;
+            if (signal) {
+              signal.addEventListener('abort', () => {
+                abortedViaLeaseException = true;
+                resolve({
+                  success: false,
+                  error: 'Task lease expired or was revoked during tool execution',
+                  riskLevel: 'LOW',
+                });
+              }, { once: true });
+            }
+          });
+        },
+      };
+
+      const loopRunner = new AgentLoopRunner(
+        mockModelGateway,
+        mockToolGateway,
+        {} as any,
+        { matchSkills: () => [] } as any
+      );
+
+      const result = await loopRunner.execute({
+        modelId: 'ollama/llama3',
+        userPrompt: 'Run task under lease with renewal error',
+        systemPrompt: 'System instructions',
+        worktreeRoot: process.cwd(),
+        autonomyMode: 'AUTO',
+        maxTurns: 3,
+        allowedCapabilities: ['*'],
+        taskId: 'task-lease-err-456',
+        watchdogIntervalMs: 50,
+        onToolEnd: () => {
+          toolEndCalled = true;
+        },
+        onRenewLease: async () => {
+          throw new Error('Database connection lost during lease renewal');
+        },
+      });
+
+      expect(abortedViaLeaseException).toBe(true);
+      expect(toolEndCalled).toBe(true);
+      expect(result.actions.length).toBe(1);
+      expect(result.actions[0].toolName).toBe('executeShell');
+      expect(result.actions[0].error).toContain('Task lease expired or was revoked during tool execution');
+      expect(result.isAborted).toBe(true);
+      expect(result.reason).toContain('Lost task lease ownership during tool execution');
+    });
   });
 });

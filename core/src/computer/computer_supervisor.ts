@@ -7,7 +7,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { totalmem, freemem } from 'node:os';
 import puppeteer, { Browser, BrowserContext, Page } from 'puppeteer-core';
 import { BrowserController, WebStepAction, WebStepResult } from '../browser/browser_controller.js';
 import { SecretVault } from '../security/secret_vault.js';
@@ -89,8 +89,8 @@ export class ComputerSupervisor {
   // ---------------------------------------------------------------------------
 
   public getGovernorStatus(): GovernorStatus {
-    const totalMemBytes = os.totalmem();
-    const freeMemBytes = this.mockFreeMemBytes ?? os.freemem();
+    const totalMemBytes = totalmem();
+    const freeMemBytes = this.mockFreeMemBytes ?? freemem();
     const freeMemGB = Number((freeMemBytes / (1024 * 1024 * 1024)).toFixed(2));
 
     let tier: 'low' | 'medium' | 'high' = 'medium';
