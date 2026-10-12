@@ -81,7 +81,7 @@ function parseField(
   isDow: boolean = false
 ): ParsedCronField {
   const allowed = new Set<number>();
-  const isWildcard = fieldStr === '*';
+  const isWildcard = fieldStr === '*' || /^\*\/(\d+)$/.test(fieldStr);
 
   // Normalize named day or month tokens to numbers (case-insensitive)
   let normalizedField = fieldStr;

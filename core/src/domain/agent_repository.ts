@@ -71,12 +71,13 @@ export class AgentRepository {
 
   public createIdentity(identity: AgentIdentity): void {
     this.db.execute(
-      `INSERT INTO agent_identities (id, workspace_id, project_id, definition_id, display_name, avatar_url, active_model_id, fallback_model_id, is_orchestrator, is_ephemeral, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO agent_identities (id, workspace_id, project_id, definition_id, parent_agent_id, display_name, avatar_url, active_model_id, fallback_model_id, is_orchestrator, is_ephemeral, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       identity.id,
       identity.workspaceId,
       identity.projectId ?? null,
       identity.definitionId,
+      identity.parentAgentId ?? null,
       identity.displayName,
       identity.avatarUrl ?? null,
       identity.activeModelId,
@@ -94,6 +95,7 @@ export class AgentRepository {
       workspace_id: string;
       project_id: string | null;
       definition_id: string;
+      parent_agent_id: string | null;
       display_name: string;
       avatar_url: string | null;
       active_model_id: string;
@@ -102,21 +104,46 @@ export class AgentRepository {
       is_ephemeral: number;
       created_at: number;
       updated_at: number;
-    }>('SELECT * FROM agent_identities WHERE id = ?', id);
+      def_role: string | null;
+      def_system_prompt: string | null;
+      def_capabilities_json: string | null;
+    }>(
+      `SELECT 
+         i.*,
+         d.role AS def_role,
+         d.system_prompt AS def_system_prompt,
+         d.capabilities_json AS def_capabilities_json
+       FROM agent_identities i
+       LEFT JOIN agent_definitions d ON i.definition_id = d.id
+       WHERE i.id = ?`,
+      id
+    );
 
     if (!row) return undefined;
+
+    let capabilities: string[] | undefined;
+    if (row.def_capabilities_json) {
+      try {
+        capabilities = JSON.parse(row.def_capabilities_json);
+      } catch {
+        capabilities = [];
+      }
+    }
 
     return {
       id: row.id,
       workspaceId: row.workspace_id,
       projectId: row.project_id || 'proj-kin',
       definitionId: row.definition_id,
+      parentAgentId: row.parent_agent_id ?? undefined,
       displayName: row.display_name,
       avatarUrl: row.avatar_url ?? undefined,
       activeModelId: row.active_model_id,
       fallbackModelId: row.fallback_model_id ?? undefined,
       isOrchestrator: row.is_orchestrator === 1,
       isEphemeral: row.is_ephemeral === 1,
+      roleTitle: row.def_role ?? undefined,
+      systemPrompt: row.def_system_prompt ?? undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -131,6 +158,7 @@ export class AgentRepository {
       workspace_id: string;
       project_id: string | null;
       definition_id: string;
+      parent_agent_id: string | null;
       display_name: string;
       avatar_url: string | null;
       active_model_id: string;
@@ -139,10 +167,19 @@ export class AgentRepository {
       is_ephemeral: number;
       created_at: number;
       updated_at: number;
+      def_role: string | null;
+      def_system_prompt: string | null;
+      def_capabilities_json: string | null;
     }>(
-      `SELECT * FROM agent_identities 
-       WHERE project_id = ?
-         AND (display_name = ? COLLATE NOCASE OR display_name = ? COLLATE NOCASE OR display_name = ? COLLATE NOCASE)
+      `SELECT 
+         i.*,
+         d.role AS def_role,
+         d.system_prompt AS def_system_prompt,
+         d.capabilities_json AS def_capabilities_json
+       FROM agent_identities i
+       LEFT JOIN agent_definitions d ON i.definition_id = d.id
+       WHERE i.project_id = ?
+         AND (i.display_name = ? COLLATE NOCASE OR i.display_name = ? COLLATE NOCASE OR i.display_name = ? COLLATE NOCASE)
        LIMIT 1`,
       projectId,
       displayName,
@@ -152,17 +189,29 @@ export class AgentRepository {
 
     if (!row) return undefined;
 
+    let capabilities: string[] | undefined;
+    if (row.def_capabilities_json) {
+      try {
+        capabilities = JSON.parse(row.def_capabilities_json);
+      } catch {
+        capabilities = [];
+      }
+    }
+
     return {
       id: row.id,
       workspaceId: row.workspace_id,
       projectId: row.project_id || projectId,
       definitionId: row.definition_id,
+      parentAgentId: row.parent_agent_id ?? undefined,
       displayName: row.display_name,
       avatarUrl: row.avatar_url ?? undefined,
       activeModelId: row.active_model_id,
       fallbackModelId: row.fallback_model_id ?? undefined,
       isOrchestrator: row.is_orchestrator === 1,
       isEphemeral: row.is_ephemeral === 1,
+      roleTitle: row.def_role ?? undefined,
+      systemPrompt: row.def_system_prompt ?? undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -194,6 +243,7 @@ export class AgentRepository {
       workspace_id: string;
       project_id: string | null;
       definition_id: string;
+      parent_agent_id: string | null;
       display_name: string;
       avatar_url: string | null;
       active_model_id: string;
@@ -202,22 +252,49 @@ export class AgentRepository {
       is_ephemeral: number;
       created_at: number;
       updated_at: number;
-    }>('SELECT * FROM agent_identities WHERE workspace_id = ? ORDER BY is_orchestrator DESC, created_at ASC', workspaceId);
+      def_role: string | null;
+      def_system_prompt: string | null;
+      def_capabilities_json: string | null;
+    }>(
+      `SELECT 
+         i.*,
+         d.role AS def_role,
+         d.system_prompt AS def_system_prompt,
+         d.capabilities_json AS def_capabilities_json
+       FROM agent_identities i
+       LEFT JOIN agent_definitions d ON i.definition_id = d.id
+       WHERE i.workspace_id = ? 
+       ORDER BY i.is_orchestrator DESC, i.created_at ASC`,
+      workspaceId
+    );
 
-    return rows.map((row) => ({
-      id: row.id,
-      workspaceId: row.workspace_id,
-      projectId: row.project_id || 'proj-kin',
-      definitionId: row.definition_id,
-      displayName: row.display_name,
-      avatarUrl: row.avatar_url ?? undefined,
-      activeModelId: row.active_model_id,
-      fallbackModelId: row.fallback_model_id ?? undefined,
-      isOrchestrator: row.is_orchestrator === 1,
-      isEphemeral: row.is_ephemeral === 1,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }));
+    return rows.map((row) => {
+      let capabilities: string[] | undefined;
+      if (row.def_capabilities_json) {
+        try {
+          capabilities = JSON.parse(row.def_capabilities_json);
+        } catch {
+          capabilities = [];
+        }
+      }
+      return {
+        id: row.id,
+        workspaceId: row.workspace_id,
+        projectId: row.project_id || 'proj-kin',
+        definitionId: row.definition_id,
+        parentAgentId: row.parent_agent_id ?? undefined,
+        displayName: row.display_name,
+        avatarUrl: row.avatar_url ?? undefined,
+        activeModelId: row.active_model_id,
+        fallbackModelId: row.fallback_model_id ?? undefined,
+        isOrchestrator: row.is_orchestrator === 1,
+        isEphemeral: row.is_ephemeral === 1,
+        roleTitle: row.def_role ?? undefined,
+        systemPrompt: row.def_system_prompt ?? undefined,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      };
+    });
   }
 
   public listIdentitiesByProject(projectId: string): AgentIdentity[] {
@@ -226,6 +303,7 @@ export class AgentRepository {
       workspace_id: string;
       project_id: string | null;
       definition_id: string;
+      parent_agent_id: string | null;
       display_name: string;
       avatar_url: string | null;
       active_model_id: string;
@@ -234,32 +312,114 @@ export class AgentRepository {
       is_ephemeral: number;
       created_at: number;
       updated_at: number;
+      def_role: string | null;
+      def_system_prompt: string | null;
+      def_capabilities_json: string | null;
     }>(
-      `SELECT * FROM agent_identities 
-       WHERE project_id = ?
-       ORDER BY is_orchestrator DESC, created_at ASC`,
+      `SELECT 
+         i.*,
+         d.role AS def_role,
+         d.system_prompt AS def_system_prompt,
+         d.capabilities_json AS def_capabilities_json
+       FROM agent_identities i
+       LEFT JOIN agent_definitions d ON i.definition_id = d.id
+       WHERE i.project_id = ?
+       ORDER BY i.is_orchestrator DESC, i.created_at ASC`,
       projectId
     );
 
-    return rows.map((row) => ({
-      id: row.id,
-      workspaceId: row.workspace_id,
-      projectId: row.project_id || projectId,
-      definitionId: row.definition_id,
-      displayName: row.display_name,
-      avatarUrl: row.avatar_url ?? undefined,
-      activeModelId: row.active_model_id,
-      fallbackModelId: row.fallback_model_id ?? undefined,
-      isOrchestrator: row.is_orchestrator === 1,
-      isEphemeral: row.is_ephemeral === 1,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }));
+    return rows.map((row) => {
+      let capabilities: string[] | undefined;
+      if (row.def_capabilities_json) {
+        try {
+          capabilities = JSON.parse(row.def_capabilities_json);
+        } catch {
+          capabilities = [];
+        }
+      }
+      return {
+        id: row.id,
+        workspaceId: row.workspace_id,
+        projectId: row.project_id || projectId,
+        definitionId: row.definition_id,
+        parentAgentId: row.parent_agent_id ?? undefined,
+        displayName: row.display_name,
+        avatarUrl: row.avatar_url ?? undefined,
+        activeModelId: row.active_model_id,
+        fallbackModelId: row.fallback_model_id ?? undefined,
+        isOrchestrator: row.is_orchestrator === 1,
+        isEphemeral: row.is_ephemeral === 1,
+        roleTitle: row.def_role ?? undefined,
+        systemPrompt: row.def_system_prompt ?? undefined,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      };
+    });
+  }
+
+  public listSubordinates(parentAgentId: string): AgentIdentity[] {
+    const rows = this.db.query<{
+      id: string;
+      workspace_id: string;
+      project_id: string | null;
+      definition_id: string;
+      parent_agent_id: string | null;
+      display_name: string;
+      avatar_url: string | null;
+      active_model_id: string;
+      fallback_model_id: string | null;
+      is_orchestrator: number;
+      is_ephemeral: number;
+      created_at: number;
+      updated_at: number;
+      def_role: string | null;
+      def_system_prompt: string | null;
+      def_capabilities_json: string | null;
+    }>(
+      `SELECT 
+         i.*,
+         d.role AS def_role,
+         d.system_prompt AS def_system_prompt,
+         d.capabilities_json AS def_capabilities_json
+       FROM agent_identities i
+       LEFT JOIN agent_definitions d ON i.definition_id = d.id
+       WHERE i.parent_agent_id = ?
+       ORDER BY i.created_at ASC`,
+      parentAgentId
+    );
+
+    return rows.map((row) => {
+      let capabilities: string[] | undefined;
+      if (row.def_capabilities_json) {
+        try {
+          capabilities = JSON.parse(row.def_capabilities_json);
+        } catch {
+          capabilities = [];
+        }
+      }
+      return {
+        id: row.id,
+        workspaceId: row.workspace_id,
+        projectId: row.project_id || 'proj-kin',
+        definitionId: row.definition_id,
+        parentAgentId: row.parent_agent_id ?? undefined,
+        displayName: row.display_name,
+        avatarUrl: row.avatar_url ?? undefined,
+        activeModelId: row.active_model_id,
+        fallbackModelId: row.fallback_model_id ?? undefined,
+        isOrchestrator: row.is_orchestrator === 1,
+        isEphemeral: row.is_ephemeral === 1,
+        roleTitle: row.def_role ?? undefined,
+        systemPrompt: row.def_system_prompt ?? undefined,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      };
+    });
   }
 
   public ensureProjectBoss(projectId: string, workspaceId: string = 'ws-default'): AgentIdentity {
     const existing = this.listIdentitiesByProject(projectId).find(
-      (a) => a.isOrchestrator || a.displayName.toLowerCase() === '@boss' || a.displayName.toLowerCase() === 'boss'
+      (a) => a.isOrchestrator === true
     );
     if (existing) {
       return existing;

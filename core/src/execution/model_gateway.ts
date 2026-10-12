@@ -17,9 +17,24 @@ export interface ModelInvocationParams {
   messages: ModelMessage[];
   temperature?: number;
   maxTokens?: number;
+  tools?: Array<{
+    type: 'function';
+    function: {
+      name: string;
+      description?: string;
+      parameters?: Record<string, unknown>;
+    };
+  }>;
   onToken?: (token: string) => void;
+  onThinkingToken?: (token: string) => void;
   callerAgentId?: string;
   signal?: AbortSignal;
+}
+
+function resolveEffectiveSignal(signal?: AbortSignal, timeoutMs: number = 120000): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  if (!signal) return timeoutSignal;
+  return typeof (AbortSignal as any).any === 'function' ? (AbortSignal as any).any([signal, timeoutSignal]) : signal;
 }
 
 export interface ModelInvocationResult {
@@ -191,6 +206,17 @@ export class ModelGateway {
   public async checkProviderReadiness(provider: string): Promise<ProviderReadiness> {
     const norm = provider.toLowerCase().trim();
     if (norm === 'ollama') {
+      if (process.env.KIN_ISOLATE_OLLAMA === 'true') {
+        this.isOllamaOnlineCached = false;
+        this.ollamaModelCountCached = 0;
+        return {
+          provider: 'ollama',
+          configured: Boolean(this.ollamaHost),
+          validated: false,
+          modelCount: 0,
+          message: 'Local Ollama runtime unreachable (isolated via environment)',
+        };
+      }
       try {
         const res = await fetch(`${this.ollamaHost}/api/tags`, { signal: AbortSignal.timeout(3000) }).catch(() => null);
         if (res && res.ok) {
@@ -783,19 +809,24 @@ export class ModelGateway {
       : 180000; // 3 minutes default to allow cold-loading large model weights into VRAM
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
     const combinedSignal = params.signal ? (AbortSignal as any).any([timeoutSignal, params.signal]) : timeoutSignal;
+    const requestBody: Record<string, any> = {
+      model: modelName,
+      messages: params.messages,
+      stream: true,
+      options: {
+        temperature: params.temperature ?? 0.2,
+        num_predict: params.maxTokens ?? 2048,
+      },
+    };
+    if (params.tools && params.tools.length > 0) {
+      requestBody.tools = params.tools;
+    }
+
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: combinedSignal,
-      body: JSON.stringify({
-        model: modelName,
-        messages: params.messages,
-        stream: true,
-        options: {
-          temperature: params.temperature ?? 0.2,
-          num_predict: params.maxTokens ?? 2048,
-        },
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!res.ok) {
@@ -807,6 +838,27 @@ export class ModelGateway {
     let fullThinking = '';
     let promptTokens = 0;
     let completionTokens = 0;
+    const collectedToolCalls: Array<{ name: string; parameters: any }> = [];
+    const seenToolCalls = new Set<string>();
+
+    const processToolCalls = (parsedMsg: any) => {
+      const calls = parsedMsg?.tool_calls;
+      if (Array.isArray(calls)) {
+        for (const tc of calls) {
+          const fnName = tc?.function?.name || tc?.name;
+          if (!fnName) continue;
+          let fnArgs = tc?.function?.arguments ?? tc?.arguments ?? tc?.parameters ?? {};
+          if (typeof fnArgs === 'string') {
+            try { fnArgs = JSON.parse(fnArgs); } catch {}
+          }
+          const callKey = tc.id ? String(tc.id) : `${fnName}:${JSON.stringify(fnArgs)}`;
+          if (!seenToolCalls.has(callKey)) {
+            seenToolCalls.add(callKey);
+            collectedToolCalls.push({ name: fnName, parameters: fnArgs });
+          }
+        }
+      }
+    };
 
     if (res.body && typeof (res.body as any).getReader === 'function') {
       const reader = (res.body as any).getReader();
@@ -827,6 +879,7 @@ export class ModelGateway {
             const parsed = JSON.parse(trimmed);
             const token = parsed?.message?.content || '';
             const thinkToken = parsed?.message?.thinking || '';
+            processToolCalls(parsed?.message);
             if (token) {
               fullContent += token;
               if (params.onToken) {
@@ -848,6 +901,7 @@ export class ModelGateway {
         try {
           const parsed = JSON.parse(buffer.trim());
           const token = parsed?.message?.content || '';
+          processToolCalls(parsed?.message);
           if (token) {
             fullContent += token;
             if (params.onToken) params.onToken(token);
@@ -872,6 +926,7 @@ export class ModelGateway {
             const parsed = JSON.parse(trimmed);
             const token = parsed?.message?.content || '';
             const thinkToken = parsed?.message?.thinking || '';
+            processToolCalls(parsed?.message);
             if (token) {
               fullContent += token;
               if (params.onToken) params.onToken(token);
@@ -893,6 +948,7 @@ export class ModelGateway {
         try {
           const parsed = JSON.parse(trimmed);
           const token = parsed?.message?.content || '';
+          processToolCalls(parsed?.message);
           if (token) fullContent += token;
           if (parsed.done) {
             promptTokens = parsed.prompt_eval_count || promptTokens;
@@ -902,6 +958,16 @@ export class ModelGateway {
       }
       if (params.onToken && fullContent) {
         params.onToken(fullContent);
+      }
+    }
+
+    if (collectedToolCalls.length > 0) {
+      for (const tc of collectedToolCalls) {
+        const toolXml = `\n<tool_call>\n${JSON.stringify({ name: tc.name, parameters: tc.parameters }, null, 2)}\n</tool_call>\n`;
+        fullContent += toolXml;
+        if (params.onToken) {
+          params.onToken(toolXml);
+        }
       }
     }
 
@@ -951,7 +1017,7 @@ export class ModelGateway {
         'HTTP-Referer': 'https://github.com/abhayzangir1/KIN',
         'X-Title': 'KIN Workforce Platform',
       },
-      signal: params.signal,
+      signal: resolveEffectiveSignal(params.signal),
       body: JSON.stringify({
         model: modelName,
         messages: params.messages,
@@ -1063,7 +1129,7 @@ export class ModelGateway {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
-      signal: params.signal,
+      signal: resolveEffectiveSignal(params.signal),
       body: JSON.stringify({
         model: modelName,
         messages: params.messages,
@@ -1153,12 +1219,24 @@ export class ModelGateway {
       throw new Error('ANTHROPIC_API_KEY is not set in environment or managed credentials.');
     }
 
-    const systemMsg = params.messages.find((m) => m.role === 'system')?.content || '';
-    const userAndAssistantMsgs = params.messages
-      .filter((m) => m.role !== 'system')
-      .map((m) => ({ role: m.role, content: m.content }));
+    const systemMsgs = params.messages
+      .filter((m) => m.role === 'system')
+      .map((m) => m.content)
+      .filter(Boolean);
+    const systemMsg = systemMsgs.join('\n\n');
+
+    const coalescedMsgs: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+    for (const msg of params.messages.filter((m) => m.role !== 'system')) {
+      const role = (msg.role === 'assistant' ? 'assistant' : 'user') as 'user' | 'assistant';
+      if (coalescedMsgs.length > 0 && coalescedMsgs[coalescedMsgs.length - 1].role === role) {
+        coalescedMsgs[coalescedMsgs.length - 1].content += '\n\n' + (msg.content || '');
+      } else {
+        coalescedMsgs.push({ role, content: msg.content || '' });
+      }
+    }
 
     const stream = !!params.onToken;
+    const effectiveSignal = resolveEffectiveSignal(params.signal);
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -1166,11 +1244,11 @@ export class ModelGateway {
         'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
       },
-      signal: params.signal,
+      signal: effectiveSignal,
       body: JSON.stringify({
         model: modelName,
         system: systemMsg,
-        messages: userAndAssistantMsgs,
+        messages: coalescedMsgs,
         max_tokens: params.maxTokens ?? 2048,
         temperature: params.temperature ?? 0.2,
         stream,
@@ -1202,9 +1280,17 @@ export class ModelGateway {
           const dataStr = trimmed.slice(5).trim();
           try {
             const parsed = JSON.parse(dataStr);
-            if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
-              content += parsed.delta.text;
-              params.onToken!(parsed.delta.text);
+            if (parsed.type === 'content_block_delta') {
+              if (parsed.delta?.type === 'thinking_delta' && parsed.delta?.thinking) {
+                if (params.onThinkingToken) {
+                  params.onThinkingToken(parsed.delta.thinking);
+                }
+              } else if (parsed.delta?.text) {
+                content += parsed.delta.text;
+                if (params.onToken) {
+                  params.onToken(parsed.delta.text);
+                }
+              }
             }
             if (parsed.type === 'message_start' && parsed.message?.usage?.input_tokens) {
               promptTokens = parsed.message.usage.input_tokens;

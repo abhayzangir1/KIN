@@ -4,7 +4,7 @@
 // Dynamically discovers tools and registers them into ToolGateway.
 // ============================================================================
 
-import { spawn, ChildProcess } from 'node:child_process';
+import { spawn, exec, ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -319,11 +319,11 @@ export class McpClientManager {
   /**
    * Invokes an MCP tool on the given server.
    */
-  public async callTool(serverName: string, toolName: string, args: Record<string, any>): Promise<McpToolCallResult> {
+  public async callTool(serverName: string, toolName: string, args: Record<string, any>, signal?: AbortSignal): Promise<McpToolCallResult> {
     const res = await this.sendRequest(serverName, 'tools/call', {
       name: toolName,
       arguments: args,
-    });
+    }, 15000, signal);
     return res as McpToolCallResult;
   }
 
@@ -350,10 +350,20 @@ export class McpClientManager {
   /**
    * Sends a JSON-RPC request over stdio.
    */
-  private sendRequest(serverName: string, method: string, params: Record<string, any>, timeoutMs: number = 15000): Promise<any> {
+  private sendRequest(
+    serverName: string,
+    method: string,
+    params: Record<string, any>,
+    timeoutMs: number = 15000,
+    signal?: AbortSignal
+  ): Promise<any> {
     const entry = this.activeServers.get(serverName);
     if (!entry || !entry.process.stdin) {
       return Promise.reject(new Error(`MCP server '${serverName}' is not running.`));
+    }
+
+    if (signal?.aborted) {
+      return Promise.reject(new Error(`MCP request '${method}' to '${serverName}' aborted: ${signal.reason}`));
     }
 
     const id = this.requestIdCounter++;
@@ -365,20 +375,37 @@ export class McpClientManager {
     });
 
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
+      let onAbort: (() => void) | undefined;
+      const cleanup = () => {
+        clearTimeout(timeout);
         this.pendingRequests.delete(id);
+        if (signal && onAbort) {
+          signal.removeEventListener('abort', onAbort);
+        }
+      };
+
+      const timeout = setTimeout(() => {
+        cleanup();
         reject(new Error(`MCP request '${method}' to '${serverName}' timed out (${Math.round(timeoutMs / 1000)}s).`));
       }, timeoutMs);
+
+      if (signal) {
+        onAbort = () => {
+          cleanup();
+          reject(new Error(`MCP request '${method}' to '${serverName}' aborted: ${signal.reason}`));
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
 
       this.pendingRequests.set(id, {
         serverName,
         timeout,
         resolve: (val) => {
-          clearTimeout(timeout);
+          cleanup();
           resolve(val);
         },
         reject: (err) => {
-          clearTimeout(timeout);
+          cleanup();
           reject(err);
         },
       });
@@ -386,8 +413,7 @@ export class McpClientManager {
       try {
         entry.process.stdin?.write(payload + '\n');
       } catch (err: any) {
-        clearTimeout(timeout);
-        this.pendingRequests.delete(id);
+        cleanup();
         reject(err);
       }
     });
@@ -411,6 +437,9 @@ export class McpClientManager {
     const entry = this.activeServers.get(name);
     if (entry) {
       try {
+        if (process.platform === 'win32' && entry.process.pid) {
+          exec(`taskkill /pid ${entry.process.pid} /T /F`, () => {});
+        }
         entry.process.kill();
       } catch {}
       this.activeServers.delete(name);

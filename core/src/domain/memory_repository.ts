@@ -28,6 +28,13 @@ export interface MemoryVersionEntry {
   createdAt: number;
 }
 
+export class OCCConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OCCConflictError';
+  }
+}
+
 export class MemoryRepository {
   private db: KinDatabase;
 
@@ -40,19 +47,19 @@ export class MemoryRepository {
    */
   public setMemory(params: SetMemoryParams): Memory {
     const now = Date.now();
-    const existing = this.getMemory(params.scope, params.scopeId, params.key);
+    return this.db.transactionSync(() => {
+      const existing = this.getMemory(params.scope, params.scopeId, params.key);
 
-    if (existing) {
-      if (params.expectedVersion !== undefined && existing.version !== params.expectedVersion) {
-        throw new Error(
-          `OCC CONFLICT: Memory key '${params.key}' version mismatch (expected ${params.expectedVersion}, got ${existing.version})`
-        );
-      }
+      if (existing) {
+        if (params.expectedVersion !== undefined && existing.version !== params.expectedVersion) {
+          throw new OCCConflictError(
+            `OCC CONFLICT: Memory key '${params.key}' version mismatch (expected ${params.expectedVersion}, got ${existing.version})`
+          );
+        }
 
-      const nextVersion = existing.version + 1;
-      const valJson = JSON.stringify(params.value);
+        const nextVersion = existing.version + 1;
+        const valJson = JSON.stringify(params.value);
 
-      this.db.transactionSync(() => {
         // Archive current snapshot into memory_versions
         this.db.execute(
           `INSERT INTO memory_versions (id, memory_id, version, value_json, updated_by_run_id, created_at)
@@ -65,58 +72,71 @@ export class MemoryRepository {
           now
         );
 
-        // Update memories table
-        this.db.execute(
+        // Update memories table with OCC SQL fencing
+        const result = this.db.execute(
           `UPDATE memories SET type = ?, value_json = ?, version = ?, evidence_ref = ?, updated_at = ?
-           WHERE id = ?`,
+           WHERE id = ? AND version = ?`,
           params.type,
           valJson,
           nextVersion,
           params.evidenceRef ?? existing.evidenceRef ?? null,
           now,
-          existing.id
+          existing.id,
+          existing.version
         );
-      });
 
-      return {
-        ...existing,
-        type: params.type,
-        value: params.value,
-        version: nextVersion,
-        evidenceRef: params.evidenceRef ?? existing.evidenceRef,
-        updatedAt: now,
-      };
-    } else {
-      const id = `mem-${uuidv4()}`;
-      const valJson = JSON.stringify(params.value);
+        if (Number(result.changes) === 0) {
+          throw new OCCConflictError(
+            `OCC CONFLICT: Concurrent update detected for memory key '${params.key}' (version ${existing.version})`
+          );
+        }
 
-      this.db.execute(
-        `INSERT INTO memories (id, scope, scope_id, type, key, value_json, version, evidence_ref, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
-        id,
-        params.scope,
-        params.scopeId,
-        params.type,
-        params.key,
-        valJson,
-        params.evidenceRef ?? null,
-        now,
-        now
-      );
+        return {
+          ...existing,
+          type: params.type,
+          value: params.value,
+          version: nextVersion,
+          evidenceRef: params.evidenceRef ?? existing.evidenceRef,
+          updatedAt: now,
+        };
+      } else {
+        if (params.expectedVersion !== undefined && params.expectedVersion !== 0) {
+          throw new OCCConflictError(
+            `OCC CONFLICT: Memory key '${params.key}' does not exist (expected version ${params.expectedVersion})`
+          );
+        }
 
-      return {
-        id,
-        scope: params.scope,
-        scopeId: params.scopeId,
-        type: params.type,
-        key: params.key,
-        value: params.value,
-        version: 1,
-        evidenceRef: params.evidenceRef,
-        createdAt: now,
-        updatedAt: now,
-      };
-    }
+        const id = `mem-${uuidv4()}`;
+        const valJson = JSON.stringify(params.value);
+
+        this.db.execute(
+          `INSERT INTO memories (id, scope, scope_id, type, key, value_json, version, evidence_ref, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+          id,
+          params.scope,
+          params.scopeId,
+          params.type,
+          params.key,
+          valJson,
+          params.evidenceRef ?? null,
+          now,
+          now
+        );
+
+        return {
+          id,
+          scope: params.scope,
+          scopeId: params.scopeId,
+          type: params.type,
+          key: params.key,
+          value: params.value,
+          version: 1,
+          evidenceRef: params.evidenceRef,
+          createdAt: now,
+          updatedAt: now,
+        };
+      }
+    });
   }
 
   /**

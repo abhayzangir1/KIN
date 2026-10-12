@@ -237,64 +237,44 @@ export class DesktopController {
 
     try {
       this.pendingListPromise = new Promise<WindowInfo[]>((resolve) => {
-        childProcess.exec('tasklist /v /fo csv', { timeout: 10000, maxBuffer: 10 * 1024 * 1024, windowsHide: true }, (err, stdout) => {
+        const psCmd = `powershell -NoProfile -NonInteractive -Command "Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle } | Select-Object @{Name='windowId';Expression={$_.Id.ToString()}}, @{Name='title';Expression={$_.MainWindowTitle}}, @{Name='app';Expression={$_.ProcessName}}, @{Name='pid';Expression={$_.Id}} | ConvertTo-Json -Compress"`;
+
+        childProcess.exec(psCmd, { timeout: 5000, maxBuffer: 10 * 1024 * 1024, windowsHide: true }, (err, stdout) => {
           this.pendingListPromise = null;
-          if (err || !stdout) {
+          if (err || !stdout || !stdout.trim()) {
             return resolve(this.cachedWindows?.data || []);
           }
-          const lines = stdout.split(/\r?\n/).filter((l) => l.trim().length > 0);
-          const ignoredTitles = new Set([
-            'n/a',
-            'olemainthreadwndname',
-            'olechannelwnd',
-            'dwm notification window',
-            'default ime',
-            'msctls_statusbar32',
-            'task host window',
-            'crossdeviceresumewindow',
-            'nvsvc',
-            'realtekaudioadminbackgroundprocessclass',
-            'my favorites setting',
-          ]);
 
-          const windows: WindowInfo[] = [];
-          const seen = new Set<string>();
+          try {
+            const raw = JSON.parse(stdout.trim());
+            const items = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+            const windows: WindowInfo[] = [];
+            const seen = new Set<string>();
 
-          for (let i = 1; i < lines.length; i++) {
-            const line = lines[i];
-            const match = line.match(/^"([^"]*)","([^"]*)","([^"]*)","([^"]*)","([^"]*)","([^"]*)","([^"]*)","([^"]*)","(.*)"$/);
-            if (!match) continue;
+            for (const item of items) {
+              const pid = Number(item.pid || item.windowId);
+              const title = String(item.title || '').trim();
+              const processName = String(item.app || '').replace(/\.exe$/i, '');
+              if (!title || Number.isNaN(pid)) continue;
 
-            const processName = match[1].replace(/\.exe$/i, '');
-            const pid = parseInt(match[2], 10);
-            if (Number.isNaN(pid)) continue;
-            const title = match[9].replace(/""/g, '"').replace(/"$/, '').trim();
+              const key = `${pid}-${title}`;
+              if (seen.has(key)) continue;
+              seen.add(key);
 
-            const lowerTitle = title.toLowerCase();
-            if (
-              !title ||
-              ignoredTitles.has(lowerTitle) ||
-              lowerTitle.startsWith('olemainthread') ||
-              lowerTitle.startsWith('.net-broadcast')
-            ) {
-              continue;
+              windows.push({
+                handle: String(item.windowId || pid),
+                title,
+                processName,
+                pid,
+                isForeground: false,
+              });
             }
 
-            const key = `${pid}-${title}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-
-            windows.push({
-              handle: String(pid),
-              title,
-              processName,
-              pid,
-              isForeground: false,
-            });
+            this.cachedWindows = { data: windows, timestamp: Date.now() };
+            resolve(windows);
+          } catch {
+            resolve(this.cachedWindows?.data || []);
           }
-
-          this.cachedWindows = { data: windows, timestamp: Date.now() };
-          resolve(windows);
         });
       });
       return await this.pendingListPromise;

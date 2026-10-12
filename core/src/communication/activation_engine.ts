@@ -198,6 +198,24 @@ export class ActivationEngine {
         const rawId = channelId.replace(/^dm-/, '');
         targetAgent = allProjectAgents.find((a) => a.id === rawId && a.id !== message.senderId)
           || channelMembers.find((a) => a.id === rawId && a.id !== message.senderId);
+
+        if (!targetAgent) {
+          targetAgent = allProjectAgents.find((a) => {
+            if (a.id === message.senderId) return false;
+            const expectedDm = `dm-${[message.senderId, a.id].sort().join('-')}`;
+            return channelId === expectedDm;
+          });
+        }
+
+        if (!targetAgent) {
+          targetAgent = allProjectAgents.find((a) => {
+            if (a.id === message.senderId) return false;
+            return rawId === a.id ||
+              rawId.startsWith(`${a.id}-`) ||
+              rawId.endsWith(`-${a.id}`) ||
+              rawId.includes(`-${a.id}-`);
+          });
+        }
       }
 
       if (targetAgent) {
@@ -221,7 +239,8 @@ export class ActivationEngine {
       const mentionedClean = message.mentions.map((m) => m.toLowerCase().replace(/^@/, ''));
       const isAll = mentionedClean.includes('all');
 
-      const matchedAgents = allProjectAgents.filter((agent) => {
+      const candidatePool = isAll ? channelMembers : allProjectAgents;
+      const matchedAgents = candidatePool.filter((agent) => {
         if (agent.id === message.senderId) return false;
         if (isAll) return true;
         const cleanName = agent.displayName.replace(/^@/, '').toLowerCase();
@@ -232,10 +251,43 @@ export class ActivationEngine {
         return {
           action: 'sequential_specialists',
           targetAgents: matchedAgents,
-          reason: 'explicit_mentions',
+          reason: isAll ? 'all_channel_members' : 'explicit_mentions',
           matchReason: 'direct_mention',
         };
       }
+    }
+
+    // 2b. Condition 2b: Sequential team introductions
+    const isTeamIntro = /(introduce\s+(yourselves|yourself|the\s+team)|who\s+is\s+on\s+the\s+team|team\s+introduction|who\s+is\s+working\s+here|meet\s+the\s+team|who\s+are\s+you\s+all|tell\s+me\s+about\s+yourselves|introductions?\b)/i.test(
+      message.content
+    );
+    if (isTeamIntro) {
+      const introMembers = channelMembers.filter((m) => m.id !== message.senderId);
+      if (introMembers.length > 0) {
+        return {
+          action: 'sequential_specialists',
+          targetAgents: introMembers,
+          reason: 'team_introduction',
+          matchReason: 'team_introduction',
+        };
+      }
+    }
+
+    // 2c. Condition 2c: Explicit name address in text (e.g. "hey Architect", "Developer please look at this")
+    const namedMembers = channelMembers.filter((agent) => {
+      if (agent.id === message.senderId) return false;
+      const cleanName = agent.displayName.replace(/^@/, '').trim();
+      if (cleanName.length < 2) return false;
+      const regex = new RegExp(`\\b${cleanName}\\b`, 'i');
+      return regex.test(message.content);
+    });
+    if (namedMembers.length > 0) {
+      return {
+        action: 'sequential_specialists',
+        targetAgents: namedMembers,
+        reason: 'named_in_text',
+        matchReason: 'direct_mention',
+      };
     }
 
     // 3. Condition 3: Domain relevance for channel members

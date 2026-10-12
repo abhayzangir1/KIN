@@ -46,6 +46,23 @@ export interface GoalAncestryChain {
   rationale?: string;
 }
 
+export interface ProjectRosterMember {
+  id: string;
+  displayName: string;
+  role: string;
+  domainAuthority?: string;
+  activeTask?: string;
+  status?: string;
+  channelIds?: string[];
+}
+
+export interface ChannelRosterInfo {
+  channelId: string;
+  channelName: string;
+  topic?: string;
+  members: string[];
+}
+
 export interface ContextCompileInput {
   agentDefinition: AgentDefinition;
   agentIdentity: AgentIdentity;
@@ -58,13 +75,17 @@ export interface ContextCompileInput {
   channelPeers?: string[];
   assignedChannels?: string[];
   projectAgents?: string[];
+  projectRoster?: ProjectRosterMember[];
+  otherAssignedChannelRosters?: ChannelRosterInfo[];
   crossChannelSummaries?: CrossChannelSummary[];
   scopedMemories?: Tier1ProjectMemory[];
   projectMemories?: Tier1ProjectMemory[];
   channelMemories?: Tier2ChannelMemory[];
+  assignedDepartmentMemories?: Array<{ channelId?: string; channelName: string; memories: Tier2ChannelMemory[] }>;
   agentPrivateMemories?: Tier3PrivateMemory[];
   dmContext?: Tier4DirectMessageMemory;
   goalAncestry?: GoalAncestryChain;
+  reportingLine?: { manager?: string; subordinates?: string[] };
 }
 
 export interface CompiledContextBlocks {
@@ -92,6 +113,10 @@ export class ContextCompiler {
       `- Do not delete files outside the project root or jail sandbox.`,
       `- If a debate stalemates for multiple turns, present concrete test evidence rather than repeating arguments.`,
       `- Dynamic Workforce & Team Delegation: You have full access to the 'hireSpecialist' tool. When the operator or mission calls for creating a team or delegating to specialized roles (e.g., Android engineering, QA, Frontend, Backend, Database), use the 'hireSpecialist' tool to onboard specialized agents directly into this project and channel. Both orchestrators and specialists can hire subagents under them as required.`,
+      `- Channel Staffing & Coworker Assignment Invariant: Every new channel starts with only the Lead Orchestrator (@Boss). When the operator asks to staff a channel or requests a specialist (e.g. for coding, QA, design, frontend), you have two distinct options: Option 1 (Call Existing Coworker): If a coworker with that expertise already works in another department/channel of this project, use the 'assignCoworker' tool to bring them into this channel (they retain their identity and shared memory across departments). Option 2 (Hire New Specialist): You can hire a brand-new specialist dedicated to this channel using the 'hireSpecialist' tool.`,
+      `- Direct Messaging Invariant: When the human operator asks you to message them in DM (e.g. "message me in DM", "DM me"), call the 'sendDirectMessage' tool with recipient="user" or "human" to message them directly. To message a coworker agent privately, call 'sendDirectMessage' with their name or ID.`,
+      `- Meeting Convening Invariant: When asked to convene or hold a meeting (e.g. "held a meeting about X", "call a meeting on Y"), call the 'callMeeting' tool with the topic, agenda, and invited participant coworker agents.`,
+      `- Team & Role Awareness: You are part of an organizational workforce. Refer to the Project Workforce Roster below to know who is responsible for each domain (frontend, backend, QA, database, architecture, etc.) and what tasks they are handling. When asked who is working on a domain, identify the respective coworker accurately.`,
     ];
 
     if (input.goalAncestry) {
@@ -112,6 +137,18 @@ export class ContextCompiler {
       block1Parts.push(ancestryLines.join('\n'));
     }
 
+    const reportingLines: string[] = [];
+    if (input.reportingLine?.manager) {
+      reportingLines.push(`- Reporting Line / Manager: ${input.reportingLine.manager}`);
+    } else if (input.agentIdentity.parentAgentId) {
+      reportingLines.push(`- Reporting Line / Manager: ${input.agentIdentity.parentAgentId}`);
+    } else if (input.agentIdentity.isOrchestrator) {
+      reportingLines.push(`- Reporting Line / Manager: None (Project Orchestrator / Lead)`);
+    }
+    if (input.reportingLine?.subordinates && input.reportingLine.subordinates.length > 0) {
+      reportingLines.push(`- Direct Reports / Subordinates: ${input.reportingLine.subordinates.join(', ')}`);
+    }
+
     if (input.activeChannel) {
       let channelLabel = input.activeChannel.isPrivate
         ? `Direct Message thread with Human`
@@ -124,30 +161,62 @@ export class ContextCompiler {
         channelLabel = `Direct Message thread (${participantList})`;
       }
 
-      block1Parts.push(
+      const channelRoster = [
+        input.agentIdentity.displayName,
+        ...(input.channelPeers && input.channelPeers.length > 0 ? input.channelPeers : []),
+      ];
+      const isDirectMessage = Boolean(input.dmContext?.isDirectMessage || input.activeChannel.isPrivate || input.activeChannel.channelType === 'direct_message');
+
+      const orgContextLines = [
+        `[ORGANIZATIONAL CONTEXT]`,
+        `- Active Channel: ${channelLabel} (Context: ${isDirectMessage ? 'Private Direct Message' : 'Department Workspace Channel'})`,
+        `- Active Channel Member Roster: ${channelRoster.join(', ')}`,
+        ...(reportingLines.length > 0 ? reportingLines : []),
         `Active Channel Context:`,
         `- Current Channel / Context: ${channelLabel}`,
         `- Peers in this channel: ${input.channelPeers && input.channelPeers.length > 0 ? input.channelPeers.join(', ') : 'Solo'}`,
         `- Channels you are assigned to: ${input.assignedChannels && input.assignedChannels.length > 0 ? input.assignedChannels.join(', ') : 'None'}`,
-        `- All Agents in this project: ${input.projectAgents && input.projectAgents.length > 0 ? input.projectAgents.join(', ') : input.agentIdentity.displayName}`
-      );
+        `- All Agents in this project: ${input.projectAgents && input.projectAgents.length > 0 ? input.projectAgents.join(', ') : input.agentIdentity.displayName}`,
+      ];
 
-      if (input.crossChannelSummaries && input.crossChannelSummaries.length > 0) {
-        const summariesText = input.crossChannelSummaries.map((s) => {
-          const header = `- Channel #${s.channelName}${s.topic ? ` (${s.topic})` : ''}:`;
-          const msgs = s.recentMessages && s.recentMessages.length > 0
-            ? s.recentMessages.map((m) => `  • [${m.senderName}]: ${m.content}`).join('\n')
-            : '  • (No recent messages)';
-          return `${header}\n${msgs}`;
-        }).join('\n');
-
-        block1Parts.push(
-          `Cross-Channel Operational Memory:`,
-          `You have active assignments across multiple channels in this project. You retain memory and context of discussions from your other assigned channels:`,
-          summariesText,
-          `Channel Scoping Rule: Use knowledge from your other assigned channels to inform your work, but execute and respond specifically for the current active channel (${channelLabel}).`
+      if (isDirectMessage && input.dmContext?.originChannel) {
+        const orig = input.dmContext.originChannel;
+        orgContextLines.push(
+          `- Direct Message Origin Channel: #${orig.name.replace(/^#/, '')} (Members in origin channel: ${orig.members.join(', ')})`,
+          `- Origin Channel Invariant: You were asked to message the operator in this DM from #${orig.name.replace(/^#/, '')}. When the operator asks in this DM "which channel did I ask you to DM me from?" or "who is working in that channel?" or "do you know what agents are working here?", explain that this private direct message is strictly 1-on-1 between you and the operator, and that in #${orig.name.replace(/^#/, '')} the assigned members are: ${orig.members.join(', ')}.`
+        );
+      } else {
+        orgContextLines.push(
+          `- Workforce Invariant: When asked "who is working here?" or "who is on the team in this channel?", answer strictly according to the active channel member roster (${channelRoster.join(', ')}).`
         );
       }
+
+      block1Parts.push(orgContextLines.join('\n'));
+    } else if (reportingLines.length > 0) {
+      block1Parts.push(
+        `[ORGANIZATIONAL CONTEXT]`,
+        ...reportingLines
+      );
+    }
+
+    if (input.projectRoster && input.projectRoster.length > 0) {
+      const rosterLines = input.projectRoster.map((m) =>
+        `- ${m.displayName} (${m.role}): Domain: ${m.domainAuthority || 'General'}, Status: ${m.status || 'Active'}${m.activeTask ? `, Current Task: "${m.activeTask}"` : ''}`
+      );
+      block1Parts.push(
+        `[PROJECT WORKFORCE ROSTER & RESPONSIBILITIES]`,
+        rosterLines.join('\n')
+      );
+    }
+
+    if (input.otherAssignedChannelRosters && input.otherAssignedChannelRosters.length > 0) {
+      const otherRosterLines = input.otherAssignedChannelRosters.map((c) =>
+        `- #${c.channelName.replace(/^#/, '')}${c.topic ? ` (${c.topic})` : ''}: Members: ${c.members.join(', ')}`
+      );
+      block1Parts.push(
+        `[OTHER ASSIGNED DEPARTMENTS & ROSTERS]`,
+        otherRosterLines.join('\n')
+      );
     }
 
     const block1 = block1Parts.join('\n\n');
@@ -174,13 +243,27 @@ export class ContextCompiler {
       ? input.projectMemories
       : (input.scopedMemories || []);
 
+    const tier2Sections: string[] = [
+      `### TIER 2: CONVERSATION & CHANNEL-SCOPED CONTEXT:`,
+      `Channel Working Memory:\n${formatMemoryList(input.channelMemories)}`,
+    ];
+
+    const departmentMems = input.assignedDepartmentMemories || (input as any).departmentMemories;
+    if (Array.isArray(departmentMems) && departmentMems.length > 0) {
+      for (const dept of departmentMems) {
+        if (dept.memories && dept.memories.length > 0) {
+          const deptName = dept.channelName ? (dept.channelName.startsWith('#') ? dept.channelName : `#${dept.channelName}`) : 'Department';
+          tier2Sections.push(`Other Assigned Department (${deptName}) Structured Memory:\n${formatMemoryList(dept.memories)}`);
+        }
+      }
+    }
+
     const block3Sections = [
       `### TIER 1: PROJECT-SHARED GROUNDING & KNOWLEDGE:`,
       input.project ? `Project: ${input.project.name} (Repo: ${input.project.repoPath})` : 'Standalone Workspace Mode',
       `Authoritative Decisions:\n${decisionsText}`,
       `Project Knowledge Base:\n${formatMemoryList(effectiveProjectMemories)}`,
-      `### TIER 2: CONVERSATION & CHANNEL-SCOPED CONTEXT:`,
-      `Channel Working Memory:\n${formatMemoryList(input.channelMemories)}`,
+      ...tier2Sections,
       `### TIER 3: AGENT-PRIVATE MEMORY (Confidential to ${input.agentIdentity.displayName}):`,
       `Personal Reflections & Working State:\n${formatMemoryList(input.agentPrivateMemories)}`,
     ];
@@ -194,17 +277,43 @@ export class ContextCompiler {
 
     const block3 = block3Sections.join('\n\n');
 
-    // Block 4: Compaction Snapshot (if present)
-    let block4: string | undefined;
+    // Block 4: Compaction Snapshot & Cross-Channel Operational Memory (Preserves Blocks 1-3 prefix-cache stability)
+    const block4Parts: string[] = [];
     if (input.compactionSnapshot) {
-      block4 = [
-        `### ACTIVE COMPACTION SNAPSHOT (Prior Progress):`,
-        `Goal: ${input.compactionSnapshot.primaryObjective}`,
-        `Active Task: ${input.compactionSnapshot.activeTask.title}`,
-        `Completed: ${input.compactionSnapshot.completedTasks.map((t) => t.title).join(', ') || 'None'}`,
-        `Modified Files: ${input.compactionSnapshot.modifiedFiles.map((f) => f.path).join(', ') || 'None'}`,
-      ].join('\n\n');
+      block4Parts.push(
+        [
+          `### ACTIVE COMPACTION SNAPSHOT (Prior Progress):`,
+          `Goal: ${input.compactionSnapshot.primaryObjective}`,
+          `Active Task: ${input.compactionSnapshot.activeTask.title}`,
+          `Completed: ${input.compactionSnapshot.completedTasks.map((t) => t.title).join(', ') || 'None'}`,
+          `Modified Files: ${input.compactionSnapshot.modifiedFiles.map((f) => f.path).join(', ') || 'None'}`,
+        ].join('\n\n')
+      );
     }
+
+    if (input.crossChannelSummaries && input.crossChannelSummaries.length > 0) {
+      const channelLabel = input.activeChannel
+        ? (input.activeChannel.name.startsWith('#') ? input.activeChannel.name : `#${input.activeChannel.name}`)
+        : 'active channel';
+      const summariesText = input.crossChannelSummaries.map((s) => {
+        const header = `- Channel #${s.channelName.replace(/^#/, '')}${s.topic ? ` (${s.topic})` : ''}:`;
+        const msgs = s.recentMessages && s.recentMessages.length > 0
+          ? s.recentMessages.map((m) => `  • [${m.senderName}]: ${m.content}`).join('\n')
+          : '  • (No recent messages)';
+        return `${header}\n${msgs}`;
+      }).join('\n');
+
+      block4Parts.push(
+        [
+          `Cross-Channel Operational Memory:`,
+          `You have active assignments across multiple channels in this project. You retain memory and context of discussions from your other assigned channels:`,
+          summariesText,
+          `Channel Scoping Rule: Use knowledge from your other assigned channels to inform your work, but execute and respond specifically for the current active channel (${channelLabel}).`,
+        ].join('\n\n')
+      );
+    }
+
+    const block4 = block4Parts.length > 0 ? block4Parts.join('\n\n---\n\n') : undefined;
 
     // Assemble full prompt text for single-turn or system instructions
     const fullAssembled = [

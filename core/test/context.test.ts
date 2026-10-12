@@ -281,7 +281,7 @@ describe('KIN Phase 5: Context Compiler, Spiller & Compactor Engine', () => {
     expect(compiled.systemPromptBlock).toContain('All Agents in this project: @Boss, @ResearchAgent');
   });
 
-  it('compiles cross-channel operational memory from prior assigned channels in Block 1', () => {
+  it('compiles cross-channel operational memory from prior assigned channels in Block 4 (preserving Block 1 prefix-cache stability)', () => {
     const def: AgentDefinition = {
       id: 'def-res',
       name: 'ResearchAgent',
@@ -328,11 +328,14 @@ describe('KIN Phase 5: Context Compiler, Spiller & Compactor Engine', () => {
       ],
     });
 
-    expect(compiled.systemPromptBlock).toContain('Cross-Channel Operational Memory:');
-    expect(compiled.systemPromptBlock).toContain('- Channel #channel-a (Architecture Research):');
-    expect(compiled.systemPromptBlock).toContain('• [Human]: What is the SQLite database design?');
-    expect(compiled.systemPromptBlock).toContain('• [@ResearchAgent]: Identified 22 tables with strict foreign keys.');
-    expect(compiled.systemPromptBlock).toContain('Channel Scoping Rule:');
+    // Invariant: Dynamic cross-channel summaries must reside in Block 4 to preserve prefix cache stability for Blocks 1-3
+    expect(compiled.compactionBlock).toContain('Cross-Channel Operational Memory:');
+    expect(compiled.compactionBlock).toContain('- Channel #channel-a (Architecture Research):');
+    expect(compiled.compactionBlock).toContain('• [Human]: What is the SQLite database design?');
+    expect(compiled.compactionBlock).toContain('• [@ResearchAgent]: Identified 22 tables with strict foreign keys.');
+    expect(compiled.compactionBlock).toContain('Channel Scoping Rule:');
+    expect(compiled.systemPromptBlock).not.toContain('Cross-Channel Operational Memory:');
+    expect(compiled.fullAssembledPrompt).toContain('Cross-Channel Operational Memory:');
   });
 
   it('truth-grounds compaction snapshot: preserves empty completedTasks and grounds error resolutions in tool output', () => {

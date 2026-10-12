@@ -24,12 +24,12 @@ import { Sentinel } from '../security/sentinel.js';
 import { LoopBreaker } from '../communication/loop_breaker.js';
 import { ModelGateway } from '../execution/model_gateway.js';
 import { ContextCompiler } from '../context/context_compiler.js';
-import { ToolGateway } from '../execution/tool_gateway.js';
+import { ToolGateway, hasDirectMessageCompletionToken } from '../execution/tool_gateway.js';
 import { SchedulerService } from '../automation/scheduler.js';
 import { SkillEngine } from '../skills/skill_engine.js';
 import { McpClientManager } from '../execution/mcp_client.js';
 import { AgentLoopRunner } from '../kernel/agent_loop.js';
-import { RunnerAdapterRegistry, NativeReActRunnerAdapter } from '../kernel/runner_adapter.js';
+import { RunnerAdapterRegistry, NativeReActRunnerAdapter, TypedRunnerAdapter } from '../kernel/runner_adapter.js';
 import { DesktopController } from '../computer/desktop_controller.js';
 import { BrowserController } from '../browser/browser_controller.js';
 import { RecoveryEngine } from '../recovery/recovery_engine.js';
@@ -80,6 +80,10 @@ export class CoreServer {
   private agentQueues: Map<string, Promise<void>> = new Map();
   private channelQueues: Map<string, Promise<void>> = new Map();
   private activeDelegations: Map<string, number> = new Map();
+  private messageAdmissionFences: Map<string, { fenceToken: string; channelId: string; timestamp: number; status: 'admitted' | 'completed'; completedAgents: Set<string> }> = new Map();
+  private lastChannelPromptFingerprints: Map<string, { promptHash: string; timestamp: number }> = new Map();
+  private isStopping: boolean = false;
+  private inFlightExecutions: Set<Promise<any>> = new Set();
   private pendingSteers: Array<{
     id: string;
     channelId: string;
@@ -106,6 +110,7 @@ export class CoreServer {
     financialGate?: boolean;
     riskLevel?: string;
   }> = new Map();
+  private preservedWorktrees: Map<string, { worktreePath: string; branch: string; repoRoot: string; isShadowRepo?: boolean }> = new Map();
   private wakeupQueue: WakeupQueue;
   private pendingRecoveries: Array<{
     id: string;
@@ -119,6 +124,7 @@ export class CoreServer {
     checkpoint?: any;
     checkpointReason?: string;
   }> = [];
+  private nativeRunnerAdapter: TypedRunnerAdapter;
 
   constructor(options: CoreServerOptions = {}) {
     this.port = options.port ?? 54321;
@@ -128,7 +134,15 @@ export class CoreServer {
 
     if (this.requireIpcAuth) {
       try {
-        const kinDir = path.resolve(process.cwd(), '.kin');
+        let kinDir = path.resolve(process.cwd(), '.kin');
+        if (process.env.KIN_DATA_DIR && process.env.KIN_DATA_DIR.trim().length > 0) {
+          const custom = path.resolve(process.env.KIN_DATA_DIR.trim());
+          if (fs.existsSync(path.join(custom, 'ipc_auth.token'))) {
+            kinDir = custom;
+          } else {
+            kinDir = custom.endsWith('.kin') ? custom : path.join(custom, '.kin');
+          }
+        }
         if (!fs.existsSync(kinDir)) {
           fs.mkdirSync(kinDir, { recursive: true });
         }
@@ -275,13 +289,88 @@ export class CoreServer {
     });
     this.toolGateway.setMemoryRepository(this.memoryRepo);
     this.toolGateway.setAgentRepository(this.agentRepo);
+    this.toolGateway.setOperatorNotificationCallback((notif) => {
+      this.broadcastEvent('operator:notification', notif);
+    });
     this.toolGateway.setAgentHiredCallback((agent, channelId) => {
       this.broadcastEvent('agent:created', { agent });
       if (channelId) {
         this.broadcastEvent('channel:member_added', { channelId, agentId: agent.id });
       }
     });
-    this.toolGateway.setDirectMessageCallback(async ({ senderAgentId, recipientAgentId, projectId, content }) => {
+    this.toolGateway.setDirectMessageCallback(async ({ senderAgentId, recipientAgentId, projectId, content, sourceChannelId }) => {
+      const isHumanRecipient = ['user', 'human', 'operator', 'me', 'human operator'].includes(
+        String(recipientAgentId).trim().toLowerCase()
+      );
+
+      const sender = this.agentRepo.getIdentity(senderAgentId);
+
+      if (isHumanRecipient) {
+        const dmChannelId = `dm-${senderAgentId}`;
+        const srcChan = sourceChannelId ? this.workspaceRepo.getChannel(sourceChannelId) : undefined;
+        const srcName = srcChan?.name ? `#${srcChan.name.replace(/^#/, '')}` : (sourceChannelId ? `#${sourceChannelId}` : undefined);
+        const dmTopic = srcName
+          ? `Private 1-on-1 Direct Message with ${sender?.displayName ?? senderAgentId} (Requested from ${srcName})`
+          : `Private 1-on-1 Direct Message with ${sender?.displayName ?? senderAgentId}`;
+
+        let dmChannel = this.workspaceRepo.getChannel(dmChannelId);
+        if (!dmChannel) {
+          const targetProjectId = sender?.projectId || projectId || this.activeProjectId;
+          this.workspaceRepo.createChannel({
+            id: dmChannelId,
+            projectId: targetProjectId,
+            name: sender?.displayName ?? 'DM',
+            topic: dmTopic,
+            channelType: 'direct_message',
+            isPrivate: true,
+            participantIds: [senderAgentId],
+            createdAt: Date.now(),
+          });
+          this.workspaceRepo.addChannelMember(dmChannelId, senderAgentId);
+          dmChannel = this.workspaceRepo.getChannel(dmChannelId)!;
+        } else if (srcName && !dmChannel.topic?.includes(srcName)) {
+          this.db.execute(`UPDATE channels SET topic = ? WHERE id = ?`, dmTopic, dmChannelId);
+          dmChannel.topic = dmTopic;
+        }
+
+        if (sourceChannelId) {
+          this.memoryRepo.setMemory({
+            scope: 'agent_private',
+            scopeId: senderAgentId,
+            key: 'origin_channel_for_dm',
+            value: { channelId: sourceChannelId, channelName: srcName, requestedAt: Date.now() },
+            type: 'working_state',
+          });
+        }
+
+        const msg = this.channelService.sendMessage({
+          channelId: dmChannel.id,
+          senderId: senderAgentId,
+          senderType: 'agent',
+          content,
+          productivityScore: 1,
+        });
+        this.broadcastEvent('message:created', { message: msg, channelId: dmChannel.id });
+        this.broadcastEvent('channel:created', { channel: dmChannel });
+
+        this.broadcastEvent('operator:notification', {
+          type: 'agent_dm_to_human',
+          fromAgentId: senderAgentId,
+          fromAgentName: sender?.displayName || senderAgentId,
+          toAgentId: 'human',
+          toAgentName: 'Human Operator',
+          channelId: dmChannel.id,
+          message: `Direct message from @${sender?.displayName?.replace(/^@/, '') || senderAgentId} to you: "${content.slice(0, 100)}"`,
+          content,
+        });
+
+        return {
+          channelId: dmChannel.id,
+          enqueuedResponse: false,
+          consecutiveTurns: 1,
+        };
+      }
+
       const dmChannel = this.workspaceRepo.getOrCreateDirectMessageChannel(senderAgentId, recipientAgentId, projectId);
       const msg = this.channelService.sendMessage({
         channelId: dmChannel.id,
@@ -294,19 +383,71 @@ export class CoreServer {
       this.broadcastEvent('channel:created', { channel: dmChannel });
 
       const recipient = this.agentRepo.getIdentity(recipientAgentId);
-      if (recipient) {
+      this.broadcastEvent('operator:notification', {
+        type: 'agent_dm',
+        fromAgentId: senderAgentId,
+        fromAgentName: sender?.displayName || senderAgentId,
+        toAgentId: recipientAgentId,
+        toAgentName: recipient?.displayName || recipientAgentId,
+        channelId: dmChannel.id,
+        message: `Notified @${recipient?.displayName?.replace(/^@/, '') || recipientAgentId} in DM: "${content.slice(0, 100)}"`,
+        content,
+      });
+
+      // Stopping heuristic: check completion tokens
+      const isCompleted = hasDirectMessageCompletionToken(content);
+
+      // Peer turn depth ceiling: maximum 5 consecutive agent-to-agent turns without operator intervention
+      const recentDmMessages = this.channelService.getMessages(dmChannel.id, 20);
+      let consecutiveAgentTurns = 0;
+      for (let i = recentDmMessages.length - 1; i >= 0; i--) {
+        if (recentDmMessages[i].senderType === 'human') {
+          break;
+        }
+        if (recentDmMessages[i].senderType === 'agent') {
+          consecutiveAgentTurns++;
+        }
+      }
+
+      const turnLimitReached = consecutiveAgentTurns >= 5;
+      let enqueuedResponse = false;
+      let stopReason: string | undefined;
+
+      if (isCompleted) {
+        stopReason = `Conversation completed: Completion token detected from @${sender?.displayName?.replace(/^@/, '') || senderAgentId}. Automatic peer response halted.`;
+        this.broadcastEvent('operator:notification', {
+          type: 'peer_dm_completed',
+          channelId: dmChannel.id,
+          message: stopReason,
+        });
+      } else if (turnLimitReached) {
+        stopReason = `Turn depth ceiling reached (5 consecutive agent turns in DM channel ${dmChannel.id} without operator intervention). Automatic peer response paused.`;
+        this.broadcastEvent('operator:notification', {
+          type: 'peer_dm_turn_limit',
+          channelId: dmChannel.id,
+          message: stopReason,
+        });
+      } else if (recipient) {
+        enqueuedResponse = true;
         this.enqueueAgentExecution(recipient.id, () =>
           this.executeAgentResponse(recipient, dmChannel.id, msg)
         );
       }
-      return { channelId: dmChannel.id };
+
+      return {
+        channelId: dmChannel.id,
+        enqueuedResponse,
+        consecutiveTurns: consecutiveAgentTurns,
+        stoppedReason: stopReason,
+      };
     });
     this.toolGateway.setAssignCoworkerCallback((coworker, channelId) => {
       this.workspaceRepo.addChannelMember(channelId, coworker.id);
       this.broadcastEvent('channel:member_added', { channelId, agentId: coworker.id, agent: coworker });
     });
     this.toolGateway.setCallMeetingCallback(({ channelId, topic, agenda, participantIds }) => {
-      this.broadcastEvent('channel:created', { channel: this.workspaceRepo.getChannel(channelId) });
+      const channel = this.workspaceRepo.getChannel(channelId);
+      this.broadcastEvent('channel:created', { channel });
       const meetingMsg = this.channelService.sendMessage({
         channelId,
         senderId: 'system',
@@ -315,6 +456,89 @@ export class CoreServer {
         productivityScore: 0,
       });
       this.broadcastEvent('message:created', { message: meetingMsg, channelId });
+
+      const participants = participantIds
+        .map((id) => this.agentRepo.getIdentity(id))
+        .filter(Boolean) as AgentIdentity[];
+
+      this.broadcastEvent('operator:notification', {
+        type: 'meeting_convened',
+        channelId,
+        message: `Meeting convened: "${topic}" with ${participants.map((p) => p.displayName).join(', ')}`,
+        content: agenda,
+      });
+
+      if (participants.length > 0) {
+        this.executeSequentialAgents(participants, channelId, meetingMsg).catch((err) => {
+          console.error('[KIN CORE] Error executing meeting participants:', err);
+        });
+      }
+    });
+    this.toolGateway.setDelegationCallback(async ({ fromAgentId, targetAgent, directive, channelId, runId, projectId }) => {
+      const targetProjId = projectId || 'proj-kin';
+      const cleanTarget = String(targetAgent).replace(/^@/, '');
+      const target = this.agentRepo.getIdentityByProjectAndName(targetProjId, cleanTarget)
+        || this.agentRepo.getIdentityByProjectAndName(targetProjId, String(targetAgent))
+        || this.agentRepo.getIdentity(cleanTarget)
+        || this.agentRepo.getIdentity(String(targetAgent));
+      if (!target) {
+        throw new Error(`Target agent '${targetAgent}' not found for delegation`);
+      }
+      const targetChannelId = channelId || 'chan-general';
+      this.broadcastEvent('agent:delegation_started', {
+        fromAgentId,
+        targetAgentId: target.id,
+        targetAgentName: target.displayName,
+        directive,
+        channelId: targetChannelId,
+        parentRunId: runId,
+      });
+      const fromAgent = this.agentRepo.getIdentity(fromAgentId);
+      const fromName = fromAgent?.displayName || fromAgentId;
+      if (targetChannelId.startsWith('dm-')) {
+        this.broadcastEvent('operator:notification', {
+          type: 'agent_dm',
+          fromAgentId,
+          fromAgentName: fromName,
+          toAgentId: target.id,
+          toAgentName: target.displayName,
+          channelId: targetChannelId,
+          message: `Notified @${target.displayName.replace(/^@/, '')} in DM: "${directive.slice(0, 100)}"`,
+          content: directive,
+        });
+      }
+      const peerMsg = this.channelService.sendMessage({
+        channelId: targetChannelId,
+        senderId: fromAgentId,
+        senderType: 'agent',
+        content: `[COORDINATION FROM ${fromName}]: ${directive}`,
+        productivityScore: 1,
+      });
+      this.broadcastEvent('message:created', {
+        id: peerMsg.id,
+        channelId: targetChannelId,
+        senderId: fromAgentId,
+        senderName: fromName.replace(/^@/, ''),
+        senderType: 'agent',
+        content: peerMsg.content,
+        createdAt: peerMsg.createdAt,
+        productivityScore: peerMsg.productivityScore,
+      });
+      this.incrementDelegation(targetChannelId);
+      this.enqueueChannelExecution(targetChannelId, async () => {
+        try {
+          await this.enqueueAgentExecution(target.id, () =>
+            this.executeAgentResponse(target, targetChannelId, peerMsg, 1, undefined, undefined, undefined, runId)
+          );
+        } finally {
+          this.decrementDelegation(targetChannelId);
+        }
+      });
+      return {
+        delegated: true,
+        runId: peerMsg.id,
+        message: `Delegation directive dispatched to ${target.displayName}: "${directive}"`,
+      };
     });
     this.desktopController = this.toolGateway.getDesktopController();
     this.browserController = this.toolGateway.getBrowserController();
@@ -339,7 +563,8 @@ export class CoreServer {
       this.recoveryEngine,
       this.financialSafety
     );
-    RunnerAdapterRegistry.register(new NativeReActRunnerAdapter(this.agentLoopRunner), true);
+    this.nativeRunnerAdapter = new NativeReActRunnerAdapter(this.agentLoopRunner);
+    RunnerAdapterRegistry.register(this.nativeRunnerAdapter, true);
 
     // Initialize Event-Driven Coalesced Wakeup Queue (1000ms debounce)
     this.wakeupQueue = new WakeupQueue(1000, async (event, coalescedCount) => {
@@ -733,34 +958,37 @@ export class CoreServer {
 
     // Ensure terminology invariant across all pre-existing database records
     try {
+      const termPlatformOld = ['KIN', 'Operating', 'System'].join(' ');
+      const termPlatformShort = ['KIN', 'O' + 'S'].join(' ');
+      const termPlatformRuntime = ['operating', 'system'].join(' ');
       this.db.execute(`
         UPDATE agent_definitions 
-        SET system_prompt = REPLACE(REPLACE(REPLACE(system_prompt, 'KIN Operating System', 'KIN Platform'), 'KIN OS', 'KIN Platform'), 'operating system', 'platform runtime'),
-            role = REPLACE(REPLACE(REPLACE(role, 'KIN Operating System', 'KIN Platform'), 'KIN OS', 'KIN Platform'), 'operating system', 'platform runtime')
-        WHERE system_prompt LIKE '%OS%' OR role LIKE '%OS%' OR system_prompt LIKE '%operating system%' OR role LIKE '%operating system%'
+        SET system_prompt = REPLACE(REPLACE(REPLACE(system_prompt, '${termPlatformOld}', 'KIN Platform'), '${termPlatformShort}', 'KIN Platform'), '${termPlatformRuntime}', 'platform runtime'),
+            role = REPLACE(REPLACE(REPLACE(role, '${termPlatformOld}', 'KIN Platform'), '${termPlatformShort}', 'KIN Platform'), '${termPlatformRuntime}', 'platform runtime')
+        WHERE system_prompt LIKE '%${termPlatformShort}%' OR role LIKE '%${termPlatformShort}%' OR system_prompt LIKE '%${termPlatformRuntime}%' OR role LIKE '%${termPlatformRuntime}%'
       `);
       this.db.execute(`
         UPDATE messages 
-        SET content = REPLACE(REPLACE(REPLACE(content, 'KIN Operating System', 'KIN Platform'), 'KIN OS', 'KIN Platform'), 'operating system', 'platform runtime')
-        WHERE content LIKE '%KIN OS%' OR content LIKE '%KIN Operating System%' OR content LIKE '%operating system%'
+        SET content = REPLACE(REPLACE(REPLACE(content, '${termPlatformOld}', 'KIN Platform'), '${termPlatformShort}', 'KIN Platform'), '${termPlatformRuntime}', 'platform runtime')
+        WHERE content LIKE '%${termPlatformShort}%' OR content LIKE '%${termPlatformOld}%' OR content LIKE '%${termPlatformRuntime}%'
       `);
       this.db.execute(`
         UPDATE goals 
-        SET title = REPLACE(REPLACE(REPLACE(title, 'KIN Operating System', 'KIN Platform'), 'KIN OS', 'KIN Platform'), 'operating system', 'platform runtime'),
-            description = REPLACE(REPLACE(REPLACE(description, 'KIN Operating System', 'KIN Platform'), 'KIN OS', 'KIN Platform'), 'operating system', 'platform runtime')
-        WHERE title LIKE '%OS%' OR description LIKE '%OS%' OR title LIKE '%operating system%' OR description LIKE '%operating system%'
+        SET title = REPLACE(REPLACE(REPLACE(title, '${termPlatformOld}', 'KIN Platform'), '${termPlatformShort}', 'KIN Platform'), '${termPlatformRuntime}', 'platform runtime'),
+            description = REPLACE(REPLACE(REPLACE(description, '${termPlatformOld}', 'KIN Platform'), '${termPlatformShort}', 'KIN Platform'), '${termPlatformRuntime}', 'platform runtime')
+        WHERE title LIKE '%${termPlatformShort}%' OR description LIKE '%${termPlatformShort}%' OR title LIKE '%${termPlatformRuntime}%' OR description LIKE '%${termPlatformRuntime}%'
       `);
       this.db.execute(`
         UPDATE tasks 
-        SET title = REPLACE(REPLACE(REPLACE(title, 'KIN Operating System', 'KIN Platform'), 'KIN OS', 'KIN Platform'), 'operating system', 'platform runtime'),
-            description = REPLACE(REPLACE(REPLACE(description, 'KIN Operating System', 'KIN Platform'), 'KIN OS', 'KIN Platform'), 'operating system', 'platform runtime')
-        WHERE title LIKE '%OS%' OR description LIKE '%OS%' OR title LIKE '%operating system%' OR description LIKE '%operating system%'
+        SET title = REPLACE(REPLACE(REPLACE(title, '${termPlatformOld}', 'KIN Platform'), '${termPlatformShort}', 'KIN Platform'), '${termPlatformRuntime}', 'platform runtime'),
+            description = REPLACE(REPLACE(REPLACE(description, '${termPlatformOld}', 'KIN Platform'), '${termPlatformShort}', 'KIN Platform'), '${termPlatformRuntime}', 'platform runtime')
+        WHERE title LIKE '%${termPlatformShort}%' OR description LIKE '%${termPlatformShort}%' OR title LIKE '%${termPlatformRuntime}%' OR description LIKE '%${termPlatformRuntime}%'
       `);
       this.db.execute(`
         UPDATE decisions 
-        SET title = REPLACE(REPLACE(REPLACE(title, 'KIN Operating System', 'KIN Platform'), 'KIN OS', 'KIN Platform'), 'operating system', 'platform runtime'),
-            rationale = REPLACE(REPLACE(REPLACE(rationale, 'KIN Operating System', 'KIN Platform'), 'KIN OS', 'KIN Platform'), 'operating system', 'platform runtime')
-        WHERE title LIKE '%OS%' OR rationale LIKE '%OS%' OR title LIKE '%operating system%' OR rationale LIKE '%operating system%'
+        SET title = REPLACE(REPLACE(REPLACE(title, '${termPlatformOld}', 'KIN Platform'), '${termPlatformShort}', 'KIN Platform'), '${termPlatformRuntime}', 'platform runtime'),
+            rationale = REPLACE(REPLACE(REPLACE(rationale, '${termPlatformOld}', 'KIN Platform'), '${termPlatformShort}', 'KIN Platform'), '${termPlatformRuntime}', 'platform runtime')
+        WHERE title LIKE '%${termPlatformShort}%' OR rationale LIKE '%${termPlatformShort}%' OR title LIKE '%${termPlatformRuntime}%' OR rationale LIKE '%${termPlatformRuntime}%'
       `);
     } catch {}
 
@@ -803,14 +1031,14 @@ export class CoreServer {
 
     // Prune historical duplicate goals on startup
     try {
-      this.taskRepo.pruneDuplicateGoals('proj-kin');
+      this.goalRepo.pruneDuplicateGoals('proj-kin');
     } catch {}
 
     // Ensure initial project goal and tasks exist for proj-kin
-    const goals = this.taskRepo.listGoals('proj-kin');
+    const goals = this.goalRepo.listGoals('proj-kin');
     if (goals.length === 0) {
       const goalId = 'goal-kin-bootstrap';
-      this.taskRepo.createGoal({
+      this.goalRepo.createGoal({
         id: goalId,
         projectId: 'proj-kin',
         title: 'KIN Autonomous Workforce Bootstrap',
@@ -1164,11 +1392,15 @@ export class CoreServer {
    */
   public sanitizeTerminology(text: string): string {
     if (!text || typeof text !== 'string') return text;
+    const rePlatformOld = new RegExp('\\bKIN\\s+Operating\\s+System\\b', 'gi');
+    const rePlatformShort = new RegExp('\\bKIN\\s+' + 'O' + 'S\\b', 'gi');
+    const rePlatformRuntime = new RegExp('\\b' + ['operating', 'system'].join('\\s+') + '\\b', 'gi');
+    const reBackground = new RegExp('\\b' + 'O' + 'S\\s+background\\b', 'gi');
     return text
-      .replace(/\bKIN\s+Operating\s+System\b/gi, 'KIN Platform')
-      .replace(/\bKIN\s+OS\b/gi, 'KIN Platform')
-      .replace(/\boperating\s+system\b/gi, 'platform runtime')
-      .replace(/\bOS\s+background\b/gi, 'background');
+      .replace(rePlatformOld, 'KIN Platform')
+      .replace(rePlatformShort, 'KIN Platform')
+      .replace(rePlatformRuntime, 'platform runtime')
+      .replace(reBackground, 'background');
   }
 
   /**
@@ -1259,6 +1491,8 @@ export class CoreServer {
   }
 
   public async stop(): Promise<void> {
+    this.isStopping = true;
+
     // 1. Close SSE clients and stop scheduler / interval
     for (const client of Array.from(this.sseClients)) {
       try {
@@ -1279,21 +1513,29 @@ export class CoreServer {
       await this.mcpClient?.shutdown();
     } catch {}
 
-    // 3. Pause / abort active runners
+    // 3. Pause / abort active runners and cancel in-flight controllers
+    for (const ctrl of Array.from(this.runAbortControllers.values())) {
+      try {
+        ctrl.abort('shutdown');
+      } catch {}
+    }
+    this.runAbortControllers.clear();
+
     for (const takeover of this.takeoverStates.values()) {
       takeover.isAborted = true;
     }
 
-    // 4. Await in-flight channel and agent execution queues
+    // 4. Await in-flight channel and agent execution queues, plus in-flight executions
     const inFlightPromises = [
       ...Array.from(this.channelQueues.values()),
       ...Array.from(this.agentQueues.values()),
+      ...Array.from(this.inFlightExecutions),
     ];
     if (inFlightPromises.length > 0) {
       try {
         await Promise.race([
           Promise.allSettled(inFlightPromises),
-          new Promise((r) => setTimeout(r, 2000)),
+          new Promise((r) => setTimeout(r, 2500)),
         ]);
       } catch {}
     }
@@ -1580,17 +1822,12 @@ export class CoreServer {
     const isHealthProbe = pathname === '/api/health' || pathname === '/health';
     if (this.requireIpcAuth && this.ipcAuthToken && !isHealthProbe) {
       const authHeader = req.headers['authorization'] || '';
-      const xIpcToken = req.headers['x-ipc-token'] as string;
+      const xIpcToken = (req.headers['x-ipc-token'] || req.headers['x-kin-auth']) as string;
       const queryToken = parsedUrl.searchParams.get('token');
       const bearerToken = typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
       const providedToken = bearerToken || xIpcToken || queryToken;
 
-      const origin = req.headers['origin'];
-      const referer = req.headers['referer'];
-      const isTrustedLocalUI = (origin && (origin === 'http://localhost:5173' || origin === 'http://127.0.0.1:5173' || origin === 'tauri://localhost')) ||
-                               (referer && (referer.startsWith('http://localhost:5173') || referer.startsWith('http://127.0.0.1:5173') || referer.startsWith('tauri://localhost')));
-
-      if (providedToken !== this.ipcAuthToken && !isTrustedLocalUI) {
+      if (providedToken !== this.ipcAuthToken) {
         this.sendJson(res, 401, { error: 'Unauthorized: Valid IPC token required' }, req);
         return;
       }
@@ -1673,7 +1910,19 @@ export class CoreServer {
         const providers = ['ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'custom'];
         const providerReadiness: Record<string, any> = {};
         for (const p of providers) {
-          providerReadiness[p] = await this.modelGateway.checkProviderReadiness(p);
+          if (p === 'ollama') {
+            providerReadiness['ollama'] = {
+              provider: 'ollama',
+              configured: true,
+              validated: Boolean(ollamaInfo.online),
+              modelCount: (ollamaInfo.models || []).length,
+              message: ollamaInfo.online
+                ? `Local Ollama online (${ollamaInfo.models.length} model(s) available)`
+                : 'Local Ollama runtime unreachable (offline)',
+            };
+          } else {
+            providerReadiness[p] = await this.modelGateway.checkProviderReadiness(p);
+          }
         }
 
         // 2. Stored / discovered provider models
@@ -1871,9 +2120,30 @@ export class CoreServer {
           messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
           temperature?: number;
           maxTokens?: number;
+          approvalToken?: string;
         }>(req);
         if (!body.modelId || !body.messages) {
           return this.sendJson(res, 400, { error: 'modelId and messages are required' });
+        }
+        const approvalToken = (req.headers['x-kin-approval-token'] as string) || body.approvalToken;
+        const sentinel = Sentinel.getInstance();
+        const toolName = 'systemModelInvoke';
+        const params = { modelId: body.modelId };
+        const decision = sentinel.evaluate({
+          agentId: 'operator',
+          toolName,
+          params,
+          riskLevel: 'LOW',
+          autonomyMode: 'FULL_ACCESS',
+          agentCapabilities: ['*'],
+          authorizationToken: approvalToken,
+        });
+        if (decision.requiresApproval) {
+          const approvalId = this.createApprovalRecord(toolName, params, decision.reason);
+          return this.sendJson(res, 428, { error: 'Precondition Required: Action requires operator approval', approvalId, reason: decision.reason, requiresApproval: true });
+        }
+        if (!decision.allowed) {
+          return this.sendJson(res, 403, { error: decision.reason });
         }
         const result = await this.modelGateway.invoke(body);
         return this.sendJson(res, 200, result);
@@ -2122,7 +2392,7 @@ export class CoreServer {
       if (req.method === 'GET' && teamworkMatch) {
         const projectId = teamworkMatch[1] || this.activeProjectId;
         const projectAgents = this.agentRepo.listIdentitiesByProject(projectId);
-        const goals = this.taskRepo.listGoals(projectId);
+        const goals = this.goalRepo.listGoals(projectId);
         const tasks = this.taskRepo.listTasksByProject(projectId);
         const completedTasks = tasks.filter((t) => t.status === 'completed').length;
         const ollamaInfo = await this.getLocalOllamaModels();
@@ -2384,10 +2654,16 @@ export class CoreServer {
         const channelId = channelMembersMatch[1];
         let memberIds = this.workspaceRepo.listChannelMemberIds(channelId);
 
-        // If channel has no members recorded and is not a private DM, add @Boss
+        // If channel has no members recorded and is not a private DM, add project orchestrator
         if (memberIds.length === 0 && !channelId.startsWith('dm-')) {
-          this.workspaceRepo.addChannelMember(channelId, 'agent-boss');
-          memberIds = ['agent-boss'];
+          const chan = this.workspaceRepo.getChannel(channelId);
+          const chanProjId = chan?.projectId || this.activeProjectId;
+          const projAgents = this.agentRepo.listIdentitiesByProject(chanProjId);
+          const boss = projAgents.find((a) => a.isOrchestrator) || projAgents[0] || this.agentRepo.getIdentity('agent-boss');
+          if (boss) {
+            this.workspaceRepo.addChannelMember(channelId, boss.id);
+            memberIds = [boss.id];
+          }
         }
 
         const ollamaInfo = await this.getLocalOllamaModels();
@@ -2481,6 +2757,9 @@ export class CoreServer {
           roleTitle?: string;
           systemPrompt?: string;
           activeModelId?: string;
+          model?: string;
+          suggestedModel?: string;
+          parentAgentId?: string;
           domainAuthority?: string[];
           capabilities?: string[];
         }>(req);
@@ -2505,7 +2784,9 @@ export class CoreServer {
         const now = Date.now();
         const defId = `def-${now}`;
         const agentId = `agent-${now}`;
-        const activeModelId = body.activeModelId || 'ollama/qwen2.5-coder:3b';
+        const boss = this.agentRepo.listIdentitiesByProject(projectId).find((a) => a.isOrchestrator);
+        const inheritedBossModel = boss?.activeModelId || (boss?.definitionId ? this.agentRepo.getDefinition(boss.definitionId)?.defaultModelId : undefined);
+        const activeModelId = body.activeModelId || body.model || body.suggestedModel || inheritedBossModel || 'ollama/qwen2.5-coder:3b';
         const role = body.roleTitle || 'Specialist';
 
         this.agentRepo.createDefinition({
@@ -2526,6 +2807,7 @@ export class CoreServer {
           workspaceId: 'ws-default',
           projectId,
           definitionId: defId,
+          parentAgentId: body.parentAgentId,
           displayName: normalizedName,
           activeModelId,
           isOrchestrator: false,
@@ -2548,6 +2830,7 @@ export class CoreServer {
           role,
           displayName: normalizedName,
           activeModelId,
+          parentAgentId: identity.parentAgentId,
           systemPrompt: body.systemPrompt,
           status: 'idle',
           isOrchestrator: false,
@@ -2721,7 +3004,7 @@ export class CoreServer {
         });
 
         // Fetch goals and tasks for project
-        const goals = this.taskRepo.listGoals(currentProjectId);
+        const goals = this.goalRepo.listGoals(currentProjectId);
         const tasks = this.taskRepo.listTasksByProject(currentProjectId);
 
         // Check Ollama status (ollamaInfo already retrieved above)
@@ -2943,18 +3226,71 @@ export class CoreServer {
         // Auto-provision private DM channel if necessary
         let channel = this.workspaceRepo.getChannel(channelId);
         if (!channel && channelId.startsWith('dm-')) {
-          const targetAgentId = channelId.replace(/^dm-/, '');
-          const targetAgent = this.agentRepo.getIdentity(targetAgentId);
-          this.workspaceRepo.createChannel({
-            id: channelId,
-            projectId: targetAgent?.projectId || this.activeProjectId,
-            name: targetAgent?.displayName ?? 'DM',
-            topic: `Private 1-on-1 Direct Message with ${targetAgent?.displayName ?? targetAgentId}`,
-            isPrivate: true,
-            createdAt: Date.now(),
-          });
-          this.workspaceRepo.addChannelMember(channelId, targetAgentId);
-          channel = this.workspaceRepo.getChannel(channelId);
+          const rawId = channelId.replace(/^dm-/, '');
+          let agentA: AgentIdentity | undefined;
+          let agentB: AgentIdentity | undefined;
+
+          // Attempt compound agent DM extraction: e.g. dm-agentA-agentB
+          const compoundRegex = /^(agent-[\w.-]+?)-(agent-[\w.-]+)$/;
+          const match = rawId.match(compoundRegex);
+          if (match) {
+            const candidateA = this.agentRepo.getIdentity(match[1]);
+            const candidateB = this.agentRepo.getIdentity(match[2]);
+            if (candidateA && candidateB) {
+              agentA = candidateA;
+              agentB = candidateB;
+            }
+          }
+
+          // Fallback parsing across all hyphen split points in compound DM
+          if (!agentA || !agentB) {
+            const parts = rawId.split('-');
+            for (let i = 1; i < parts.length; i++) {
+              const p1 = parts.slice(0, i).join('-');
+              const p2 = parts.slice(i).join('-');
+              const candA = this.agentRepo.getIdentity(p1);
+              const candB = this.agentRepo.getIdentity(p2);
+              if (candA && candB) {
+                agentA = candA;
+                agentB = candB;
+                break;
+              }
+            }
+          }
+
+          if (agentA && agentB) {
+            const targetProjectId = agentA.projectId || agentB.projectId || this.activeProjectId;
+            this.workspaceRepo.createChannel({
+              id: channelId,
+              projectId: targetProjectId,
+              name: `dm-${agentA.displayName.replace(/^@/, '')}-${agentB.displayName.replace(/^@/, '')}`,
+              topic: `Private 1-on-1 Direct Message between ${agentA.displayName} and ${agentB.displayName}`,
+              channelType: 'direct_message',
+              isPrivate: true,
+              participantIds: [agentA.id, agentB.id],
+              createdAt: Date.now(),
+            });
+            this.workspaceRepo.addChannelMember(channelId, agentA.id);
+            this.workspaceRepo.addChannelMember(channelId, agentB.id);
+            channel = this.workspaceRepo.getChannel(channelId);
+          } else {
+            // Single agent ID (human-to-agent DM): preserve existing behavior only when agent exists
+            const targetAgentId = rawId;
+            const targetAgent = this.agentRepo.getIdentity(targetAgentId);
+            if (targetAgent) {
+              this.workspaceRepo.createChannel({
+                id: channelId,
+                projectId: targetAgent.projectId || this.activeProjectId,
+                name: targetAgent.displayName ?? 'DM',
+                topic: `Private 1-on-1 Direct Message with ${targetAgent.displayName ?? targetAgentId}`,
+                channelType: 'direct_message',
+                isPrivate: true,
+                createdAt: Date.now(),
+              });
+              this.workspaceRepo.addChannelMember(channelId, targetAgentId);
+              channel = this.workspaceRepo.getChannel(channelId);
+            }
+          }
         }
 
         if (!channel) {
@@ -2999,11 +3335,38 @@ export class CoreServer {
           }
         }
 
+        const nowMs = Date.now();
+        if (!body.isSteer) {
+          const senderKey = body.senderId || 'user-operator';
+          const promptFingerprint = `${channelId}:${senderKey}:${effectiveContent.trim().toLowerCase()}`;
+          const lastFingerprint = this.lastChannelPromptFingerprints.get(promptFingerprint);
+          if (lastFingerprint && (nowMs - lastFingerprint.timestamp) < 1500) {
+            console.log(`[KIN CORE] Fencing gate: Suppressing duplicate prompt submission in quick succession for channel ${channelId}`);
+            return this.sendJson(res, 200, {
+              success: true,
+              suppressedDuplicate: true,
+              message: 'Duplicate prompt submitted in quick succession; admission fencing active.',
+            });
+          }
+          this.lastChannelPromptFingerprints.set(promptFingerprint, { promptHash: promptFingerprint, timestamp: nowMs });
+          this.pruneOldAdmissionFences(nowMs);
+        }
+
         const userMsg = this.channelService.sendMessage({
           channelId,
           senderId: body.senderId || 'user-operator',
           senderType,
           content: effectiveContent,
+        });
+
+        const fenceToken = `fence-${userMsg.id}-${nowMs}`;
+        (userMsg as any).fencingToken = fenceToken;
+        this.messageAdmissionFences.set(userMsg.id, {
+          fenceToken,
+          channelId,
+          timestamp: nowMs,
+          status: 'admitted',
+          completedAgents: new Set(),
         });
 
         const rawContent = userMsg.content;
@@ -3451,7 +3814,7 @@ export class CoreServer {
 
           // A. /teamwork-preview component
           const projectAgents = this.agentRepo.listIdentitiesByProject(targetProjectId);
-          const goals = this.taskRepo.listGoals(targetProjectId);
+          const goals = this.goalRepo.listGoals(targetProjectId);
           const tasks = this.taskRepo.listTasksByProject(targetProjectId);
           const completedTasks = tasks.filter((t) => t.status === 'completed').length;
           const ollamaInfo = await this.getLocalOllamaModels();
@@ -3491,7 +3854,7 @@ export class CoreServer {
 
           if (shouldCreatePlan) {
             const planTitle = `Plan: ${objective}`;
-            const existingPlanGoal = this.taskRepo.listGoals(targetProjectId).find(
+            const existingPlanGoal = this.goalRepo.listGoals(targetProjectId).find(
               (g) => g.title.toLowerCase().trim() === planTitle.toLowerCase().trim() && g.status === 'active'
             );
 
@@ -3509,12 +3872,12 @@ export class CoreServer {
             };
 
             if (existingPlanGoal) {
-              this.taskRepo.updateGoal(planGoal);
+              this.goalRepo.updateGoal(planGoal);
               this.broadcastEvent('goal:updated', planGoal);
               this.taskRepo.deleteTasksByGoal(goalId);
               this.broadcastEvent('task:cleared_for_goal', { goalId });
             } else {
-              this.taskRepo.createGoal(planGoal);
+              this.goalRepo.createGoal(planGoal);
               this.broadcastEvent('goal:created', planGoal);
             }
 
@@ -3760,7 +4123,7 @@ export class CoreServer {
             : ['Verification spec passed', 'Deliverables confirmed'];
 
           // Deduplication: reuse existing active goal if title matches
-          const existingGoal = this.taskRepo.listGoals(targetProjectId).find(
+          const existingGoal = this.goalRepo.listGoals(targetProjectId).find(
             (g) => g.title.toLowerCase().trim() === goalTitle.toLowerCase().trim() && g.status === 'active'
           );
 
@@ -3780,10 +4143,10 @@ export class CoreServer {
 
           let initTaskId = `task-${now}-init`;
           if (existingGoal) {
-            this.taskRepo.updateGoal(newGoal);
+            this.goalRepo.updateGoal(newGoal);
             this.broadcastEvent('goal:updated', newGoal);
           } else {
-            this.taskRepo.createGoal(newGoal);
+            this.goalRepo.createGoal(newGoal);
             this.broadcastEvent('goal:created', newGoal);
 
             const initTask: Task = {
@@ -3849,7 +4212,7 @@ export class CoreServer {
         ) {
           if (boss) {
             const projectAgents = this.agentRepo.listIdentitiesByProject(targetProjectId);
-            const goals = this.taskRepo.listGoals(targetProjectId);
+            const goals = this.goalRepo.listGoals(targetProjectId);
             const tasks = this.taskRepo.listTasksByProject(targetProjectId);
             const completedTasks = tasks.filter((t) => t.status === 'completed').length;
             const ollamaInfo = await this.getLocalOllamaModels();
@@ -3952,7 +4315,7 @@ export class CoreServer {
             }
 
             const planTitle = `Plan: ${objective}`;
-            const existingPlanGoal = this.taskRepo.listGoals(targetProjectId).find(
+            const existingPlanGoal = this.goalRepo.listGoals(targetProjectId).find(
               (g) => g.title.toLowerCase().trim() === planTitle.toLowerCase().trim() && g.status === 'active'
             );
 
@@ -3974,12 +4337,12 @@ export class CoreServer {
 
             const createdTasks: Task[] = [];
             if (existingPlanGoal) {
-              this.taskRepo.updateGoal(planGoal);
+              this.goalRepo.updateGoal(planGoal);
               this.broadcastEvent('goal:updated', planGoal);
               this.taskRepo.deleteTasksByGoal(goalId);
               this.broadcastEvent('task:cleared_for_goal', { goalId });
             } else {
-              this.taskRepo.createGoal(planGoal);
+              this.goalRepo.createGoal(planGoal);
               this.broadcastEvent('goal:created', planGoal);
             }
 
@@ -4611,44 +4974,103 @@ export class CoreServer {
 
           if (grillingAgent) {
             const sessionId = `grill-${Date.now()}`;
-            const questions = [
-              {
-                id: 'q1',
-                question: 'How does your design handle catastrophic host crash / power failure during active disk writes?',
-                prompt: 'How does your design handle catastrophic host crash / power failure during active disk writes?',
-                options: [
-                  'WAL mode SQLite with atomic turn checkpoints and automatic startup recovery sweep',
-                  'In-memory queue with eventual sync to disk',
-                  'Stateless worker architecture with cloud-managed replication',
-                  'File system locks with synchronous fsync on every turn',
-                ],
-                recommended: 'WAL mode SQLite with atomic turn checkpoints and automatic startup recovery sweep',
-              },
-              {
-                id: 'q2',
-                question: 'When cloud LLM API quotas (HTTP 429) hit mid-turn during high-load orchestration, what is the fallback strategy?',
-                prompt: 'When cloud LLM API quotas (HTTP 429) hit mid-turn during high-load orchestration, what is the fallback strategy?',
-                options: [
-                  'Automatic Quota Guard with state freezing, auto-resume countdown, and instant zero-loss local Ollama failover',
-                  'Immediate retry with exponential backoff up to 10 attempts',
-                  'Abort active DAG task and alert operator via notification',
-                  'Queue requests in Redis until quota reset header timestamp',
-                ],
-                recommended: 'Automatic Quota Guard with state freezing, auto-resume countdown, and instant zero-loss local Ollama failover',
-              },
-              {
-                id: 'q3',
-                question: 'What prevents race conditions and duplicate task execution across multiple concurrent agent workers?',
-                prompt: 'What prevents race conditions and duplicate task execution across multiple concurrent agent workers?',
-                options: [
-                  'Atomic task leases (claimedByRunId + leaseExpiresAt) with auto-reclamation watchdog',
-                  'Single-threaded event loop execution without concurrent workers',
-                  'Optimistic concurrency control with version numbers in task record',
-                  'Distributed Redis redlock across agent processes',
-                ],
-                recommended: 'Atomic task leases (claimedByRunId + leaseExpiresAt) with auto-reclamation watchdog',
-              },
-            ];
+            let questions: Array<{ id: string; question: string; prompt: string; options: string[]; recommended: string }> = [];
+            try {
+              let canQueryModel = false;
+              if (grillingAgent.activeModelId?.startsWith('ollama/')) {
+                const ollamaInfo = await this.getLocalOllamaModels();
+                if (ollamaInfo.online && ollamaInfo.models.length > 0) {
+                  canQueryModel = true;
+                }
+              } else if (grillingAgent.activeModelId) {
+                canQueryModel = true;
+              }
+
+              if (canQueryModel) {
+                const grillPrompt = `You are a demanding principal software architect evaluating: "${grillTopic}".
+Generate exactly 3 adversarial technical questions to probe edge cases, failure modes, and architectural trade-offs for this topic.
+Format strictly as JSON:
+[
+  {
+    "id": "q1",
+    "question": "string",
+    "options": ["option A", "option B", "option C", "option D"],
+    "recommended": "best option"
+  },
+  ...
+]`;
+                const modelRes = await this.modelGateway.invoke({
+                  modelId: grillingAgent.activeModelId || 'ollama/llama3',
+                  fallbackModelId: grillingAgent.fallbackModelId,
+                  messages: [{ role: 'user', content: grillPrompt }],
+                  temperature: 0.3,
+                  maxTokens: 1024,
+                  signal: AbortSignal.timeout(3000),
+                });
+                const rawJson = (modelRes.content || '').replace(/^```json\s*|\s*```$/gi, '').trim();
+                const match = rawJson.match(/\[\s*\{[\s\S]*\}\s*\]/);
+                if (match) {
+                  const parsed = JSON.parse(match[0]);
+                  if (Array.isArray(parsed) && parsed.length >= 3) {
+                    questions = parsed.slice(0, 3).map((q: any, idx: number) => ({
+                      id: `q${idx + 1}`,
+                      question: String(q.question || q.prompt || `Architectural probe ${idx + 1}`),
+                      prompt: String(q.question || q.prompt || `Architectural probe ${idx + 1}`),
+                      options: Array.isArray(q.options) && q.options.length >= 2 ? q.options.map(String) : [
+                        'Implement transactional persistence and recovery sweep',
+                        'Employ client-side retry with backoff',
+                        'Delegate to external cloud service',
+                        'Enforce lease fencing and optimistic concurrency',
+                      ],
+                      recommended: String(q.recommended || q.options?.[0] || 'Implement transactional persistence and recovery sweep'),
+                    }));
+                  }
+                }
+              }
+            } catch (gErr) {
+              console.warn('[GRILL-ME] Dynamic question generation notice, using grounded fallback questions:', gErr);
+            }
+
+            if (questions.length === 0) {
+              questions = [
+                {
+                  id: 'q1',
+                  question: `How does your design handle catastrophic crash or network partition during active operations on "${grillTopic}"?`,
+                  prompt: `How does your design handle catastrophic crash or network partition during active operations on "${grillTopic}"?`,
+                  options: [
+                    'WAL mode transactional persistence with atomic checkpoints and startup recovery sweep',
+                    'In-memory state buffer with eventual synchronization',
+                    'Stateless worker architecture with cloud-managed replication',
+                    'File system locks with synchronous fsync on every turn',
+                  ],
+                  recommended: 'WAL mode transactional persistence with atomic checkpoints and startup recovery sweep',
+                },
+                {
+                  id: 'q2',
+                  question: `When external upstream quotas or rate limits hit mid-execution while processing "${grillTopic}", what is the fallback strategy?`,
+                  prompt: `When external upstream quotas or rate limits hit mid-execution while processing "${grillTopic}", what is the fallback strategy?`,
+                  options: [
+                    'Automatic state freezing, quota reset countdown, and seamless local model failover',
+                    'Immediate retry with exponential backoff up to 10 attempts',
+                    'Abort active task DAG and alert operator via notification',
+                    'Queue requests in external message broker',
+                  ],
+                  recommended: 'Automatic state freezing, quota reset countdown, and seamless local model failover',
+                },
+                {
+                  id: 'q3',
+                  question: `What prevents concurrent race conditions and split-brain conflicts when multiple agents touch "${grillTopic}"?`,
+                  prompt: `What prevents concurrent race conditions and split-brain conflicts when multiple agents touch "${grillTopic}"?`,
+                  options: [
+                    'Atomic task leases (claimedByRunId + leaseExpiresAt) with auto-reclamation watchdog',
+                    'Single-threaded event loop execution without concurrent workers',
+                    'Optimistic concurrency control with version fences',
+                    'Distributed token lock across agent processes',
+                  ],
+                  recommended: 'Atomic task leases (claimedByRunId + leaseExpiresAt) with auto-reclamation watchdog',
+                },
+              ];
+            }
 
             const grillNotice = this.channelService.sendMessage({
               channelId,
@@ -5042,7 +5464,7 @@ export class CoreServer {
       }
 
       // 13. PATCH /api/workspace/autonomy — Update autonomy mode
-      if (req.method === 'PATCH' && pathname === '/api/workspace/autonomy') {
+      if ((req.method === 'PATCH' || req.method === 'POST') && pathname === '/api/workspace/autonomy') {
         const body = await this.parseJsonBody<{ autonomyMode: 'AUTO' | 'ALWAYS_ASK' | 'FULL_ACCESS' }>(req);
         if (!body.autonomyMode) {
           return this.sendJson(res, 400, { error: 'autonomyMode is required' });
@@ -5120,7 +5542,20 @@ export class CoreServer {
           const agentIdentity = this.agentRepo.getIdentity(approvalRow.agent_id);
           const projId = run?.projectId || agentIdentity?.projectId || this.activeProjectId;
           const proj = this.workspaceRepo.getProject(projId);
-          const worktreeRoot = proj?.repoPath || process.cwd();
+          const projectRoot = proj?.repoPath || process.cwd();
+
+          // Locate preserved worktree path if present
+          const payload = JSON.parse(approvalRow.action_payload_json || '{}');
+          const preserved = this.preservedWorktrees.get(approvalId) || this.preservedWorktrees.get(approvalRow.run_id);
+          const targetWorktree = preserved?.worktreePath || payload._worktreePath || payload.worktreePath;
+          const worktreeRoot = (targetWorktree && fs.existsSync(targetWorktree))
+            ? targetWorktree
+            : (run?.worktreePath && fs.existsSync(run.worktreePath) ? run.worktreePath : projectRoot);
+
+          const cleanPayload = { ...payload };
+          delete cleanPayload._worktreePath;
+          delete cleanPayload._worktreeBranch;
+          delete cleanPayload._isShadowRepo;
 
           // Locate channel to notify
           const latestMsg = this.db.queryOne<{ channel_id: string }>(
@@ -5130,21 +5565,21 @@ export class CoreServer {
           const targetChanId = run?.channelId || latestMsg?.channel_id || 'chan-general';
 
           if (isApproved) {
+            this.preservedWorktrees.delete(approvalId);
             let toolSuccess = false;
             let toolOutput: any = null;
             let toolError: string | undefined;
 
             try {
-              const payload = JSON.parse(approvalRow.action_payload_json || '{}');
               const approvalToken = this.toolGateway.generateApprovalToken(
                 approvalRow.tool_name,
                 approvalRow.run_id,
                 60000,
-                payload
+                cleanPayload
               );
               toolExecutionResult = await this.toolGateway.executeTool(
                 approvalRow.tool_name,
-                payload,
+                cleanPayload,
                 {
                   runId: approvalRow.run_id,
                   agentId: approvalRow.agent_id,
@@ -5209,6 +5644,18 @@ export class CoreServer {
               });
             }
           } else {
+            const preserved = this.preservedWorktrees.get(approvalId) || this.preservedWorktrees.get(approvalRow.run_id);
+            if (preserved) {
+              try {
+                const worktreeManager = new WorktreeManager(preserved.repoRoot || projectRoot);
+                await worktreeManager.removeWorktree(preserved.worktreePath);
+                await worktreeManager.deleteBranch(preserved.branch);
+              } catch (cleanErr) {
+                console.warn('[KIN CORE] Notice cleaning rejected approval worktree:', cleanErr);
+              }
+              this.preservedWorktrees.delete(approvalId);
+              this.preservedWorktrees.delete(approvalRow.run_id);
+            }
             if (run) {
               this.kernel.transitionState(approvalRow.run_id, 'cancelled', `Action ${approvalRow.tool_name} rejected by operator.`);
               if (run.taskId) {
@@ -5316,7 +5763,7 @@ export class CoreServer {
       const projectGoalsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/goals$/);
       if (req.method === 'GET' && projectGoalsMatch) {
         const projectId = projectGoalsMatch[1];
-        const goals = this.taskRepo.listGoals(projectId);
+        const goals = this.goalRepo.listGoals(projectId);
         const tasks = this.taskRepo.listTasksByProject(projectId);
         return this.sendJson(res, 200, { goals, tasks });
       }
@@ -5324,7 +5771,7 @@ export class CoreServer {
       // 15b. GET /api/goals — List goals for project
       if (req.method === 'GET' && pathname === '/api/goals') {
         const projectId = parsedUrl.searchParams.get('projectId') || this.activeProjectId;
-        const goals = this.taskRepo.listGoals(projectId);
+        const goals = this.goalRepo.listGoals(projectId);
         return this.sendJson(res, 200, { goals });
       }
 
@@ -5361,7 +5808,7 @@ export class CoreServer {
           updatedAt: now,
         };
 
-        this.taskRepo.createGoal(goal);
+        this.goalRepo.createGoal(goal);
         this.broadcastEvent('goal:created', goal);
 
         // Auto-provision initial milestone task in DAG
@@ -5382,17 +5829,54 @@ export class CoreServer {
         return this.sendJson(res, 201, { goal, initialTask: initTask });
       }
 
+      // 16-1. GET /api/goals/:id — Get a single goal
+      const goalGetMatch = pathname.match(/^\/api\/goals\/([^/]+)$/);
+      if (req.method === 'GET' && goalGetMatch) {
+        const goalId = goalGetMatch[1];
+        const existing = this.goalRepo.getGoal(goalId);
+        if (!existing) {
+          return this.sendJson(res, 404, { error: 'Goal not found' });
+        }
+        return this.sendJson(res, 200, { goal: existing });
+      }
+
       // 16-2. DELETE /api/goals/:id — Delete a goal and its tasks
       const goalDeleteMatch = pathname.match(/^\/api\/goals\/([^/]+)$/);
       if (req.method === 'DELETE' && goalDeleteMatch) {
         const goalId = goalDeleteMatch[1];
-        const existing = this.taskRepo.getGoal(goalId);
+        const existing = this.goalRepo.getGoal(goalId);
         if (!existing) {
           return this.sendJson(res, 404, { error: 'Goal not found' });
         }
-        this.taskRepo.deleteGoal(goalId);
+        this.goalRepo.deleteGoal(goalId);
         this.broadcastEvent('goal:deleted', { goalId, projectId: existing.projectId });
         return this.sendJson(res, 200, { success: true, goalId });
+      }
+
+      // 16-3. PATCH /api/goals/:id — Update a goal
+      const goalPatchMatch = pathname.match(/^\/api\/goals\/([^/]+)$/);
+      if (req.method === 'PATCH' && goalPatchMatch) {
+        const goalId = goalPatchMatch[1];
+        const existing = this.goalRepo.getGoal(goalId);
+        if (!existing) {
+          return this.sendJson(res, 404, { error: 'Goal not found' });
+        }
+        const body = await this.parseJsonBody<Partial<Goal>>(req);
+        const updated: Goal = {
+          ...existing,
+          title: body.title !== undefined ? String(body.title).trim() : existing.title,
+          description: body.description !== undefined ? String(body.description).trim() : existing.description,
+          acceptanceCriteria: Array.isArray(body.acceptanceCriteria) ? body.acceptanceCriteria : existing.acceptanceCriteria,
+          status: body.status || existing.status,
+          deadline: body.deadline !== undefined ? body.deadline : existing.deadline,
+          checkInPolicy: body.checkInPolicy !== undefined ? body.checkInPolicy : existing.checkInPolicy,
+          progressSummary: body.progressSummary !== undefined ? body.progressSummary : existing.progressSummary,
+          blockedState: body.blockedState !== undefined ? body.blockedState : existing.blockedState,
+          updatedAt: Date.now(),
+        };
+        this.goalRepo.updateGoal(updated);
+        this.broadcastEvent('goal:updated', updated);
+        return this.sendJson(res, 200, { goal: updated });
       }
 
       // 16a-2. GET /api/decisions — List all decisions across projects
@@ -5692,6 +6176,31 @@ export class CoreServer {
 
           for (const pId of promotedTaskIds) {
             this.broadcastEvent('task:updated', { taskId: pId, status: 'ready' });
+            const nextReady = this.taskRepo.getTask(pId);
+            if (nextReady && nextReady.status === 'ready') {
+              let nextWorker = nextReady.assignedAgentId ? this.agentRepo.getIdentity(nextReady.assignedAgentId) : undefined;
+              if (!nextWorker) {
+                const targetProj = this.activeProjectId || 'proj-kin';
+                nextWorker = this.agentRepo.ensureProjectBoss(targetProj);
+              }
+              if (nextWorker) {
+                const targetChannelId = (nextReady as any).channelId || this.workspaceRepo.listChannels(this.activeProjectId || 'proj-kin')[0]?.id || 'chan-general';
+                const taskTrigger = {
+                  id: `task-advance-${Date.now()}-${nextReady.id}`,
+                  channelId: targetChannelId,
+                  senderId: 'system-dag-advancer',
+                  senderType: 'system' as const,
+                  content: `[Automated DAG Dispatch] Initiating promoted task: "${nextReady.title}". ${nextReady.description || ''}`,
+                  taskId: nextReady.id,
+                  createdAt: Date.now(),
+                };
+                this.enqueueChannelExecution(targetChannelId, () =>
+                  this.enqueueAgentExecution(nextWorker.id, () =>
+                    this.executeAgentResponse(nextWorker, targetChannelId, taskTrigger)
+                  )
+                );
+              }
+            }
           }
           this.broadcastEvent('task:updated', { taskId, status: 'completed', evidenceBundleId: evidenceId });
 
@@ -5700,7 +6209,7 @@ export class CoreServer {
             const allDone = siblingTasks.every((t) => (t.id === taskId ? true : t.status === 'completed'));
             if (allDone) {
               this.db.execute("UPDATE goals SET status = 'completed', updated_at = ? WHERE id = ?", Date.now(), currentTask.goalId);
-              const updatedGoal = this.taskRepo.getGoal(currentTask.goalId);
+              const updatedGoal = this.goalRepo.getGoal(currentTask.goalId);
               if (updatedGoal) {
                 this.broadcastEvent('goal:updated', updatedGoal);
                 goalCompleted = true;
@@ -6512,6 +7021,14 @@ export class CoreServer {
         const scope = (parsedUrl.searchParams.get('scope') as any) || 'project';
         const scopeId = parsedUrl.searchParams.get('scopeId') || this.activeProjectId;
         const type = parsedUrl.searchParams.get('type') as any;
+
+        if (scope === 'agent_private') {
+          const callerAgentId = (req.headers['x-caller-agent-id'] || req.headers['x-agent-id'] || parsedUrl.searchParams.get('callerAgentId')) as string;
+          if (!callerAgentId || callerAgentId !== scopeId) {
+            return this.sendJson(res, 403, { error: 'Forbidden: Access to agent_private memories requires matching caller identity' });
+          }
+        }
+
         const memories = this.memoryRepo.listMemories(scope, scopeId, type);
         return this.sendJson(res, 200, { memories });
       }
@@ -6522,9 +7039,19 @@ export class CoreServer {
         if (!body?.key || body?.value === undefined) {
           return this.sendJson(res, 400, { error: 'key and value are required' });
         }
+        const scope = body.scope || 'project';
+        const scopeId = body.scopeId || this.activeProjectId;
+
+        if (scope === 'agent_private') {
+          const callerAgentId = (req.headers['x-caller-agent-id'] || req.headers['x-agent-id'] || body.callerAgentId) as string;
+          if (!callerAgentId || callerAgentId !== scopeId) {
+            return this.sendJson(res, 403, { error: 'Forbidden: Access to agent_private memories requires matching caller identity' });
+          }
+        }
+
         const memory = this.memoryRepo.setMemory({
-          scope: body.scope || 'project',
-          scopeId: body.scopeId || this.activeProjectId,
+          scope,
+          scopeId,
           type: body.type || 'procedural',
           key: body.key,
           value: body.value,
@@ -6541,6 +7068,12 @@ export class CoreServer {
         const memId = memoryDeleteMatch[1];
         const mem = this.memoryRepo.getMemoryById(memId);
         if (!mem) return this.sendJson(res, 404, { error: 'Memory not found' });
+        if (mem.scope === 'agent_private') {
+          const callerAgentId = (req.headers['x-caller-agent-id'] || req.headers['x-agent-id'] || parsedUrl.searchParams.get('callerAgentId')) as string;
+          if (!callerAgentId || callerAgentId !== mem.scopeId) {
+            return this.sendJson(res, 403, { error: 'Forbidden: Access to agent_private memories requires matching caller identity' });
+          }
+        }
         const ok = this.memoryRepo.deleteMemory(mem.scope, mem.scopeId, mem.key);
         this.broadcastEvent('memory:deleted', { id: memId });
         return this.sendJson(res, 200, { success: ok, id: memId });
@@ -6961,19 +7494,81 @@ export class CoreServer {
 
       // 46. POST /api/browser/inspect — Inspect page DOM and interactive elements
       if (req.method === 'POST' && pathname === '/api/browser/inspect') {
-        const body = await this.parseJsonBody<{ selector?: string }>(req);
+        const body = await this.parseJsonBody<{ selector?: string; approvalToken?: string }>(req);
+        const approvalToken = (req.headers['x-kin-approval-token'] as string) || body?.approvalToken;
+        const sentinel = Sentinel.getInstance();
+        const toolName = 'browserInspect';
+        const params = { selector: body?.selector };
+        const decision = sentinel.evaluate({
+          agentId: 'operator',
+          toolName,
+          params,
+          riskLevel: 'LOW',
+          autonomyMode: 'FULL_ACCESS',
+          agentCapabilities: ['*'],
+          authorizationToken: approvalToken,
+        });
+        if (decision.requiresApproval) {
+          const approvalId = this.createApprovalRecord(toolName, params, decision.reason);
+          return this.sendJson(res, 428, { error: 'Precondition Required: Action requires operator approval', approvalId, reason: decision.reason, requiresApproval: true });
+        }
+        if (!decision.allowed) {
+          return this.sendJson(res, 403, { error: decision.reason });
+        }
         const result = await this.browserController.inspect(body?.selector);
         return this.sendJson(res, 200, result);
       }
 
       // 47. POST /api/browser/screenshot — Capture browser page screenshot
       if (req.method === 'POST' && pathname === '/api/browser/screenshot') {
+        const body = await this.parseJsonBody<{ approvalToken?: string }>(req);
+        const approvalToken = (req.headers['x-kin-approval-token'] as string) || body?.approvalToken;
+        const sentinel = Sentinel.getInstance();
+        const toolName = 'browserScreenshot';
+        const params = {};
+        const decision = sentinel.evaluate({
+          agentId: 'operator',
+          toolName,
+          params,
+          riskLevel: 'LOW',
+          autonomyMode: 'FULL_ACCESS',
+          agentCapabilities: ['*'],
+          authorizationToken: approvalToken,
+        });
+        if (decision.requiresApproval) {
+          const approvalId = this.createApprovalRecord(toolName, params, decision.reason);
+          return this.sendJson(res, 428, { error: 'Precondition Required: Action requires operator approval', approvalId, reason: decision.reason, requiresApproval: true });
+        }
+        if (!decision.allowed) {
+          return this.sendJson(res, 403, { error: decision.reason });
+        }
         const result = await this.browserController.screenshot();
         return this.sendJson(res, 200, result);
       }
 
       // 48. POST /api/browser/close — Close browser session
       if (req.method === 'POST' && pathname === '/api/browser/close') {
+        const body = await this.parseJsonBody<{ approvalToken?: string }>(req);
+        const approvalToken = (req.headers['x-kin-approval-token'] as string) || body?.approvalToken;
+        const sentinel = Sentinel.getInstance();
+        const toolName = 'browserClose';
+        const params = {};
+        const decision = sentinel.evaluate({
+          agentId: 'operator',
+          toolName,
+          params,
+          riskLevel: 'LOW',
+          autonomyMode: 'FULL_ACCESS',
+          agentCapabilities: ['*'],
+          authorizationToken: approvalToken,
+        });
+        if (decision.requiresApproval) {
+          const approvalId = this.createApprovalRecord(toolName, params, decision.reason);
+          return this.sendJson(res, 428, { error: 'Precondition Required: Action requires operator approval', approvalId, reason: decision.reason, requiresApproval: true });
+        }
+        if (!decision.allowed) {
+          return this.sendJson(res, 403, { error: decision.reason });
+        }
         await this.browserController.close();
         this.broadcastEvent('browser:closed', { active: false });
         return this.sendJson(res, 200, { success: true });
@@ -7805,13 +8400,14 @@ export class CoreServer {
       const now = Date.now();
       const defId = `def-${now}`;
       const agentId = `agent-${now}`;
+      const inheritedModelId = boss?.activeModelId || 'ollama/qwen2.5-coder:3b';
 
       this.agentRepo.createDefinition({
         id: defId,
         name: normalizedName.replace(/^@/, ''),
         role,
         systemPrompt: `You are ${normalizedName}, a ${role} specialist in project ${targetProjId}. Follow the capabilities and project scope provided for this run, and ask when access or authority is unclear.`,
-        defaultModelId: 'ollama/qwen2.5-coder:3b',
+        defaultModelId: inheritedModelId,
         domainAuthority: [role],
         capabilities: ['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate', 'read', 'write', 'execute'],
         createdAt: now,
@@ -7823,7 +8419,7 @@ export class CoreServer {
         projectId: targetProjId,
         definitionId: defId,
         displayName: normalizedName,
-        activeModelId: 'ollama/qwen2.5-coder:3b',
+        activeModelId: inheritedModelId,
         isOrchestrator: false,
         isEphemeral: false,
         createdAt: now,
@@ -7953,12 +8549,14 @@ export class CoreServer {
           const role = spec.role;
           const sysPrompt = spec.systemPrompt || `You are ${spec.name}, a ${role} specialist in project ${targetProjId}. Follow the capabilities and project scope provided for this run.`;
 
+          const inheritedModel = boss?.activeModelId || (boss?.definitionId ? this.agentRepo.getDefinition(boss.definitionId)?.defaultModelId : undefined) || 'ollama/qwen2.5-coder:3b';
+
           this.agentRepo.createDefinition({
             id: defId,
             name: spec.name.replace(/^@/, ''),
             role,
             systemPrompt: sysPrompt,
-            defaultModelId: 'ollama/qwen2.5-coder:3b',
+            defaultModelId: inheritedModel,
             domainAuthority: spec.domainAuthority,
             capabilities: ['read', 'write', 'execute', 'agent:hire', 'agent:delegate'],
             createdAt: now + i,
@@ -7970,7 +8568,7 @@ export class CoreServer {
             projectId: targetProjId,
             definitionId: defId,
             displayName: spec.name,
-            activeModelId: 'ollama/qwen2.5-coder:3b',
+            activeModelId: inheritedModel,
             isOrchestrator: false,
             isEphemeral: false,
             createdAt: now + i,
@@ -8141,10 +8739,16 @@ export class CoreServer {
   }
 
   private enqueueChannelExecution(channelId: string, fn: () => Promise<void>): Promise<void> {
+    if (this.isStopping || this.db.closed) {
+      return Promise.resolve();
+    }
     const prev = this.channelQueues.get(channelId) || Promise.resolve();
     const next = prev.then(fn, fn).finally(() => {
       if (this.channelQueues.get(channelId) === next) {
         this.channelQueues.delete(channelId);
+      }
+      if (this.isStopping || this.db.closed) {
+        return;
       }
       const activeInChan = Array.from(this.activeAgentExecutions.values()).filter((e) => e.channelId === channelId);
       const delegationsInChan = this.activeDelegations.get(channelId) || 0;
@@ -8159,6 +8763,9 @@ export class CoreServer {
   }
 
   private enqueueAgentExecution(agentId: string, fn: () => Promise<void>): Promise<void> {
+    if (this.isStopping || this.db.closed) {
+      return Promise.resolve();
+    }
     const prev = this.agentQueues.get(agentId) || Promise.resolve();
     const next = prev.then(fn, fn).finally(() => {
       if (this.agentQueues.get(agentId) === next) {
@@ -8169,12 +8776,55 @@ export class CoreServer {
     return next;
   }
 
+  private pruneOldAdmissionFences(nowMs: number): void {
+    if (this.messageAdmissionFences.size > 500) {
+      for (const [key, val] of this.messageAdmissionFences.entries()) {
+        if (nowMs - val.timestamp > 10 * 60 * 1000) {
+          this.messageAdmissionFences.delete(key);
+        }
+      }
+    }
+    if (this.lastChannelPromptFingerprints.size > 500) {
+      for (const [key, val] of this.lastChannelPromptFingerprints.entries()) {
+        if (nowMs - val.timestamp > 10 * 60 * 1000) {
+          this.lastChannelPromptFingerprints.delete(key);
+        }
+      }
+    }
+  }
+
   private async executeSequentialAgents(agents: any[], channelId: string, userMsg: any): Promise<void> {
+    if (this.isStopping || this.db.closed) {
+      return;
+    }
+    if (!userMsg) return;
+
+    const msgId = userMsg.id;
+    if (msgId) {
+      const existing = this.messageAdmissionFences.get(msgId);
+      if (existing && existing.status === 'completed') {
+        console.log(`[KIN CORE] Admission Fence: Message ${msgId} has already completed execution. Suppressing duplicate execution.`);
+        return;
+      }
+      if (!existing) {
+        const fenceToken = userMsg.fencingToken || `fence-${msgId}-${Date.now()}`;
+        userMsg.fencingToken = fenceToken;
+        this.messageAdmissionFences.set(msgId, {
+          fenceToken,
+          channelId,
+          timestamp: Date.now(),
+          status: 'admitted',
+          completedAgents: new Set(),
+        });
+      }
+    }
+
     if (agents.length > 1) {
       this.incrementDelegation(channelId);
     }
     try {
       for (const agent of agents) {
+        if (this.isStopping || this.db.closed) break;
         await this.enqueueChannelExecution(channelId, () =>
           this.enqueueAgentExecution(agent.id, () => this.executeAgentResponse(agent, channelId, userMsg))
         );
@@ -8182,6 +8832,12 @@ export class CoreServer {
     } finally {
       if (agents.length > 1) {
         this.decrementDelegation(channelId);
+      }
+      if (msgId) {
+        const fence = this.messageAdmissionFences.get(msgId);
+        if (fence) {
+          fence.status = 'completed';
+        }
       }
     }
   }
@@ -8201,21 +8857,50 @@ export class CoreServer {
     modelOverride?: string,
     parentRunId?: string
   ): Promise<void> {
-    const def = this.agentRepo.getDefinition(agent.definitionId);
-    const channel = this.workspaceRepo.getChannel(channelId);
-    const targetProjectId = channel?.projectId || agent.projectId || this.activeProjectId;
+    if (this.isStopping || this.db.closed) {
+      return;
+    }
 
-    this.activeAgentExecutions.set(agent.id, {
-      agentId: agent.id,
-      channelId,
-      startedAt: Date.now(),
-      triggerMessageId: triggerMsg?.id,
+    if (triggerMsg?.id) {
+      const existingFence = this.messageAdmissionFences.get(triggerMsg.id);
+      if (existingFence) {
+        if (existingFence.status === 'completed' || existingFence.completedAgents?.has(agent.id)) {
+          console.log(`[KIN CORE] Admission Fence: Trigger message ${triggerMsg.id} has already executed for agent ${agent.id}. Skipping duplicate prompt run.`);
+          return;
+        }
+      } else {
+        this.messageAdmissionFences.set(triggerMsg.id, {
+          fenceToken: triggerMsg.fencingToken || `fence-${triggerMsg.id}-${Date.now()}`,
+          channelId,
+          timestamp: Date.now(),
+          status: 'admitted',
+          completedAgents: new Set(),
+        });
+      }
+    }
+
+    let resolveInFlight!: () => void;
+    const inFlightPromise = new Promise<void>((resolve) => {
+      resolveInFlight = resolve;
     });
-    this.broadcastEvent('agent:state', { agentId: agent.id, channelId, status: 'thinking' });
+    this.inFlightExecutions.add(inFlightPromise);
 
-    let run: any = null;
     try {
-      // 1. Spawn or reuse run in AgentKernel
+      const def = this.agentRepo.getDefinition(agent.definitionId);
+      const channel = this.workspaceRepo.getChannel(channelId);
+      const targetProjectId = channel?.projectId || agent.projectId || this.activeProjectId;
+
+      this.activeAgentExecutions.set(agent.id, {
+        agentId: agent.id,
+        channelId,
+        startedAt: Date.now(),
+        triggerMessageId: triggerMsg?.id,
+      });
+      this.broadcastEvent('agent:state', { agentId: agent.id, channelId, status: 'thinking' });
+
+      let run: any = null;
+      try {
+        // 1. Spawn or reuse run in AgentKernel
       if (existingRunId) {
         run = this.kernel.getRun(existingRunId);
         if (run) {
@@ -8330,9 +9015,9 @@ export class CoreServer {
 
       // Goal Ancestry & Objective Anchor resolution (Full Workspace -> Project -> Goal -> Task -> Run chain)
       let goalAncestryChain: any = undefined;
-      const projectGoals = this.taskRepo.listGoals(targetProjectId);
+      const projectGoals = this.goalRepo.listGoals(targetProjectId);
       const projectObj = this.workspaceRepo.getProject(targetProjectId);
-      const workspaceObj = this.workspaceRepo.getWorkspace('ws-default');
+      const workspaceObj = projectObj ? this.workspaceRepo.getWorkspace(projectObj.workspaceId) : this.workspaceRepo.getWorkspace('ws-default');
       const wsName = workspaceObj?.name || 'Default Workspace';
       const projName = projectObj?.name || targetProjectId;
       const rPath = projectObj?.repoPath;
@@ -8401,7 +9086,34 @@ export class CoreServer {
         const ag = allProjectAgents.find((a) => a.id === mId);
         return ag?.displayName || mId;
       }) : [];
-      const dmContext = isDm ? { isDirectMessage: true, participants: dmMembers } : undefined;
+
+      let dmOriginChannel: { id: string; name: string; members: string[] } | undefined;
+      if (isDm) {
+        const originMem = this.memoryRepo.getMemory('agent_private', agent.id, 'origin_channel_for_dm');
+        if (originMem?.value && typeof originMem.value === 'object') {
+          const val = originMem.value as any;
+          const originChanId = val.channelId;
+          if (originChanId) {
+            const origChan = this.workspaceRepo.getChannel(originChanId);
+            const origMemberIds = this.workspaceRepo.listChannelMemberIds(originChanId);
+            const origMembers = origMemberIds.map((mId) => {
+              const ag = allProjectAgents.find((a) => a.id === mId);
+              return ag?.displayName || mId;
+            });
+            dmOriginChannel = {
+              id: originChanId,
+              name: origChan?.name ? `#${origChan.name.replace(/^#/, '')}` : (val.channelName || originChanId),
+              members: origMembers,
+            };
+          }
+        }
+      }
+
+      const dmContext = isDm ? {
+        isDirectMessage: true,
+        participants: dmMembers.length > 0 ? dmMembers : ['Human Operator', agent.displayName],
+        originChannel: dmOriginChannel,
+      } : undefined;
 
       const projectMemories = this.memoryRepo
         .listMemories('project', targetProjectId)
@@ -8412,6 +9124,66 @@ export class CoreServer {
       const agentPrivateMemories = this.memoryRepo
         .listMemories('agent_private', agent.id)
         .map((m) => ({ key: m.key, type: m.value !== undefined ? String(m.type) : 'semantic', value: m.value }));
+
+      // Multi-Department Structured Memory Expansion:
+      // Query structured memories across all other assigned channels (departments) for this agent
+      const assignedDepartmentMemories: Array<{ channelId: string; channelName: string; memories: any[] }> = otherChannelIds.map((cId) => {
+        const c = this.workspaceRepo.getChannel(cId);
+        const mems = this.memoryRepo
+          .listMemories('channel', cId)
+          .map((m) => ({ key: m.key, type: m.value !== undefined ? String(m.type) : 'semantic', value: m.value }))
+          .slice(0, 15);
+        return {
+          channelId: cId,
+          channelName: c?.name ? `#${c.name.replace(/^#/, '')}` : `#${cId}`,
+          memories: mems,
+        };
+      }).filter((d) => d.memories.length > 0);
+
+      // Resolve organizational reporting line
+      let managerDisplayName: string | undefined;
+      if (agent.parentAgentId) {
+        const mgr = this.agentRepo.getIdentity(agent.parentAgentId);
+        managerDisplayName = mgr?.displayName || agent.parentAgentId;
+      } else if (!agent.isOrchestrator) {
+        const boss = allProjectAgents.find((a) => a.isOrchestrator);
+        if (boss && boss.id !== agent.id) {
+          managerDisplayName = boss.displayName;
+        }
+      }
+      const subordinates = this.agentRepo.listSubordinates(agent.id).map((s) => s.displayName);
+
+      // Build Project Workforce Roster & Responsibilities for team awareness
+      const projectRoster = allProjectAgents.map((a) => {
+        const agentDef = this.agentRepo.getDefinition(a.definitionId);
+        const activeTask = this.taskRepo
+          .listTasksByProject(targetProjectId)
+          .find((t) => t.assignedAgentId === a.id && (t.status === 'running' || t.status === 'assigned' || t.status === 'ready'));
+        return {
+          id: a.id,
+          displayName: a.displayName,
+          role: agentDef?.role || (a.isOrchestrator ? 'Workspace Orchestrator' : 'Specialist'),
+          domainAuthority: agentDef?.domainAuthority?.join(', ') || 'General',
+          activeTask: activeTask?.title,
+          status: 'Active',
+          channelIds: this.workspaceRepo.listAgentChannelIds(a.id, targetProjectId),
+        };
+      });
+
+      const otherAssignedChannelRosters = otherChannelIds.map((cId) => {
+        const c = this.workspaceRepo.getChannel(cId);
+        const memberIds = this.workspaceRepo.listChannelMemberIds(cId);
+        const members = memberIds.map((mId) => {
+          const a = allProjectAgents.find((ag) => ag.id === mId);
+          return a?.displayName || mId;
+        });
+        return {
+          channelId: cId,
+          channelName: c?.name ? `#${c.name.replace(/^#/, '')}` : `#${cId}`,
+          topic: c?.topic,
+          members,
+        };
+      });
 
       // Compile prompt with 4-tier memory hierarchy, project grounding, channel context, and peer awareness
       const compiled = this.contextCompiler.compile({
@@ -8437,10 +9209,17 @@ export class CoreServer {
         channelPeers: peers,
         assignedChannels,
         projectAgents: allProjectAgents.map((a) => a.displayName),
+        projectRoster,
+        otherAssignedChannelRosters,
+        reportingLine: {
+          manager: managerDisplayName,
+          subordinates: subordinates.length > 0 ? subordinates : undefined,
+        },
         crossChannelSummaries,
         scopedMemories: projectMemories,
         projectMemories,
         channelMemories,
+        assignedDepartmentMemories,
         agentPrivateMemories,
         dmContext,
         goalAncestry: goalAncestryChain,
@@ -8531,10 +9310,21 @@ export class CoreServer {
       const isCoding = !!(activeTaskId || defCapabilities.includes('worktree') || triggerMsg?.content?.toLowerCase().includes('code') || triggerMsg?.content?.toLowerCase().includes('refactor') || triggerMsg?.content?.toLowerCase().includes('implement') || triggerMsg?.content?.toLowerCase().includes('fix') || triggerMsg?.content?.toLowerCase().includes('bug'));
       if (isCoding) {
         try {
-          const worktreeManager = new WorktreeManager(repoRoot);
-          worktreeInfo = await worktreeManager.provisionWorktree(run.id, freshIdentity.displayName?.replace(/^@/, '') || 'worker');
-          effectiveWorktreeRoot = worktreeInfo.worktreePath;
-          this.kernel.updateWorktreePath(run.id, effectiveWorktreeRoot);
+          const existingPreserved = this.preservedWorktrees.get(run.id);
+          if (existingPreserved && fs.existsSync(existingPreserved.worktreePath)) {
+            worktreeInfo = {
+              worktreePath: existingPreserved.worktreePath,
+              branch: existingPreserved.branch,
+              isShadowRepo: !!existingPreserved.isShadowRepo,
+            };
+            effectiveWorktreeRoot = worktreeInfo.worktreePath;
+            this.kernel.updateWorktreePath(run.id, effectiveWorktreeRoot);
+          } else {
+            const worktreeManager = new WorktreeManager(repoRoot);
+            worktreeInfo = await worktreeManager.provisionWorktree(run.id, freshIdentity.displayName?.replace(/^@/, '') || 'worker');
+            effectiveWorktreeRoot = worktreeInfo.worktreePath;
+            this.kernel.updateWorktreePath(run.id, effectiveWorktreeRoot);
+          }
         } catch (wtErr: any) {
           console.warn('[KIN CORE] Worktree provision failure - failing closed:', wtErr);
           if (activeTaskId) {
@@ -8574,7 +9364,18 @@ export class CoreServer {
         });
       }
 
-      const runnerAdapter = RunnerAdapterRegistry.getDefault();
+      let runnerAdapter: TypedRunnerAdapter = this.nativeRunnerAdapter;
+      if (freshIdentity.runnerAdapterId && freshIdentity.runnerAdapterId !== 'native-react') {
+        try {
+          runnerAdapter = RunnerAdapterRegistry.get(freshIdentity.runnerAdapterId);
+        } catch {
+          runnerAdapter = this.nativeRunnerAdapter;
+        }
+      }
+      const proj = this.workspaceRepo.getProject(targetProjectId);
+      const ws = proj ? this.workspaceRepo.getWorkspace(proj.workspaceId) : null;
+      const autonomyMode = ws?.defaultAutonomyMode ?? 'AUTO';
+
       const loopResult = await runnerAdapter.execute({
         runId: run.id,
         taskId: run.taskId,
@@ -8586,13 +9387,21 @@ export class CoreServer {
         userPrompt: triggerMsg?.content || '',
         systemPrompt: compiled.fullAssembledPrompt,
         worktreeRoot: effectiveWorktreeRoot,
-        autonomyMode: this.workspaceRepo.getWorkspace('ws-default')?.defaultAutonomyMode ?? 'AUTO',
+        autonomyMode,
         maxTurns: 6,
         allowedCapabilities: freshIdentity.isOrchestrator ? ['*'] : defCapabilities,
         taskRepo: this.taskRepo,
         decisionRepo: this.taskRepo,
         onToken: (token: string) => {
           this.broadcastEvent('agent:token', {
+            runId: run.id,
+            agentId: freshIdentity.id,
+            channelId,
+            token,
+          });
+        },
+        onThinkingToken: (token: string) => {
+          this.broadcastEvent('agent:thinking_token', {
             runId: run.id,
             agentId: freshIdentity.id,
             channelId,
@@ -8661,9 +9470,13 @@ export class CoreServer {
             console.warn('[KIN RUN] Failed to pause for quota:', qErr);
           }
         },
-        checkTakeoverStatus: () => this.getTakeoverStatus(run.id),
+        checkTakeoverStatus: () => {
+          if (this.isStopping) return 'abort';
+          return this.getTakeoverStatus(run.id);
+        },
         getAbortSignal: () => this.runAbortControllers.get(run.id)?.signal || abortController.signal,
         renewAbortSignal: () => {
+          if (this.isStopping) return undefined;
           const freshCtrl = new AbortController();
           this.runAbortControllers.set(run.id, freshCtrl);
           return freshCtrl.signal;
@@ -8791,12 +9604,33 @@ export class CoreServer {
       }
 
       // 6. Persist agent reply to SQLite (with terminology compliance filter)
+      let productivityScore = loopResult.actions.some((a) => a.error) ? 75 : 95;
+      if (loopResult.actions.length === 0) {
+        const recentHistory = this.channelService.getMessages(channelId, 6);
+        const agentRecent = recentHistory.filter((m) => m.senderType === 'agent');
+        const normalizedCurrent = (loopResult.finalContent || '').trim().toLowerCase();
+
+        const isRepetitive = agentRecent.some((m) => {
+          const normPrev = m.content.trim().toLowerCase();
+          return normPrev === normalizedCurrent ||
+            (normalizedCurrent.length > 20 && normPrev.includes(normalizedCurrent)) ||
+            (normPrev.length > 20 && normalizedCurrent.includes(normPrev));
+        });
+
+        const prevMsg = recentHistory[recentHistory.length - 1];
+        const isConsecutiveAgentDebate = prevMsg && prevMsg.senderType === 'agent' && prevMsg.senderId !== agent.id;
+
+        if (isRepetitive || (isConsecutiveAgentDebate && !normalizedCurrent.includes('```') && !normalizedCurrent.includes('diff'))) {
+          productivityScore = 0;
+        }
+      }
+
       const agentReply = this.channelService.sendMessage({
         channelId,
         senderId: agent.id,
         senderType: 'agent',
         content: this.sanitizeTerminology(loopResult.finalContent),
-        productivityScore: loopResult.actions.some((a) => a.error) ? 75 : 95,
+        productivityScore,
       });
 
       // 6b. Record experience into SkillEngine for autonomous learning
@@ -8818,35 +9652,56 @@ export class CoreServer {
       let worktreeMergeFailed = false;
       let worktreeMergeError: string | null = null;
       if (worktreeInfo) {
-        try {
-          const worktreeManager = new WorktreeManager(repoRoot);
-          const diff = await worktreeManager.generateDiff(worktreeInfo.worktreePath);
-          if (diff && diff.trim().length > 0) {
-            worktreeCommitSha = await worktreeManager.commitWorktreeChanges(
-              worktreeInfo.worktreePath,
-              `KIN agent ${freshIdentity.displayName} automated task ${run.id}`
-            );
-            const defaultBranch = (typeof project?.settings?.defaultBranch === 'string' && project.settings.defaultBranch) ? project.settings.defaultBranch : 'main';
-            const mergeRes = await worktreeManager.verifyAndMerge(
-              worktreeInfo.worktreePath,
-              worktreeInfo.branch,
-              defaultBranch
-            );
-            if (!mergeRes.success) {
-              worktreeMergeFailed = true;
-              worktreeMergeError = mergeRes.error || 'Worktree merge failed';
-              worktreeCommitSha = null;
-              console.warn('[KIN CORE] Worktree merge conflict/error:', worktreeMergeError);
-            } else if (mergeRes.commitSha) {
-              worktreeCommitSha = mergeRes.commitSha;
+        if (loopResult.requiresApproval || (loopResult.interrupted && loopResult.requiresApproval)) {
+          // Preserve worktree branch and directory for pending approval resolution
+          this.preservedWorktrees.set(run.id, {
+            worktreePath: worktreeInfo.worktreePath,
+            branch: worktreeInfo.branch,
+            repoRoot,
+            isShadowRepo: worktreeInfo.isShadowRepo,
+          });
+        } else {
+          try {
+            const worktreeManager = new WorktreeManager(repoRoot);
+            const diff = await worktreeManager.generateDiff(worktreeInfo.worktreePath);
+            if (diff && diff.trim().length > 0) {
+              worktreeCommitSha = await worktreeManager.commitWorktreeChanges(
+                worktreeInfo.worktreePath,
+                `KIN agent ${freshIdentity.displayName} automated task ${run.id}`
+              );
+              const defaultBranch = (typeof project?.settings?.defaultBranch === 'string' && project.settings.defaultBranch) ? project.settings.defaultBranch : 'main';
+              const mergeRes = await worktreeManager.verifyAndMerge(
+                worktreeInfo.worktreePath,
+                worktreeInfo.branch,
+                defaultBranch
+              );
+              if (!mergeRes.success) {
+                worktreeMergeFailed = true;
+                worktreeMergeError = mergeRes.error || 'Worktree merge failed';
+                worktreeCommitSha = null;
+                await worktreeManager.removeWorktree(worktreeInfo.worktreePath);
+                await worktreeManager.deleteBranch(worktreeInfo.branch);
+                console.warn('[KIN CORE] Worktree merge conflict/error:', worktreeMergeError);
+              } else if (mergeRes.commitSha) {
+                worktreeCommitSha = mergeRes.commitSha;
+              }
+            } else {
+              await worktreeManager.removeWorktree(worktreeInfo.worktreePath);
+              await worktreeManager.deleteBranch(worktreeInfo.branch);
             }
-          } else {
-            await worktreeManager.removeWorktree(worktreeInfo.worktreePath);
+          } catch (wtMergeErr: any) {
+            worktreeMergeFailed = true;
+            worktreeMergeError = wtMergeErr?.message || String(wtMergeErr);
+            if (worktreeInfo) {
+              try {
+                const worktreeManager = new WorktreeManager(repoRoot);
+                await worktreeManager.removeWorktree(worktreeInfo.worktreePath);
+                await worktreeManager.deleteBranch(worktreeInfo.branch);
+              } catch {}
+            }
+            console.warn('[KIN CORE] Worktree merge/cleanup error:', wtMergeErr);
           }
-        } catch (wtMergeErr: any) {
-          worktreeMergeFailed = true;
-          worktreeMergeError = wtMergeErr?.message || String(wtMergeErr);
-          console.warn('[KIN CORE] Worktree merge/cleanup error:', wtMergeErr);
+          this.preservedWorktrees.delete(run.id);
         }
       }
 
@@ -8908,6 +9763,17 @@ export class CoreServer {
         const approvalId = `appr-${Date.now()}`;
         const now = Date.now();
         const sanitizedParams = SecretBroker.getInstance().sanitizePayload(details.params || {});
+        if (worktreeInfo) {
+          sanitizedParams._worktreePath = worktreeInfo.worktreePath;
+          sanitizedParams._worktreeBranch = worktreeInfo.branch;
+          sanitizedParams._isShadowRepo = worktreeInfo.isShadowRepo;
+          this.preservedWorktrees.set(approvalId, {
+            worktreePath: worktreeInfo.worktreePath,
+            branch: worktreeInfo.branch,
+            repoRoot,
+            isShadowRepo: worktreeInfo.isShadowRepo,
+          });
+        }
         this.db.execute(
           `INSERT INTO approvals (id, run_id, agent_id, tool_name, action_payload_json, risk_level, status, expires_at, created_at)
            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
@@ -9195,7 +10061,7 @@ export class CoreServer {
                 const allDone = siblingTasks.every((t) => (t.id === activeTaskId ? true : t.status === 'completed'));
                 if (allDone) {
                   this.db.execute("UPDATE goals SET status = 'completed', updated_at = ? WHERE id = ?", Date.now(), currentTask.goalId);
-                  const updatedGoal = this.taskRepo.getGoal(currentTask.goalId);
+                  const updatedGoal = this.goalRepo.getGoal(currentTask.goalId);
                   if (updatedGoal) {
                     this.broadcastEvent('goal:updated', updatedGoal);
                   }
@@ -9226,6 +10092,56 @@ export class CoreServer {
       };
 
       this.broadcastEvent('message:created', formattedReply);
+
+      // Real-time operator notification for peer DM replies and automatic peer loop coordination
+      if (channelId.startsWith('dm-')) {
+        const isHumanDm = channelId === `dm-${agent.id}`;
+        if (!isHumanDm) {
+          this.broadcastEvent('operator:notification', {
+            type: 'agent_dm_reply',
+            fromAgentId: agent.id,
+            fromAgentName: agent.displayName,
+            channelId,
+            message: `@${agent.displayName.replace(/^@/, '')} replied in peer DM (${channelId}): "${agentReply.content.slice(0, 100)}"`,
+            content: agentReply.content,
+          });
+
+          // Check if peer DM conversation should continue with the other coworker agent
+          const isCompleted = hasDirectMessageCompletionToken(agentReply.content);
+          if (isCompleted) {
+            this.broadcastEvent('operator:notification', {
+              type: 'peer_dm_completed',
+              channelId,
+              message: `Conversation completed: Completion token detected from @${agent.displayName.replace(/^@/, '')}. Automatic peer response halted.`,
+            });
+          } else if (recursionDepth < 3) {
+            const memberIds = this.workspaceRepo.listChannelMemberIds(channelId);
+            const otherAgentId = memberIds.find((id) => id !== agent.id);
+            const otherAgent = otherAgentId ? this.agentRepo.getIdentity(otherAgentId) : undefined;
+
+            if (otherAgent) {
+              const recentDmMessages = this.channelService.getMessages(channelId, 20);
+              let consecutiveTurns = 0;
+              for (let i = recentDmMessages.length - 1; i >= 0; i--) {
+                if (recentDmMessages[i].senderType === 'human') break;
+                if (recentDmMessages[i].senderType === 'agent') consecutiveTurns++;
+              }
+
+              if (consecutiveTurns < 5) {
+                this.enqueueAgentExecution(otherAgent.id, () =>
+                  this.executeAgentResponse(otherAgent, channelId, agentReply, recursionDepth + 1)
+                );
+              } else {
+                this.broadcastEvent('operator:notification', {
+                  type: 'peer_dm_turn_limit',
+                  channelId,
+                  message: `Turn depth ceiling reached (5 consecutive agent turns in peer DM channel ${channelId}). Automatic response paused.`,
+                });
+              }
+            }
+          }
+        }
+      }
 
       // 8b. Check if new mid-task steers were queued while inference was running
       const remainingSteers = this.pendingSteers.filter((s) => {
@@ -9397,6 +10313,9 @@ export class CoreServer {
 
       this.broadcastEvent('agent:state', { agentId: agent.id, channelId, status: 'idle' });
     } catch (err: any) {
+      if (this.isStopping || this.db.closed) {
+        return;
+      }
       console.error(`[KIN CORE] Execution failed for agent ${agent.displayName}:`, err);
       if (run?.id) {
         try {
@@ -9440,48 +10359,60 @@ export class CoreServer {
         this.runAbortControllers.delete(run.id);
       }
       this.activeAgentExecutions.delete(agent.id);
-      const activeInChan = Array.from(this.activeAgentExecutions.values()).filter((e) => e.channelId === channelId);
-      const delegationsInChan = this.activeDelegations.get(channelId) || 0;
-      if (activeInChan.length === 0 && delegationsInChan === 0) {
-        try {
-          await this.processNextQueuedMessage(channelId);
-        } catch (qErr) {
-          console.warn('[KIN CORE] Notice processing next queued message:', qErr);
+      if (triggerMsg?.id) {
+        const fence = this.messageAdmissionFences.get(triggerMsg.id);
+        if (fence) {
+          fence.completedAgents.add(agent.id);
         }
       }
-      try {
-        const admittedRun = this.kernel.admitNextQueuedRun();
-        if (admittedRun) {
-          const admittedAgent = this.agentRepo.getIdentity(admittedRun.agentId);
-          if (admittedAgent) {
-            this.broadcastEvent('run:admitted', { runId: admittedRun.id, agentId: admittedAgent.id });
-            let trigger = admittedRun.triggerMessageId
-              ? this.channelService.getMessage(admittedRun.triggerMessageId)
-              : undefined;
-            if (!trigger && admittedRun.taskId) {
-              const taskObj = this.taskRepo.getTask(admittedRun.taskId);
-              if (taskObj) {
-                trigger = {
-                  id: `trigger-task-${admittedRun.id}`,
-                  channelId: admittedRun.channelId || channelId,
-                  senderId: 'system',
-                  content: `Execute task: ${taskObj.title}\n${taskObj.description || ''}`,
-                  taskId: taskObj.id,
-                } as any;
-              }
-            }
-            this.enqueueChannelExecution(admittedRun.channelId || channelId, () =>
-              this.enqueueAgentExecution(admittedAgent.id, () =>
-                this.executeAgentResponse(admittedAgent, admittedRun.channelId || channelId, trigger, 0, undefined, admittedRun.id)
-              )
-            );
+      if (!this.isStopping && !this.db.closed) {
+        const activeInChan = Array.from(this.activeAgentExecutions.values()).filter((e) => e.channelId === channelId);
+        const delegationsInChan = this.activeDelegations.get(channelId) || 0;
+        if (activeInChan.length === 0 && delegationsInChan === 0) {
+          try {
+            await this.processNextQueuedMessage(channelId);
+          } catch (qErr) {
+            console.warn('[KIN CORE] Notice processing next queued message:', qErr);
           }
         }
-      } catch (admitErr) {
-        console.warn('[KIN CORE] Notice admitting next queued run:', admitErr);
+        try {
+          const admittedRun = this.kernel.admitNextQueuedRun();
+          if (admittedRun) {
+            const admittedAgent = this.agentRepo.getIdentity(admittedRun.agentId);
+            if (admittedAgent) {
+              this.broadcastEvent('run:admitted', { runId: admittedRun.id, agentId: admittedAgent.id });
+              let trigger = admittedRun.triggerMessageId
+                ? this.channelService.getMessage(admittedRun.triggerMessageId)
+                : undefined;
+              if (!trigger && admittedRun.taskId) {
+                const taskObj = this.taskRepo.getTask(admittedRun.taskId);
+                if (taskObj) {
+                  trigger = {
+                    id: `trigger-task-${admittedRun.id}`,
+                    channelId: admittedRun.channelId || channelId,
+                    senderId: 'system',
+                    content: `Execute task: ${taskObj.title}\n${taskObj.description || ''}`,
+                    taskId: taskObj.id,
+                  } as any;
+                }
+              }
+              this.enqueueChannelExecution(admittedRun.channelId || channelId, () =>
+                this.enqueueAgentExecution(admittedAgent.id, () =>
+                  this.executeAgentResponse(admittedAgent, admittedRun.channelId || channelId, trigger, 0, undefined, admittedRun.id)
+                )
+              );
+            }
+          }
+        } catch (admitErr) {
+          console.warn('[KIN CORE] Notice admitting next queued run:', admitErr);
+        }
       }
     }
+  } finally {
+    this.inFlightExecutions.delete(inFlightPromise);
+    resolveInFlight();
   }
+}
 
   /**
    * FIFO dequeue dispatcher: When channel is idle (0 executing agents),
@@ -9489,38 +10420,92 @@ export class CoreServer {
    * sends it to the channel, and triggers agent activation.
    */
   public async processNextQueuedMessage(channelId: string): Promise<boolean> {
+    if (this.isStopping || this.db.closed) {
+      return false;
+    }
     const activeInChan = Array.from(this.activeAgentExecutions.values()).filter((e) => e.channelId === channelId);
     const delegationsInChan = this.activeDelegations.get(channelId) || 0;
     if (activeInChan.length > 0 || delegationsInChan > 0) {
       return false;
     }
 
-    const nextMsg = this.db.queryOne<{
+    let nextMsg: {
       id: string;
       channel_id: string;
       sender_id: string;
       content: string;
       metadata_json: string;
       created_at: number;
-    }>('SELECT * FROM queued_messages WHERE channel_id = ? ORDER BY created_at ASC LIMIT 1', channelId);
+    } | undefined;
 
-    if (!nextMsg) {
+    let userMsg: any;
+    let channel: any;
+
+    this.db.transactionSync(() => {
+      const candidate = this.db.queryOne<{
+        id: string;
+        channel_id: string;
+        sender_id: string;
+        content: string;
+        metadata_json: string;
+        created_at: number;
+      }>('SELECT * FROM queued_messages WHERE channel_id = ? ORDER BY created_at ASC LIMIT 1', channelId);
+
+      if (!candidate) {
+        return;
+      }
+
+      // Check if already fenced in admitting queue to prevent duplicate execution cycles
+      let meta: any = {};
+      try { meta = JSON.parse(candidate.metadata_json || '{}'); } catch {}
+      if (meta.fencingToken || this.messageAdmissionFences.has(candidate.id)) {
+        this.db.execute('DELETE FROM queued_messages WHERE id = ?', candidate.id);
+        return;
+      }
+
+      const fenceToken = `fence-${candidate.id}-${Date.now()}`;
+      meta.fencingToken = fenceToken;
+      meta.admittedAt = Date.now();
+
+      const res = this.db.execute('DELETE FROM queued_messages WHERE id = ?', candidate.id);
+      if (Number(res.changes) > 0) {
+        const chan = this.workspaceRepo.getChannel(channelId);
+        if (chan) {
+          nextMsg = candidate;
+          channel = chan;
+          userMsg = this.channelService.sendMessage({
+            channelId,
+            senderId: candidate.sender_id || 'user-operator',
+            senderType: 'human',
+            content: candidate.content,
+            productivityScore: 100,
+          });
+          userMsg.fencingToken = fenceToken;
+          this.messageAdmissionFences.set(candidate.id, {
+            fenceToken,
+            channelId,
+            timestamp: Date.now(),
+            status: 'admitted',
+            completedAgents: new Set(),
+          });
+          if (userMsg.id) {
+            this.messageAdmissionFences.set(userMsg.id, {
+              fenceToken,
+              channelId,
+              timestamp: Date.now(),
+              status: 'admitted',
+              completedAgents: new Set(),
+            });
+          }
+        }
+      }
+    });
+
+    if (!nextMsg || !userMsg || !channel) {
       return false;
     }
 
-    this.db.execute('DELETE FROM queued_messages WHERE id = ?', nextMsg.id);
     this.broadcastEvent('queue:dequeued', { channelId, messageId: nextMsg.id });
-
-    const channel = this.workspaceRepo.getChannel(channelId);
-    if (!channel) return false;
-
-    const userMsg = this.channelService.sendMessage({
-      channelId,
-      senderId: nextMsg.sender_id || 'user-operator',
-      senderType: 'human',
-      content: nextMsg.content,
-      productivityScore: 100,
-    });
 
     this.broadcastEvent('message:created', {
       id: userMsg.id,

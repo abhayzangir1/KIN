@@ -31,11 +31,16 @@ export const DesktopControlModal: React.FC = () => {
     closeBrowser,
     navigateBrowser,
     captureDesktopScreenshot,
-    routines,
-    fetchRoutines,
-    createRoutine,
-    cancelRoutine,
+    schedules,
+    fetchSchedules,
+    createSchedule,
+    cancelSchedule,
   } = useKinStore();
+
+  const routines = schedules;
+  const fetchRoutines = fetchSchedules;
+  const createRoutine = createSchedule;
+  const cancelRoutine = cancelSchedule;
 
   const [activeTab, setActiveTab] = useState<'apps' | 'windows' | 'browser' | 'routines'>('apps');
   const [appSearch, setAppSearch] = useState('');

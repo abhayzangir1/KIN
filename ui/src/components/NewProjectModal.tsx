@@ -63,9 +63,6 @@ export const NewProjectModal: React.FC = () => {
               value={name}
               onChange={(e) => {
                 setName(e.target.value);
-                if (!repoPath) {
-                  setRepoPath(`D:\\${e.target.value}`);
-                }
               }}
               placeholder="e.g. test01, fintech-api"
               className="w-full bg-[#090d16] border border-[#2d3748] rounded px-3 py-2 text-kin-text focus:outline-none focus:border-emerald-500"
@@ -83,7 +80,7 @@ export const NewProjectModal: React.FC = () => {
                       const dirHandle = await (window as any).showDirectoryPicker();
                       if (dirHandle?.name) {
                         if (!name) setName(dirHandle.name);
-                        setRepoPath(`D:\\${dirHandle.name}`);
+                        setRepoPath(dirHandle.name);
                       }
                     } catch {}
                   }}
@@ -98,11 +95,11 @@ export const NewProjectModal: React.FC = () => {
               type="text"
               value={repoPath}
               onChange={(e) => setRepoPath(e.target.value)}
-              placeholder="e.g. D:\testtt or D:\KIN"
+              placeholder="e.g. /workspace/my-project or C:\Projects\my-project"
               className="w-full bg-[#090d16] border border-[#2d3748] rounded px-3 py-2 text-kin-text font-mono focus:outline-none focus:border-emerald-500"
             />
             <p className="text-[10px] text-[#64748b] mt-1">
-              Specify your local project folder (e.g. <span className="text-emerald-400 font-mono">D:\testtt</span>). You do <strong className="text-amber-300">not</strong> need a JSON file.
+              Specify your local project folder. You do <strong className="text-amber-300">not</strong> need a JSON file.
             </p>
           </div>
 

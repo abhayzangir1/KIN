@@ -4,85 +4,46 @@ import * as crypto from 'node:crypto';
 import * as child_process from 'node:child_process';
 import { KinDatabase } from '../storage/db.js';
 import { Goal, Task, TaskStatus, Decision, DecisionStatus } from './types.js';
+import { GoalRepository } from './goal_repository.js';
+
+export function computeFileSha256Streaming(filePath: string): string {
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const hash = crypto.createHash('sha256');
+    const buffer = Buffer.alloc(64 * 1024);
+    let bytesRead = 0;
+    while ((bytesRead = fs.readSync(fd, buffer, 0, buffer.length, null)) > 0) {
+      hash.update(buffer.subarray(0, bytesRead));
+    }
+    return hash.digest('hex');
+  } finally {
+    fs.closeSync(fd);
+  }
+}
 
 export class TaskRepository {
   private db: KinDatabase;
+  private goalRepo: GoalRepository;
 
   constructor(db: KinDatabase) {
     this.db = db;
+    this.goalRepo = new GoalRepository(db);
   }
 
   public createGoal(goal: Goal): void {
-    this.db.execute(
-      `INSERT INTO goals (id, project_id, title, description, acceptance_criteria_json, status, deadline, check_in_policy, progress_summary, blocked_state, proposed_replanning_json, origin_channel_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      goal.id,
-      goal.projectId,
-      goal.title,
-      goal.description,
-      JSON.stringify(goal.acceptanceCriteria || []),
-      goal.status,
-      goal.deadline ?? null,
-      goal.checkInPolicy ?? null,
-      goal.progressSummary ?? null,
-      goal.blockedState ?? null,
-      goal.proposedReplanning ? JSON.stringify(goal.proposedReplanning) : null,
-      goal.originChannelId ?? null,
-      goal.createdAt,
-      goal.updatedAt
-    );
+    this.goalRepo.createGoal(goal);
   }
 
   public getGoal(id: string): Goal | undefined {
-    const row = this.db.queryOne<{
-      id: string;
-      project_id: string;
-      title: string;
-      description: string;
-      acceptance_criteria_json: string;
-      status: string;
-      deadline: number | null;
-      check_in_policy: string | null;
-      progress_summary: string | null;
-      blocked_state: string | null;
-      proposed_replanning_json: string | null;
-      origin_channel_id: string | null;
-      created_at: number;
-      updated_at: number;
-    }>('SELECT * FROM goals WHERE id = ?', id);
+    return this.goalRepo.getGoal(id);
+  }
 
-    if (!row) return undefined;
+  public updateGoal(goal: Goal): void {
+    this.goalRepo.updateGoal(goal);
+  }
 
-    let acceptanceCriteria: string[] = [];
-    try {
-      acceptanceCriteria = JSON.parse(row.acceptance_criteria_json || '[]');
-    } catch {
-      acceptanceCriteria = [];
-    }
-
-    let proposedReplanning: any = undefined;
-    if (row.proposed_replanning_json) {
-      try {
-        proposedReplanning = JSON.parse(row.proposed_replanning_json);
-      } catch {}
-    }
-
-    return {
-      id: row.id,
-      projectId: row.project_id,
-      title: row.title,
-      description: row.description,
-      acceptanceCriteria,
-      status: row.status as Goal['status'],
-      deadline: row.deadline ?? undefined,
-      checkInPolicy: row.check_in_policy ?? undefined,
-      progressSummary: row.progress_summary ?? undefined,
-      blockedState: row.blocked_state ?? undefined,
-      proposedReplanning,
-      originChannelId: row.origin_channel_id ?? undefined,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
+  public deleteGoal(id: string): void {
+    this.goalRepo.deleteGoal(id);
   }
 
   public createTask(task: Task, dependsOnTaskIds: string[] = []): void {
@@ -210,12 +171,18 @@ export class TaskRepository {
            lease_expires_at = ?,
            updated_at = ?
        WHERE id = ?
-         AND (status IN ('ready', 'backlog') OR (status = 'running' AND (lease_expires_at IS NULL OR lease_expires_at < ?)))`,
+         AND (
+           status = 'ready'
+           OR status = 'assigned'
+           OR (status = 'running' AND claimed_by_run_id = ?)
+           OR (status = 'running' AND (lease_expires_at IS NULL OR lease_expires_at < ?))
+         )`,
       agentId,
       runId,
       leaseExpiresAt,
       now,
       taskId,
+      runId,
       now
     );
 
@@ -276,8 +243,8 @@ export class TaskRepository {
    */
   public reclaimExpiredTaskLeases(): string[] {
     const now = Date.now();
-    const expired = this.db.query<{ id: string; retry_count: number }>(
-      `SELECT t.id, t.retry_count FROM tasks t
+    const expired = this.db.query<{ id: string; retry_count: number; claimed_by_run_id?: string | null }>(
+      `SELECT t.id, t.retry_count, t.claimed_by_run_id FROM tasks t
        LEFT JOIN agent_runs r ON t.claimed_by_run_id = r.id
        WHERE t.status = 'running'
          AND (
@@ -302,19 +269,36 @@ export class TaskRepository {
     this.db.transactionSync(() => {
       for (const row of expired) {
         const nextStatus = (row.retry_count || 0) >= 5 ? 'failed' : 'ready';
-        this.db.execute(
-          `UPDATE tasks
-           SET status = ?,
-               claimed_by_run_id = NULL,
-               lease_expires_at = NULL,
-               retry_count = retry_count + 1,
-               updated_at = ?
-           WHERE id = ?`,
-          nextStatus,
-          now,
-          row.id
-        );
-        reclaimedIds.push(row.id);
+        const hasClaimedRun = row.claimed_by_run_id !== null && row.claimed_by_run_id !== undefined;
+        const res = hasClaimedRun
+          ? this.db.execute(
+              `UPDATE tasks
+               SET status = ?,
+                   claimed_by_run_id = NULL,
+                   lease_expires_at = NULL,
+                   retry_count = retry_count + 1,
+                   updated_at = ?
+               WHERE id = ? AND status = 'running' AND claimed_by_run_id = ?`,
+              nextStatus,
+              now,
+              row.id,
+              row.claimed_by_run_id!
+            )
+          : this.db.execute(
+              `UPDATE tasks
+               SET status = ?,
+                   claimed_by_run_id = NULL,
+                   lease_expires_at = NULL,
+                   retry_count = retry_count + 1,
+                   updated_at = ?
+               WHERE id = ? AND status = 'running' AND claimed_by_run_id IS NULL`,
+              nextStatus,
+              now,
+              row.id
+            );
+        if (Number(res.changes) > 0) {
+          reclaimedIds.push(row.id);
+        }
       }
     });
 
@@ -355,30 +339,47 @@ export class TaskRepository {
       'SELECT id, task_id, run_id, type, content_uri, verified FROM evidence WHERE id = ?',
       evidenceBundleId
     );
+    const markReview = () => {
+      if (expectedRunId) {
+        this.db.execute(
+          `UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ? AND (claimed_by_run_id = ? OR claimed_by_run_id IS NULL)`,
+          Date.now(),
+          taskId,
+          expectedRunId
+        );
+      } else {
+        this.db.execute(
+          `UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`,
+          Date.now(),
+          taskId
+        );
+      }
+    };
+
     if (!evidenceRecord) {
-      this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+      markReview();
       throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' not found in database. Task remains in review.`);
     }
 
     if (evidenceRecord.task_id !== taskId) {
-      this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+      markReview();
       throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' belongs to task '${evidenceRecord.task_id}', not '${taskId}'. Task remains in review.`);
     }
 
     if (expectedRunId && (!evidenceRecord.run_id || evidenceRecord.run_id !== expectedRunId)) {
-      this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+      markReview();
       throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' belongs to run '${evidenceRecord.run_id || 'unassigned'}', not expected run '${expectedRunId}'. Task remains in review.`);
     }
 
     const isVerified = evidenceRecord.verified === 1 || evidenceRecord.verified === true || String(evidenceRecord.verified) === '1';
     if (!isVerified) {
-      this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+      markReview();
       throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' is unverified (verified = 0). Task remains in review.`);
     }
 
     const uri = (evidenceRecord.content_uri || '').trim();
     if (!uri) {
-      this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+      markReview();
       throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' has empty content_uri proof. Task remains in review.`);
     }
 
@@ -398,7 +399,7 @@ export class TaskRepository {
       if (uri.startsWith('git://commit/')) {
         const commitSha = uri.replace('git://commit/', '').trim();
         if (!/^[0-9a-fA-F]{7,40}$/.test(commitSha)) {
-          this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+          markReview();
           throw new Error(`Cannot complete task '${taskId}': Malformed git commit SHA '${commitSha}'. Task remains in review.`);
         }
         let isCommit = false;
@@ -424,7 +425,7 @@ export class TaskRepository {
           } catch {}
         }
         if (!isCommit) {
-          this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+          markReview();
           throw new Error(`Cannot complete task '${taskId}': Git commit '${commitSha}' does not exist in repository '${repoPath}'. Task remains in review.`);
         }
       } else if (uri.startsWith('file://')) {
@@ -443,20 +444,20 @@ export class TaskRepository {
         }
         const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(repoPath, filePath);
         if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {
-          this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+          markReview();
           throw new Error(`Cannot complete task '${taskId}': Evidence artifact file '${resolvedPath}' does not exist on disk. Task remains in review.`);
         }
         if (expectedSha) {
-          const actualHash = crypto.createHash('sha256').update(fs.readFileSync(resolvedPath)).digest('hex');
+          const actualHash = computeFileSha256Streaming(resolvedPath);
           if (actualHash.toLowerCase() !== expectedSha.toLowerCase()) {
-            this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+            markReview();
             throw new Error(`Cannot complete task '${taskId}': Artifact file '${resolvedPath}' SHA256 '${actualHash}' does not match expected '${expectedSha}'. Task remains in review.`);
           }
         }
       } else {
         const resolvedPath = path.isAbsolute(uri) ? uri : path.resolve(repoPath, uri);
         if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {
-          this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+          markReview();
           throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' contains invalid artifact proof URI '${uri}' that does not resolve to an existing artifact. Task remains in review.`);
         }
       }
@@ -473,11 +474,11 @@ export class TaskRepository {
         }
         const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(repoPath, filePath);
         if (!fs.existsSync(resolvedPath)) {
-          this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+          markReview();
           throw new Error(`Cannot complete task '${taskId}': Human signoff file '${resolvedPath}' does not exist on disk. Task remains in review.`);
         }
       } else if (!isOperatorSignoff) {
-        this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+        markReview();
         throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' contains invalid human_signoff URI '${uri}'. Task remains in review.`);
       }
     } else if (evidenceRecord.type === 'test_output' || evidenceRecord.type === 'build_log') {
@@ -497,20 +498,20 @@ export class TaskRepository {
         }
         const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(repoPath, filePath);
         if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {
-          this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+          markReview();
           throw new Error(`Cannot complete task '${taskId}': ${evidenceRecord.type} file '${resolvedPath}' does not exist on disk. Task remains in review.`);
         }
         if (expectedSha) {
-          const actualHash = crypto.createHash('sha256').update(fs.readFileSync(resolvedPath)).digest('hex');
+          const actualHash = computeFileSha256Streaming(resolvedPath);
           if (actualHash.toLowerCase() !== expectedSha.toLowerCase()) {
-            this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+            markReview();
             throw new Error(`Cannot complete task '${taskId}': ${evidenceRecord.type} file '${resolvedPath}' SHA256 '${actualHash}' does not match expected '${expectedSha}'. Task remains in review.`);
           }
         }
       } else if (uri.startsWith('git://commit/')) {
         const commitSha = uri.replace('git://commit/', '').trim();
         if (!/^[0-9a-fA-F]{7,40}$/.test(commitSha)) {
-          this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+          markReview();
           throw new Error(`Cannot complete task '${taskId}': Malformed git commit SHA '${commitSha}'. Task remains in review.`);
         }
         let isCommit = false;
@@ -524,52 +525,89 @@ export class TaskRepository {
           } catch {}
         }
         if (!isCommit) {
-          this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+          markReview();
           throw new Error(`Cannot complete task '${taskId}': Git commit '${commitSha}' does not exist in repository. Task remains in review.`);
         }
       } else {
         const resolvedPath = path.isAbsolute(uri) ? uri : path.resolve(repoPath, uri);
         if (!fs.existsSync(resolvedPath)) {
-          this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+          markReview();
           throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' contains insufficient test/build proof or nonexistent file. Task remains in review.`);
         }
       }
+    } else if (evidenceRecord.type === 'analysis_summary') {
+      const isMemoUri = uri.startsWith('memo://analysis/') && uri.length > 'memo://analysis/'.length;
+      if (uri.startsWith('file://')) {
+        let filePath = uri.replace(/^file:\/\//, '');
+        let expectedSha: string | null = null;
+        if (filePath.includes('?sha256=')) {
+          const parts = filePath.split('?sha256=');
+          filePath = parts[0];
+          expectedSha = parts[1];
+        } else if (filePath.includes('?')) {
+          filePath = filePath.split('?')[0];
+        }
+        try { filePath = decodeURIComponent(filePath); } catch {}
+        if (process.platform === 'win32' && filePath.startsWith('/') && filePath.length > 2 && filePath[2] === ':') {
+          filePath = filePath.slice(1);
+        }
+        const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(repoPath, filePath);
+        if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {
+          markReview();
+          throw new Error(`Cannot complete task '${taskId}': Analysis summary file '${resolvedPath}' does not exist on disk. Task remains in review.`);
+        }
+        if (expectedSha) {
+          const actualHash = computeFileSha256Streaming(resolvedPath);
+          if (actualHash.toLowerCase() !== expectedSha.toLowerCase()) {
+            markReview();
+            throw new Error(`Cannot complete task '${taskId}': Analysis summary file '${resolvedPath}' SHA256 '${actualHash}' does not match expected '${expectedSha}'. Task remains in review.`);
+          }
+        }
+      } else if (!isMemoUri) {
+        markReview();
+        throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' contains invalid analysis_summary URI '${uri}'. Task remains in review.`);
+      }
     } else {
-      this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+      markReview();
       throw new Error(`Cannot complete task '${taskId}': Evidence record '${evidenceBundleId}' has unrecognized evidence type '${evidenceRecord.type}'. Task remains in review.`);
     }
 
     const task = this.getTask(taskId);
     if (task?.verificationSpec?.expectedArtifactType && evidenceRecord.type !== task.verificationSpec.expectedArtifactType) {
-      this.db.execute(`UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?`, Date.now(), taskId);
+      markReview();
       throw new Error(`Cannot complete task '${taskId}': Evidence type '${evidenceRecord.type}' does not match expected artifact type '${task.verificationSpec.expectedArtifactType}'. Task remains in review.`);
     }
 
-    const result = expectedRunId
-      ? this.db.execute(
-          `UPDATE tasks
-           SET status = 'completed', evidence_bundle_id = ?, claimed_by_run_id = NULL, lease_expires_at = NULL, updated_at = ?
-           WHERE id = ? AND (claimed_by_run_id = ? OR claimed_by_run_id IS NULL) AND status IN ('running', 'review')`,
-          evidenceBundleId,
-          Date.now(),
-          taskId,
-          expectedRunId
-        )
-      : this.db.execute(
-          `UPDATE tasks
-           SET status = 'completed', evidence_bundle_id = ?, claimed_by_run_id = NULL, lease_expires_at = NULL, updated_at = ?
-           WHERE id = ? AND status IN ('running', 'review')`,
-          evidenceBundleId,
-          Date.now(),
-          taskId
-        );
+    let unblockedTasks: string[] = [];
+    this.db.transactionSync(() => {
+      const result = expectedRunId
+        ? this.db.execute(
+            `UPDATE tasks
+             SET status = 'completed', evidence_bundle_id = ?, claimed_by_run_id = NULL, lease_expires_at = NULL, updated_at = ?
+             WHERE id = ? AND (claimed_by_run_id = ? OR claimed_by_run_id IS NULL) AND status IN ('running', 'review')`,
+            evidenceBundleId,
+            Date.now(),
+            taskId,
+            expectedRunId
+          )
+        : this.db.execute(
+            `UPDATE tasks
+             SET status = 'completed', evidence_bundle_id = ?, claimed_by_run_id = NULL, lease_expires_at = NULL, updated_at = ?
+             WHERE id = ? AND status IN ('running', 'review')`,
+            evidenceBundleId,
+            Date.now(),
+            taskId
+          );
 
-    if (Number(result.changes) === 0) {
-      throw new Error(`Failed to complete task '${taskId}': Task is not in running/review status or run claim mismatch (stale run).`);
-    }
+      if (Number(result.changes) === 0) {
+        throw new Error(`Failed to complete task '${taskId}': Task is not in running/review status or run claim mismatch (stale run).`);
+      }
 
-    // Check if dependent tasks can now transition from 'backlog' to 'ready'
-    return this.promoteDependentTasks(taskId);
+      // Check if dependent tasks can now transition from 'backlog' to 'ready'
+      unblockedTasks = this.promoteDependentTasks(taskId);
+    });
+
+    return unblockedTasks;
   }
 
   public promoteDependentTasks(completedTaskId: string): string[] {
@@ -605,85 +643,11 @@ export class TaskRepository {
   }
 
   public listGoals(projectId: string, deduplicate: boolean = true): Goal[] {
-    const rows = this.db.query<{
-      id: string;
-      project_id: string;
-      title: string;
-      description: string;
-      acceptance_criteria_json: string;
-      status: string;
-      deadline: number | null;
-      check_in_policy: string | null;
-      progress_summary: string | null;
-      blocked_state: string | null;
-      proposed_replanning_json: string | null;
-      origin_channel_id: string | null;
-      created_at: number;
-      updated_at: number;
-    }>('SELECT * FROM goals WHERE project_id = ? ORDER BY updated_at DESC, created_at DESC', projectId);
-
-    const goals = rows.map((r) => {
-      let proposedReplanning: any = undefined;
-      if (r.proposed_replanning_json) {
-        try {
-          proposedReplanning = JSON.parse(r.proposed_replanning_json);
-        } catch {}
-      }
-      return {
-        id: r.id,
-        projectId: r.project_id,
-        title: r.title,
-        description: r.description,
-        acceptanceCriteria: JSON.parse(r.acceptance_criteria_json || '[]'),
-        status: r.status as Goal['status'],
-        deadline: r.deadline ?? undefined,
-        checkInPolicy: r.check_in_policy ?? undefined,
-        progressSummary: r.progress_summary ?? undefined,
-        blockedState: r.blocked_state ?? undefined,
-        proposedReplanning,
-        originChannelId: r.origin_channel_id ?? undefined,
-        createdAt: r.created_at,
-        updatedAt: r.updated_at,
-      };
-    });
-
-    if (!deduplicate) return goals;
-
-    const seen = new Set<string>();
-    return goals.filter((g) => {
-      const key = g.title.toLowerCase().trim();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+    return this.goalRepo.listGoals(projectId, deduplicate);
   }
 
-  /**
-   * Prunes duplicate goals with the same title from the SQLite database, preserving the latest updated row.
-   */
   public pruneDuplicateGoals(projectId: string): number {
-    const all = this.listGoals(projectId, false);
-    const seen = new Map<string, string>(); // title -> keptId
-    const toDelete: string[] = [];
-
-    for (const g of all) {
-      const key = g.title.toLowerCase().trim();
-      if (seen.has(key)) {
-        toDelete.push(g.id);
-      } else {
-        seen.set(key, g.id);
-      }
-    }
-
-    if (toDelete.length > 0) {
-      this.db.transactionSync(() => {
-        for (const id of toDelete) {
-          this.db.execute('DELETE FROM goals WHERE id = ?', id);
-        }
-      });
-    }
-
-    return toDelete.length;
+    return this.goalRepo.pruneDuplicateGoals(projectId);
   }
 
   public listTasksByGoal(goalId: string): Task[] {
@@ -760,45 +724,8 @@ export class TaskRepository {
     }));
   }
 
-  public updateGoal(goal: Goal): void {
-    this.db.execute(
-      `UPDATE goals
-       SET title = ?,
-           description = ?,
-           acceptance_criteria_json = ?,
-           status = ?,
-           deadline = ?,
-           check_in_policy = ?,
-           progress_summary = ?,
-           blocked_state = ?,
-           proposed_replanning_json = ?,
-           origin_channel_id = ?,
-           updated_at = ?
-       WHERE id = ?`,
-      goal.title,
-      goal.description,
-      JSON.stringify(goal.acceptanceCriteria || []),
-      goal.status,
-      goal.deadline ?? null,
-      goal.checkInPolicy ?? null,
-      goal.progressSummary ?? null,
-      goal.blockedState ?? null,
-      goal.proposedReplanning ? JSON.stringify(goal.proposedReplanning) : null,
-      goal.originChannelId ?? null,
-      goal.updatedAt || Date.now(),
-      goal.id
-    );
-  }
-
   public deleteTasksByGoal(goalId: string): void {
     this.db.execute('DELETE FROM tasks WHERE goal_id = ?', goalId);
-  }
-
-  public deleteGoal(id: string): void {
-    this.db.transactionSync(() => {
-      this.db.execute('DELETE FROM tasks WHERE goal_id = ?', id);
-      this.db.execute('DELETE FROM goals WHERE id = ?', id);
-    });
   }
 
   public deleteTask(id: string): void {

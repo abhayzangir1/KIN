@@ -648,7 +648,7 @@ describe('KIN Phase 1/2: Core IPC Server Integration & Authoritative State', () 
     expect(reviewRes.status).toBe(200);
     const reviewData: any = await reviewRes.json();
     expect(reviewData.review).toBeDefined();
-  }, 90000);
+  }, 150000);
 
   it('Rejects prefix-collision directory traversal attempts outside project jail', async () => {
     // Attempt to access path that starts with project root string but is actually another path

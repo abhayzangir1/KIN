@@ -24,7 +24,7 @@ mod windows_impl {
         job_handle: HANDLE,
     }
 
-    // Safety: Windows Job Object HANDLEs are thread-safe OS handles.
+    // Safety: Windows Job Object HANDLEs are thread-safe process handles.
     unsafe impl Send for WinJobSupervisor {}
     unsafe impl Sync for WinJobSupervisor {}
 
@@ -164,11 +164,10 @@ pub mod unix_impl {
                 }
             };
 
-            for slot in &ATOMIC_PGIDS {
-                slot.store(0, Ordering::SeqCst);
-            }
-
             if pgids.is_empty() {
+                for slot in &ATOMIC_PGIDS {
+                    slot.store(0, Ordering::SeqCst);
+                }
                 return;
             }
 
@@ -188,36 +187,54 @@ pub mod unix_impl {
                     libc::kill(-pgid, libc::SIGKILL);
                 }
             }
+
+            for slot in &ATOMIC_PGIDS {
+                slot.store(0, Ordering::SeqCst);
+            }
         }
 
-        /// Async-signal-safe cleanup invoked directly from signal handlers
+        /// Signal-safe cleanup invoked directly from signal handlers
         pub fn cleanup_signal_safe() {
+            let mut pgids = [0i32; MAX_ATOMIC_PGIDS];
+            let mut count = 0;
+
             if let Ok(mut lock) = get_child_pgids().try_lock() {
-                for pgid in lock.drain(..).filter(|&p| p > 1) {
-                    unsafe {
-                        libc::kill(-pgid, libc::SIGTERM);
+                for &pgid in lock.iter() {
+                    if pgid > 1 && count < MAX_ATOMIC_PGIDS {
+                        pgids[count] = pgid;
+                        count += 1;
                     }
                 }
+                lock.clear();
             } else {
                 for slot in &ATOMIC_PGIDS {
-                    let pgid = slot.swap(0, Ordering::SeqCst);
-                    if pgid > 1 {
-                        unsafe {
-                            libc::kill(-pgid, libc::SIGTERM);
-                        }
+                    let pgid = slot.load(Ordering::SeqCst);
+                    if pgid > 1 && count < MAX_ATOMIC_PGIDS {
+                        pgids[count] = pgid;
+                        count += 1;
                     }
                 }
             }
 
+            // Phase 1: SIGTERM to process groups
+            for i in 0..count {
+                unsafe {
+                    libc::kill(-pgids[i], libc::SIGTERM);
+                }
+            }
+
+            // Grace period
             std::thread::sleep(Duration::from_millis(200));
 
-            for slot in &ATOMIC_PGIDS {
-                let pgid = slot.swap(0, Ordering::SeqCst);
-                if pgid > 1 {
-                    unsafe {
-                        libc::kill(-pgid, libc::SIGKILL);
-                    }
+            // Phase 2: SIGKILL on retained process group IDs
+            for i in 0..count {
+                unsafe {
+                    libc::kill(-pgids[i], libc::SIGKILL);
                 }
+            }
+
+            for slot in &ATOMIC_PGIDS {
+                slot.store(0, Ordering::SeqCst);
             }
         }
     }
@@ -297,6 +314,11 @@ impl ProcessSupervisor {
     }
 
     pub fn resolve_data_dir() -> PathBuf {
+        if let Ok(val) = std::env::var("KIN_DATA_DIR") {
+            if !val.trim().is_empty() {
+                return PathBuf::from(val.trim());
+            }
+        }
         #[cfg(windows)]
         {
             if let Ok(appdata) = std::env::var("APPDATA") {
@@ -420,6 +442,10 @@ impl ProcessSupervisor {
             }
 
             println!("[KIN SUPERVISOR] Sidecar failed to bind to port {}. Falling back to development runner...", DEFAULT_PORT);
+            if child.try_wait().ok().flatten().is_none() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
         }
 
         // 2. Fall back to development start_daemon.js via Node

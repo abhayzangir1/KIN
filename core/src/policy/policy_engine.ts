@@ -3,6 +3,7 @@
 // Capability attenuation, scoped action leases, and risk-tiered autonomy checks.
 // ============================================================================
 
+import * as path from 'node:path';
 import { AutonomyMode, RiskLevel } from '../domain/types.js';
 
 export interface ActionEvaluationRequest {
@@ -85,13 +86,18 @@ export class PolicyEngine {
     if (request.parentRunId && request.subagentApprovedWhitelist && request.commandOrPath) {
       const cmdOrPath = request.commandOrPath.toLowerCase();
 
-      const isWhitelistedCommand = request.subagentApprovedWhitelist.permittedCommands?.some((cmd) =>
-        cmdOrPath.includes(cmd.toLowerCase())
-      );
+      const isWhitelistedCommand = request.subagentApprovedWhitelist.permittedCommands?.some((cmd) => {
+        const escaped = cmd.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`(?:^|\\s)${escaped}(?:\\s|$)`, 'i');
+        return regex.test(cmdOrPath.trim());
+      });
 
-      const isWhitelistedPath = request.subagentApprovedWhitelist.permittedPaths?.some((p) =>
-        cmdOrPath.includes(p.toLowerCase())
-      );
+      const isWhitelistedPath = request.subagentApprovedWhitelist.permittedPaths?.some((p) => {
+        const resolvedTarget = path.resolve(cmdOrPath);
+        const resolvedAllowed = path.resolve(p.toLowerCase());
+        const relative = path.relative(resolvedAllowed, resolvedTarget);
+        return !relative.startsWith('..') && !path.isAbsolute(relative);
+      });
 
       if (isWhitelistedCommand || isWhitelistedPath) {
         return {

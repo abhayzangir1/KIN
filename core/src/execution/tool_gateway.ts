@@ -46,6 +46,48 @@ export class StaleWriteConflictError extends Error {
   }
 }
 
+export function hasDirectMessageCompletionToken(text: string): boolean {
+  if (!text) return false;
+  const trimmed = text.trim();
+  const upper = text.toUpperCase();
+
+  // 1. Explicit bracketed tokens anywhere in text
+  const bracketedTokens = ['[RESOLVED]', '[ACK]', '[ACKNOWLEDGED]', '[COMPLETE]', '[COMPLETED]', '[DONE]', '[CLOSED]'];
+  if (bracketedTokens.some((t) => upper.includes(t))) {
+    return true;
+  }
+
+  // Non-terminal false-positive guard: questions or requests with forward-looking statements
+  const isForwardLookingRequest = /\b(?:thanks?|thank\s+you)\s+(?:in\s+advance|ahead\s+of\s+time)\b/i.test(text) ||
+    /\b(?:please|can\s+you|could\s+you|to|should|will|must|need\s+to|let's)\s+(?:complete|ack|acknowledge)\b/i.test(text);
+
+  if (isForwardLookingRequest) {
+    return false;
+  }
+
+  // 2. Exact standalone terminal acknowledgments or sign-offs
+  if (/^(?:ACK|RESOLVED|COMPLETE|COMPLETED|ACKNOWLEDGED|DONE|THANKS|THANK\s+YOU)[\.\!\?]?$/i.test(trimmed)) {
+    return true;
+  }
+
+  // 3. Status or explicit completion headers/labels
+  if (/\b(?:STATUS|STATE|TASK|EXECUTION|RESOLUTION)\s*:\s*(?:RESOLVED|COMPLETE|COMPLETED|ACK|DONE)\b/i.test(text)) {
+    return true;
+  }
+
+  // 4. Completed action statements
+  if (/\b(?:task\s+execution\s+complete|all\s+changes\s+completed|task\s+is\s+acknowledged|ack\s+received|the\s+issue\s+is\s+resolved)\b/i.test(text)) {
+    return true;
+  }
+
+  // 5. Standalone terminal sign-off at the end of message
+  if (/(?:^|\n|\.\s+)(?:THANK\s+YOU|THANKS)[\!\.]*(?:\s+(?:for\s+(?:the|your)\s+[\w\s]+|have\s+a\s+good\s+day))?[\!\.]*$/i.test(trimmed)) {
+    return true;
+  }
+
+  return false;
+}
+
 export interface ToolExecutionContext {
   runId: string;
   agentId: string;
@@ -89,16 +131,52 @@ export class ToolGateway {
   private memoryRepo?: MemoryRepository;
   private agentRepo?: AgentRepository;
   private agentHiredCallback?: (agent: any, channelId?: string) => void;
-  private directMessageCallback?: (params: { senderAgentId: string; recipientAgentId: string; projectId: string; content: string }) => Promise<{ channelId: string }>;
+  private directMessageCallback?: (params: {
+    senderAgentId: string;
+    recipientAgentId: string;
+    projectId: string;
+    content: string;
+    sourceChannelId?: string;
+  }) => Promise<{ channelId: string; enqueuedResponse?: boolean; consecutiveTurns?: number; stoppedReason?: string }>;
   private assignCoworkerCallback?: (coworker: AgentIdentity, channelId: string) => void;
   private callMeetingCallback?: (params: { channelId: string; topic: string; agenda: string; participantIds: string[] }) => void;
-  private singleUseApprovalTokens: Map<string, { toolName: string; runId?: string; expiresAt: number }> = new Map();
+  private delegationCallback?: (params: {
+    fromAgentId: string;
+    targetAgent: string;
+    directive: string;
+    channelId?: string;
+    runId?: string;
+    projectId?: string;
+  }) => Promise<{ delegated: boolean; runId?: string; message?: string }>;
+  private operatorNotificationCallback?: (notification: {
+    type: string;
+    fromAgentId: string;
+    toAgentId?: string;
+    toAgentName?: string;
+    message: string;
+    channelId?: string;
+    content?: string;
+  }) => void;
+
+  public setOperatorNotificationCallback(cb: (notification: {
+    type: string;
+    fromAgentId: string;
+    toAgentId?: string;
+    toAgentName?: string;
+    message: string;
+    channelId?: string;
+    content?: string;
+  }) => void): void {
+    this.operatorNotificationCallback = cb;
+  }
 
   public setAgentHiredCallback(cb: (agent: any, channelId?: string) => void): void {
     this.agentHiredCallback = cb;
   }
 
-  public setDirectMessageCallback(cb: (params: { senderAgentId: string; recipientAgentId: string; projectId: string; content: string }) => Promise<{ channelId: string }>): void {
+  public setDirectMessageCallback(
+    cb: (params: { senderAgentId: string; recipientAgentId: string; projectId: string; content: string; sourceChannelId?: string }) => Promise<{ channelId: string; enqueuedResponse?: boolean; consecutiveTurns?: number; stoppedReason?: string }>
+  ): void {
     this.directMessageCallback = cb;
   }
 
@@ -108,6 +186,17 @@ export class ToolGateway {
 
   public setCallMeetingCallback(cb: (params: { channelId: string; topic: string; agenda: string; participantIds: string[] }) => void): void {
     this.callMeetingCallback = cb;
+  }
+
+  public setDelegationCallback(cb: (params: {
+    fromAgentId: string;
+    targetAgent: string;
+    directive: string;
+    channelId?: string;
+    runId?: string;
+    projectId?: string;
+  }) => Promise<{ delegated: boolean; runId?: string; message?: string }>): void {
+    this.delegationCallback = cb;
   }
 
   public setMemoryRepository(repo: MemoryRepository): void {
@@ -170,40 +259,12 @@ export class ToolGateway {
 
   public generateApprovalToken(toolName: string, runId?: string, ttlMs: number = 60000, params?: Record<string, any>): string {
     const token = `appr-tok-${Date.now()}-${crypto.randomBytes(16).toString('hex')}`;
-    this.singleUseApprovalTokens.set(token, {
-      toolName,
-      runId,
-      expiresAt: Date.now() + ttlMs,
-    });
     Sentinel.getInstance().registerApprovalToken(token, toolName, ttlMs, runId, params);
     return token;
   }
 
   public consumeApprovalToken(token: string, toolName: string, runId?: string, params?: Record<string, any>): boolean {
-    const record = this.singleUseApprovalTokens.get(token);
-    const sentinelHasToken = Sentinel.getInstance().hasApprovalToken(token);
-    if (!record && !sentinelHasToken) return false;
-
-    if (record) {
-      if (Date.now() > record.expiresAt) {
-        this.singleUseApprovalTokens.delete(token);
-        return false;
-      }
-      if (record.toolName !== toolName && record.toolName !== '*') return false;
-      if (record.runId && runId && record.runId !== runId) return false;
-    }
-
-    if (sentinelHasToken) {
-      const sentinelConsumed = Sentinel.getInstance().consumeApprovalToken(token, toolName, runId, params);
-      if (!sentinelConsumed) {
-        return false;
-      }
-    }
-
-    if (record) {
-      this.singleUseApprovalTokens.delete(token);
-    }
-    return true;
+    return Sentinel.getInstance().consumeApprovalToken(token, toolName, runId, params);
   }
 
   public setSkillEngine(skillEngine: SkillEngine): void {
@@ -433,6 +494,130 @@ export class ToolGateway {
         },
       },
       {
+        name: 'desktopListWindows',
+        description: 'List active desktop application windows with their titles and process IDs.',
+        parameters: {
+          type: 'object',
+          properties: {},
+        },
+      },
+      {
+        name: 'desktopFocusWindow',
+        description: 'Bring a specific desktop application window into focus by title or process ID.',
+        parameters: {
+          type: 'object',
+          properties: {
+            titleOrPid: { type: 'string', description: 'Window title substring or process ID' },
+          },
+          required: ['titleOrPid'],
+        },
+      },
+      {
+        name: 'desktopCloseWindow',
+        description: 'Close a desktop application window by title or process ID.',
+        parameters: {
+          type: 'object',
+          properties: {
+            titleOrPid: { type: 'string', description: 'Window title substring or process ID' },
+          },
+          required: ['titleOrPid'],
+        },
+      },
+      {
+        name: 'desktopSendKey',
+        description: 'Send special keyboard key press or shortcut combination to the active window.',
+        parameters: {
+          type: 'object',
+          properties: {
+            key: { type: 'string', description: 'Key name (e.g. Enter, Escape, Tab, Backspace)' },
+            modifiers: { type: 'array', items: { type: 'string' }, description: 'Modifier keys' },
+          },
+          required: ['key'],
+        },
+      },
+      {
+        name: 'browserType',
+        description: 'Type text into an input field matching CSS selector in active browser.',
+        parameters: {
+          type: 'object',
+          properties: {
+            selector: { type: 'string', description: 'CSS selector of the input element' },
+            text: { type: 'string', description: 'Text to type' },
+            clear: { type: 'boolean', description: 'Whether to clear input before typing' },
+          },
+          required: ['selector', 'text'],
+        },
+      },
+      {
+        name: 'browserScreenshot',
+        description: 'Capture screenshot of the currently active browser page.',
+        parameters: {
+          type: 'object',
+          properties: {},
+        },
+      },
+      {
+        name: 'browserEvaluate',
+        description: 'Evaluate JavaScript expression in active browser page context.',
+        parameters: {
+          type: 'object',
+          properties: {
+            script: { type: 'string', description: 'JavaScript code to execute in page context' },
+          },
+          required: ['script'],
+        },
+      },
+      {
+        name: 'browserStep',
+        description: 'Execute an atomic web automation step in browser session.',
+        parameters: {
+          type: 'object',
+          properties: {
+            action: { type: 'string', enum: ['navigate', 'click', 'type', 'screenshot', 'evaluate', 'extract'], description: 'Action type' },
+            url: { type: 'string', description: 'URL for navigate action' },
+            selector: { type: 'string', description: 'CSS selector for element interaction' },
+            text: { type: 'string', description: 'Text to type' },
+            script: { type: 'string', description: 'JavaScript to evaluate' },
+          },
+          required: ['action'],
+        },
+      },
+      {
+        name: 'browserClose',
+        description: 'Close active browser session.',
+        parameters: {
+          type: 'object',
+          properties: {},
+        },
+      },
+      {
+        name: 'fetchUrl',
+        description: 'Lightweight HTTP fetch tool to retrieve plain text, Markdown, HTML, or JSON from a public URL without launching a browser.',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'The HTTP or HTTPS URL to fetch' },
+            method: { type: 'string', enum: ['GET', 'POST', 'HEAD'], description: 'Optional HTTP method (default GET)' },
+            headers: { type: 'object', description: 'Optional HTTP request headers' },
+            body: { type: 'string', description: 'Optional request body for POST' },
+            maxBytes: { type: 'number', description: 'Maximum response size in bytes to return (default 100000)' },
+          },
+          required: ['url'],
+        },
+      },
+      {
+        name: 'webSearch',
+        description: 'Lightweight web search tool to query public information without launching a browser.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'The search keywords or query string' },
+            maxResults: { type: 'number', description: 'Maximum number of results to return (default 5)' },
+          },
+          required: ['query'],
+        },
+      },
+      {
         name: 'delegateToAgent',
         description: 'Coordinate or delegate a task directive to a peer specialist agent in the project workforce (e.g. @Backend, @Frontend, @QA).',
         parameters: {
@@ -441,6 +626,7 @@ export class ToolGateway {
             targetAgent: { type: 'string', description: 'Name or ID of specialist agent to coordinate with' },
             directive: { type: 'string', description: 'Actionable instructions or question for the peer agent' },
             channelId: { type: 'string', description: 'Optional target channel ID' },
+            isPrivate: { type: 'boolean', description: 'True if delegating via private 1-on-1 direct message' },
           },
           required: ['targetAgent', 'directive'],
         },
@@ -502,6 +688,7 @@ export class ToolGateway {
             domainAuthority: { type: 'array', items: { type: 'string' }, description: 'List of domain expertise keywords (e.g. ["Android", "Kotlin", "Gradle"])' },
             suggestedModel: { type: 'string', description: 'Optional model identifier to assign to this specialist (e.g. ollama/qwen2.5-coder:3b)' },
             capabilities: { type: 'array', items: { type: 'string' }, description: 'Optional array of capability strings' },
+            parentAgentId: { type: 'string', description: 'Optional supervisor or manager agent identifier for reporting tree' },
           },
           required: ['displayName', 'roleTitle'],
         },
@@ -569,13 +756,39 @@ export class ToolGateway {
         },
       },
       {
-        name: 'sendDirectMessage',
-        description: 'Initiate or reply to a private 1-on-1 direct message with another coworker in this project. Non-member agents cannot access this conversation.',
+        name: 'rememberChannel',
+        description: 'Record department-level working context, guidelines, or reference notes in the current channel (department) scope. All coworkers assigned to this channel can access this memory.',
         parameters: {
           type: 'object',
           properties: {
-            recipient: { type: 'string', description: 'Name or ID of coworker agent in this project (e.g. @Architect, @QA)' },
-            message: { type: 'string', description: 'Message or instruction content for the recipient agent' },
+            key: { type: 'string', description: 'Identifier or key for this channel memory' },
+            value: { description: 'Content, note, or context to record' },
+            type: { type: 'string', description: 'Optional memory type (e.g. working_state, semantic, procedural)' },
+            channelId: { type: 'string', description: 'Optional target channel ID (defaults to active channel)' },
+          },
+          required: ['key', 'value'],
+        },
+      },
+      {
+        name: 'recallChannel',
+        description: 'Query department-level memories recorded in the current channel or other assigned departments.',
+        parameters: {
+          type: 'object',
+          properties: {
+            key: { type: 'string', description: 'Optional specific memory key to look up' },
+            channelId: { type: 'string', description: 'Optional specific channel ID to query' },
+            type: { type: 'string', description: 'Optional memory type filter' },
+          },
+        },
+      },
+      {
+        name: 'sendDirectMessage',
+        description: 'Initiate or reply to a private 1-on-1 direct message with another coworker in this project, or send a direct message to the human operator/user (use recipient="user" or "human"). Non-member agents cannot access this conversation.',
+        parameters: {
+          type: 'object',
+          properties: {
+            recipient: { type: 'string', description: 'Name or ID of coworker agent in this project (e.g. @Architect, @QA), or "user" / "human" to message the human operator' },
+            message: { type: 'string', description: 'Message or instruction content for the recipient agent or human operator' },
           },
           required: ['recipient', 'message'],
         },
@@ -603,20 +816,6 @@ export class ToolGateway {
             participants: { type: 'array', items: { type: 'string' }, description: 'Coworker agent names or IDs to invite' },
           },
           required: ['topic'],
-        },
-      },
-      {
-        name: 'delegateToAgent',
-        description: 'Delegate a task to a project coworker either in the current channel or via private direct message.',
-        parameters: {
-          type: 'object',
-          properties: {
-            agent: { type: 'string', description: 'Target coworker agent name or ID' },
-            instruction: { type: 'string', description: 'Task instructions and expected deliverables' },
-            private: { type: 'boolean', description: 'Whether to deliver via private direct message (default: false)' },
-            channelId: { type: 'string', description: 'Target channel if delegating publicly' },
-          },
-          required: ['agent', 'instruction'],
         },
       },
     ];
@@ -671,14 +870,23 @@ export class ToolGateway {
       case 'read_spill':
       case 'readSpill':
       case 'readFile':
+      case 'read_file':
       case 'listDirectory':
-        return { primary: 'fs:read', aliases: ['fs:read', 'fs_read', 'read', 'fs', 'read_spill', 'readSpill'] };
+      case 'list_directory':
+        return { primary: 'fs:read', aliases: ['fs:read', 'fs_read', 'read', 'fs', 'read_spill', 'readSpill', 'readFile', 'read_file', 'listDirectory', 'list_directory'] };
 
       case 'writeFile':
-        return { primary: 'fs:write', aliases: ['fs:write', 'fs_write', 'write', 'fs'] };
+      case 'write_file':
+        return { primary: 'fs:write', aliases: ['fs:write', 'fs_write', 'write', 'fs', 'writeFile', 'write_file'] };
 
       case 'executeShell':
-        return { primary: 'shell:exec', aliases: ['shell:exec', 'shell', 'exec'] };
+      case 'shell':
+      case 'execute':
+      case 'terminal':
+      case 'bash':
+      case 'cmd':
+      case 'run_command':
+        return { primary: 'shell:exec', aliases: ['shell:exec', 'shell', 'exec', 'execute', 'terminal', 'bash', 'cmd', 'run_command'] };
 
       case 'browser':
       case 'browserNavigate':
@@ -689,6 +897,10 @@ export class ToolGateway {
       case 'browserEvaluate':
       case 'browserStep':
       case 'browserClose':
+      case 'fetchUrl':
+      case 'fetch_url':
+      case 'webSearch':
+      case 'web_search':
         return { primary: 'web:browse', aliases: ['web:browse', 'web', 'browser', 'web_browse'] };
 
       case 'computer':
@@ -713,21 +925,27 @@ export class ToolGateway {
       case 'rememberPrivate':
       case 'recallPrivate':
       case 'rememberProject':
+      case 'rememberChannel':
+      case 'recallChannel':
       case 'remember_private':
       case 'recall_private':
       case 'remember_project':
-        return { primary: 'memory:manage', aliases: ['memory:manage', 'memory:write', 'memory:read', 'memory', 'agent:coordinate', '*'] };
+      case 'remember_channel':
+      case 'recall_channel':
+        return { primary: 'memory:manage', aliases: ['memory:manage', 'memory:write', 'memory:read', 'memory', 'rememberPrivate', 'remember_private', 'rememberChannel', 'remember_channel', 'agent:coordinate', '*'] };
 
       case 'sendDirectMessage':
       case 'send_direct_message':
       case 'directMessage':
+        return { primary: 'chat:write', aliases: ['chat:write', 'chat', 'sendDirectMessage', 'send_direct_message', 'directMessage', 'agent:delegate', 'delegate', 'agent', '*'] };
+
       case 'delegateToAgent':
       case 'delegate_to_agent':
       case 'coordinateWithAgent':
       case 'coordinate_with_agent':
       case 'delegateTask':
       case 'delegate':
-        return { primary: 'agent:delegate', aliases: ['agent:delegate', 'delegate', 'agent', 'sendDirectMessage', 'send_direct_message', 'coordinateWithAgent', 'coordinate_with_agent', 'delegate_to_agent', 'delegateTask', '*'] };
+        return { primary: 'agent:delegate', aliases: ['agent:delegate', 'delegate', 'agent', 'sendDirectMessage', 'send_direct_message', 'coordinateWithAgent', 'coordinate_with_agent', 'delegate_to_agent', 'delegateToAgent', 'delegateTask', '*'] };
 
       case 'hireSpecialist':
       case 'hire_specialist':
@@ -740,8 +958,12 @@ export class ToolGateway {
       case 'conveneMeeting':
         return { primary: 'agent:hire', aliases: ['agent:hire', 'agent:delegate', 'agent', 'hire', 'hireSpecialist', 'hire_specialist', 'hireAgent', 'assignCoworker', 'assign_coworker', 'callMeeting', 'call_meeting', '*'] };
 
+      case 'proposePlanAdjustment':
+      case 'propose_plan_adjustment':
+        return { primary: 'agent:plan_adjustment', aliases: ['agent:plan_adjustment', 'plan:propose', 'write:goals', '*'] };
+
       default:
-        return { primary: 'fs:read', aliases: ['fs:read', 'fs_read', 'read', 'fs'] };
+        return { primary: 'unknown:deny', aliases: ['unknown:deny', 'deny'] };
     }
   }
 
@@ -825,6 +1047,23 @@ export class ToolGateway {
     }
 
     // 1. Sentinel Authoritative Evaluation (fail-closed capabilities, destructive action detection, approval tokens, secret resolution)
+    let effectiveCapabilities = context.allowedCapabilities;
+    if (!effectiveCapabilities) {
+      if (!context.agentId || context.agentId === 'system') {
+        effectiveCapabilities = ['*'];
+      } else if (this.agentRepo) {
+        const identity = this.agentRepo.getIdentity(context.agentId);
+        if (identity?.isOrchestrator) {
+          effectiveCapabilities = ['*'];
+        } else if (identity?.definitionId) {
+          const def = this.agentRepo.getDefinition(identity.definitionId);
+          if (def?.capabilities && def.capabilities.length > 0) {
+            effectiveCapabilities = def.capabilities;
+          }
+        }
+      }
+    }
+
     const sentinel = Sentinel.getInstance();
     const sentinelResult = sentinel.evaluate({
       agentId: context.agentId,
@@ -834,7 +1073,7 @@ export class ToolGateway {
       params,
       riskLevel: risk,
       autonomyMode: context.autonomyMode,
-      agentCapabilities: context.allowedCapabilities,
+      agentCapabilities: effectiveCapabilities,
       authorizationToken: context.approvalToken,
     });
 
@@ -1116,8 +1355,32 @@ export class ToolGateway {
           if (this.computerSupervisor) {
             releaseSlot = await this.computerSupervisor.acquireShellSlot(params.timeoutMs ?? 60000);
           }
+          let projectRoot = params.projectRoot;
+          if (!projectRoot && context.projectId && this.db) {
+            try {
+              const proj = this.db.queryOne<{ repo_path: string }>(
+                'SELECT repo_path FROM projects WHERE id = ?',
+                context.projectId
+              );
+              if (proj?.repo_path) {
+                projectRoot = proj.repo_path;
+              }
+            } catch {}
+          }
+          if (!projectRoot && context.worktreeRoot.includes('.kin')) {
+            const kinIndex = context.worktreeRoot.indexOf(path.join('.kin', 'worktrees'));
+            if (kinIndex !== -1) {
+              projectRoot = context.worktreeRoot.substring(0, kinIndex).replace(/[\\/]$/, '');
+            }
+          }
           try {
-            const shellResult = await this.handleExecuteShell(params.command, context.worktreeRoot, params.timeoutMs ?? 120000, context.abortSignal);
+            const shellResult = await this.handleExecuteShell(
+              params.command,
+              context.worktreeRoot,
+              params.timeoutMs ?? 120000,
+              context.abortSignal,
+              projectRoot
+            );
             return { success: true, output: shellResult as T, riskLevel: risk };
           } finally {
             if (releaseSlot) releaseSlot();
@@ -1539,6 +1802,168 @@ export class ToolGateway {
           return { success: true, output: { closed: true } as T, riskLevel: risk };
         }
 
+        case 'fetchUrl':
+        case 'fetch_url': {
+          const urlStr = params.url || params.targetUrl || params.endpoint;
+          if (!urlStr || typeof urlStr !== 'string') {
+            throw new Error("fetchUrl requires a valid 'url' parameter");
+          }
+          let parsed: URL;
+          try {
+            parsed = new URL(urlStr);
+          } catch {
+            throw new Error(`Invalid URL: '${urlStr}'`);
+          }
+          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            throw new Error(`Unsupported protocol '${parsed.protocol}'. Only http: and https: are allowed.`);
+          }
+          const method = (params.method || 'GET').toUpperCase();
+          const maxBytes = typeof params.maxBytes === 'number' ? params.maxBytes : 100000;
+
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 15000);
+          try {
+            const res = await fetch(parsed.toString(), {
+              method,
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) KIN-Agent/1.0',
+                ...(params.headers || {}),
+              },
+              body: method === 'POST' ? params.body : undefined,
+              signal: controller.signal,
+            });
+            clearTimeout(timeout);
+            const status = res.status;
+            const contentType = res.headers.get('content-type') || '';
+            const text = await res.text();
+            const truncated = text.length > maxBytes ? text.slice(0, maxBytes) + '\n...[TRUNCATED]' : text;
+            return {
+              success: res.ok,
+              output: {
+                status,
+                contentType,
+                content: truncated,
+                bytes: text.length,
+              } as T,
+              riskLevel: risk,
+            };
+          } catch (err: any) {
+            clearTimeout(timeout);
+            return {
+              success: false,
+              error: `fetchUrl failed: ${err.message || String(err)}`,
+              riskLevel: risk,
+            };
+          }
+        }
+
+        case 'webSearch':
+        case 'web_search': {
+          const query = params.query || params.q;
+          if (!query || typeof query !== 'string') {
+            throw new Error("webSearch requires a 'query' parameter");
+          }
+          const maxResults = typeof params.maxResults === 'number' ? params.maxResults : 5;
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 12000);
+          try {
+            const apiUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1`;
+            const res = await fetch(apiUrl, {
+              headers: { 'User-Agent': 'KIN-Agent/1.0' },
+              signal: controller.signal,
+            });
+            clearTimeout(timeout);
+            const data = (await res.json()) as any;
+            const results: Array<{ title: string; url: string; snippet: string }> = [];
+            if (data.AbstractText) {
+              results.push({
+                title: data.Heading || query,
+                url: data.AbstractURL || '',
+                snippet: data.AbstractText,
+              });
+            }
+            if (Array.isArray(data.RelatedTopics)) {
+              for (const topic of data.RelatedTopics) {
+                if (topic.Text && topic.FirstURL) {
+                  results.push({
+                    title: topic.Text.slice(0, 60),
+                    url: topic.FirstURL,
+                    snippet: topic.Text,
+                  });
+                } else if (Array.isArray(topic.Topics)) {
+                  for (const sub of topic.Topics) {
+                    if (sub.Text && sub.FirstURL) {
+                      results.push({
+                        title: sub.Text.slice(0, 60),
+                        url: sub.FirstURL,
+                        snippet: sub.Text,
+                      });
+                    }
+                  }
+                }
+                if (results.length >= maxResults) break;
+              }
+            }
+
+            if (results.length === 0) {
+              const fallbackController = new AbortController();
+              const fallbackTimeout = setTimeout(() => fallbackController.abort(), 10000);
+              try {
+                const htmlRes = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
+                  headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                  },
+                  signal: fallbackController.signal,
+                });
+                clearTimeout(fallbackTimeout);
+                if (htmlRes.ok) {
+                  const htmlText = await htmlRes.text();
+                  const matches = Array.from(htmlText.matchAll(/<h2 class="result__title">[\s\S]*?<a class="result__url" href="([^"]+)">([\s\S]*?)<\/a>[\s\S]*?<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g));
+                  for (const m of matches.slice(0, maxResults)) {
+                    let rawHref = m[1].trim();
+                    if (rawHref.includes('uddg=')) {
+                      const uddgMatch = rawHref.match(/uddg=([^&]+)/);
+                      if (uddgMatch) {
+                        try {
+                          rawHref = decodeURIComponent(uddgMatch[1]);
+                        } catch {}
+                      }
+                    }
+                    results.push({
+                      url: rawHref,
+                      title: m[2].replace(/<[^>]+>/g, '').trim(),
+                      snippet: m[3].replace(/<[^>]+>/g, '').trim(),
+                    });
+                  }
+                }
+              } catch {
+                clearTimeout(fallbackTimeout);
+              }
+            }
+
+            return {
+              success: true,
+              output: {
+                query,
+                results: results.slice(0, maxResults),
+              } as T,
+              riskLevel: risk,
+            };
+          } catch (err: any) {
+            clearTimeout(timeout);
+            return {
+              success: false,
+              output: {
+                query,
+                results: [],
+                error: err.message || String(err),
+              } as T,
+              error: `webSearch failed: ${err.message || String(err)}`,
+              riskLevel: risk,
+            };
+          }
+        }
+
         case 'delegateToAgent':
         case 'delegate_to_agent':
         case 'coordinateWithAgent':
@@ -1547,7 +1972,13 @@ export class ToolGateway {
         case 'delegate': {
           const target = params.targetAgent || params.agentName || params.target || params.agent || params.coworker;
           const directive = params.directive || params.instructions || params.task || params.message || params.instruction;
-          const isPrivate = Boolean(params.private || params.directMessage || params.isPrivate);
+          const isPrivate = Boolean(
+            params.private ||
+            params.directMessage ||
+            params.isPrivate ||
+            (params.channelId && String(params.channelId).startsWith('dm-')) ||
+            (context.channelId && String(context.channelId).startsWith('dm-') && !params.channelId)
+          );
           if (!target || !directive) {
             throw new Error("delegateToAgent requires 'targetAgent' (or 'agent') and 'directive' (or 'instruction') parameters");
           }
@@ -1573,6 +2004,40 @@ export class ToolGateway {
               coworker.id,
               Date.now()
             );
+          }
+          if (this.delegationCallback) {
+            const delRes = await this.delegationCallback({
+              fromAgentId: context.agentId,
+              targetAgent: String(target),
+              directive: String(directive),
+              channelId,
+              runId: context.runId,
+              projectId: targetProjectId,
+            });
+            return {
+              success: true,
+              output: {
+                delegated: true,
+                targetAgent: target,
+                directive,
+                channelId,
+                runId: delRes.runId,
+                message: delRes.message || `Delegation directive dispatched to ${target}: "${directive}"`,
+              } as T,
+              riskLevel: risk,
+            };
+          }
+          if (channelId.startsWith('dm-') && coworker && this.operatorNotificationCallback) {
+            try {
+              this.operatorNotificationCallback({
+                type: 'agent_dm',
+                fromAgentId: context.agentId,
+                toAgentId: coworker.id,
+                toAgentName: coworker.displayName,
+                message: `Notified @${coworker.displayName.replace(/^@/, '')} in DM: "${String(directive).slice(0, 100)}"`,
+                channelId,
+              });
+            } catch {}
           }
           return {
             success: true,
@@ -1627,7 +2092,88 @@ export class ToolGateway {
           const projectId = context.projectId || 'proj-kin';
           const channelId = context.channelId || 'chan-general';
           const now = Date.now();
-          const activeModelId = params.suggestedModel || params.activeModelId || params.modelId || 'ollama/qwen2.5-coder:3b';
+          let callerModelId: string | undefined;
+          if (context.agentId) {
+            if (this.agentRepo) {
+              const caller = this.agentRepo.getIdentity(context.agentId);
+              if (caller?.activeModelId) {
+                callerModelId = caller.activeModelId;
+              } else if (caller?.definitionId) {
+                const def = this.agentRepo.getDefinition(caller.definitionId);
+                if (def?.defaultModelId) {
+                  callerModelId = def.defaultModelId;
+                }
+              }
+            }
+            if (!callerModelId && this.db) {
+              const callerRow = this.db.queryOne<{ active_model_id: string; definition_id: string }>(
+                `SELECT active_model_id, definition_id FROM agent_identities WHERE id = ?`,
+                context.agentId
+              );
+              if (callerRow?.active_model_id) {
+                callerModelId = callerRow.active_model_id;
+              } else if (callerRow?.definition_id) {
+                const defRow = this.db.queryOne<{ default_model_id: string }>(
+                  `SELECT default_model_id FROM agent_definitions WHERE id = ?`,
+                  callerRow.definition_id
+                );
+                if (defRow?.default_model_id) {
+                  callerModelId = defRow.default_model_id;
+                }
+              }
+            }
+          }
+          if (!callerModelId && projectId) {
+            if (this.agentRepo) {
+              const boss = this.agentRepo.listIdentitiesByProject(projectId).find((a) => a.isOrchestrator);
+              if (boss?.activeModelId) {
+                callerModelId = boss.activeModelId;
+              } else if (boss?.definitionId) {
+                const def = this.agentRepo.getDefinition(boss.definitionId);
+                if (def?.defaultModelId) {
+                  callerModelId = def.defaultModelId;
+                }
+              }
+            }
+            if (!callerModelId && this.db) {
+              const bossRow = this.db.queryOne<{ active_model_id: string; definition_id: string }>(
+                `SELECT active_model_id, definition_id FROM agent_identities WHERE project_id = ? AND is_orchestrator = 1 LIMIT 1`,
+                projectId
+              );
+              if (bossRow?.active_model_id) {
+                callerModelId = bossRow.active_model_id;
+              } else if (bossRow?.definition_id) {
+                const defRow = this.db.queryOne<{ default_model_id: string }>(
+                  `SELECT default_model_id FROM agent_definitions WHERE id = ?`,
+                  bossRow.definition_id
+                );
+                if (defRow?.default_model_id) {
+                  callerModelId = defRow.default_model_id;
+                }
+              }
+            }
+          }
+          if (!callerModelId && projectId && this.agentRepo) {
+            const peer = this.agentRepo.listIdentitiesByProject(projectId).find((a) => a.activeModelId);
+            if (peer?.activeModelId) {
+              callerModelId = peer.activeModelId;
+            }
+          }
+          let projectDefaultModel: string | undefined;
+          if (projectId && this.db) {
+            try {
+              const projRow = this.db.queryOne<{ settings_json: string }>(
+                `SELECT settings_json FROM projects WHERE id = ?`,
+                projectId
+              );
+              if (projRow?.settings_json) {
+                const parsed = JSON.parse(projRow.settings_json);
+                projectDefaultModel = parsed.defaultModel || parsed.model || parsed.activeModelId;
+              }
+            } catch {}
+          }
+          const defaultFallback = process.env.KIN_DEFAULT_MODEL || projectDefaultModel || 'ollama/gemma';
+          const activeModelId = params.suggestedModel || params.activeModelId || params.modelId || callerModelId || defaultFallback;
           const domainAuthority = Array.isArray(params.domainAuthority) && params.domainAuthority.length > 0
             ? params.domainAuthority
             : [role];
@@ -1639,12 +2185,36 @@ export class ToolGateway {
 
           let agentId = `agent-${now}-${crypto.randomBytes(3).toString('hex')}`;
           let defId = `def-${now}-${crypto.randomBytes(3).toString('hex')}`;
+          let candidateParent = params.parentAgentId || context.agentId;
+          let verifiedParentId: string | null = null;
+          if (candidateParent) {
+            if (this.db) {
+              try {
+                const parentRow = this.db.queryOne<{ id: string }>(
+                  'SELECT id FROM agent_identities WHERE id = ?',
+                  candidateParent
+                );
+                if (parentRow) {
+                  verifiedParentId = candidateParent;
+                }
+              } catch {}
+            } else if (this.agentRepo) {
+              try {
+                const parent = this.agentRepo.getIdentity(candidateParent);
+                if (parent) {
+                  verifiedParentId = candidateParent;
+                }
+              } catch {}
+            }
+          }
+
           let formattedAgent: any = {
             id: agentId,
             name: normalizedName.replace(/^@/, ''),
             role,
             displayName: normalizedName,
             activeModelId,
+            parentAgentId: verifiedParentId || undefined,
             systemPrompt: sysPrompt,
             status: 'idle',
             isOrchestrator: false,
@@ -1653,8 +2223,8 @@ export class ToolGateway {
           };
 
           if (this.db) {
-            const existing = this.db.queryOne<{ id: string; definition_id: string; display_name: string; active_model_id: string }>(
-              `SELECT id, definition_id, display_name, active_model_id FROM agent_identities 
+            const existing = this.db.queryOne<{ id: string; definition_id: string; display_name: string; active_model_id: string; parent_agent_id: string | null }>(
+              `SELECT id, definition_id, display_name, active_model_id, parent_agent_id FROM agent_identities 
                WHERE project_id = ? AND display_name = ? COLLATE NOCASE`,
               projectId,
               normalizedName
@@ -1663,6 +2233,14 @@ export class ToolGateway {
             if (existing) {
               agentId = existing.id;
               defId = existing.definition_id;
+              if (verifiedParentId && !existing.parent_agent_id) {
+                this.db.execute(
+                  'UPDATE agent_identities SET parent_agent_id = ?, updated_at = ? WHERE id = ?',
+                  verifiedParentId,
+                  now,
+                  agentId
+                );
+              }
               this.db.execute(
                 `INSERT OR IGNORE INTO channel_members (channel_id, agent_id, joined_at) VALUES (?, ?, ?)`,
                 channelId,
@@ -1675,6 +2253,7 @@ export class ToolGateway {
                 role,
                 displayName: existing.display_name,
                 activeModelId: existing.active_model_id,
+                parentAgentId: existing.parent_agent_id || verifiedParentId || undefined,
                 systemPrompt: sysPrompt,
                 status: 'idle',
                 isOrchestrator: false,
@@ -1725,12 +2304,13 @@ export class ToolGateway {
               );
 
               this.db.execute(
-                `INSERT INTO agent_identities (id, workspace_id, project_id, definition_id, display_name, active_model_id, is_orchestrator, is_ephemeral, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`,
+                `INSERT INTO agent_identities (id, workspace_id, project_id, definition_id, parent_agent_id, display_name, active_model_id, is_orchestrator, is_ephemeral, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`,
                 agentId,
                 'ws-default',
                 projectId,
                 defId,
+                verifiedParentId,
                 normalizedName,
                 activeModelId,
                 now,
@@ -1757,10 +2337,12 @@ export class ToolGateway {
           return {
             success: true,
             output: {
+              id: agentId,
               agentId,
               displayName: normalizedName,
               role,
               activeModelId,
+              parentAgentId: formattedAgent.parentAgentId,
               channelId,
               projectId,
               message: `Successfully onboarded ${normalizedName} (${role}) to channel #${channelId} in project ${projectId}. They are enrolled and ready to collaborate.`,
@@ -1855,6 +2437,67 @@ export class ToolGateway {
           };
         }
 
+        case 'rememberChannel':
+        case 'remember_channel': {
+          const key = params.key || params.title;
+          const value = params.value ?? params.content ?? params.note;
+          const type = params.type || 'working_state';
+          const targetChannelId = params.channelId || context.channelId;
+          if (!key) {
+            throw new Error("rememberChannel requires 'key' parameter");
+          }
+          if (!targetChannelId) {
+            throw new Error("rememberChannel requires an active channel context or 'channelId' parameter");
+          }
+          if (this.memoryRepo) {
+            this.memoryRepo.setMemory({
+              scope: 'channel',
+              scopeId: targetChannelId,
+              key,
+              value,
+              type,
+            });
+          }
+          return {
+            success: true,
+            output: {
+              remembered: true,
+              scope: 'channel',
+              channelId: targetChannelId,
+              key,
+              value,
+              message: `Recorded department memory '${key}' in channel ${targetChannelId}.`,
+            } as T,
+            riskLevel: risk,
+          };
+        }
+
+        case 'recallChannel':
+        case 'recall_channel': {
+          const targetChannelId = params.channelId || context.channelId;
+          if (!targetChannelId) {
+            throw new Error("recallChannel requires an active channel context or 'channelId' parameter");
+          }
+          let memories: any[] = [];
+          if (this.memoryRepo) {
+            if (params.key) {
+              const mem = this.memoryRepo.getMemory('channel', targetChannelId, params.key);
+              if (mem) memories = [mem];
+            } else {
+              memories = this.memoryRepo.listMemories('channel', targetChannelId, params.type);
+            }
+          }
+          return {
+            success: true,
+            output: {
+              channelId: targetChannelId,
+              memories: memories.map((m) => ({ key: m.key, type: m.type, value: m.value, updatedAt: m.updatedAt })),
+              count: memories.length,
+            } as T,
+            riskLevel: risk,
+          };
+        }
+
         case 'sendDirectMessage':
         case 'send_direct_message':
         case 'directMessage': {
@@ -1864,6 +2507,89 @@ export class ToolGateway {
             throw new Error("sendDirectMessage requires 'recipient' and 'message' parameters");
           }
           const targetProjectId = context.projectId || 'proj-kin';
+
+          const isHumanRecipient = ['user', 'human', 'operator', 'me', 'human operator'].includes(
+            String(rawRecipient).trim().toLowerCase()
+          );
+
+          if (isHumanRecipient) {
+            let dmChannelId = `dm-${context.agentId}`;
+            if (this.directMessageCallback) {
+              const cbRes = await this.directMessageCallback({
+                senderAgentId: context.agentId,
+                recipientAgentId: 'human',
+                projectId: targetProjectId,
+                content: String(content),
+                sourceChannelId: context.channelId,
+              });
+              dmChannelId = cbRes?.channelId || dmChannelId;
+            } else if (this.db) {
+              const now = Date.now();
+              const topicText = context.channelId
+                ? `Private 1-on-1 direct message with human operator (Requested from #${context.channelId})`
+                : `Private 1-on-1 direct message with human operator`;
+              this.db.execute(
+                `INSERT OR IGNORE INTO channels (id, project_id, name, topic, is_private, channel_type, created_at)
+                 VALUES (?, ?, ?, ?, 1, 'direct_message', ?)`,
+                dmChannelId,
+                targetProjectId,
+                context.agentId,
+                topicText,
+                now
+              );
+              if (this.memoryRepo && context.channelId) {
+                this.memoryRepo.setMemory({
+                  scope: 'agent_private',
+                  scopeId: context.agentId,
+                  key: 'origin_channel_for_dm',
+                  value: { channelId: context.channelId, requestedAt: now },
+                  type: 'working_state',
+                });
+              }
+              this.db.execute(
+                `INSERT OR IGNORE INTO channel_members (channel_id, agent_id, joined_at) VALUES (?, ?, ?)`,
+                dmChannelId,
+                context.agentId,
+                now
+              );
+              this.db.execute(
+                `INSERT INTO messages (id, channel_id, sender_id, sender_type, content, mentions_json, productivity_score, created_at)
+                 VALUES (?, ?, ?, 'agent', ?, '[]', 100, ?)`,
+                `msg-${uuidv4()}`,
+                dmChannelId,
+                context.agentId,
+                String(content),
+                now
+              );
+            }
+
+            if (this.operatorNotificationCallback) {
+              try {
+                this.operatorNotificationCallback({
+                  type: 'agent_dm_to_human',
+                  fromAgentId: context.agentId,
+                  toAgentId: 'human',
+                  toAgentName: 'Human Operator',
+                  channelId: dmChannelId,
+                  message: `Direct message from @${context.agentId} to you: "${String(content).slice(0, 100)}"`,
+                  content: String(content),
+                });
+              } catch {}
+            }
+
+            return {
+              success: true,
+              output: {
+                sent: true,
+                channelId: dmChannelId,
+                recipientId: 'human',
+                recipientName: 'Human Operator',
+                message: `Sent private direct message to you (human operator) in channel #${dmChannelId}.`,
+              } as T,
+              riskLevel: risk,
+            };
+          }
+
           let recipientAgent: AgentIdentity | undefined;
           if (this.agentRepo) {
             recipientAgent = this.agentRepo.getIdentityByProjectAndName(targetProjectId, String(rawRecipient))
@@ -1874,14 +2600,22 @@ export class ToolGateway {
           }
 
           let dmChannelId = '';
+          let enqueuedResponse = true;
+          let stoppedReason: string | undefined;
+
+          const isCompletionToken = hasDirectMessageCompletionToken(String(content));
+
           if (this.directMessageCallback) {
             const cbRes = await this.directMessageCallback({
               senderAgentId: context.agentId,
               recipientAgentId: recipientAgent.id,
               projectId: targetProjectId,
               content: String(content),
+              sourceChannelId: context.channelId,
             });
             dmChannelId = cbRes?.channelId || '';
+            enqueuedResponse = cbRes?.enqueuedResponse ?? !isCompletionToken;
+            stoppedReason = cbRes?.stoppedReason;
           } else if (this.db) {
             const [minId, maxId] = [context.agentId, recipientAgent.id].sort();
             dmChannelId = `dm-${minId}-${maxId}`;
@@ -1916,6 +2650,40 @@ export class ToolGateway {
               String(content),
               now
             );
+
+            // Turn depth ceiling check (maximum 5 consecutive agent turns without operator intervention)
+            const recent = this.db.query<{ sender_type: string }>(
+              `SELECT sender_type FROM messages WHERE channel_id = ? ORDER BY created_at DESC LIMIT 10`,
+              dmChannelId
+            );
+            let consecutiveAgentTurns = 0;
+            for (const m of recent) {
+              if (m.sender_type === 'human') break;
+              if (m.sender_type === 'agent') consecutiveAgentTurns++;
+            }
+
+            if (isCompletionToken) {
+              enqueuedResponse = false;
+              stoppedReason = 'Completion token detected. Conversation concluded.';
+            } else if (consecutiveAgentTurns >= 5) {
+              enqueuedResponse = false;
+              stoppedReason = 'Peer turn depth limit reached (5 turns). Awaiting operator intervention.';
+            }
+          }
+
+          if (this.operatorNotificationCallback) {
+            try {
+              this.operatorNotificationCallback({
+                type: 'agent_dm',
+                fromAgentId: context.agentId,
+                toAgentId: recipientAgent.id,
+                toAgentName: recipientAgent.displayName,
+                message: stoppedReason
+                  ? `Notified @${recipientAgent.displayName.replace(/^@/, '')} in DM: "${String(content).slice(0, 100)}" [${stoppedReason}]`
+                  : `Notified @${recipientAgent.displayName.replace(/^@/, '')} in DM: "${String(content).slice(0, 100)}"`,
+                channelId: dmChannelId,
+              });
+            } catch {}
           }
 
           return {
@@ -1925,7 +2693,11 @@ export class ToolGateway {
               channelId: dmChannelId,
               recipientId: recipientAgent.id,
               recipientName: recipientAgent.displayName,
-              message: `Sent private direct message to ${recipientAgent.displayName} in channel #${dmChannelId}.`,
+              enqueuedResponse,
+              stoppedReason,
+              message: stoppedReason
+                ? `Sent private direct message to ${recipientAgent.displayName} in channel #${dmChannelId}. Note: ${stoppedReason}`
+                : `Sent private direct message to ${recipientAgent.displayName} in channel #${dmChannelId}.`,
             } as T,
             riskLevel: risk,
           };
@@ -2147,7 +2919,11 @@ export class ToolGateway {
       toolName === 'delegate' ||
       toolName === 'hireSpecialist' ||
       toolName === 'hire_specialist' ||
-      toolName === 'hireAgent'
+      toolName === 'hireAgent' ||
+      toolName === 'fetchUrl' ||
+      toolName === 'fetch_url' ||
+      toolName === 'webSearch' ||
+      toolName === 'web_search'
     ) {
       return 'LOW';
     }
@@ -2606,7 +3382,8 @@ export class ToolGateway {
     command: string,
     worktreeRoot: string,
     timeoutMs: number,
-    abortSignal?: AbortSignal
+    abortSignal?: AbortSignal,
+    projectRoot?: string
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     if (!command || typeof command !== 'string' || !command.trim()) {
       return Promise.reject(new Error('Shell command must be a non-empty string.'));
@@ -2617,11 +3394,32 @@ export class ToolGateway {
 
     return new Promise((resolve, reject) => {
       const isWin = process.platform === 'win32';
+      const pathSep = isWin ? ';' : ':';
+      const venvBinDir = isWin ? 'Scripts' : 'bin';
+
+      const candidateRoots: string[] = [worktreeRoot];
+      if (projectRoot && path.resolve(projectRoot) !== path.resolve(worktreeRoot)) {
+        candidateRoots.push(projectRoot);
+      }
+
+      const env: Record<string, string> = { ...(process.env as Record<string, string>) };
+      for (const root of candidateRoots) {
+        const venvBinPath = path.join(root, '.venv', venvBinDir);
+        if (fs.existsSync(venvBinPath)) {
+          const existingPath = env.PATH || env.Path || '';
+          env.PATH = `${venvBinPath}${pathSep}${existingPath}`;
+          env.Path = env.PATH;
+          env.VIRTUAL_ENV = path.join(root, '.venv');
+          break;
+        }
+      }
+
       let hasAborted = false;
       const child = exec(
         command,
         {
           cwd: worktreeRoot,
+          env,
           timeout: timeoutMs,
           maxBuffer: 15 * 1024 * 1024, // 15MB max buffer
           windowsHide: true,

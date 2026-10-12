@@ -91,11 +91,13 @@ export class Sentinel {
     runId?: string,
     paramsOrDigest?: Record<string, any> | string
   ): void {
-    let paramDigest: string | undefined;
+    let paramDigest: string;
     if (typeof paramsOrDigest === 'string') {
       paramDigest = paramsOrDigest;
-    } else if (paramsOrDigest && typeof paramsOrDigest === 'object') {
+    } else if (paramsOrDigest && typeof paramsOrDigest === 'object' && Object.keys(paramsOrDigest).length > 0) {
       paramDigest = this.computeApprovalDigest(toolName, runId || '*', paramsOrDigest);
+    } else {
+      paramDigest = '*';
     }
 
     this.validApprovalTokens.set(token, {
@@ -131,12 +133,18 @@ export class Sentinel {
       return false;
     }
 
-    if (entry.paramDigest) {
+    if (!entry.paramDigest) {
+      return false;
+    }
+
+    if (entry.paramDigest !== '*') {
       let candidateDigest: string | undefined;
       if (typeof paramsOrDigest === 'string') {
         candidateDigest = paramsOrDigest;
       } else if (paramsOrDigest && typeof paramsOrDigest === 'object') {
         candidateDigest = this.computeApprovalDigest(toolName, entry.runId || '*', paramsOrDigest);
+      } else {
+        candidateDigest = this.computeApprovalDigest(toolName, entry.runId || '*', {});
       }
       if (!candidateDigest || candidateDigest !== entry.paramDigest) {
         return false;
@@ -165,14 +173,24 @@ export class Sentinel {
       case 'executeSkill':
         return { primary: 'skills:manage', aliases: ['skills:manage', 'skills', 'skill', 'agent:coordinate', 'create_skill', 'createSkill', 'import_skill', 'importSkill', 'execute_skill', 'executeSkill', '*'] };
 
+      case 'read_spill':
+      case 'readSpill':
       case 'readFile':
+      case 'read_file':
       case 'listDirectory':
-        return { primary: 'fs:read', aliases: ['fs:read', 'fs_read', 'read', 'fs'] };
+      case 'list_directory':
+        return { primary: 'fs:read', aliases: ['fs:read', 'fs_read', 'read', 'fs', 'read_spill', 'readSpill', 'readFile', 'read_file', 'listDirectory', 'list_directory'] };
       case 'writeFile':
-        return { primary: 'fs:write', aliases: ['fs:write', 'fs_write', 'write', 'fs'] };
+      case 'write_file':
+        return { primary: 'fs:write', aliases: ['fs:write', 'fs_write', 'write', 'fs', 'writeFile', 'write_file'] };
       case 'executeShell':
       case 'shell':
-        return { primary: 'shell:exec', aliases: ['shell:exec', 'shell', 'exec'] };
+      case 'execute':
+      case 'terminal':
+      case 'bash':
+      case 'cmd':
+      case 'run_command':
+        return { primary: 'shell:exec', aliases: ['shell:exec', 'shell', 'exec', 'execute', 'terminal', 'bash', 'cmd', 'run_command'] };
       case 'browser':
       case 'browserNavigate':
       case 'browserClick':
@@ -182,6 +200,10 @@ export class Sentinel {
       case 'browserEvaluate':
       case 'browserStep':
       case 'browserClose':
+      case 'fetchUrl':
+      case 'fetch_url':
+      case 'webSearch':
+      case 'web_search':
         return { primary: 'web:browse', aliases: ['web:browse', 'web', 'browser', 'web_browse'] };
       case 'computer':
       case 'application':
@@ -202,21 +224,40 @@ export class Sentinel {
       case 'listSchedules':
         return { primary: 'schedule:cron', aliases: ['schedule:cron', 'schedule', 'cron'] };
       case 'rememberPrivate':
+      case 'remember_private':
       case 'recallPrivate':
+      case 'recall_private':
       case 'rememberProject':
-        return { primary: 'memory:manage', aliases: ['memory:manage', 'memory:write', 'memory:read', 'memory', 'agent:coordinate', '*'] };
+      case 'remember_project':
+      case 'rememberChannel':
+      case 'remember_channel':
+      case 'recallChannel':
+      case 'recall_channel':
+        return { primary: 'memory:manage', aliases: ['memory:manage', 'memory:write', 'memory:read', 'memory', 'rememberChannel', 'remember_channel', 'agent:coordinate', '*'] };
       case 'sendDirectMessage':
+      case 'send_direct_message':
+      case 'directMessage':
+        return { primary: 'chat:write', aliases: ['chat:write', 'chat', 'sendDirectMessage', 'send_direct_message', 'directMessage', 'agent:delegate', 'delegate', 'agent', '*'] };
       case 'delegateToAgent':
+      case 'delegate_to_agent':
+      case 'coordinateWithAgent':
+      case 'coordinate_with_agent':
+      case 'delegateTask':
+      case 'delegate':
+        return { primary: 'agent:delegate', aliases: ['agent:delegate', 'delegate', 'agent', 'delegateToAgent', 'delegate_to_agent', 'coordinateWithAgent', 'coordinate_with_agent', 'delegateTask', '*'] };
       case 'proposePlanAdjustment':
-        return { primary: 'agent:delegate', aliases: ['agent:delegate', 'delegate', 'agent', 'proposePlanAdjustment', 'sendDirectMessage', '*'] };
+      case 'propose_plan_adjustment':
+        return { primary: 'agent:plan_adjustment', aliases: ['agent:plan_adjustment', 'plan:propose', 'write:goals', 'agent:delegate', 'delegate', 'proposePlanAdjustment', '*'] };
       case 'hireSpecialist':
       case 'hire_specialist':
       case 'hireAgent':
       case 'assignCoworker':
+      case 'assign_coworker':
       case 'callMeeting':
+      case 'call_meeting':
         return { primary: 'agent:hire', aliases: ['agent:hire', 'agent:delegate', 'delegate', 'agent', 'hireSpecialist', 'hire_specialist', 'hireAgent', 'assignCoworker', 'callMeeting', '*'] };
       default:
-        return { primary: 'fs:read', aliases: ['fs:read', 'fs_read', 'read', 'fs'] };
+        return { primary: 'unknown:deny', aliases: ['unknown:deny', 'deny'] };
     }
   }
 
@@ -310,7 +351,7 @@ export class Sentinel {
       const authorized = this.consumeApprovalToken(request.authorizationToken, request.toolName, request.runId, request.params);
       if (authorized) {
         // Resolve vault placeholders for authorized execution
-        const resolvedParams = this.secretBroker.resolvePlaceholders(request.params);
+        const resolvedParams = this.secretBroker.resolvePlaceholders(request.params, request.agentId);
         return {
           allowed: true,
           requiresApproval: false,
@@ -367,7 +408,7 @@ export class Sentinel {
     }
 
     // 5. Authorized for direct execution: resolve vault placeholders
-    const resolvedParams = this.secretBroker.resolvePlaceholders(request.params);
+    const resolvedParams = this.secretBroker.resolvePlaceholders(request.params, request.agentId);
     return {
       allowed: true,
       requiresApproval: false,

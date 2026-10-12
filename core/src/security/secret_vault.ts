@@ -96,9 +96,8 @@ export class SecretVault {
         fs.writeFileSync(filePath, generated.toString('hex'));
       }
       return generated;
-    } catch {
-      // Fallback in-memory master key if filesystem access is restricted
-      return crypto.randomBytes(32);
+    } catch (err: any) {
+      throw new Error(`Failed to persist or load vault key at '${filePath}': ${err?.message || String(err)}`);
     }
   }
 

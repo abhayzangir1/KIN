@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS agent_identities (
     workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
     definition_id TEXT NOT NULL REFERENCES agent_definitions(id),
+    parent_agent_id TEXT REFERENCES agent_identities(id),
     display_name TEXT NOT NULL COLLATE NOCASE,
     avatar_url TEXT,
     active_model_id TEXT NOT NULL,
@@ -171,7 +172,7 @@ CREATE TABLE IF NOT EXISTS evidence (
     id TEXT PRIMARY KEY,
     task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
     run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
-    type TEXT NOT NULL CHECK (type IN ('test_output', 'build_log', 'artifact_hash', 'human_signoff')),
+    type TEXT NOT NULL CHECK (type IN ('test_output', 'build_log', 'artifact_hash', 'human_signoff', 'analysis_summary')),
     content_uri TEXT NOT NULL,
     verified BOOLEAN NOT NULL DEFAULT 0,
     verified_by TEXT,
@@ -415,3 +416,11 @@ CREATE INDEX IF NOT EXISTS idx_tasks_lease ON tasks(lease_expires_at) WHERE stat
 CREATE INDEX IF NOT EXISTS idx_agent_evals_agent ON agent_evaluations(agent_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_managed_creds_provider ON managed_credentials(provider, key_alias);
 CREATE INDEX IF NOT EXISTS idx_channel_members_agent ON channel_members(agent_id, channel_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_parent ON agent_runs(parent_run_id);
+CREATE INDEX IF NOT EXISTS idx_checkpoints_run_id ON checkpoints(run_id);
+CREATE INDEX IF NOT EXISTS idx_goals_project ON goals(project_id);
+CREATE INDEX IF NOT EXISTS idx_agent_identities_workspace ON agent_identities(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_project ON agent_runs(project_id);
+CREATE INDEX IF NOT EXISTS idx_messages_parent ON messages(parent_message_id);
+CREATE INDEX IF NOT EXISTS idx_evidence_task ON evidence(task_id);
+CREATE INDEX IF NOT EXISTS idx_evidence_run ON evidence(run_id);

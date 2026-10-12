@@ -116,7 +116,7 @@ export class ContextCompactor {
     };
   }
 
-  private formatSnapshot(snapshot: CompactionSnapshot): string {
+  public formatSnapshot(snapshot: CompactionSnapshot): string {
     return [
       `### [SYSTEM COMPACTION SNAPSHOT — Working State at ${new Date(snapshot.compactedAt).toISOString()}]`,
       `**Goal**: ${snapshot.primaryObjective} (ID: ${snapshot.goalId})`,

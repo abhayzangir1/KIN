@@ -134,16 +134,66 @@ export class FinancialSafetyShield {
   }
 
   /**
+   * Validates credit card number candidates via Luhn algorithm (mod-10 checksum).
+   */
+  public static isValidLuhn(candidate: string): boolean {
+    const clean = candidate.replace(/[\s-]/g, '');
+    if (clean.length < 13 || clean.length > 19 || !/^\d+$/.test(clean) || /^0+$/.test(clean)) {
+      return false;
+    }
+    let sum = 0;
+    let shouldDouble = false;
+    for (let i = clean.length - 1; i >= 0; i--) {
+      let digit = parseInt(clean.charAt(i), 10);
+      if (shouldDouble) {
+        digit *= 2;
+        if (digit > 9) digit -= 9;
+      }
+      sum += digit;
+      shouldDouble = !shouldDouble;
+    }
+    return sum % 10 === 0;
+  }
+
+  /**
    * Redacts payment details, credentials, and authentication tokens from strings
    * ensuring that private sensitive values are never logged or fed to LLM context.
    */
   public scrubSensitiveContext(content: string): string {
     if (!content) return '';
 
+    // Redact verified payment card numbers while preserving timestamps and entity identifiers
+    const scrubbedCards = content.replace(
+      /(^|[^a-zA-Z0-9_-])((?:\d[ -]*?){13,19})(?![a-zA-Z0-9_-])/g,
+      (fullMatch, prefix, numCandidate, matchIndex) => {
+        // Guard 1: Inspect preceding text for entity identifiers (e.g. chan-, run-, task-, proj-, msg-, dm-)
+        const contextBefore = content.substring(Math.max(0, matchIndex - 30), matchIndex + prefix.length);
+        if (/(?:chan|run|task|proj|msg|dm|turn|sess|exec|id|timestamp|time)[-_:#/=\s]*$/i.test(contextBefore)) {
+          return fullMatch;
+        }
+
+        const cleanDigits = numCandidate.replace(/[\s-]/g, '');
+
+        // Guard 2: 13-digit millisecond epoch timestamps (pure 13 contiguous digits)
+        if (cleanDigits.length === 13 && /^\d{13}$/.test(numCandidate.trim())) {
+          return fullMatch;
+        }
+
+        // Check if verified credit card: passes Luhn checksum OR matches standard card pattern with card context
+        const isLuhn = FinancialSafetyShield.isValidLuhn(cleanDigits);
+        const isCardContext = /(?:card|credit|debit|payment|visa|mastercard|amex)/i.test(contextBefore);
+        const isFormattedCard = /^\d{4}[ -]\d{4}[ -]\d{4}[ -]\d{1,4}$/.test(numCandidate.trim()) && isCardContext;
+
+        if (isLuhn || isFormattedCard) {
+          return `${prefix}[REDACTED_CARD_NUMBER]`;
+        }
+
+        return fullMatch;
+      }
+    );
+
     return (
-      content
-        // Credit card numbers (13-19 digits with optional dashes/spaces)
-        .replace(/\b(?:\d[ -]*?){13,19}\b/g, '[REDACTED_CARD_NUMBER]')
+      scrubbedCards
         // CVV / CVC (3-4 digits following keywords)
         .replace(/(cvv|cvc|security\s*code)[\s:=]+(\d{3,4})\b/gi, '$1: [REDACTED_CVV]')
         // Expiration dates (MM/YY or MM/YYYY)

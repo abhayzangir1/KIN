@@ -26,6 +26,24 @@ export class ChannelService {
   }
 
   public sendMessage(params: SendMessageParams): Message {
+    // Verify membership for private channels and direct messages
+    const chan = this.db.queryOne<{ is_private: number; channel_type: string }>(
+      'SELECT is_private, channel_type FROM channels WHERE id = ?',
+      params.channelId
+    );
+    if (chan && (chan.is_private === 1 || chan.channel_type === 'dm' || chan.channel_type === 'direct_message' || params.channelId.startsWith('dm-'))) {
+      if (params.senderType === 'agent' && params.senderId !== 'system') {
+        const isMember = this.db.queryOne<{ agent_id: string }>(
+          'SELECT agent_id FROM channel_members WHERE channel_id = ? AND agent_id = ?',
+          params.channelId,
+          params.senderId
+        );
+        if (!isMember) {
+          throw new Error(`Agent '${params.senderId}' is not an authorized member of private channel '${params.channelId}'`);
+        }
+      }
+    }
+
     const id = uuidv4();
     const mentions = this.extractMentions(params.content);
     const score = params.productivityScore ?? this.calculateInitialProductivity(params.content);

@@ -944,7 +944,11 @@ export const AgentInspector: React.FC = () => {
               <div className="flex-1 overflow-y-auto p-2 font-mono text-[11px] leading-relaxed text-[#cbd5e1] whitespace-pre bg-[#04060b]">
                 {isLoadingDiff ? (
                   <div className="p-8 text-center text-[#64748b]">Loading diff...</div>
-                ) : activeGitDiff?.isBinary ? (
+                ) : (activeGitDiff?.isBinary || Boolean(activeGitDiff?.diff && (
+                  activeGitDiff.diff.includes('Binary files ') ||
+                  activeGitDiff.diff.includes('\0') ||
+                  activeGitDiff.diff.startsWith('GIT binary patch')
+                ))) ? (
                   <div className="p-8 text-center text-amber-400/80 space-y-2">
                     <AlertCircle className="w-8 h-8 mx-auto text-amber-400" />
                     <p className="font-semibold">Binary File Detected</p>
@@ -1278,7 +1282,7 @@ export const AgentInspector: React.FC = () => {
             <div className="text-[#64748b]">Jail confinement: {activeProject?.repoPath || '.'}</div>
             <div className="text-emerald-400">PS {activeProject?.repoPath || '.'}&gt;</div>
 
-            {terminalHistory.map((item, idx) => (
+            {terminalHistory.slice(-100).map((item, idx) => (
               <div key={idx} className="space-y-0.5 pt-1">
                 <div className="text-blue-400 font-bold flex items-center justify-between">
                   <span>&gt; {item.command}</span>

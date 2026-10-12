@@ -112,8 +112,24 @@ export class MigrationRunner {
       if (existingTables.includes('agent_identities')) {
         const agentCols = this.db.query<{ name: string }>("PRAGMA table_info(agent_identities);").map((c) => c.name);
         if (!agentCols.includes('project_id')) {
+          if (existingTables.includes('projects')) {
+            const defaultProj = this.db.queryOne<{ id: string }>("SELECT id FROM projects WHERE id = 'proj-kin';");
+            if (!defaultProj) {
+              const ws = existingTables.includes('workspaces')
+                ? this.db.queryOne<{ id: string }>("SELECT id FROM workspaces LIMIT 1;")
+                : null;
+              const wsId = ws?.id || 'ws-default';
+              if (existingTables.includes('workspaces') && !ws) {
+                this.db.exec(`INSERT OR IGNORE INTO workspaces (id, name, root_path, default_autonomy_mode, created_at, updated_at) VALUES ('${wsId}', 'Default Workspace', '.', 'AUTO', ${Date.now()}, ${Date.now()});`);
+              }
+              this.db.exec(`INSERT OR IGNORE INTO projects (id, workspace_id, name, repo_path, settings_json, created_at, updated_at) VALUES ('proj-kin', '${wsId}', 'Default Project', '.', '{}', ${Date.now()}, ${Date.now()});`);
+            }
+          }
           this.db.exec('ALTER TABLE agent_identities ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE CASCADE;');
           this.db.exec("UPDATE agent_identities SET project_id = 'proj-kin' WHERE project_id IS NULL;");
+        }
+        if (!agentCols.includes('parent_agent_id')) {
+          this.db.exec('ALTER TABLE agent_identities ADD COLUMN parent_agent_id TEXT REFERENCES agent_identities(id);');
         }
       }
 
@@ -193,6 +209,8 @@ export class MigrationRunner {
         )?.sql || '';
 
         if (!agentRunsSql.includes('quota_paused')) {
+          const runCols = this.db.query<{ name: string }>("PRAGMA table_info(agent_runs);").map((c) => c.name);
+          const hasModelId = runCols.includes('model_id');
           this.db.exec(`
             CREATE TABLE agent_runs_dg_tmp (
               id TEXT PRIMARY KEY,
@@ -209,11 +227,12 @@ export class MigrationRunner {
               used_tokens INTEGER NOT NULL DEFAULT 0,
               quota_resets_at INTEGER,
               interrupted_turn INTEGER DEFAULT 0,
+              model_id TEXT,
               created_at INTEGER NOT NULL,
               completed_at INTEGER
             );
-            INSERT INTO agent_runs_dg_tmp (id, agent_id, project_id, parent_run_id, task_id, channel_id, trigger_message_id, state, worktree_path, heartbeat_at, allocated_tokens, used_tokens, created_at, completed_at)
-            SELECT id, agent_id, project_id, parent_run_id, task_id, channel_id, trigger_message_id, state, worktree_path, heartbeat_at, allocated_tokens, used_tokens, created_at, completed_at
+            INSERT INTO agent_runs_dg_tmp (id, agent_id, project_id, parent_run_id, task_id, channel_id, trigger_message_id, state, worktree_path, heartbeat_at, allocated_tokens, used_tokens, model_id, created_at, completed_at)
+            SELECT id, agent_id, project_id, parent_run_id, task_id, channel_id, trigger_message_id, state, worktree_path, heartbeat_at, allocated_tokens, used_tokens, ${hasModelId ? 'model_id' : 'NULL'}, created_at, completed_at
             FROM agent_runs;
             DROP TABLE agent_runs;
             ALTER TABLE agent_runs_dg_tmp RENAME TO agent_runs;
@@ -306,7 +325,7 @@ export class MigrationRunner {
         }
       }
 
-      // Pre-migration: evidence table verification columns
+      // Pre-migration: evidence table verification columns and analysis_summary check constraint
       if (existingTables.includes('evidence')) {
         const evidenceCols = this.db.query<{ name: string }>("PRAGMA table_info(evidence);").map((c) => c.name);
         if (!evidenceCols.includes('verified_by')) {
@@ -314,6 +333,31 @@ export class MigrationRunner {
         }
         if (!evidenceCols.includes('verification_payload_json')) {
           this.db.exec('ALTER TABLE evidence ADD COLUMN verification_payload_json TEXT;');
+        }
+        const evidenceSql = this.db.queryOne<{ sql: string }>(
+          "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'evidence';"
+        )?.sql || '';
+        if (!evidenceSql.includes("'analysis_summary'")) {
+          const hasVerifiedBy = evidenceCols.includes('verified_by');
+          const hasPayloadJson = evidenceCols.includes('verification_payload_json');
+          this.db.exec(`
+            CREATE TABLE evidence_dg_tmp (
+              id TEXT PRIMARY KEY,
+              task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+              run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+              type TEXT NOT NULL CHECK (type IN ('test_output', 'build_log', 'artifact_hash', 'human_signoff', 'analysis_summary')),
+              content_uri TEXT NOT NULL,
+              verified BOOLEAN NOT NULL DEFAULT 0,
+              verified_by TEXT,
+              verification_payload_json TEXT,
+              created_at INTEGER NOT NULL
+            );
+            INSERT INTO evidence_dg_tmp (id, task_id, run_id, type, content_uri, verified, verified_by, verification_payload_json, created_at)
+            SELECT id, task_id, run_id, type, content_uri, verified, ${hasVerifiedBy ? 'verified_by' : 'NULL'}, ${hasPayloadJson ? 'verification_payload_json' : 'NULL'}, created_at
+            FROM evidence;
+            DROP TABLE evidence;
+            ALTER TABLE evidence_dg_tmp RENAME TO evidence;
+          `);
         }
       }
 
@@ -365,6 +409,14 @@ export class MigrationRunner {
         this.db.exec("ALTER TABLE channels ADD COLUMN channel_type TEXT DEFAULT 'channel' CHECK (channel_type IN ('channel', 'direct_message', 'meeting'));");
       }
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_channel_members_agent ON channel_members(agent_id, channel_id);");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_agent_runs_parent ON agent_runs(parent_run_id);");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_checkpoints_run_id ON checkpoints(run_id);");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_goals_project ON goals(project_id);");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_agent_identities_workspace ON agent_identities(workspace_id);");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_agent_runs_project ON agent_runs(project_id);");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_messages_parent ON messages(parent_message_id);");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_evidence_task ON evidence(task_id);");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_evidence_run ON evidence(run_id);");
     });
 
     // Run integrity check
@@ -375,7 +427,7 @@ export class MigrationRunner {
       throw new Error(`SQLite integrity check failed with status: ${integrityStatus}`);
     }
 
-    // Verify all 22 required tables exist
+    // Verify all 29 required tables exist
     const existingTables = this.db.query<{ name: string }>(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%';"
     ).map((row) => row.name);

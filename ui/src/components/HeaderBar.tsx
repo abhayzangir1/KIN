@@ -54,7 +54,8 @@ export const HeaderBar: React.FC = () => {
   const [copied, setCopied] = useState(false);
 
   const handleCopyPath = () => {
-    const path = activeProject?.repoPath || 'D:\\KIN';
+    const path = activeProject?.repoPath || '';
+    if (!path) return;
     navigator.clipboard.writeText(path);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -113,7 +114,7 @@ export const HeaderBar: React.FC = () => {
         {/* Directory Breadcrumb with Copy Button */}
         <div className="flex items-center space-x-1 bg-[#161b22] border border-[#30363d] rounded px-2 py-0.5 text-[#8b949e] font-mono text-[11px] max-w-xs">
           <Folder className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-          <span className="truncate">{activeProject?.repoPath || 'D:\\KIN'}</span>
+          <span className="truncate">{activeProject?.repoPath || 'No repository selected'}</span>
           <button
             onClick={handleCopyPath}
             className="hover:text-kin-text transition ml-1 shrink-0 text-[#8b949e] hover:text-emerald-400"

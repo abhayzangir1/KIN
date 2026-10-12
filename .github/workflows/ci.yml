@@ -76,7 +76,8 @@ jobs:
           elif [ -f "./core/binaries/kin-core" ]; then
             BINARY_PATH="./core/binaries/kin-core"
           else
-            BINARY_PATH="node core/dist/start_daemon.js"
+            echo "ERROR: Standalone sidecar binary not found!"
+            exit 1
           fi
           echo "Launching packaged daemon: $BINARY_PATH"
           $BINARY_PATH &

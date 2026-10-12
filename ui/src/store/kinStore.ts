@@ -10,16 +10,31 @@ let cachedIpcToken: string | null = null;
 
 export async function getIpcToken(): Promise<string | null> {
   if (cachedIpcToken) return cachedIpcToken;
-  if (typeof window !== 'undefined' && '__TAURI__' in window) {
-    try {
-      const tauri = (window as any).__TAURI__;
-      const invoke = tauri?.core?.invoke || tauri?.tauri?.invoke || tauri?.invoke;
-      if (typeof invoke === 'function') {
-        const token = await invoke('get_ipc_token');
-        if (token && typeof token === 'string') {
-          cachedIpcToken = token.trim();
-          return cachedIpcToken;
+  if (typeof window !== 'undefined') {
+    if ('__TAURI__' in window) {
+      try {
+        const tauri = (window as any).__TAURI__;
+        const invoke = tauri?.core?.invoke || tauri?.tauri?.invoke || tauri?.invoke;
+        if (typeof invoke === 'function') {
+          const token = await invoke('get_ipc_token');
+          if (token && typeof token === 'string') {
+            cachedIpcToken = token.trim();
+            return cachedIpcToken;
+          }
         }
+      } catch {}
+    }
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      const urlToken = searchParams.get('token');
+      if (urlToken) {
+        cachedIpcToken = urlToken.trim();
+        return cachedIpcToken;
+      }
+      const stored = window.localStorage.getItem('kin_ipc_token') || window.sessionStorage.getItem('kin_ipc_token') || window.localStorage.getItem('ipc_token');
+      if (stored) {
+        cachedIpcToken = stored.trim();
+        return cachedIpcToken;
       }
     } catch {}
   }
@@ -44,10 +59,11 @@ if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
     }
 
     const headers = new Headers(init?.headers || (typeof input === 'object' && 'headers' in input ? (input as Request).headers : {}));
-    if (isTauri && !headers.has('Authorization')) {
+    if (!headers.has('Authorization')) {
       const token = await getIpcToken();
       if (token) {
         headers.set('Authorization', `Bearer ${token}`);
+        headers.set('x-kin-auth', token);
       }
     }
 
@@ -594,19 +610,7 @@ export interface BrowserStatus {
   }>;
 }
 
-export interface RoutineItem {
-  id: string;
-  projectId: string;
-  channelId: string;
-  targetAgentId?: string;
-  type: 'one_shot' | 'cron';
-  prompt: string;
-  durationSeconds?: number;
-  cronExpression?: string;
-  status: 'active' | 'completed' | 'cancelled';
-  nextRunAt: number;
-  createdAt: number;
-}
+export type RoutineItem = ScheduleItem;
 
 interface KinState {
   // Navigation & Workspace State
@@ -634,11 +638,8 @@ interface KinState {
   candidateSkills: SkillItem[];
   skillExperiences: SkillExperienceItem[];
   learningMetrics: LearningMetricsData | null;
-  selectedSkillVersions: SkillVersionItem[];
   isSkillsModalOpen: boolean;
   isLoadingSkills: boolean;
-  isLoadingCandidates: boolean;
-  isLoadingExperiences: boolean;
 
   // Desktop & Browser Control State
   discoveredApps: DiscoveredApp[];
@@ -692,7 +693,7 @@ interface KinState {
 
   // UI Tabs & Modals
   activeRightTab: 'Agent' | 'Changes' | 'Review' | 'Artifacts' | 'Uploads' | 'Terminal';
-  activeInspectorTab: 'Contract' | 'Telemetry' | 'Teamwork' | 'Evaluations' | 'Credentials';
+  activeInspectorTab: 'Contract' | 'Telemetry' | 'Teamwork' | 'Evaluations';
 
   // Crash Recovery & Quota Safety
   pendingRecoveries: PendingRecoveryItem[];
@@ -745,6 +746,21 @@ interface KinState {
   // Queued Messages
   queuedMessages: QueuedMessage[];
   streamingDrafts: Record<string, string>;
+  thinkingDrafts: Record<string, string>;
+  latestDelegation: {
+    fromAgentId: string;
+    targetAgentId: string;
+    targetAgentName?: string;
+    directive: string;
+    channelId: string;
+    parentRunId?: string;
+  } | null;
+  latestAntiLoopEvent: {
+    runId: string;
+    agentId: string;
+    channelId: string;
+    reason: string;
+  } | null;
   // Channel execution tracking (agentId -> channelId)
   activeAgentChannels: Record<string, string>;
   // Swarm Map & Execution Trajectory
@@ -961,6 +977,9 @@ export const useKinStore = create<KinState>((set, get) => ({
   grillMeSession: null,
   queuedMessages: [],
   streamingDrafts: {},
+  thinkingDrafts: {},
+  latestDelegation: null,
+  latestAntiLoopEvent: null,
   activeAgentChannels: {},
   isSwarmMapOpen: false,
   selectedSwarmAgentId: 'agent-boss',
@@ -1043,11 +1062,8 @@ export const useKinStore = create<KinState>((set, get) => ({
   candidateSkills: [],
   skillExperiences: [],
   learningMetrics: null,
-  selectedSkillVersions: [],
   isSkillsModalOpen: false,
   isLoadingSkills: false,
-  isLoadingCandidates: false,
-  isLoadingExperiences: false,
 
   // Desktop & Browser Control State
   discoveredApps: [],
@@ -1160,12 +1176,14 @@ export const useKinStore = create<KinState>((set, get) => ({
       const res = await fetch(`/api/automations`);
       if (res.ok) {
         const data = await res.json();
-        set({ schedules: data.automations || data.schedules || [] });
+        const scheds = data.automations || data.schedules || [];
+        set({ schedules: scheds, routines: scheds });
       } else {
         const fallbackRes = await fetch(`/api/projects/${projId}/schedules`);
         if (fallbackRes.ok) {
           const fbData = await fallbackRes.json();
-          set({ schedules: fbData.schedules || [] });
+          const scheds = fbData.schedules || [];
+          set({ schedules: scheds, routines: scheds });
         }
       }
     } catch (err) {
@@ -1191,6 +1209,7 @@ export const useKinStore = create<KinState>((set, get) => ({
       if (data.schedule) {
         set((state) => ({
           schedules: [...state.schedules.filter((s) => s.id !== data.schedule.id), data.schedule],
+          routines: [...state.routines.filter((r) => r.id !== data.schedule.id), data.schedule],
         }));
       }
       return { success: true, schedule: data.schedule };
@@ -1262,7 +1281,10 @@ export const useKinStore = create<KinState>((set, get) => ({
     try {
       const res = await fetch(`/api/schedules/${scheduleId}`, { method: 'DELETE' });
       if (res.ok) {
-        set((state) => ({ schedules: state.schedules.filter((s) => s.id !== scheduleId) }));
+        set((state) => ({
+          schedules: state.schedules.filter((s) => s.id !== scheduleId),
+          routines: state.routines.filter((r) => r.id !== scheduleId),
+        }));
       }
     } catch (err) {
       console.error('[KIN UI] Failed to cancel schedule:', err);
@@ -1462,6 +1484,15 @@ export const useKinStore = create<KinState>((set, get) => ({
         } catch {}
       });
 
+      sse.addEventListener('autonomy:updated', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.autonomyMode) {
+            set({ autonomyMode: data.autonomyMode });
+          }
+        } catch {}
+      });
+
       sse.addEventListener('message:created', (e) => {
         try {
           const msg: MessageItem = JSON.parse(e.data);
@@ -1485,12 +1516,15 @@ export const useKinStore = create<KinState>((set, get) => ({
               : state.messages;
 
             const nextDrafts = { ...state.streamingDrafts };
+            const nextThinking = { ...state.thinkingDrafts };
             if (msg.channelId) {
               delete nextDrafts[msg.channelId];
+              delete nextThinking[msg.channelId];
             }
 
             return {
               streamingDrafts: nextDrafts,
+              thinkingDrafts: nextThinking,
               messages: nextActiveMessages,
               channels: updatedChannels,
               channelMessagesCache: nextCache,
@@ -1509,6 +1543,20 @@ export const useKinStore = create<KinState>((set, get) => ({
               streamingDrafts: {
                 ...state.streamingDrafts,
                 [channelId]: (state.streamingDrafts[channelId] || '') + token,
+              },
+            }));
+          }
+        } catch {}
+      });
+
+      sse.addEventListener('agent:thinking_token', (e) => {
+        try {
+          const { channelId, token } = JSON.parse(e.data);
+          if (channelId && token) {
+            set((state) => ({
+              thinkingDrafts: {
+                ...state.thinkingDrafts,
+                [channelId]: (state.thinkingDrafts[channelId] || '') + token,
               },
             }));
           }
@@ -1556,36 +1604,24 @@ export const useKinStore = create<KinState>((set, get) => ({
           set((state) => {
             const nextActive = { ...state.activeAgentChannels };
             const nextDrafts = { ...state.streamingDrafts };
+            const nextThinking = { ...state.thinkingDrafts };
             if (status === 'thinking' || status === 'working') {
               if (channelId) nextActive[agentId] = channelId;
             } else {
               delete nextActive[agentId];
-              if (channelId) delete nextDrafts[channelId];
+              if (channelId) {
+                delete nextDrafts[channelId];
+                delete nextThinking[channelId];
+              }
             }
             return {
               activeAgentChannels: nextActive,
               streamingDrafts: nextDrafts,
+              thinkingDrafts: nextThinking,
               agents: state.agents.map((a) => (a.id === agentId ? { ...a, status } : a)),
               channelMembers: state.channelMembers.map((a) => (a.id === agentId ? { ...a, status } : a)),
             };
           });
-
-          if (status === 'idle') {
-            setTimeout(() => {
-              const queued = get().queuedMessages;
-              if (queued.length === 0) return;
-
-              // Check if any queued message belongs to a channel that currently has no executing agents
-              for (const q of queued) {
-                const isChanBusy = Object.values(get().activeAgentChannels).some((cId) => cId === q.channelId);
-                if (!isChanBusy) {
-                  get().dequeueMessage(q.id);
-                  get().sendMessage(q.content, q.channelId);
-                  break;
-                }
-              }
-            }, 350);
-          }
         } catch (err) {
           console.error('[KIN UI] Failed to parse agent:state event', err);
         }
@@ -1926,6 +1962,21 @@ export const useKinStore = create<KinState>((set, get) => ({
         }
       });
 
+      sse.addEventListener('operator:notification', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          get().fetchState();
+          if (data.channelId && data.message) {
+            set({ steerNotification: { channelId: data.channelId, directive: data.message } });
+            setTimeout(() => {
+              get().clearSteerNotification();
+            }, 6000);
+          }
+        } catch (err) {
+          console.error('[KIN UI] Failed to parse operator:notification event', err);
+        }
+      });
+
       sse.addEventListener('git:changed', () => {
         get().fetchGitStatus();
         if (get().activeGitDiff) {
@@ -1957,6 +2008,7 @@ export const useKinStore = create<KinState>((set, get) => ({
           const sched: ScheduleItem = JSON.parse(e.data);
           set((state) => ({
             schedules: [...state.schedules.filter((s) => s.id !== sched.id), sched],
+            routines: [...state.routines.filter((s) => s.id !== sched.id), sched],
           }));
         } catch {}
       });
@@ -1964,8 +2016,10 @@ export const useKinStore = create<KinState>((set, get) => ({
       sse.addEventListener('schedule:fired', (e) => {
         try {
           const sched: ScheduleItem = JSON.parse(e.data);
+          const update = (items: ScheduleItem[]) => items.map((s) => (s.id === sched.id ? { ...s, ...sched, status: sched.status || (sched.type === 'one_shot' ? 'completed' : s.status) } : s));
           set((state) => ({
-            schedules: state.schedules.map((s) => (s.id === sched.id ? { ...s, ...sched, status: sched.status || (sched.type === 'one_shot' ? 'completed' : s.status) } : s)),
+            schedules: update(state.schedules),
+            routines: update(state.routines),
           }));
         } catch {}
       });
@@ -1975,6 +2029,7 @@ export const useKinStore = create<KinState>((set, get) => ({
           const { scheduleId } = JSON.parse(e.data);
           set((state) => ({
             schedules: state.schedules.filter((s) => s.id !== scheduleId),
+            routines: state.routines.filter((s) => s.id !== scheduleId),
           }));
         } catch {}
       });
@@ -1995,11 +2050,51 @@ export const useKinStore = create<KinState>((set, get) => ({
         }
       });
 
+      sse.addEventListener('agent:anti_loop', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          set((state) => ({
+            latestAntiLoopEvent: data,
+            steerNotification: data.channelId
+              ? {
+                  channelId: data.channelId,
+                  directive: `Loop intervention: ${data.reason || 'Repeated pattern detected'}`,
+                }
+              : state.steerNotification,
+          }));
+          if (data.channelId) {
+            setTimeout(() => {
+              get().clearSteerNotification();
+            }, 5000);
+          }
+        } catch (err) {
+          console.error('[KIN UI] Failed to parse agent:anti_loop event', err);
+        }
+      });
+
+      sse.addEventListener('agent:delegation_started', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.targetAgentId && data.channelId) {
+            set((state) => ({
+              latestDelegation: data,
+              activeAgentChannels: {
+                ...state.activeAgentChannels,
+                [data.targetAgentId]: data.channelId,
+              },
+            }));
+          }
+        } catch (err) {
+          console.error('[KIN UI] Failed to parse agent:delegation_started event', err);
+        }
+      });
+
       sse.addEventListener('routine:created', (e) => {
         try {
           const sched: ScheduleItem = JSON.parse(e.data);
           set((state) => ({
             schedules: [...state.schedules.filter((s) => s.id !== sched.id), sched],
+            routines: [...state.routines.filter((s) => s.id !== sched.id), sched],
           }));
         } catch {}
       });
@@ -2007,8 +2102,10 @@ export const useKinStore = create<KinState>((set, get) => ({
       sse.addEventListener('routine:fired', (e) => {
         try {
           const sched: ScheduleItem = JSON.parse(e.data);
+          const update = (items: ScheduleItem[]) => items.map((s) => (s.id === sched.id ? { ...s, ...sched } : s));
           set((state) => ({
-            schedules: state.schedules.map((s) => (s.id === sched.id ? { ...s, ...sched } : s)),
+            schedules: update(state.schedules),
+            routines: update(state.routines),
           }));
         } catch {}
       });
@@ -2018,6 +2115,7 @@ export const useKinStore = create<KinState>((set, get) => ({
           const { routineId } = JSON.parse(e.data);
           set((state) => ({
             schedules: state.schedules.filter((s) => s.id !== routineId),
+            routines: state.routines.filter((s) => s.id !== routineId),
           }));
         } catch {}
       });
@@ -2377,11 +2475,11 @@ export const useKinStore = create<KinState>((set, get) => ({
       const exitCode = typeof data.exitCode === 'number' ? data.exitCode : res.ok ? 0 : 1;
       const output = combinedOutput || (exitCode === 0 ? 'Command completed.' : `Exit code ${exitCode}`);
       set((state) => ({
-        terminalHistory: [...state.terminalHistory, { command, output, exitCode }],
+        terminalHistory: [...state.terminalHistory, { command, output, exitCode }].slice(-100),
       }));
     } catch (err: any) {
       set((state) => ({
-        terminalHistory: [...state.terminalHistory, { command, output: err?.message || 'Execution error', exitCode: 1 }],
+        terminalHistory: [...state.terminalHistory, { command, output: err?.message || 'Execution error', exitCode: 1 }].slice(-100),
       }));
     }
   },
@@ -3193,18 +3291,14 @@ export const useKinStore = create<KinState>((set, get) => ({
   setSkillsModalOpen: (open: boolean) => set({ isSkillsModalOpen: open }),
 
   fetchCandidates: async () => {
-    set({ isLoadingCandidates: true });
     try {
       const res = await fetch('/api/learning/candidates');
       if (res.ok) {
         const data = await res.json();
-        set({ candidateSkills: data.candidates || [], isLoadingCandidates: false });
-      } else {
-        set({ isLoadingCandidates: false });
+        set({ candidateSkills: data.candidates || [] });
       }
     } catch (err) {
       console.error('[KIN UI] Failed to fetch candidate lessons:', err);
-      set({ isLoadingCandidates: false });
     }
   },
 
@@ -3250,18 +3344,14 @@ export const useKinStore = create<KinState>((set, get) => ({
   },
 
   fetchSkillExperiences: async () => {
-    set({ isLoadingExperiences: true });
     try {
       const res = await fetch('/api/skills/experiences');
       if (res.ok) {
         const data = await res.json();
-        set({ skillExperiences: data.experiences || [], isLoadingExperiences: false });
-      } else {
-        set({ isLoadingExperiences: false });
+        set({ skillExperiences: data.experiences || [] });
       }
     } catch (err) {
       console.error('[KIN UI] Failed to fetch skill experiences:', err);
-      set({ isLoadingExperiences: false });
     }
   },
 
@@ -3282,7 +3372,6 @@ export const useKinStore = create<KinState>((set, get) => ({
       const res = await fetch(`/api/skills/${encodeURIComponent(skillId)}/versions`);
       if (res.ok) {
         const data = await res.json();
-        set({ selectedSkillVersions: data.versions || [] });
         return data.versions || [];
       }
       return [];
@@ -3459,18 +3548,9 @@ export const useKinStore = create<KinState>((set, get) => ({
 
   setDesktopControlModalOpen: (open: boolean) => set({ isDesktopControlModalOpen: open }),
 
-  // Routine Actions
+  // Routine Actions (Unified with Schedules)
   fetchRoutines: async (projectId?: string) => {
-    const projId = projectId || get().activeProjectId;
-    try {
-      const res = await fetch(`/api/projects/${encodeURIComponent(projId)}/routines`);
-      if (res.ok) {
-        const data = await res.json();
-        set({ routines: data.routines || [] });
-      }
-    } catch (err) {
-      console.error('[KIN UI] Failed to fetch routines:', err);
-    }
+    return get().fetchSchedules(projectId);
   },
 
   createRoutine: async (params: {
@@ -3481,30 +3561,11 @@ export const useKinStore = create<KinState>((set, get) => ({
     channelId?: string;
     targetAgentId?: string;
   }) => {
-    const projId = get().activeProjectId;
-    try {
-      const res = await fetch(`/api/projects/${encodeURIComponent(projId)}/routines`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params),
-      });
-      if (res.ok) {
-        await get().fetchRoutines();
-      }
-    } catch (err) {
-      console.error('[KIN UI] Failed to create routine:', err);
-    }
+    await get().createSchedule(params);
   },
 
   cancelRoutine: async (routineId: string) => {
-    try {
-      const res = await fetch(`/api/routines/${encodeURIComponent(routineId)}`, { method: 'DELETE' });
-      if (res.ok) {
-        set((state) => ({ routines: state.routines.filter((r) => r.id !== routineId) }));
-      }
-    } catch (err) {
-      console.error('[KIN UI] Failed to cancel routine:', err);
-    }
+    await get().cancelSchedule(routineId);
   },
 
   // Crash Recovery & Quota Safety Actions

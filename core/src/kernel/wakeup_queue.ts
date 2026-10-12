@@ -5,7 +5,7 @@
 // Prevents CPU/RAM thrashing under burst event streams and honors system memory limits.
 // ============================================================================
 
-import os from 'node:os';
+import { freemem } from 'node:os';
 
 export interface WakeupEvent {
   id: string;
@@ -33,6 +33,7 @@ export class WakeupQueue {
     coalescedCount: number;
     timer: NodeJS.Timeout;
     scheduledAt: number;
+    firstEnqueuedAt: number;
   }> = new Map();
   private handler?: WakeupHandler;
 
@@ -59,19 +60,32 @@ export class WakeupQueue {
     const now = Date.now();
 
     // Check system memory governor: if free memory is under 300MB, log telemetry
-    const freeMemMb = os.freemem() / (1024 * 1024);
+    const freeMemMb = freemem() / (1024 * 1024);
     if (freeMemMb < 300) {
       console.warn(`[WakeupQueue] Low system memory detected (${Math.round(freeMemMb)}MB free). Coalescing window enforced.`);
     }
 
+    const maxWaitMs = 5000;
     const existing = this.pendingEntries.get(key);
 
     if (existing) {
       // Coalesce duplicate wakeup
-      clearTimeout(existing.timer);
       this.totalCoalesced++;
       existing.coalescedCount++;
       existing.event = event; // Keep latest payload
+
+      // If maxWait ceiling reached from firstEnqueuedAt, do not postpone timer
+      const elapsed = now - existing.firstEnqueuedAt;
+      if (elapsed + this.debounceWindowMs > maxWaitMs) {
+        return {
+          action: 'coalesced',
+          targetKey: key,
+          coalescedCount: existing.coalescedCount,
+          scheduledDispatchAt: existing.scheduledAt,
+        };
+      }
+
+      clearTimeout(existing.timer);
       const scheduledAt = now + this.debounceWindowMs;
       existing.scheduledAt = scheduledAt;
 
@@ -98,6 +112,7 @@ export class WakeupQueue {
       coalescedCount: 1,
       timer,
       scheduledAt,
+      firstEnqueuedAt: now,
     });
 
     return {

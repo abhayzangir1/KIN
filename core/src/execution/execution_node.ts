@@ -135,12 +135,17 @@ export class SandboxWorktreeNode extends ExecutionNode {
       }
 
       // Restrict command execution environments to worktree directory boundaries
-      if (isolatedParams.worktreeRoot && isolatedParams.cwd) {
-        const resolvedCwd = path.resolve(isolatedParams.cwd);
-        const resolvedRoot = path.resolve(isolatedParams.worktreeRoot);
+      const effectiveWorktreeRoot = isolatedParams.worktreeRoot || isolatedParams.context?.worktreeRoot;
+      if (effectiveWorktreeRoot && !isolatedParams.cwd && !isolatedParams.workingDirectory) {
+        isolatedParams.cwd = effectiveWorktreeRoot;
+      }
+      const effectiveCwd = isolatedParams.cwd || isolatedParams.workingDirectory;
+      if (effectiveWorktreeRoot && effectiveCwd) {
+        const resolvedCwd = path.resolve(effectiveCwd);
+        const resolvedRoot = path.resolve(effectiveWorktreeRoot);
         const relative = path.relative(resolvedRoot, resolvedCwd);
         if (relative.startsWith('..') || path.isAbsolute(relative)) {
-          throw new Error(`Process isolation violation: Working directory '${isolatedParams.cwd}' escapes worktree boundary '${isolatedParams.worktreeRoot}'`);
+          throw new Error(`Process isolation violation: Working directory '${effectiveCwd}' escapes worktree boundary '${effectiveWorktreeRoot}'`);
         }
       }
 

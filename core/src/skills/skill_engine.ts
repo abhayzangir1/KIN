@@ -251,6 +251,9 @@ export class SkillEngine {
    * Defaults to 'active'.
    */
   public listSkills(statusFilter: 'candidate' | 'active' | 'deprecated' | 'disabled' | 'all' = 'active'): Skill[] {
+    if ((this.db as any).closed) {
+      return [];
+    }
     let sql = 'SELECT * FROM skills';
     const params: any[] = [];
     if (statusFilter !== 'all') {
@@ -274,6 +277,9 @@ export class SkillEngine {
    * Retrieves a skill by ID or name.
    */
   public getSkill(idOrName: string): Skill | undefined {
+    if ((this.db as any).closed) {
+      return undefined;
+    }
     const row = this.db.queryOne<any>(
       'SELECT * FROM skills WHERE id = ? OR name = ?',
       idOrName,
@@ -281,6 +287,135 @@ export class SkillEngine {
     );
 
     return row ? this.mapRowToSkill(row) : undefined;
+  }
+
+  public createSandboxContext(
+    params: Record<string, any>,
+    executionContext: Record<string, any>,
+    abortSignal?: AbortSignal
+  ): vm.Context {
+    const sanitizeFunction = (fn: Function) => {
+      const wrapped = (...args: any[]) => fn(...args);
+      Object.setPrototypeOf(wrapped, null);
+      Object.defineProperty(wrapped, 'constructor', { value: undefined, writable: false, configurable: false });
+      return Object.freeze(wrapped);
+    };
+
+    const sanitizeObjectForSandbox = (val: any, seen = new WeakSet()): any => {
+      if (val === null || val === undefined) return val;
+      if (typeof val === 'function') return sanitizeFunction(val);
+      if (typeof val !== 'object') return val;
+      if (seen.has(val)) return val;
+      seen.add(val);
+
+      if (Array.isArray(val)) {
+        const arr = val.map((item) => sanitizeObjectForSandbox(item, seen));
+        Object.setPrototypeOf(arr, null);
+        Object.defineProperty(arr, 'constructor', { value: undefined, writable: false, configurable: false });
+        return arr;
+      }
+
+      const clean = Object.create(null);
+      for (const [k, v] of Object.entries(val)) {
+        clean[k] = sanitizeObjectForSandbox(v, seen);
+      }
+      Object.defineProperty(clean, 'constructor', { value: undefined, writable: false, configurable: false });
+      return clean;
+    };
+
+    // Host prototype sanitization: Provide bounded Buffer proxy and freeze prototypes
+    const safeBufferProto = Object.create(null);
+    for (const key of Object.getOwnPropertyNames(Buffer.prototype)) {
+      if (key === 'constructor') continue;
+      try {
+        const desc = Object.getOwnPropertyDescriptor(Buffer.prototype, key);
+        if (desc) Object.defineProperty(safeBufferProto, key, desc);
+      } catch {}
+    }
+    Object.defineProperty(safeBufferProto, 'constructor', { value: undefined, writable: false, configurable: false });
+    Object.freeze(safeBufferProto);
+
+    const safeBuffer = Object.create(null);
+    safeBuffer.from = sanitizeFunction((...args: any[]) => {
+      const b = (Buffer.from as any)(...args);
+      Object.setPrototypeOf(b, safeBufferProto);
+      return b;
+    });
+    safeBuffer.alloc = sanitizeFunction((...args: any[]) => {
+      const b = (Buffer.alloc as any)(...args);
+      Object.setPrototypeOf(b, safeBufferProto);
+      return b;
+    });
+    safeBuffer.isBuffer = sanitizeFunction((obj: any) => Buffer.isBuffer(obj));
+    safeBuffer.byteLength = sanitizeFunction((...args: any[]) => (Buffer.byteLength as any)(...args));
+    safeBuffer.concat = sanitizeFunction((...args: any[]) => {
+      const b = (Buffer.concat as any)(...args);
+      Object.setPrototypeOf(b, safeBufferProto);
+      return b;
+    });
+    Object.defineProperty(safeBuffer, 'constructor', { value: undefined, writable: false, configurable: false });
+    Object.freeze(safeBuffer);
+
+    const safeConsole = Object.create(null);
+    safeConsole.log = sanitizeFunction(() => {});
+    safeConsole.warn = sanitizeFunction(() => {});
+    safeConsole.error = sanitizeFunction(() => {});
+    Object.defineProperty(safeConsole, 'constructor', { value: undefined, writable: false, configurable: false });
+    Object.freeze(safeConsole);
+
+    const safeAbortSignal = Object.create(null);
+    if (abortSignal) {
+      Object.defineProperty(safeAbortSignal, 'aborted', { get: () => abortSignal.aborted });
+      safeAbortSignal.addEventListener = sanitizeFunction((...args: any[]) => (abortSignal.addEventListener as any)(...args));
+    }
+    Object.defineProperty(safeAbortSignal, 'constructor', { value: undefined, writable: false, configurable: false });
+    Object.freeze(safeAbortSignal);
+
+    const cleanParams = sanitizeObjectForSandbox(params);
+    const cleanContext = sanitizeObjectForSandbox(executionContext);
+
+    const sandbox = Object.create(null);
+    sandbox.params = cleanParams;
+    sandbox.input = cleanParams;
+    sandbox.context = cleanContext;
+    sandbox.executionContext = cleanContext;
+    sandbox.abortSignal = safeAbortSignal;
+    sandbox.Buffer = safeBuffer;
+    sandbox.setTimeout = sanitizeFunction(setTimeout);
+    sandbox.clearTimeout = sanitizeFunction(clearTimeout);
+    sandbox.console = safeConsole;
+    sandbox.module = Object.create(null);
+    sandbox.module.exports = Object.create(null);
+    sandbox.exports = Object.create(null);
+    sandbox.result = undefined;
+    Object.defineProperty(sandbox, 'constructor', { value: undefined, writable: false, configurable: false });
+
+    const context = vm.createContext(sandbox);
+
+    // Sanitize and freeze host prototypes in VM context
+    try {
+      vm.runInContext(
+        `
+        try {
+          Object.freeze(Object.prototype);
+          Object.freeze(Function.prototype);
+          const AsyncFunction = (async function () {}).constructor;
+          if (AsyncFunction) Object.freeze(AsyncFunction.prototype);
+          const GeneratorFunction = (function* () {}).constructor;
+          if (GeneratorFunction) Object.freeze(GeneratorFunction.prototype);
+          Object.freeze(Array.prototype);
+          Object.freeze(Promise.prototype);
+          Object.freeze(Error.prototype);
+          Object.freeze(String.prototype);
+          Object.freeze(Number.prototype);
+          Object.freeze(Boolean.prototype);
+        } catch (_) {}
+        `,
+        context
+      );
+    } catch (_) {}
+
+    return context;
   }
 
   /**
@@ -317,30 +452,39 @@ export class SkillEngine {
       };
     }
 
-    try {
-      const sandbox = {
-        params,
-        input: params,
-        context: executionContext,
-        executionContext,
-        Buffer,
-        JSON,
-        Math,
-        Date,
-        Promise,
-        setTimeout,
-        clearTimeout,
-        console: {
-          log: () => {},
-          warn: () => {},
-          error: () => {},
-        },
-        module: { exports: {} as any },
-        exports: {} as any,
-        result: undefined as any,
-      };
+    const abortController = new AbortController();
+    const timeoutMs = typeof (params as any)?._timeoutMs === 'number' ? (params as any)._timeoutMs : 15000;
+    let timer: NodeJS.Timeout | null = null;
+    let context: vm.Context | null = null;
 
-      const context = vm.createContext(sandbox);
+    const terminateAsyncWorkers = () => {
+      const terminateTarget = (target: any) => {
+        if (!target) return;
+        if (typeof target.terminate === 'function') {
+          try { target.terminate(); } catch {}
+        }
+        if (typeof target.kill === 'function') {
+          try { target.kill('SIGKILL'); } catch {}
+        }
+        if (target.worker && typeof target.worker.terminate === 'function') {
+          try { target.worker.terminate(); } catch {}
+        }
+        if (target.childProcess && typeof target.childProcess.kill === 'function') {
+          try { target.childProcess.kill('SIGKILL'); } catch {}
+        }
+      };
+      terminateTarget(executionContext);
+      terminateTarget(params);
+      try {
+        if (context) {
+          terminateTarget((context as any).activeWorker);
+          terminateTarget((context as any).activeChildProcess);
+        }
+      } catch {}
+    };
+
+    try {
+      context = this.createSandboxContext(params, executionContext, abortController.signal);
       const wrappedCode = `
         (async () => {
           ${skill.handlerCode}
@@ -364,12 +508,15 @@ export class SkillEngine {
       `;
 
       const script = new vm.Script(wrappedCode);
-      const executionPromise = script.runInContext(context, { timeout: 10000 });
-      const timeoutMs = typeof (params as any)?._timeoutMs === 'number' ? (params as any)._timeoutMs : 15000;
-      let timer: NodeJS.Timeout | null = null;
+      const vmTimeout = Math.min(timeoutMs, 10000);
+      const executionPromise = script.runInContext(context, { timeout: vmTimeout, breakOnSigint: true });
+
       const timeoutPromise = new Promise((_, reject) => {
         timer = setTimeout(() => {
-          reject(new Error(`Skill execution timed out after ${timeoutMs}ms`));
+          const timeoutErr = new Error(`Skill execution timed out after ${timeoutMs}ms`);
+          abortController.abort(timeoutErr);
+          terminateAsyncWorkers();
+          reject(timeoutErr);
         }, timeoutMs);
         if (timer && typeof (timer as any).unref === 'function') {
           (timer as any).unref();
@@ -388,10 +535,14 @@ export class SkillEngine {
         output,
       };
     } catch (err: any) {
+      abortController.abort(err);
+      terminateAsyncWorkers();
       return {
         success: false,
         error: `Skill '${skill.name}' execution failed: ${err?.message || String(err)}`,
       };
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 

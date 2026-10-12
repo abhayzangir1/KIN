@@ -96,11 +96,16 @@ const seaConfig = {
 
 fs.writeFileSync(seaConfigPath, JSON.stringify(seaConfig, null, 2), 'utf-8');
 
+console.log('[KIN PACKAGE] Generating Node SEA blob...');
 try {
-  console.log('[KIN PACKAGE] Generating Node SEA blob...');
   execSync(`node --experimental-sea-config "${seaConfigPath}"`, { cwd: coreDir, stdio: 'inherit' });
 } catch (e) {
-  console.warn('[KIN PACKAGE] Warning: SEA blob generation encountered an issue:', e.message);
+  console.error('[KIN PACKAGE] SEA blob generation failed:', e.message);
+  throw e;
+}
+
+if (!fs.existsSync(seaBlobPath)) {
+  throw new Error(`[KIN PACKAGE] SEA blob missing at: ${seaBlobPath}`);
 }
 
 // 5. Create native sidecar binary via single-shot postject template
@@ -109,33 +114,32 @@ const templateBinary = path.resolve(coreBinariesDir, `kin-core-template${binaryE
 
 try {
   fs.copyFileSync(nodeExecutable, templateBinary);
-  if (fs.existsSync(seaBlobPath)) {
-    try {
-      console.log('[KIN PACKAGE] Injecting SEA blob into base binary template...');
-      if (platform === 'win32') {
-        execSync(`npx --yes postject "${templateBinary}" NODE_SEA_BLOB "${seaBlobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`, {
-          cwd: coreDir,
-          stdio: 'ignore'
-        });
-      } else if (platform === 'darwin') {
-        execSync(`npx --yes postject "${templateBinary}" NODE_SEA_BLOB "${seaBlobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 --macho-segment-name NODE_SEA`, {
-          cwd: coreDir,
-          stdio: 'ignore'
-        });
-        // Re-sign binary on macOS to prevent SIGKILL from Mach-O signature invalidation
-        try {
-          execSync(`codesign --sign - --force "${templateBinary}"`, { stdio: 'ignore' });
-        } catch {}
-      } else {
-        execSync(`npx --yes postject "${templateBinary}" NODE_SEA_BLOB "${seaBlobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`, {
-          cwd: coreDir,
-          stdio: 'ignore'
-        });
-      }
-      console.log('[KIN PACKAGE] SEA blob successfully injected into base template.');
-    } catch (e) {
-      console.warn('[KIN PACKAGE] Warning: postject injection encountered notice:', e.message);
+  console.log('[KIN PACKAGE] Injecting SEA blob into base binary template...');
+  try {
+    if (platform === 'win32') {
+      execSync(`npx --yes postject "${templateBinary}" NODE_SEA_BLOB "${seaBlobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`, {
+        cwd: coreDir,
+        stdio: 'inherit'
+      });
+    } else if (platform === 'darwin') {
+      execSync(`npx --yes postject "${templateBinary}" NODE_SEA_BLOB "${seaBlobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 --macho-segment-name NODE_SEA`, {
+        cwd: coreDir,
+        stdio: 'inherit'
+      });
+      // Re-sign binary on macOS to prevent SIGKILL from Mach-O signature invalidation
+      try {
+        execSync(`codesign --sign - --force "${templateBinary}"`, { stdio: 'ignore' });
+      } catch {}
+    } else {
+      execSync(`npx --yes postject "${templateBinary}" NODE_SEA_BLOB "${seaBlobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`, {
+        cwd: coreDir,
+        stdio: 'inherit'
+      });
     }
+    console.log('[KIN PACKAGE] SEA blob successfully injected into base template.');
+  } catch (postjectErr) {
+    console.error('[KIN PACKAGE] Postject injection failed:', postjectErr.message);
+    throw postjectErr;
   }
 
   const destinations = [];

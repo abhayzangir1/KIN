@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { tmpdir } from 'node:os';
 import { ModelGateway } from '../src/execution/model_gateway.js';
 import { CoreServer } from '../src/server/core_server.js';
 import { ContextCompactor } from '../src/context/context_compactor.js';
@@ -26,7 +26,7 @@ describe('Adversarial Verification: Milestone 1 (R3, R4, R5)', () => {
   let port: number;
 
   beforeAll(async () => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kin-adv-challenger-'));
+    tempDir = fs.mkdtempSync(path.join(tmpdir(), 'kin-adv-challenger-'));
     tempDbPath = path.join(tempDir, 'adv_test.sqlite');
 
     server = new CoreServer({ port: 0, dbPath: tempDbPath, requireIpcAuth: false });
@@ -48,7 +48,7 @@ describe('Adversarial Verification: Milestone 1 (R3, R4, R5)', () => {
   describe('R3: Dynamic Model Discovery', () => {
     it('omitUnconfigured=true returns empty list when no providers or models are configured', async () => {
       // Create empty db instance to ensure zero stored configured models
-      const cleanDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kin-clean-models-'));
+      const cleanDir = fs.mkdtempSync(path.join(tmpdir(), 'kin-clean-models-'));
       const cleanDbPath = path.join(cleanDir, 'clean.sqlite');
       const cleanServer = new CoreServer({ port: 0, dbPath: cleanDbPath, requireIpcAuth: false });
       const cleanPort = await cleanServer.start();
@@ -68,7 +68,7 @@ describe('Adversarial Verification: Milestone 1 (R3, R4, R5)', () => {
     });
 
     it('omitUnconfigured=1 returns empty list when no providers or models are configured', async () => {
-      const cleanDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kin-clean-models-1-'));
+      const cleanDir = fs.mkdtempSync(path.join(tmpdir(), 'kin-clean-models-1-'));
       const cleanDbPath = path.join(cleanDir, 'clean.sqlite');
       const cleanServer = new CoreServer({ port: 0, dbPath: cleanDbPath, requireIpcAuth: false });
       const cleanPort = await cleanServer.start();
@@ -88,7 +88,7 @@ describe('Adversarial Verification: Milestone 1 (R3, R4, R5)', () => {
     });
 
     it('GET /api/system/models with omitUnconfigured=true also returns empty list', async () => {
-      const cleanDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kin-clean-sys-'));
+      const cleanDir = fs.mkdtempSync(path.join(tmpdir(), 'kin-clean-sys-'));
       const cleanDbPath = path.join(cleanDir, 'clean.sqlite');
       const cleanServer = new CoreServer({ port: 0, dbPath: cleanDbPath, requireIpcAuth: false });
       const cleanPort = await cleanServer.start();
@@ -107,7 +107,7 @@ describe('Adversarial Verification: Milestone 1 (R3, R4, R5)', () => {
     });
 
     it('standard request without omitUnconfigured returns default unconfigured fallback catalog', async () => {
-      const cleanDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kin-clean-fallback-'));
+      const cleanDir = fs.mkdtempSync(path.join(tmpdir(), 'kin-clean-fallback-'));
       const cleanDbPath = path.join(cleanDir, 'clean.sqlite');
       const cleanServer = new CoreServer({ port: 0, dbPath: cleanDbPath, requireIpcAuth: false });
       const cleanPort = await cleanServer.start();
@@ -129,7 +129,7 @@ describe('Adversarial Verification: Milestone 1 (R3, R4, R5)', () => {
     });
 
     it('falsy and invalid omitUnconfigured values default gracefully to returning default catalog', async () => {
-      const cleanDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kin-clean-falsy-'));
+      const cleanDir = fs.mkdtempSync(path.join(tmpdir(), 'kin-clean-falsy-'));
       const cleanDbPath = path.join(cleanDir, 'clean.sqlite');
       const cleanServer = new CoreServer({ port: 0, dbPath: cleanDbPath, requireIpcAuth: false });
       const cleanPort = await cleanServer.start();
@@ -162,7 +162,7 @@ describe('Adversarial Verification: Milestone 1 (R3, R4, R5)', () => {
     });
 
     it('freeOnly combined with omitUnconfigured behaves correctly', async () => {
-      const cleanDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kin-clean-free-'));
+      const cleanDir = fs.mkdtempSync(path.join(tmpdir(), 'kin-clean-free-'));
       const cleanDbPath = path.join(cleanDir, 'clean.sqlite');
       const cleanServer = new CoreServer({ port: 0, dbPath: cleanDbPath, requireIpcAuth: false });
       const cleanPort = await cleanServer.start();
@@ -806,7 +806,7 @@ describe('Adversarial Verification: Milestone 1 (R3, R4, R5)', () => {
   // ==========================================================================
   describe('Adversarial Stress Harness & Edge Cases', () => {
     it('R3 Stress: 50 concurrent requests with randomized and malformed parameters survive without leaking unconfigured models', async () => {
-      const cleanDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kin-stress-models-'));
+      const cleanDir = fs.mkdtempSync(path.join(tmpdir(), 'kin-stress-models-'));
       const cleanDbPath = path.join(cleanDir, 'clean.sqlite');
       const cleanServer = new CoreServer({ port: 0, dbPath: cleanDbPath, requireIpcAuth: false });
       const cleanPort = await cleanServer.start();
@@ -844,7 +844,7 @@ describe('Adversarial Verification: Milestone 1 (R3, R4, R5)', () => {
           fs.rmSync(cleanDir, { recursive: true, force: true });
         } catch {}
       }
-    });
+    }, 20000);
 
     it('R4 Stress: interleaved sequence of errors and successes resolves strictly to immediate subsequent outputs', () => {
       // Sequence:

@@ -456,7 +456,7 @@ export const SwarmMap: React.FC = () => {
                 <div className="flex items-center justify-between text-xs">
                   <div className="flex items-center space-x-1.5 text-emerald-400 font-semibold font-mono">
                     <Clock className="w-3.5 h-3.5" />
-                    <span>{execDetails?.durationFormatted || 'Worked for 18s'}</span>
+                    <span>{execDetails?.durationFormatted || '0s'}</span>
                   </div>
                   <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
                     Telemetry Live
@@ -464,13 +464,13 @@ export const SwarmMap: React.FC = () => {
                 </div>
 
                 <div className="text-[11px] text-[#94a3b8] flex items-center space-x-2 font-mono">
-                  <span>{execDetails?.metrics.exploredFilesCount || 4} files</span>
+                  <span>{execDetails?.metrics?.exploredFilesCount ?? 0} files</span>
                   <span>•</span>
-                  <span>{execDetails?.metrics.tasksCount || 2} tasks</span>
+                  <span>{execDetails?.metrics?.tasksCount ?? 0} tasks</span>
                   <span>•</span>
-                  <span>{execDetails?.metrics.actionsCount || 7} actions</span>
+                  <span>{execDetails?.metrics?.actionsCount ?? 0} actions</span>
                   <span>•</span>
-                  <span>{execDetails?.metrics.commandsCount || 2} commands</span>
+                  <span>{execDetails?.metrics?.commandsCount ?? 0} commands</span>
                 </div>
               </div>
             </div>

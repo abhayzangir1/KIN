@@ -512,7 +512,7 @@ export const SettingsModal: React.FC = () => {
                     <Folder className="w-4 h-4 text-blue-400" />
                     <div>
                       <span className="text-xs font-semibold text-kin-text">Active Project Repository Root</span>
-                      <p className="text-[11px] font-mono text-[#8b949e]">{activeProject?.repoPath || 'D:\\KIN'}</p>
+                      <p className="text-[11px] font-mono text-[#8b949e]">{activeProject?.repoPath || 'No repository configured'}</p>
                     </div>
                   </div>
                 </div>

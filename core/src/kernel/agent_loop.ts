@@ -46,6 +46,7 @@ export interface AgentLoopOptions {
   onHeartbeat?: () => void;
   onRenewLease?: (taskId: string) => Promise<boolean> | boolean;
   onToken?: (token: string) => void;
+  onThinkingToken?: (token: string) => void;
   taskRepo?: any;
   decisionRepo?: any;
   checkTakeoverStatus?: () => 'continue' | 'pause' | 'abort';
@@ -111,6 +112,20 @@ export class AgentLoopRunner {
     this.financialSafety = financialSafety ?? new FinancialSafetyShield();
     this.outputSpiller = outputSpiller ?? new OutputSpiller({ thresholdBytes: 4000 });
     this.contextCompactor = contextCompactor ?? new ContextCompactor();
+  }
+
+  private recordInterruptedTurn(runId: string, turn: number): void {
+    if (!runId) return;
+    try {
+      const db = this.toolGateway?.getDatabase();
+      if (db) {
+        db.execute(
+          'UPDATE agent_runs SET interrupted_turn = ? WHERE id = ?;',
+          turn,
+          runId
+        );
+      }
+    } catch {}
   }
 
   /**
@@ -187,16 +202,19 @@ export class AgentLoopRunner {
     }
     let finalContent = '';
 
+    try {
     while (currentTurn < maxTurns) {
       // Check instant human takeover status
       if (options.checkTakeoverStatus) {
         const takeover = options.checkTakeoverStatus();
         if (takeover === 'abort') {
+          this.recordInterruptedTurn(options.runId, currentTurn);
           return {
             finalContent: 'Execution aborted immediately via human takeover kill switch.',
             turnCount: currentTurn,
             actions,
             isAborted: true,
+            interruptedTurn: currentTurn,
           };
         }
         if (takeover === 'pause') {
@@ -346,6 +364,15 @@ export class AgentLoopRunner {
               role: (m.senderType === 'system' ? 'system' : (m.senderType === 'agent' ? 'assistant' : 'user')) as 'system' | 'assistant' | 'user',
               content: m.content,
             }));
+            if (compactionResult.snapshot) {
+              const snapshotFormatted = this.contextCompactor.formatSnapshot(compactionResult.snapshot);
+              const sysIdx = conversationHistory.findIndex((m) => m.role === 'system');
+              if (sysIdx >= 0) {
+                conversationHistory[sysIdx].content = `${snapshotFormatted}\n\n${conversationHistory[sysIdx].content}`;
+              } else {
+                conversationHistory.unshift({ role: 'system', content: snapshotFormatted });
+              }
+            }
           }
         }
       }
@@ -373,6 +400,7 @@ export class AgentLoopRunner {
       // 4d. LoopBreaker Action Stagnation Evaluation (Authoritative Halt)
       const loopCheck = this.loopBreaker.evaluateActionRepetition(actions);
       if (loopCheck.isLoop) {
+        this.recordInterruptedTurn(options.runId, currentTurn);
         return {
           finalContent: `Anti-Loop Guard triggered: ${loopCheck.reason}. Execution paused for operator guidance.`,
           turnCount: currentTurn,
@@ -380,6 +408,7 @@ export class AgentLoopRunner {
           success: false,
           interrupted: true,
           requiresApproval: true,
+          interruptedTurn: currentTurn,
           reason: `Anti-Loop Guard triggered: ${loopCheck.reason}. Execution paused for operator guidance.`,
           history: conversationHistory,
         };
@@ -394,7 +423,21 @@ export class AgentLoopRunner {
       let watchdogTimer: NodeJS.Timeout | null = null;
 
       let modelLeaseLost = false;
-      let abortSignal: AbortSignal | undefined;
+      const turnAbortController = new AbortController();
+      let parentAbortSignal = options.getAbortSignal ? options.getAbortSignal() : undefined;
+      if (parentAbortSignal?.aborted && options.renewAbortSignal) {
+        parentAbortSignal = options.renewAbortSignal();
+      }
+      if (parentAbortSignal) {
+        if (parentAbortSignal.aborted) {
+          turnAbortController.abort(parentAbortSignal.reason);
+        } else {
+          parentAbortSignal.addEventListener('abort', () => turnAbortController.abort(parentAbortSignal.reason), { once: true });
+        }
+      }
+      const abortSignal = turnAbortController.signal;
+      (abortSignal as any).abort = (reason?: any) => turnAbortController.abort(reason);
+
       try {
         watchdogTimer = setInterval(async () => {
           if (Date.now() - invokeStartTime > maxCeilingMs) {
@@ -402,6 +445,7 @@ export class AgentLoopRunner {
               clearInterval(watchdogTimer);
               watchdogTimer = null;
             }
+            turnAbortController.abort('ceiling_timeout');
             return;
           }
           try {
@@ -412,9 +456,11 @@ export class AgentLoopRunner {
               const renewed = await options.onRenewLease(options.taskId);
               if (renewed === false) {
                 modelLeaseLost = true;
+                (abortSignal as any).abort?.('lease_lost');
               }
             } catch {
               modelLeaseLost = true;
+              (abortSignal as any).abort?.('lease_lost');
             }
           }
         }, watchdogIntervalMs);
@@ -423,15 +469,24 @@ export class AgentLoopRunner {
           (watchdogTimer as any).unref();
         }
 
-        abortSignal = options.getAbortSignal ? options.getAbortSignal() : undefined;
-        if (abortSignal?.aborted && options.renewAbortSignal) {
-          abortSignal = options.renewAbortSignal();
-        }
+        const formattedTools = this.toolGateway
+          ? this.toolGateway.getToolSchemas().map((schema) => ({
+              type: 'function' as const,
+              function: {
+                name: schema.name,
+                description: schema.description,
+                parameters: schema.parameters as Record<string, unknown>,
+              },
+            }))
+          : undefined;
+
         response = await this.modelGateway.invoke({
           modelId: currentModelId,
           fallbackModelId: options.fallbackModelId,
           messages: conversationHistory,
+          tools: formattedTools,
           onToken: options.onToken,
+          onThinkingToken: options.onThinkingToken,
           signal: abortSignal,
         });
 
@@ -465,6 +520,16 @@ export class AgentLoopRunner {
           }
         }
       } catch (err: any) {
+        if (modelLeaseLost) {
+          return {
+            finalContent: `Execution halted: Task lease ownership for task '${options.taskId}' was lost or expired during model invocation.`,
+            turnCount: currentTurn,
+            actions,
+            isAborted: true,
+            reason: `Lost task lease ownership during model turn execution.`,
+          };
+        }
+
         const isAbort =
           err?.name === 'AbortError' ||
           err === 'steer' ||
@@ -499,6 +564,7 @@ export class AgentLoopRunner {
         const errMsg = err?.message || String(err);
         if (this.isQuotaError(errMsg)) {
           const resetAt = Date.now() + 15 * 60 * 1000;
+          this.recordInterruptedTurn(options.runId, currentTurn);
           if (options.onTurnCheckpoint) {
             try {
               await options.onTurnCheckpoint(currentTurn, conversationHistory, actions);
@@ -528,17 +594,20 @@ export class AgentLoopRunner {
       }
 
       if (modelLeaseLost) {
+        this.recordInterruptedTurn(options.runId, currentTurn);
         return {
           finalContent: `Execution halted: Task lease ownership for task '${options.taskId}' was lost or expired during model invocation.`,
           turnCount: currentTurn,
           actions,
           isAborted: true,
+          interruptedTurn: currentTurn,
           reason: `Lost task lease ownership during model turn execution.`,
         };
       }
 
       if (response.isError && this.isQuotaError(response.content)) {
         const resetAt = Date.now() + 15 * 60 * 1000;
+        this.recordInterruptedTurn(options.runId, currentTurn);
         if (options.onTurnCheckpoint) {
           try {
             await options.onTurnCheckpoint(currentTurn, conversationHistory, actions);
@@ -627,11 +696,13 @@ export class AgentLoopRunner {
           takeover = options.checkTakeoverStatus();
         }
         if (takeover === 'abort') {
+          this.recordInterruptedTurn(options.runId, currentTurn);
           return {
             finalContent: 'Execution aborted immediately via human takeover kill switch.',
             turnCount: currentTurn,
             actions,
             isAborted: true,
+            interruptedTurn: currentTurn,
           };
         }
       }
@@ -643,11 +714,13 @@ export class AgentLoopRunner {
       // 0. Pre-Execution Financial / Destructive Zero-Trust Check
       const finCheck = this.financialSafety.evaluateFinancialRisk(toolCall.name, toolCall.params);
       if (finCheck.requiresHardStop) {
+        this.recordInterruptedTurn(options.runId, currentTurn);
         return {
           finalContent: `🚨 ZERO-TRUST FINANCIAL / DESTRUCTIVE STOP: Action '${toolCall.name}' triggered critical safety gate (${finCheck.reasons.join('; ')}). Interactive human authorization is required.`,
           turnCount: currentTurn,
           actions,
           requiresApproval: true,
+          interruptedTurn: currentTurn,
           pendingApprovalDetails: { toolName: toolCall.name, params: toolCall.params, riskLevel: 'CRITICAL', reasons: finCheck.reasons },
         };
       }
@@ -795,11 +868,13 @@ export class AgentLoopRunner {
 
           const takeover = options.checkTakeoverStatus ? options.checkTakeoverStatus() : 'continue';
           if (takeover === 'abort') {
+            this.recordInterruptedTurn(options.runId, currentTurn);
             return {
               finalContent: `Execution halted: Operator intervened and terminated the run during execution of tool '${toolCall.name}'.`,
               turnCount: currentTurn,
               actions,
               isAborted: true,
+              interruptedTurn: currentTurn,
               reason: `Operator abort takeover during tool execution.`,
             };
           }
@@ -808,21 +883,25 @@ export class AgentLoopRunner {
         }
 
         if (toolLeaseLost) {
+          this.recordInterruptedTurn(options.runId, currentTurn);
           return {
             finalContent: `Execution halted: Task lease ownership for task '${options.taskId}' was lost or expired during execution of tool '${toolCall.name}'.`,
             turnCount: currentTurn,
             actions,
             isAborted: true,
+            interruptedTurn: currentTurn,
             reason: `Lost task lease ownership during tool execution.`,
           };
         }
 
         if (res.requiresApproval) {
+          this.recordInterruptedTurn(options.runId, currentTurn);
           return {
             finalContent: `Action '${toolCall.name}' requires interactive human approval under ${options.autonomyMode} mode.`,
             turnCount: currentTurn,
             actions,
             requiresApproval: true,
+            interruptedTurn: currentTurn,
             pendingApprovalDetails: { toolName: toolCall.name, params: toolCall.params, riskLevel: res.riskLevel },
           };
         }
@@ -864,11 +943,13 @@ export class AgentLoopRunner {
               if (options.onToolEnd) {
                 options.onToolEnd(toolCall.name, toolOutput, toolError);
               }
+              this.recordInterruptedTurn(options.runId, currentTurn);
               return {
                 finalContent: `🔒 [HUMAN AUTHORIZATION PROTOCOL TRIGGERED]: ${authCheck.promptInstructions}\nExecution suspended waiting for user authorization.`,
                 turnCount: currentTurn,
                 actions,
                 requiresApproval: true,
+                interruptedTurn: currentTurn,
                 pendingApprovalDetails: {
                   toolName: toolCall.name,
                   params: toolCall.params,
@@ -1010,6 +1091,10 @@ export class AgentLoopRunner {
         }
       }
     }
+    } catch (err) {
+      this.recordInterruptedTurn(options.runId, currentTurn);
+      throw err;
+    }
 
     if (!finalContent) {
       if (actions.length > 0) {
@@ -1059,7 +1144,7 @@ export class AgentLoopRunner {
         mcpSchemas.map((t, idx) => {
           const propNames = Object.keys((t.parameters as any)?.properties || {});
           const argList = propNames.length > 0 ? propNames.join(', ') : '';
-          return `${26 + idx}. ${t.name}(${argList}) — ${t.description}`;
+          return `${32 + idx}. ${t.name}(${argList}) — ${t.description}`;
         }).join('\n') +
         `\n\nTo invoke a connected MCP tool, use its exact name in <tool_call>:\n<tool_call>\n{"name": "${mcpSchemas[0].name}", "parameters": { ... }}\n</tool_call>`;
     }
@@ -1092,7 +1177,13 @@ You have access to the following native and desktop tools:
 22. browserStep(action: "navigate"|"click"|"type"|"scroll"|"screenshot"|"wait", url?: string, selector?: string, text?: string) — Step-by-step browser automation.
 23. browserClose() — Close browser session.
 24. delegateToAgent(targetAgent: string, directive: string) [or coordinateWithAgent] — Coordinate or delegate task directive to a peer specialist agent (e.g. @Backend, @Frontend, @QA, @AndroidDev).
-25. hireSpecialist(displayName: string, roleTitle: string, systemPrompt?: string, suggestedModel?: string, domainAuthority?: string[]) — Onboard and hire a new specialist or subagent into this project and channel. Both orchestrators and specialists can hire subagents under them as required.${mcpToolsText}
+25. hireSpecialist(displayName: string, roleTitle: string, systemPrompt?: string, suggestedModel?: string, domainAuthority?: string[]) — Onboard and hire a new specialist or subagent into this project and channel. Both orchestrators and specialists can hire subagents under them as required.
+26. read_spill(hash: string, offset?: number, limit?: number) — Read bounded excerpt of a spilled large observation log from disk by content hash.
+27. rememberChannel(key: string, value: any, type?: string) — Record department-level memory or working context in the current channel scope.
+28. recallChannel(key?: string, type?: string) — Retrieve memories recorded in this channel or department.
+29. sendDirectMessage(recipient: string, message: string) — Send private 1-on-1 direct message to the human operator ("user" or "human") or to a coworker agent.
+30. assignCoworker(coworker: string, channelId?: string) — Assign/call an existing coworker agent from another channel of this project into this channel.
+31. callMeeting(topic: string, agenda: string, participants: string[]) — Convene a dedicated meeting channel with an agenda and invited coworker agents.${mcpToolsText}
 
 CRITICAL TOOL INVOCATION RULES:
 1. When instructed to create files, scaffold projects, build applications, or execute commands, you MUST invoke the appropriate tool (e.g. writeFile, executeShell, or an MCP tool) immediately. NEVER just describe what you plan to do in text without calling the tool.
@@ -1112,12 +1203,18 @@ To call an MCP tool:
 {"name": "mcp__filesystem__list_directory", "parameters": {"path": "."}}
 </tool_call>
 
+To inspect a spilled observation:
+<tool_call>
+{"name": "read_spill", "parameters": {"hash": "<hash>", "offset": 0, "limit": 4000}}
+</tool_call>
+
 To delegate or coordinate with another specialist:
 <tool_call>
 {"name": "delegateToAgent", "parameters": {"targetAgent": "@QAEngineer", "directive": "Review test criteria"}}
 </tool_call>
 
-3. When you receive the <observation>, evaluate the result and continue with your next tool or summarize the completed work.`;
+3. When you receive the <observation>, evaluate the result and continue with your next tool or summarize the completed work.
+4. When communicating via sendDirectMessage, state your question or deliverable once. Do NOT invoke sendDirectMessage repeatedly with identical content. When the interaction concludes, conclude with [ACK] or [COMPLETE].`;
   }
 
   public extractToolCall(content: string): { name: string; params: any } | null {

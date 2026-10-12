@@ -172,6 +172,31 @@ export class GoalRepository {
     });
   }
 
+  public pruneDuplicateGoals(projectId: string): number {
+    const all = this.listGoals(projectId, false);
+    const seen = new Map<string, Goal>();
+    const toDelete: string[] = [];
+
+    for (const g of all) {
+      const key = g.title.toLowerCase().trim();
+      if (!seen.has(key)) {
+        seen.set(key, g);
+      } else {
+        toDelete.push(g.id);
+      }
+    }
+
+    if (toDelete.length > 0) {
+      this.db.transactionSync(() => {
+        for (const id of toDelete) {
+          this.deleteGoal(id);
+        }
+      });
+    }
+
+    return toDelete.length;
+  }
+
   public proposeReplanning(goalId: string, replanningProposal: any): void {
     this.db.execute(
       'UPDATE goals SET proposed_replanning_json = ?, updated_at = ? WHERE id = ?',

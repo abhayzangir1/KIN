@@ -10,6 +10,7 @@
     "beforeBuildCommand": "npm run build --workspace=ui"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "KIN — Local-First AI Workspace",

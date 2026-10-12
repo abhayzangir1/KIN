@@ -75,6 +75,7 @@ export interface AgentIdentity {
   workspaceId: string;
   projectId: string;
   definitionId: string;
+  parentAgentId?: string;
   displayName: string;
   avatarUrl?: string;
   activeModelId: string;
@@ -209,7 +210,7 @@ export interface Evidence {
   id: string;
   taskId: string;
   runId: string;
-  type: 'test_output' | 'build_log' | 'artifact_hash' | 'human_signoff';
+  type: 'test_output' | 'build_log' | 'artifact_hash' | 'human_signoff' | 'analysis_summary';
   contentUri: string;
   verified: boolean;
   verifiedBy?: string;
@@ -361,6 +362,11 @@ export interface Tier3PrivateMemory {
 export interface Tier4DirectMessageMemory {
   isDirectMessage: boolean;
   participants: string[];
+  originChannel?: {
+    id: string;
+    name: string;
+    members: string[];
+  };
 }
 
 export interface TieredCompiledMemory {
@@ -425,6 +431,7 @@ export interface ContextCompileInput {
   scopedMemories?: Tier1ProjectMemory[];
   projectMemories?: Tier1ProjectMemory[];
   channelMemories?: Tier2ChannelMemory[];
+  assignedDepartmentMemories?: Array<{ channelId: string; channelName: string; memories: Tier2ChannelMemory[] }>;
   agentPrivateMemories?: Tier3PrivateMemory[];
   dmContext?: Tier4DirectMessageMemory;
   goalAncestry?: unknown;

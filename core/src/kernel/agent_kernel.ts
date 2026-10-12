@@ -242,7 +242,7 @@ export class AgentKernel {
    */
   public heartbeat(runId: string): void {
     this.db.execute(
-      `UPDATE agent_runs SET heartbeat_at = ? WHERE id = ? AND state = 'running'`,
+      `UPDATE agent_runs SET heartbeat_at = ? WHERE id = ? AND (state = 'running' OR state LIKE 'waiting_%')`,
       Date.now(),
       runId
     );

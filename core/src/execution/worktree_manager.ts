@@ -11,7 +11,7 @@ import * as path from 'node:path';
 
 const execFileAsync = promisify(execFile);
 
-class AsyncMutex {
+export class AsyncMutex {
   private queue = Promise.resolve();
 
   public async runExclusive<T>(fn: () => Promise<T>): Promise<T> {
@@ -20,7 +20,7 @@ class AsyncMutex {
       release = resolve;
     });
     const ticket = this.queue.then(() => fn());
-    this.queue = this.queue.then(() => wait);
+    this.queue = this.queue.then(() => wait).catch(() => {});
     try {
       return await ticket;
     } finally {
@@ -108,9 +108,46 @@ export class WorktreeManager {
    */
   public async generateDiff(worktreePath: string, baseBranch: string = 'HEAD'): Promise<string> {
     try {
-      const { stdout } = await execFileAsync('git', ['diff', baseBranch], {
+      // Register untracked files with intent-to-add so new files are recognized in diff
+      try {
+        await execFileAsync('git', ['add', '-N', '.'], { cwd: worktreePath });
+      } catch {
+        // Ignored if intent-to-add fails
+      }
+
+      let resolvedBranch = baseBranch;
+      try {
+        await execFileAsync('git', ['rev-parse', resolvedBranch], { cwd: worktreePath });
+      } catch {
+        resolvedBranch = 'HEAD';
+      }
+
+      let { stdout } = await execFileAsync('git', ['diff', resolvedBranch], {
         cwd: worktreePath,
       });
+
+      // Check status to ensure untracked files are represented
+      const { stdout: statusOut } = await execFileAsync('git', ['status', '--porcelain'], {
+        cwd: worktreePath,
+      }).catch(() => ({ stdout: '' }));
+
+      if (statusOut.includes('??') || (!stdout.trim() && statusOut.trim())) {
+        try {
+          await execFileAsync('git', ['add', '-A'], { cwd: worktreePath });
+          const diffRes = await execFileAsync('git', ['diff', resolvedBranch], {
+            cwd: worktreePath,
+          });
+          if (diffRes.stdout.trim()) {
+            stdout = diffRes.stdout;
+          } else {
+            const cachedDiff = await execFileAsync('git', ['diff', '--cached', resolvedBranch], {
+              cwd: worktreePath,
+            });
+            stdout = cachedDiff.stdout;
+          }
+        } catch {}
+      }
+
       return stdout;
     } catch (e: any) {
       throw new Error(`Failed to generate git diff in worktree: ${e.message}`);
@@ -137,48 +174,136 @@ export class WorktreeManager {
   }
 
   /**
-   * Safely merges the feature branch into the target base branch in the root repo.
+   * Safely merges the feature branch into the target base branch without touching repoRoot working tree.
    */
-  public async verifyAndMerge(worktreePath: string, branchName: string, baseBranch: string = 'main'): Promise<MergeResult> {
+  public async verifyAndMerge(
+    worktreePath: string,
+    branchName: string,
+    baseBranch: string = 'main',
+    project?: { defaultBranch?: string; settings?: { defaultBranch?: string } }
+  ): Promise<MergeResult> {
+    let targetBase = project?.defaultBranch || project?.settings?.defaultBranch || baseBranch || 'main';
     return WorktreeManager.mergeMutex.runExclusive(async () => {
       try {
         const isGit = await this.checkIsGitRepo(this.projectRoot);
         const repoRoot = isGit ? this.projectRoot : path.join(this.projectRoot, '.kin', '.git_shadow');
 
-        // 1. Dry-run merge check via git merge-tree
-        const { stdout: headSha } = await execFileAsync('git', ['rev-parse', baseBranch], { cwd: repoRoot });
-        const { stdout: branchSha } = await execFileAsync('git', ['rev-parse', branchName], { cwd: repoRoot });
-
+        let headSha = '';
         try {
-          await execFileAsync('git', ['merge-tree', headSha.trim(), branchSha.trim()], { cwd: repoRoot });
-        } catch (conflictError: any) {
-          return {
-            success: false,
-            cleanMerge: false,
-            error: `Merge conflict detected: ${conflictError.message}`,
-          };
+          const { stdout: headShaOut } = await execFileAsync('git', ['rev-parse', targetBase], { cwd: repoRoot });
+          headSha = headShaOut.trim();
+        } catch {
+          try {
+            const { stdout: curBranchOut } = await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoRoot });
+            const curBranch = curBranchOut.trim();
+            if (curBranch && curBranch !== 'HEAD') {
+              targetBase = curBranch;
+              const { stdout } = await execFileAsync('git', ['rev-parse', targetBase], { cwd: repoRoot });
+              headSha = stdout.trim();
+            } else {
+              const alt = targetBase === 'main' ? 'master' : 'main';
+              const { stdout } = await execFileAsync('git', ['rev-parse', alt], { cwd: repoRoot });
+              headSha = stdout.trim();
+              targetBase = alt;
+            }
+          } catch {
+            const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot });
+            headSha = stdout.trim();
+            targetBase = 'HEAD';
+          }
         }
 
-        // 2. Perform merge in repoRoot
-        await execFileAsync('git', ['checkout', baseBranch], { cwd: repoRoot });
-        await execFileAsync('git', ['merge', '--no-ff', '-m', `Merge ${branchName}`, branchName], {
-          cwd: repoRoot,
-        });
+        const { stdout: branchShaOut } = await execFileAsync('git', ['rev-parse', branchName], { cwd: repoRoot });
+        const branchSha = branchShaOut.trim();
 
-        const { stdout: finalCommit } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot });
+        let mergedTreeSha = '';
+        try {
+          // Modern Git 2.38+ programmatic merge without workspace modification
+          const { stdout: treeOut } = await execFileAsync(
+            'git',
+            ['merge-tree', '--write-tree', targetBase, branchName],
+            { cwd: repoRoot }
+          );
+          mergedTreeSha = treeOut.trim().split(/\r?\n/)[0];
+        } catch (writeTreeErr: any) {
+          // Check if failure was due to real merge conflicts in Git 2.38+
+          const conflictIndicator = (writeTreeErr.stdout || '') + (writeTreeErr.stderr || '') + (writeTreeErr.message || '');
+          if (conflictIndicator.includes('CONFLICT') || writeTreeErr.code === 1 && !conflictIndicator.includes('unknown option') && !conflictIndicator.includes('usage:')) {
+            return {
+              success: false,
+              cleanMerge: false,
+              error: `Merge conflict detected between ${branchName} and ${targetBase}`,
+            };
+          }
 
-        // If shadow repo, sync merged files back to this.projectRoot
-        if (!isGit) {
+          // Fallback to 3-arg syntax for older Git: git merge-tree <base> <branch1> <branch2>
+          try {
+            const { stdout: baseShaOut } = await execFileAsync('git', ['merge-base', targetBase, branchName], { cwd: repoRoot });
+            const { stdout: mergeTreeOut } = await execFileAsync(
+              'git',
+              ['merge-tree', baseShaOut.trim(), headSha, branchSha],
+              { cwd: repoRoot }
+            );
+            if (mergeTreeOut.includes('<<<<<<<') || mergeTreeOut.includes('changed in both')) {
+              return {
+                success: false,
+                cleanMerge: false,
+                error: `Merge conflict detected between ${branchName} and ${targetBase}`,
+              };
+            }
+          } catch (fallbackErr: any) {
+            return {
+              success: false,
+              cleanMerge: false,
+              error: `Merge conflict detected: ${writeTreeErr?.message || fallbackErr?.message}`,
+            };
+          }
+        }
+
+        // Programmatic commit tree creation: isolates merge strictly to git objects without touching repoRoot workspace
+        let finalCommit = '';
+        if (mergedTreeSha) {
+          const { stdout: commitOut } = await execFileAsync(
+            'git',
+            ['commit-tree', mergedTreeSha, '-p', headSha, '-p', branchSha, '-m', `Merge ${branchName} into ${targetBase}`],
+            { cwd: repoRoot }
+          );
+          finalCommit = commitOut.trim();
+          await execFileAsync('git', ['update-ref', `refs/heads/${targetBase}`, finalCommit], { cwd: repoRoot });
+        } else {
+          // Merge inside the worktree itself if programmatic commit tree was unavailable
+          await execFileAsync('git', ['merge', '--no-ff', '-m', `Merge ${targetBase} into ${branchName}`, targetBase], { cwd: worktreePath });
+          const { stdout: wtCommit } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: worktreePath });
+          finalCommit = wtCommit.trim();
+          await execFileAsync('git', ['update-ref', `refs/heads/${targetBase}`, finalCommit], { cwd: repoRoot });
+        }
+
+        // Synchronize working tree to disk
+        if (isGit) {
+          // In a repository, checkout the merged tree so working files are updated
+          try {
+            await execFileAsync('git', ['checkout', '-f', targetBase], { cwd: repoRoot });
+          } catch {
+            try {
+              await execFileAsync('git', ['read-tree', '-u', '-m', `refs/heads/${targetBase}`], { cwd: repoRoot });
+            } catch {}
+          }
+        } else {
+          // In a shadow repository (!isGit), checkout the merged branch in repoRoot before calling copyProjectAssets
+          try {
+            await execFileAsync('git', ['checkout', '-f', targetBase], { cwd: repoRoot });
+          } catch {}
           this.copyProjectAssets(repoRoot, this.projectRoot);
         }
 
-        // 3. Post-merge prune: Remove the worktree immediately
+        // Post-merge prune: Remove the worktree immediately and delete feature branch
         await this.removeWorktree(worktreePath);
+        await this.deleteBranch(branchName);
 
         return {
           success: true,
           cleanMerge: true,
-          commitSha: finalCommit.trim(),
+          commitSha: finalCommit,
         };
       } catch (e: any) {
         return {
@@ -188,6 +313,19 @@ export class WorktreeManager {
         };
       }
     });
+  }
+
+  /**
+   * Safely deletes a git branch.
+   */
+  public async deleteBranch(branchName: string): Promise<void> {
+    const isGit = await this.checkIsGitRepo(this.projectRoot);
+    const repoRoot = isGit ? this.projectRoot : path.join(this.projectRoot, '.kin', '.git_shadow');
+    try {
+      await execFileAsync('git', ['branch', '-D', branchName], { cwd: repoRoot });
+    } catch {
+      // Branch may already be deleted or unreferenced
+    }
   }
 
   /**
