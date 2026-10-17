@@ -42,14 +42,26 @@ KIN_COMPREHENSIVE_AUDIT_AND_FIX_PLAN.md
 *draft*
 docs/PRODUCT_COPY_DRAFTS.md
 
-# Local-only audit and runtime-inspection material
+# Local-only audit, specifications, archives and runtime-inspection material
 /KIN_AUDIT*.md
 /KIN_COMPREHENSIVE_AUDIT*.md
+/deepseek_harness_and_vision_audit_report.md
+/kin_agent_harness_comprehensive_audit_and_findings.md
 /inspect_states.mjs
 /verify_live_runtime_suite.mjs
+/run_live_*.mjs
+/test_*.mjs
+/check_*.mjs
+/check_*.js
 /core/test/live_runtime_verification_report.json
+/manual_test_results*.json
 /scratch/
 temp_*
 temp-*
 *.zip
+*.tar.gz
+*.7z
+specs/
+docs_master/
+example.txt
 
