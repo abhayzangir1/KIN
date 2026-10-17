@@ -441,6 +441,29 @@ export class CoreServer {
         stoppedReason: stopReason,
       };
     });
+    this.toolGateway.setChannelMessageCallback(async ({ senderAgentId, channelId, content }) => {
+      let targetChannel = this.workspaceRepo.getChannel(channelId);
+      if (!targetChannel) {
+        const cleanName = channelId.replace(/^#/, '').toLowerCase();
+        const channels = this.workspaceRepo.listChannels(this.activeProjectId || 'proj-kin');
+        targetChannel = channels.find(
+          (c: any) => c.id.toLowerCase() === cleanName || (c.name && c.name.toLowerCase() === cleanName)
+        );
+      }
+      if (!targetChannel) {
+        throw new Error(`Channel '${channelId}' not found.`);
+      }
+
+      const msg = this.channelService.sendMessage({
+        channelId: targetChannel.id,
+        senderId: senderAgentId,
+        senderType: 'agent',
+        content,
+      });
+
+      this.broadcastEvent('message:created', msg);
+      return { success: true, messageId: msg.id, channelId: targetChannel.id, channelName: targetChannel.name };
+    });
     this.toolGateway.setAssignCoworkerCallback((coworker, channelId) => {
       this.workspaceRepo.addChannelMember(channelId, coworker.id);
       this.broadcastEvent('channel:member_added', { channelId, agentId: coworker.id, agent: coworker });
@@ -9258,23 +9281,31 @@ Format strictly as JSON:
         });
       }
 
-      for (const m of trajectory) {
+      for (let i = 0; i < trajectory.length; i++) {
+        const m = trajectory[i];
+        const isHistorical = i < trajectory.length - 2;
+        let content = m.content || '';
+        const isLocalModel = !agent.activeModelId || !agent.activeModelId.includes('/');
+        const maxHistLen = isLocalModel ? 400 : 1500;
+        if (isHistorical && content.length > maxHistLen) {
+          content = content.slice(0, Math.floor(maxHistLen * 0.6)) + '\n... [prior response summarized for context budget] ...\n' + content.slice(-Math.floor(maxHistLen * 0.3));
+        }
         if (m.senderId === agent.id) {
-          modelMessages.push({ role: 'assistant', content: m.content });
+          modelMessages.push({ role: 'assistant', content });
         } else if (m.senderType === 'human') {
-          const content = (m.id === triggerMsg?.id && triggerMsg?.content) ? triggerMsg.content : m.content;
-          if (content.includes('> [Quote') || content.includes('> @') || content.startsWith('>') || content.includes('@[Quote]')) {
+          const rawContent = (m.id === triggerMsg?.id && triggerMsg?.content) ? triggerMsg.content : content;
+          if (rawContent.includes('> [Quote') || rawContent.includes('> @') || rawContent.startsWith('>') || rawContent.includes('@[Quote]')) {
             modelMessages.push({
               role: 'user',
-              content: `${content}\n\n[Instruction: The operator has directly quoted a statement above. Address and analyze the quoted statement specifically in your response.]`,
+              content: `${rawContent}\n\n[Instruction: The operator has directly quoted a statement above. Address and analyze the quoted statement specifically in your response.]`,
             });
           } else {
-            modelMessages.push({ role: 'user', content });
+            modelMessages.push({ role: 'user', content: rawContent });
           }
         } else {
           const peer = allProjectAgents.find((a) => a.id === m.senderId);
           const peerName = peer?.displayName || m.senderId;
-          modelMessages.push({ role: 'user', content: `[${peerName}]: ${m.content}` });
+          modelMessages.push({ role: 'user', content: `[${peerName}]: ${content}` });
         }
       }
 

@@ -53,7 +53,7 @@ describe('KIN Phase 1/2: Core IPC Server Integration & Authoritative State', () 
     const data: any = await res.json();
     expect(typeof data.online).toBe('boolean');
     expect(Array.isArray(data.models)).toBe(true);
-  });
+  }, 30000);
 
   it('POST /api/projects creates a new independent workspace project', async () => {
     const res = await fetch(`http://127.0.0.1:${port}/api/projects`, {

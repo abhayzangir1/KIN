@@ -1,0 +1,3 @@
+# .cargo/config.toml — Canonical Workspace Cargo Aliases (Fixing Audit Finding 12)
+[alias]
+xtask = "run --package xtask --locked --"

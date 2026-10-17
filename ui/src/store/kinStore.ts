@@ -778,8 +778,11 @@ interface KinState {
   // Resizable Workspace Layout State
   sidebarWidth: number;
   inspectorWidth: number;
+  isInspectorOpen: boolean;
   setSidebarWidth: (width: number) => void;
   setInspectorWidth: (width: number) => void;
+  setInspectorOpen: (open: boolean) => void;
+  toggleInspector: () => void;
   resetPanelWidths: () => void;
 
   // Theme State
@@ -1045,12 +1048,31 @@ export const useKinStore = create<KinState>((set, get) => ({
     try { localStorage.setItem('kin_inspector_width', clamped.toString()); } catch {}
     set({ inspectorWidth: clamped });
   },
+  isInspectorOpen: (() => {
+    try {
+      const saved = localStorage.getItem('kin_inspector_open');
+      if (saved !== null) return saved === 'true';
+    } catch {}
+    return true;
+  })(),
+  setInspectorOpen: (open: boolean) => {
+    try { localStorage.setItem('kin_inspector_open', String(open)); } catch {}
+    set({ isInspectorOpen: open });
+  },
+  toggleInspector: () => {
+    set((state) => {
+      const next = !state.isInspectorOpen;
+      try { localStorage.setItem('kin_inspector_open', String(next)); } catch {}
+      return { isInspectorOpen: next };
+    });
+  },
   resetPanelWidths: () => {
     try {
       localStorage.setItem('kin_sidebar_width', '260');
       localStorage.setItem('kin_inspector_width', '390');
+      localStorage.setItem('kin_inspector_open', 'true');
     } catch {}
-    set({ sidebarWidth: 260, inspectorWidth: 390 });
+    set({ sidebarWidth: 260, inspectorWidth: 390, isInspectorOpen: true });
   },
 
   // Instant Human Takeover State

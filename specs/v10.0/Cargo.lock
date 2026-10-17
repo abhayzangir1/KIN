@@ -1,0 +1,414 @@
+# Reference Direct-Dependency & Workspace-Topology Lockfile Specification (Cargo.lock v4)
+# Validated against Cargo.toml [workspace.dependencies] and 6-Layer Hexagonal Rules by verify_kin_v10_0_suite.py.
+version = 4
+
+[[package]]
+name = "aho-corasick"
+version = "1.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "850ee406414b85701ac6d20fdec053ebb2b95aea1627e2ac28e2f9a262073dc7"
+
+[[package]]
+name = "argon2"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f4e12b103279bf4b0970a80e4e0bae031387d119d576340319dfa39b9c85e8c"
+dependencies = ["blake3", "subtle"]
+
+[[package]]
+name = "blake3"
+version = "1.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d8364a0d25abdde3a6f653d1de2fe1303cb7a276c6ecd0370ef5eac69ab66f4"
+dependencies = ["subtle"]
+
+[[package]]
+name = "cap-std"
+version = "3.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a6f603b93a90d2c65e4339574344e3ab04ee279b5e4ad88987ba2f9d12390af"
+dependencies = ["libc", "windows-sys"]
+
+[[package]]
+name = "chacha20poly1305"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81f26a2078d41c6438590a0b2c288171af4a842b537eb83436b0256b3907a1cb"
+dependencies = ["subtle"]
+
+[[package]]
+name = "chromiumoxide"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95fe0a657c44e5ee2712fa54b7a5800620214ea48da1438161439b5b577bb2bf"
+dependencies = ["serde", "serde_json", "thiserror", "tokio"]
+
+[[package]]
+name = "clap"
+version = "4.5.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fb9e2fc2cc6a8a9231d7ac3eb2e96f935b4686b72ba33e95feabfdc52b43dab"
+dependencies = ["serde"]
+
+[[package]]
+name = "ed25519-dalek"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d09aa29ead48508660600a9db0464f1ccc2e2bac30ecc9bbaca33ab69eb3308b"
+dependencies = ["sha2", "subtle"]
+
+[[package]]
+name = "hkdf"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a193f5451abaa443bf5e741fc7c5bc3fe0cf2a8c3247bceb13879c2955c706a"
+dependencies = ["hmac", "sha2"]
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee46a3e9eec615f3116db86f23368922690ab4e63e690cc2dcd93fe0eab03299"
+dependencies = ["sha2", "subtle"]
+
+[[package]]
+name = "ignore"
+version = "0.4.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1a3a5789fa1980b9e9d2a3c7f3ac0c016acbf01aea1073507ea8cb1b2c38525"
+dependencies = ["aho-corasick"]
+
+[[package]]
+name = "jiff"
+version = "0.1.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb1903d4ec705870486f9b16d082ef09c2b1765888d94774e7cf164c6c4adae8"
+dependencies = ["serde"]
+
+[[package]]
+name = "keyring"
+version = "3.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db7432f740c92c5d385fe30c1aa94f15fffb32ef424fb260da9778c014de0c03"
+dependencies = ["libc", "windows-sys"]
+
+[[package]]
+name = "landlock"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10a31f39e8eb795044d2f3b1f8669a52b176a38b1b8dcd07e2d3b0ad6f754e02"
+dependencies = ["libc"]
+
+[[package]]
+name = "libc"
+version = "0.2.161"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ace6e1ba37863169cdde7b63ed49e89e54be5a5887d6d3c302d858989a4c1a6"
+
+[[package]]
+name = "ort"
+version = "2.0.0-rc.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "589d30345fbffeb0ba6e500f2b64a496c13c40c23dd5ddb4c4c5bd5ec95bde5f"
+dependencies = ["thiserror"]
+
+[[package]]
+name = "portable-pty"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b247530a8c25ccae9d6f49a37e4e7e1e0ee8825a7c414aea380fe0e83cb61646"
+dependencies = ["libc", "windows-sys"]
+
+[[package]]
+name = "reqwest"
+version = "0.12.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7f05eb4cc2aea786743d92696ddcbedcdb9ed8805767277b95d113b0614e706"
+dependencies = ["serde", "serde_json", "tokio", "tokio-util"]
+
+[[package]]
+name = "rusqlite"
+version = "0.32.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b968e51f198ece63e1782b1720c1235218204cba167b7f822463c58929235e1"
+dependencies = ["libc"]
+
+[[package]]
+name = "seccompiler"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "992154b282fdd44b00859d979b77fc025d2f4d87c67aa0e9769d2b8d07c0ca5b"
+dependencies = ["libc", "thiserror"]
+
+[[package]]
+name = "secrecy"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9a67f43d253524c1dc6c18a8210614635f5aef0ca5886bb9d009dc4ef81b7e6"
+dependencies = ["serde"]
+
+[[package]]
+name = "serde"
+version = "1.0.210"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eaa274ec0b26032a882708b6d271ac6f5274ba6b8b1dd34e800c6516215e6031"
+
+[[package]]
+name = "serde_json"
+version = "1.0.128"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc1a932155217550e5feae98d64979bc16cc8d8af97a8d032450068877deabf4"
+dependencies = ["serde"]
+
+[[package]]
+name = "sha2"
+version = "0.10.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0793cc59e2c4ad028b97799d72d3c2220cc46de8fb102240fe8d708705639483"
+
+[[package]]
+name = "specta"
+version = "2.0.0-rc.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0292b5f57fc47bec84be90251329fe4d5995066b65baf18bb67aa77b32785ad6"
+dependencies = ["serde"]
+
+[[package]]
+name = "sqlite-vec"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e60ab2a37c4887a5457eab536700d6c087c71d3fdfa742b066830d19b4c9448"
+dependencies = ["rusqlite"]
+
+[[package]]
+name = "subtle"
+version = "2.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88007a6d83b927c8201f73f9732e311d2f8b45be879a2707e32fd507b8cc69a3"
+
+[[package]]
+name = "tauri"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62a6e410f9926249b1cf79ad182e546e8ff23bf98ba68b152d052d5e6947437c"
+dependencies = ["serde", "serde_json", "thiserror", "tokio"]
+
+[[package]]
+name = "tera"
+version = "1.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07b5a28cae10949decd04317b755a2b222cf7b96ded5ed0df90b09a321099b74"
+dependencies = ["serde", "serde_json"]
+
+[[package]]
+name = "thiserror"
+version = "1.0.64"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eaee6d3c4d589c13554854ac15c1f54ff3bac969f546ee6433239eb9c4446d20"
+
+[[package]]
+name = "tokio"
+version = "1.40.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fbadeb5e123993b82731be8ccb7c41b81d7aca7c748f6a29b1ad86b52e61cc66"
+dependencies = ["libc", "windows-sys"]
+
+[[package]]
+name = "tokio-util"
+version = "0.7.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fa5ed291656edd79ac36b78fca710aaa9ce2025648d08cbdbe0c368895b7e74"
+dependencies = ["tokio"]
+
+[[package]]
+name = "tree-sitter"
+version = "0.24.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a74e2fd3e2087e29d08d5eb2aee1d940146a30c3ba435758e46308c799b87211"
+
+[[package]]
+name = "tree-sitter-bash"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f36e857c9f7d8c3fec4bb153533c3be28bd7cbf3688168e407e4f74e8c2a960e"
+dependencies = ["tree-sitter"]
+
+[[package]]
+name = "ulid"
+version = "1.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ba17d9704b8dad03a903b4786a091da580398db740e427cdc10aac22ba8a529"
+dependencies = ["serde"]
+
+[[package]]
+name = "windows-sys"
+version = "0.59.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d09291612a48d4000c816986e3d45469af972b6d6c827755fa4020b4a8679515"
+
+[[package]]
+name = "zstd"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "160d743df85b1dbfb8cce82f0aab0d596c73b017493ad48b404442a3ff8646d9"
+dependencies = ["libc"]
+
+[[package]]
+name = "kin-types"
+version = "10.0.0"
+dependencies = ["serde", "serde_json", "specta", "ulid", "jiff"]
+
+[[package]]
+name = "kin-proto"
+version = "10.0.0"
+dependencies = ["kin-types", "serde", "serde_json", "specta"]
+
+[[package]]
+name = "kin-error"
+version = "10.0.0"
+dependencies = ["kin-proto", "thiserror"]
+
+[[package]]
+name = "kin-ports"
+version = "10.0.0"
+dependencies = ["kin-types", "kin-proto", "kin-error"]
+
+[[package]]
+name = "kin-crypto"
+version = "10.0.0"
+dependencies = ["kin-types", "kin-error", "blake3", "ed25519-dalek", "chacha20poly1305", "argon2", "hkdf", "sha2", "hmac", "subtle", "secrecy", "aho-corasick"]
+
+[[package]]
+name = "kin-plugin-sdk"
+version = "10.0.0"
+dependencies = ["kin-types", "kin-proto", "kin-error"]
+
+[[package]]
+name = "kin-store"
+version = "10.0.0"
+dependencies = ["kin-ports", "kin-crypto", "rusqlite", "sqlite-vec"]
+
+[[package]]
+name = "kin-ledger"
+version = "10.0.0"
+dependencies = ["kin-ports", "kin-crypto"]
+
+[[package]]
+name = "kin-blobs"
+version = "10.0.0"
+dependencies = ["kin-ports", "kin-crypto", "zstd"]
+
+[[package]]
+name = "kin-index"
+version = "10.0.0"
+dependencies = ["kin-ports", "kin-store", "ort", "ignore", "tree-sitter"]
+
+[[package]]
+name = "kin-vault"
+version = "10.0.0"
+dependencies = ["kin-ports", "kin-crypto", "keyring"]
+
+[[package]]
+name = "kin-policy"
+version = "10.0.0"
+dependencies = ["kin-ports", "kin-crypto", "tree-sitter", "tree-sitter-bash"]
+
+[[package]]
+name = "kin-sandbox"
+version = "10.0.0"
+dependencies = ["kin-ports", "landlock", "seccompiler", "libc", "windows-sys"]
+
+[[package]]
+name = "kin-lanes"
+version = "10.0.0"
+dependencies = ["kin-ports", "kin-sandbox", "cap-std", "tree-sitter"]
+
+[[package]]
+name = "kin-pty"
+version = "10.0.0"
+dependencies = ["kin-ports", "kin-sandbox", "portable-pty"]
+
+[[package]]
+name = "kin-lsp"
+version = "10.0.0"
+dependencies = ["kin-ports", "kin-sandbox"]
+
+[[package]]
+name = "kin-gateway"
+version = "10.0.0"
+dependencies = ["kin-ports", "kin-egress"]
+
+[[package]]
+name = "kin-egress"
+version = "10.0.0"
+dependencies = ["kin-ports", "kin-crypto", "reqwest"]
+
+[[package]]
+name = "kin-browser"
+version = "10.0.0"
+dependencies = ["kin-ports", "kin-egress", "chromiumoxide"]
+
+[[package]]
+name = "kin-mcp"
+version = "10.0.0"
+dependencies = ["kin-ports", "kin-sandbox", "kin-egress"]
+
+[[package]]
+name = "kin-memory"
+version = "10.0.0"
+dependencies = ["kin-types", "kin-proto", "kin-error", "kin-ports", "kin-crypto", "kin-plugin-sdk", "tera", "tokio", "tokio-util"]
+
+[[package]]
+name = "kin-context"
+version = "10.0.0"
+dependencies = ["kin-types", "kin-proto", "kin-error", "kin-ports", "kin-crypto", "kin-plugin-sdk", "tera", "tokio", "tokio-util"]
+
+[[package]]
+name = "kin-tools"
+version = "10.0.0"
+dependencies = ["kin-types", "kin-proto", "kin-error", "kin-ports", "kin-crypto", "kin-plugin-sdk", "tera", "tokio", "tokio-util"]
+
+[[package]]
+name = "kin-harness"
+version = "10.0.0"
+dependencies = ["kin-types", "kin-proto", "kin-error", "kin-ports", "kin-crypto", "kin-plugin-sdk", "tera", "tokio", "tokio-util"]
+
+[[package]]
+name = "kin-orch"
+version = "10.0.0"
+dependencies = ["kin-types", "kin-proto", "kin-error", "kin-ports", "kin-crypto", "kin-plugin-sdk", "tera", "tokio", "tokio-util"]
+
+[[package]]
+name = "kin-tasks"
+version = "10.0.0"
+dependencies = ["kin-types", "kin-proto", "kin-error", "kin-ports", "kin-crypto", "kin-plugin-sdk", "tera", "tokio", "tokio-util"]
+
+[[package]]
+name = "kin-sched"
+version = "10.0.0"
+dependencies = ["kin-types", "kin-proto", "kin-error", "kin-ports", "kin-crypto", "kin-plugin-sdk", "jiff", "tera", "tokio", "tokio-util"]
+
+[[package]]
+name = "kin-engine"
+version = "10.0.0"
+dependencies = ["kin-types", "kin-proto", "kin-error", "kin-ports", "kin-crypto", "kin-plugin-sdk", "kin-store", "kin-ledger", "kin-blobs", "kin-index", "kin-vault", "kin-policy", "kin-sandbox", "kin-lanes", "kin-pty", "kin-lsp", "kin-gateway", "kin-egress", "kin-browser", "kin-mcp", "kin-memory", "kin-context", "kin-tools", "kin-harness", "kin-orch", "kin-tasks", "kin-sched", "tokio", "tokio-util"]
+
+[[package]]
+name = "kin-shell"
+version = "10.0.0"
+dependencies = ["kin-types", "kin-proto", "kin-error", "kin-engine", "tauri", "tokio"]
+
+[[package]]
+name = "kin-cli"
+version = "10.0.0"
+dependencies = ["kin-types", "kin-proto", "kin-error", "kin-engine", "clap", "tokio"]
+
+[[package]]
+name = "kin-bench"
+version = "10.0.0"
+dependencies = ["kin-types", "kin-proto", "kin-error", "kin-engine", "clap", "tokio"]
+
+[[package]]
+name = "xtask"
+version = "10.0.0"
+dependencies = ["kin-types", "kin-proto", "kin-error", "clap", "serde", "serde_json", "specta"]

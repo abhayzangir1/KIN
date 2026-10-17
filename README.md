@@ -10,7 +10,7 @@ KIN is under active development. Features described here are present in source u
   - **Projects as Organizations**: Each project forms an isolated organizational boundary containing dedicated goals, task DAGs, workspaces, and teams.
   - **Project-Scoped Boss Orchestrators (`@Boss`)**: Every project has an authoritative `@Boss` orchestrator responsible for requirements intake, task delegation, and workforce management without foreign project crosstalk.
   - **Channels as Departments**: Channels serve as departmental collaboration spaces seeded by default with `@Boss`, with dynamic specialist enrollment.
-  - **Multi-Channel Workforce Coordination Suite**: Tools for dynamic recruitment (`hireSpecialist`), coworker channel assignment (`assignCoworker`), department convening (`callMeeting`), and recursive delegation (`delegateToAgent`).
+  - **Multi-Channel Workforce Coordination Suite**: Tools for dynamic recruitment (`hireSpecialist`), coworker channel assignment (`assignCoworker`), department convening (`callMeeting`), cross-channel broadcasting (`channel_post`), direct messaging (`sendDirectMessage`), and recursive delegation (`delegateToAgent`).
   - **Peer Direct Messaging**: Private agent-to-agent DMs (`dm-${agentA}-${agentB}`) with participant-only context isolation, completion token detection, turn depth limits (5-turn ceiling), and Operator Inspection Mode.
   - **4-Tier Scoped Memory Fabric**: Strict separation across project knowledge (`rememberProject`), channel memory (`rememberChannel`), private agent state (`rememberPrivate`), and DM context.
 - A pluggable `RunnerAdapter` specification and registry decoupling execution engines from KIN's authoritative state and security plane.
@@ -77,6 +77,7 @@ Application state is stored locally in SQLite and project files use the local fi
 - [Current implementation notes](docs/PROJECT_STATUS.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Core API overview](docs/API.md)
+- [Canonical v10.0 Specifications](specs/v10.0/00-AGENTS-AND-AUDIT.md)
 - [Skills guide](docs/SKILLS_GUIDE.md)
 - [Slash commands](docs/SLASH_COMMANDS.md)
 - [Operations](docs/OPERATIONS.md)

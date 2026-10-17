@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useKinStore } from '../store/kinStore.js';
-import { Folder, Plus, X, Play, Copy, Check, Shield, Activity, Network, Sun, Moon } from 'lucide-react';
+import { Folder, Plus, X, Play, Copy, Check, Shield, Activity, Network, Sun, Moon, PanelRight, PanelRightClose } from 'lucide-react';
 
 export const HeaderBar: React.FC = () => {
   const {
@@ -24,6 +24,8 @@ export const HeaderBar: React.FC = () => {
     activeTakeover,
     activeTakeovers,
     agents,
+    isInspectorOpen,
+    toggleInspector,
   } = useKinStore();
 
   const isMachineTool = (tool?: string) => {
@@ -197,6 +199,24 @@ export const HeaderBar: React.FC = () => {
             <option value="FULL_ACCESS" className="bg-[#161b22] text-blue-400">FULL_ACCESS</option>
           </select>
         </div>
+
+        {/* Toggle Inspector Panel */}
+        <button
+          onClick={toggleInspector}
+          className={`flex items-center space-x-1 px-2 py-0.5 rounded border transition cursor-pointer ${
+            isInspectorOpen
+              ? 'bg-blue-500/15 border-blue-500/30 text-blue-300 hover:bg-blue-500/25'
+              : 'bg-[#161b22] border-[#30363d] text-[#8b949e] hover:text-kin-text hover:bg-[#21262d]'
+          }`}
+          title={isInspectorOpen ? 'Collapse Agent Inspector (Gain Full Width)' : 'Expand Agent Inspector'}
+        >
+          {isInspectorOpen ? (
+            <PanelRightClose className="w-3 h-3 text-blue-400 shrink-0" />
+          ) : (
+            <PanelRight className="w-3 h-3 text-[#8b949e] shrink-0" />
+          )}
+          <span className="text-[10px] font-sans">Inspector</span>
+        </button>
 
         {/* Quick Dual-Theme Toggle */}
         <button

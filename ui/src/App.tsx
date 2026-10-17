@@ -24,6 +24,7 @@ export const App: React.FC = () => {
     closeSSE,
     setSidebarWidth,
     setInspectorWidth,
+    isInspectorOpen,
     theme,
   } = useKinStore();
 
@@ -129,34 +130,38 @@ export const App: React.FC = () => {
             <CenterView />
           </ErrorBoundary>
 
-          {/* Right Draggable Splitter Handle */}
-          <div
-            onMouseDown={(e) => {
-              e.preventDefault();
-              setIsDraggingRight(true);
-            }}
-            onDoubleClick={() => setInspectorWidth(390)}
-            className={`relative w-1 hover:w-1.5 cursor-col-resize z-20 shrink-0 transition-all duration-150 select-none group flex items-center justify-center ${
-              isDraggingRight
-                ? 'bg-blue-400 w-1.5 shadow-[0_0_8px_#60a5fa]'
-                : 'bg-[#1e293b]/70 hover:bg-blue-500/80'
-            }`}
-            title="Drag to resize inspector (Double-click to reset)"
-          >
-            {/* Expanded invisible touch hit area */}
-            <div
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                setInspectorWidth(390);
-              }}
-              className="absolute inset-y-0 -left-1.5 -right-1.5 w-4 cursor-col-resize"
-            />
-          </div>
+          {/* Right Draggable Splitter Handle & Column 3 */}
+          {isInspectorOpen && (
+            <>
+              <div
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setIsDraggingRight(true);
+                }}
+                onDoubleClick={() => setInspectorWidth(390)}
+                className={`relative w-1 hover:w-1.5 cursor-col-resize z-20 shrink-0 transition-all duration-150 select-none group flex items-center justify-center ${
+                  isDraggingRight
+                    ? 'bg-blue-400 w-1.5 shadow-[0_0_8px_#60a5fa]'
+                    : 'bg-[#1e293b]/70 hover:bg-blue-500/80'
+                }`}
+                title="Drag to resize inspector (Double-click to reset)"
+              >
+                {/* Expanded invisible touch hit area */}
+                <div
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    setInspectorWidth(390);
+                  }}
+                  className="absolute inset-y-0 -left-1.5 -right-1.5 w-4 cursor-col-resize"
+                />
+              </div>
 
-          {/* Column 3: Right Inspector & Diagnostics */}
-          <ErrorBoundary name="Agent Inspector & Diagnostics">
-            <AgentInspector />
-          </ErrorBoundary>
+              {/* Column 3: Right Inspector & Diagnostics */}
+              <ErrorBoundary name="Agent Inspector & Diagnostics">
+                <AgentInspector />
+              </ErrorBoundary>
+            </>
+          )}
         </div>
 
         {/* Modals & Overlays */}

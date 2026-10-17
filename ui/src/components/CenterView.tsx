@@ -29,6 +29,7 @@ import {
   Lightbulb,
   Info,
   Compass,
+  PanelRight,
 } from 'lucide-react';
 import { HumanTakeoverBanner } from './HumanTakeoverBanner.js';
 import { AutomationsView } from './AutomationsView.js';
@@ -83,6 +84,8 @@ export const CenterView: React.FC = () => {
     submitGrillMeAnswers,
     dismissGrillMe,
     clearQuotaPause,
+    isInspectorOpen,
+    setInspectorOpen,
   } = useKinStore();
 
   const isMachineTool = (tool?: string) => {
@@ -500,17 +503,29 @@ export const CenterView: React.FC = () => {
             </span>
           </div>
         ) : isDm ? (
-          <div className="flex items-center space-x-2 truncate">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]" />
-            <div className="flex items-center space-x-2">
-              <span className="font-bold text-kin-text text-sm">{targetAgent?.displayName || '@Agent'}</span>
-              <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono">
-                {targetAgent?.role || 'Specialist'}
+          <div className="flex items-center justify-between w-full min-w-0 overflow-hidden">
+            <div className="flex items-center space-x-2 truncate">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]" />
+              <div className="flex items-center space-x-2">
+                <span className="font-bold text-kin-text text-sm">{targetAgent?.displayName || '@Agent'}</span>
+                <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono">
+                  {targetAgent?.role || 'Specialist'}
+                </span>
+              </div>
+              <span className="text-[#64748b] text-[11px] truncate hidden md:inline">
+                Private 1-on-1 Direct Message thread
               </span>
             </div>
-            <span className="text-[#64748b] text-[11px] truncate hidden md:inline">
-              Private 1-on-1 Direct Message thread
-            </span>
+            {!isInspectorOpen && (
+              <button
+                onClick={() => setInspectorOpen(true)}
+                className="flex items-center space-x-1 px-2.5 py-1 rounded-full bg-[#1e293b] hover:bg-blue-600/30 hover:text-blue-300 text-kin-text border border-[#2d3748] text-[11px] transition shrink-0 ml-2 cursor-pointer"
+                title="Expand Agent Inspector Panel"
+              >
+                <PanelRight className="w-3 h-3 text-blue-400" />
+                <span>Inspector</span>
+              </button>
+            )}
           </div>
         ) : (
           <div className="flex items-center justify-between w-full min-w-0 overflow-hidden">
@@ -570,6 +585,18 @@ export const CenterView: React.FC = () => {
                 <UserPlus className="w-3 h-3 text-emerald-400" />
                 <span>+ Add Agent</span>
               </button>
+
+              {/* Inspector Expand Button if collapsed */}
+              {!isInspectorOpen && (
+                <button
+                  onClick={() => setInspectorOpen(true)}
+                  className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-[#1e293b] hover:bg-blue-600/30 hover:text-blue-300 text-kin-text border border-[#2d3748] text-[11px] transition shrink-0 cursor-pointer"
+                  title="Expand Agent Inspector Panel"
+                >
+                  <PanelRight className="w-3 h-3 text-blue-400" />
+                  <span className="hidden sm:inline">Inspector</span>
+                </button>
+              )}
             </div>
           </div>
         )}

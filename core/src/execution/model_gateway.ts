@@ -105,7 +105,7 @@ export class ModelGateway {
   private ollamaModelCountCached?: number;
 
   constructor(options?: ModelGatewayOptions) {
-    this.ollamaHost = options?.ollamaHost || process.env.OLLAMA_HOST || 'http://localhost:11434';
+    this.ollamaHost = options?.ollamaHost || process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
     this.openrouterApiKey = options?.openrouterApiKey || process.env.OPENROUTER_API_KEY;
     this.openaiApiKey = options?.openaiApiKey || process.env.OPENAI_API_KEY;
     this.anthropicApiKey = options?.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
@@ -766,7 +766,8 @@ export class ModelGateway {
         }
       }
       const durationMs = Date.now() - startTime;
-      const errorMsg = `[KIN Model Gateway Error] Failed to reach provider "${provider}" for model "${modelName}": ${err?.message || String(err)}`;
+      const causeText = err?.cause?.message || (err?.cause ? String(err.cause) : '');
+      const errorMsg = `[KIN Model Gateway Error] Failed to reach provider "${provider}" for model "${modelName}": ${err?.message || String(err)}${causeText ? ` (${causeText})` : ''}`;
       
       return {
         content: errorMsg,
@@ -815,10 +816,13 @@ export class ModelGateway {
       stream: true,
       options: {
         temperature: params.temperature ?? 0.2,
-        num_predict: params.maxTokens ?? 2048,
+        num_predict: params.maxTokens ?? 1536,
+        num_ctx: process.env.KIN_OLLAMA_NUM_CTX ? parseInt(process.env.KIN_OLLAMA_NUM_CTX, 10) : 8192,
       },
     };
-    if (params.tools && params.tools.length > 0) {
+    const sysPrompt = params.messages?.find((m) => m.role === 'system')?.content || '';
+    const promptHasTools = sysPrompt.includes('AVAILABLE TOOLS') || sysPrompt.includes('TOOL INSTRUCTIONS:');
+    if (params.tools && params.tools.length > 0 && !promptHasTools) {
       requestBody.tools = params.tools;
     }
 

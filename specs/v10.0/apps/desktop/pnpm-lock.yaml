@@ -1,0 +1,177 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+  .:
+    dependencies:
+      '@tauri-apps/api':
+        specifier: 2.1.0
+        version: 2.1.0
+      '@tanstack/react-virtual':
+        specifier: 3.10.8
+        version: 3.10.8(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
+      '@xyflow/react':
+        specifier: 12.3.2
+        version: 12.3.2(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
+      i18next:
+        specifier: 23.16.4
+        version: 23.16.4
+      monaco-editor:
+        specifier: 0.52.0
+        version: 0.52.0
+      react:
+        specifier: 19.0.0
+        version: 19.0.0
+      react-dom:
+        specifier: 19.0.0
+        version: 19.0.0(react@19.0.0)
+      react-i18next:
+        specifier: 15.1.0
+        version: 15.1.0(i18next@23.16.4)(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
+      zustand:
+        specifier: 5.0.1
+        version: 5.0.1(react@19.0.0)
+    devDependencies:
+      '@tauri-apps/cli':
+        specifier: 2.1.0
+        version: 2.1.0
+      '@types/react':
+        specifier: 19.0.1
+        version: 19.0.1
+      '@types/react-dom':
+        specifier: 19.0.1
+        version: 19.0.1(@types/react@19.0.1)
+      typescript:
+        specifier: 5.6.3
+        version: 5.6.3
+      vite:
+        specifier: 5.4.10
+        version: 5.4.10
+      vitest:
+        specifier: 2.1.4
+        version: 2.1.4(vite@5.4.10)
+
+packages:
+  '@tauri-apps/api@2.1.0':
+    resolution: {integrity: sha512-7bR8x9cK1vL2mN3pQ4rS5tU6vW7xY8zA9bC0dE1fG2hI3jK4lM5nO6pQ7rS8tU9vW0xY1zA2bC3dE4fG5hI6jA==}
+
+  '@tauri-apps/cli@2.1.0':
+    resolution: {integrity: sha512-8cR9y0dL2wM3nO4qR5sT6uV7wX8yZ9aB0cD1eF2gH3iJ4kL5mN6oP7qR8sT9uV0wX1yZ2aB3cD4eF5gH6iJ7kB==}
+    hasBin: true
+
+  '@tanstack/react-virtual@3.10.8':
+    resolution: {integrity: sha512-9dS0z1eM3xN4oP5rS6tU7vW8xY9zA0bC1dE2fG3hI4jK5lM6nO7pQ8rS9tU0vW1xY2zA3bC4dE5fG6hI7jK8lC==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+      react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
+  '@types/react@19.0.1':
+    resolution: {integrity: sha512-1eT1a2fN4yO5pQ6sT7uV8wX9yZ0aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0uV1wX2yZ3aB4cD5eF6gH7iJ8kL9mD==}
+
+  '@types/react-dom@19.0.1':
+    resolution: {integrity: sha512-2fU2b3gO5zP6qR7tU8vW9xY0zA1bC2dE3fG4hI5jK6lM7nO8pQ9rS0tU1vW2xY3zA4bC5dE6fG7hI8jK9lM0nE==}
+    peerDependencies:
+      '@types/react': ^19.0.0
+
+  '@xyflow/react@12.3.2':
+    resolution: {integrity: sha512-3gV3c4hP6aQ7rS8uV9wX0yZ1aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT1uV2wX3yZ4aB5cD6eF7gH8iJ9kL0mN1oF==}
+    peerDependencies:
+      react: '>=17'
+      react-dom: '>=17'
+
+  i18next@23.16.4:
+    resolution: {integrity: sha512-4hW4d5iQ7bR8sT9vW0xY1zA2bC3dE4fG5hI6jK7lM8nO9pQ0rS1tU2vW3xY4zA5bC6dE7fG8hI9jK0lM1nO2pG==}
+
+  monaco-editor@0.52.0:
+    resolution: {integrity: sha512-5iX5e6jR8cS9tU0wX1yZ2aB3cD4eF5gH6iJ7kL8mN9oP0qR1sT2uV3wX4yZ5aB6cD7eF8gH9iJ0kL1mN2oP3qH==}
+
+  react@19.0.0:
+    resolution: {integrity: sha512-6jY6f7kS9dT0uV1xY2zA3bC4dE5fG6hI7jK8lM9nO0pQ1rS2tU3vW4xY5zA6bC7dE8fG9hI0jK1lM2nO3pQ4rI==}
+    engines: {node: '>=0.10.0'}
+
+  react-dom@19.0.0:
+    resolution: {integrity: sha512-7kZ7g8lT0eU1vW2yZ3aB4cD5eF6gH7iJ8kL9mN0oP1qR2sT3uV4wX5yZ6aB7cD8eF9gH0iJ1kL2mN3oP4qR5sJ==}
+    peerDependencies:
+      react: 19.0.0
+
+  react-i18next@15.1.0:
+    resolution: {integrity: sha512-8lA8h9mU1fV2wX3zA4bC5dE6fG7hI8jK9lM0nO1pQ2rS3tU4vW5xY6zA7bC8dE9fG0hI1jK2lM3nO4pQ5rS6tK==}
+    peerDependencies:
+      i18next: '>= 23.2.3'
+      react: '>= 16.8.0'
+      react-dom: '>= 16.8.0'
+
+  typescript@5.6.3:
+    resolution: {integrity: sha512-hjcS1m2nV3gW4xY5aB6cD7eF8gH9iJ0kL1mN2oP3qR4sT5uV6wX7yZ8aB9cD0eF1gH2iJ3kL4mN5oP6qR7sT8uL==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
+  vite@5.4.10:
+    resolution: {integrity: sha512-9mB9i0nV2gW3xY4aB5cD6eF7gH8iJ9kL0mN1oP2qR3sT4uV5wX6yZ7aB8cD9eF0gH1iJ2kL3mN4oP5qR6sT7uM==}
+    engines: {node: ^18.0.0 || >=20.0.0}
+    hasBin: true
+
+  vitest@2.1.4:
+    resolution: {integrity: sha512-0nC0j1oW3hX4yZ5bC6dE7fG8hI9jK0lM1nO2pQ3rS4tU5vW6xY7zA8bC9dE0fG1hI2jK3lM4nO5pQ6rS7tU8vN==}
+    engines: {node: ^18.0.0 || >=20.0.0}
+    hasBin: true
+    peerDependencies:
+      vite: ^5.0.0
+
+  zustand@5.0.1:
+    resolution: {integrity: sha512-1oD1k2pX4iY5zA6cD7eF8gH9iJ0kL1mN2oP3qR4sT5uV6wX7yZ8aB9cD0eF1gH2iJ3kL4mN5oP6qR7sT8uV9wO==}
+    peerDependencies:
+      react: '>=18.0.0'
+
+snapshots:
+  '@tauri-apps/api@2.1.0': {}
+
+  '@tauri-apps/cli@2.1.0': {}
+
+  '@tanstack/react-virtual@3.10.8(react-dom@19.0.0(react@19.0.0))(react@19.0.0)':
+    dependencies:
+      react: 19.0.0
+      react-dom: 19.0.0(react@19.0.0)
+
+  '@types/react@19.0.1': {}
+
+  '@types/react-dom@19.0.1(@types/react@19.0.1)':
+    dependencies:
+      '@types/react': 19.0.1
+
+  '@xyflow/react@12.3.2(react-dom@19.0.0(react@19.0.0))(react@19.0.0)':
+    dependencies:
+      react: 19.0.0
+      react-dom: 19.0.0(react@19.0.0)
+      zustand: 5.0.1(react@19.0.0)
+
+  i18next@23.16.4: {}
+
+  monaco-editor@0.52.0: {}
+
+  react@19.0.0: {}
+
+  react-dom@19.0.0(react@19.0.0):
+    dependencies:
+      react: 19.0.0
+
+  react-i18next@15.1.0(i18next@23.16.4)(react-dom@19.0.0(react@19.0.0))(react@19.0.0):
+    dependencies:
+      i18next: 23.16.4
+      react: 19.0.0
+      react-dom: 19.0.0(react@19.0.0)
+
+  typescript@5.6.3: {}
+
+  vite@5.4.10: {}
+
+  vitest@2.1.4(vite@5.4.10):
+    dependencies:
+      vite: 5.4.10
+
+  zustand@5.0.1(react@19.0.0):
+    dependencies:
+      react: 19.0.0

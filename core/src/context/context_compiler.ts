@@ -115,8 +115,11 @@ export class ContextCompiler {
       `- Dynamic Workforce & Team Delegation: You have full access to the 'hireSpecialist' tool. When the operator or mission calls for creating a team or delegating to specialized roles (e.g., Android engineering, QA, Frontend, Backend, Database), use the 'hireSpecialist' tool to onboard specialized agents directly into this project and channel. Both orchestrators and specialists can hire subagents under them as required.`,
       `- Channel Staffing & Coworker Assignment Invariant: Every new channel starts with only the Lead Orchestrator (@Boss). When the operator asks to staff a channel or requests a specialist (e.g. for coding, QA, design, frontend), you have two distinct options: Option 1 (Call Existing Coworker): If a coworker with that expertise already works in another department/channel of this project, use the 'assignCoworker' tool to bring them into this channel (they retain their identity and shared memory across departments). Option 2 (Hire New Specialist): You can hire a brand-new specialist dedicated to this channel using the 'hireSpecialist' tool.`,
       `- Direct Messaging Invariant: When the human operator asks you to message them in DM (e.g. "message me in DM", "DM me"), call the 'sendDirectMessage' tool with recipient="user" or "human" to message them directly. To message a coworker agent privately, call 'sendDirectMessage' with their name or ID.`,
+      `- Channel Messaging Invariant: When asked to post a message, announcement, or greeting into a channel (e.g. "say hi in #general", "post update in #qa"), call the 'channel_post' tool with the target channel name and message.`,
       `- Meeting Convening Invariant: When asked to convene or hold a meeting (e.g. "held a meeting about X", "call a meeting on Y"), call the 'callMeeting' tool with the topic, agenda, and invited participant coworker agents.`,
       `- Team & Role Awareness: You are part of an organizational workforce. Refer to the Project Workforce Roster below to know who is responsible for each domain (frontend, backend, QA, database, architecture, etc.) and what tasks they are handling. When asked who is working on a domain, identify the respective coworker accurately.`,
+      `- Conversational Memory Invariant: You have full access to the conversational history provided in the messages. When asked about earlier questions, statements, or events from this chat, refer directly to the prior turns in the conversation transcript rather than claiming you have no memory.`,
+      `- Project Inspection & Codebase Grounding: You are working inside the repository at '${input.project?.repoPath || '.'}'. When the operator asks about the project architecture, features, codebase, documentation, or implementation, do NOT claim you lack context. Proactively use 'readFile' (e.g. 'README.md', 'docs/ARCHITECTURE.md') or 'listDirectory' to inspect the project repository directly.`,
     ];
 
     if (input.goalAncestry) {
@@ -223,9 +226,16 @@ export class ContextCompiler {
 
     // Block 2: Immutable Tool Schemas (Alphabetically sorted for deterministic caching)
     const sortedTools = [...input.toolSchemas].sort((a, b) => a.name.localeCompare(b.name));
+    const conciseToolList = sortedTools.map((t) => {
+      const paramsObj = (t.parameters as any) || {};
+      const propNames = paramsObj.properties ? Object.keys(paramsObj.properties).join(', ') : '';
+      const req = Array.isArray(paramsObj.required) && paramsObj.required.length > 0 ? ` [required: ${paramsObj.required.join(', ')}]` : '';
+      const shortDesc = t.description ? t.description.split('.')[0] : '';
+      return `- ${t.name}(${propNames}): ${shortDesc}.${req}`;
+    }).join('\n');
     const block2 = [
       `### AVAILABLE TOOLS SPECIFICATION:`,
-      JSON.stringify(sortedTools, null, 2),
+      conciseToolList,
     ].join('\n\n');
 
     // Block 3: 4-Tier Memory Hierarchy & Grounding Rules

@@ -21,8 +21,8 @@ The current core source contains route handlers for these areas:
 | State and diagnostics | `/api/state` (including private coworker direct message channels), `/api/system/*` |
 | Projects and workspace | `/api/projects`, project activation, and project-scoped resources |
 | Agents and runs | `/api/agents/*`, `/api/runs/*`, multi-agent delegation, and RunnerAdapter execution |
-| Channels and messages | `/api/channels/*/messages`, channel membership, meeting channels, and direct-message views |
-| Memory and grounding | 4-tier scoped memories (project, channel, agent-private, direct message) via repositories and agent tools (`rememberPrivate`, `recallPrivate`, `rememberProject`) |
+| Channels and messages | `/api/channels/*/messages`, channel membership, meeting channels, direct-message views, and agent cross-channel posting (`channel_post`) |
+| Memory and grounding | 4-tier scoped memories (project, channel, agent-private, direct message) via repositories and agent tools (`rememberPrivate`, `recallPrivate`, `rememberProject`, `rememberChannel`, `recallChannel`) |
 | Goals, tasks, and decisions | project-scoped goal/task routes and decision routes |
 | Models and credentials | `/api/models*`, `/api/settings/credentials*` |
 | Skills and learning | `/api/skills*`, `/api/learning/*` |

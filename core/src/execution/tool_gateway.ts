@@ -138,6 +138,11 @@ export class ToolGateway {
     content: string;
     sourceChannelId?: string;
   }) => Promise<{ channelId: string; enqueuedResponse?: boolean; consecutiveTurns?: number; stoppedReason?: string }>;
+  private channelMessageCallback?: (params: {
+    senderAgentId: string;
+    channelId: string;
+    content: string;
+  }) => Promise<{ success: boolean; messageId: string; channelId: string; channelName?: string } | void>;
   private assignCoworkerCallback?: (coworker: AgentIdentity, channelId: string) => void;
   private callMeetingCallback?: (params: { channelId: string; topic: string; agenda: string; participantIds: string[] }) => void;
   private delegationCallback?: (params: {
@@ -178,6 +183,12 @@ export class ToolGateway {
     cb: (params: { senderAgentId: string; recipientAgentId: string; projectId: string; content: string; sourceChannelId?: string }) => Promise<{ channelId: string; enqueuedResponse?: boolean; consecutiveTurns?: number; stoppedReason?: string }>
   ): void {
     this.directMessageCallback = cb;
+  }
+
+  public setChannelMessageCallback(
+    cb: (params: { senderAgentId: string; channelId: string; content: string }) => Promise<{ success: boolean; messageId: string; channelId: string; channelName?: string } | void>
+  ): void {
+    this.channelMessageCallback = cb;
   }
 
   public setAssignCoworkerCallback(cb: (coworker: AgentIdentity, channelId: string) => void): void {
@@ -818,6 +829,18 @@ export class ToolGateway {
           required: ['topic'],
         },
       },
+      {
+        name: 'channel_post',
+        description: 'Post a message, update, announcement, or status to an existing conversation channel in this project (e.g. "general" or a meeting channel).',
+        parameters: {
+          type: 'object',
+          properties: {
+            channel: { type: 'string', description: 'Target channel name or ID (e.g. "general", "#general", "chan-general")' },
+            message: { type: 'string', description: 'Message content to post to the channel' },
+          },
+          required: ['channel', 'message'],
+        },
+      },
     ];
 
     if (this.skillEngine) {
@@ -934,10 +957,14 @@ export class ToolGateway {
       case 'recall_channel':
         return { primary: 'memory:manage', aliases: ['memory:manage', 'memory:write', 'memory:read', 'memory', 'rememberPrivate', 'remember_private', 'rememberChannel', 'remember_channel', 'agent:coordinate', '*'] };
 
+      case 'channel_post':
+      case 'channelPost':
+      case 'postMessageToChannel':
+      case 'post_message_to_channel':
       case 'sendDirectMessage':
       case 'send_direct_message':
       case 'directMessage':
-        return { primary: 'chat:write', aliases: ['chat:write', 'chat', 'sendDirectMessage', 'send_direct_message', 'directMessage', 'agent:delegate', 'delegate', 'agent', '*'] };
+        return { primary: 'chat:write', aliases: ['chat:write', 'chat', 'channel_post', 'channelPost', 'postMessageToChannel', 'post_message_to_channel', 'sendDirectMessage', 'send_direct_message', 'directMessage', 'agent:delegate', 'delegate', 'agent', '*'] };
 
       case 'delegateToAgent':
       case 'delegate_to_agent':
@@ -2498,6 +2525,69 @@ export class ToolGateway {
           };
         }
 
+        case 'channel_post':
+        case 'channelPost':
+        case 'postMessageToChannel':
+        case 'post_message_to_channel': {
+          const rawChannel = params.channel || params.channelId || params.channel_id || params.targetChannel;
+          const content = params.message || params.content;
+          if (!rawChannel || !content) {
+            throw new Error("channel_post requires 'channel' and 'message' parameters");
+          }
+          let targetChannelId = String(rawChannel).trim();
+          if (targetChannelId.startsWith('#')) {
+            targetChannelId = targetChannelId.substring(1);
+          }
+          if (this.channelMessageCallback) {
+            const cbRes = await this.channelMessageCallback({
+              senderAgentId: context.agentId,
+              channelId: targetChannelId,
+              content: String(content),
+            });
+            return {
+              success: true,
+              output: {
+                success: true,
+                channelId: cbRes && 'channelId' in cbRes ? cbRes.channelId : targetChannelId,
+                message: 'Message successfully posted to channel',
+              } as T,
+              riskLevel: risk,
+            };
+          } else if (this.db) {
+            const now = Date.now();
+            const msgId = crypto.randomUUID();
+            const row = this.db.query<{ id: string }>(
+              `SELECT id FROM channels WHERE id = ? OR name = ? OR name = ? LIMIT 1`,
+              targetChannelId,
+              targetChannelId,
+              `#${targetChannelId}`
+            );
+            const actualChanId = row[0]?.id || targetChannelId;
+            const senderIdentity = this.agentRepo?.getIdentity(context.agentId);
+            this.db.execute(
+              `INSERT INTO messages (id, channel_id, sender_id, sender_name, sender_type, content, created_at)
+               VALUES (?, ?, ?, ?, 'agent', ?, ?)`,
+              msgId,
+              actualChanId,
+              context.agentId,
+              senderIdentity?.displayName || context.agentId,
+              String(content),
+              now
+            );
+            return {
+              success: true,
+              output: {
+                success: true,
+                messageId: msgId,
+                channelId: actualChanId,
+                message: 'Message successfully posted to channel',
+              } as T,
+              riskLevel: risk,
+            };
+          }
+          throw new Error('Database or channel message handler unavailable');
+        }
+
         case 'sendDirectMessage':
         case 'send_direct_message':
         case 'directMessage': {
@@ -3091,7 +3181,19 @@ export class ToolGateway {
   public resolveJailedPath(targetPath: string, worktreeRoot: string): string {
     const root = this.normalizeFsPath(worktreeRoot);
     const canonicalRoot = fs.existsSync(root) ? this.normalizeFsPath(fs.realpathSync(root)) : root;
-    const sanitizedTarget = targetPath.replace(/\\/g, '/');
+    let sanitizedTarget = targetPath.replace(/\\/g, '/');
+
+    // If targetPath is an absolute path referencing the parent repository while working in an isolated worktree
+    const posixRoot = canonicalRoot.replace(/\\/g, '/');
+    if (path.isAbsolute(sanitizedTarget) && posixRoot.includes('/.kin/worktrees/')) {
+      const parentRepo = posixRoot.split('/.kin/worktrees/')[0];
+      const normTarget = this.normalizeFsPath(sanitizedTarget);
+      if (this.isPathWithinRoot(normTarget, parentRepo)) {
+        const relFromParent = path.posix.relative(parentRepo, sanitizedTarget);
+        sanitizedTarget = relFromParent || '.';
+      }
+    }
+
     const resolved = path.resolve(canonicalRoot, sanitizedTarget);
 
     // 1. Initial confinement check

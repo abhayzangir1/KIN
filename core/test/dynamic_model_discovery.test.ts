@@ -5,7 +5,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
-describe('KIN Dynamic Model Discovery & User Custom Model Registration', () => {
+describe('KIN Dynamic Model Discovery & User Custom Model Registration', { timeout: 30000 }, () => {
   let tempDir: string;
   let tempDbPath: string;
   let modelGateway: ModelGateway;
@@ -48,7 +48,7 @@ describe('KIN Dynamic Model Discovery & User Custom Model Registration', () => {
     const openrouterModels = await modelGateway.fetchProviderModels('openrouter');
     expect(openrouterModels.length).toBeGreaterThan(0);
     expect(openrouterModels.some((m) => m.isFree)).toBe(true);
-  });
+  }, 30000);
 
   it('GET /api/models returns dynamic models list with providers', async () => {
     const res = await fetch(`http://127.0.0.1:${port}/api/models`);

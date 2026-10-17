@@ -39,6 +39,7 @@ import {
   Network,
   Target,
   Award,
+  PanelRightClose,
 } from 'lucide-react';
 
 export const AgentInspector: React.FC = () => {
@@ -81,6 +82,7 @@ export const AgentInspector: React.FC = () => {
     uploadFile,
     deleteUpload,
     inspectorWidth,
+    setInspectorOpen,
     agentEvaluations,
     evaluationsLoading,
     credentials,
@@ -441,6 +443,15 @@ export const AgentInspector: React.FC = () => {
             <span>Terminal</span>
           </button>
         </div>
+
+        {/* Collapse Inspector Button */}
+        <button
+          onClick={() => setInspectorOpen(false)}
+          className="p-1 rounded hover:bg-[#1e293b] text-[#64748b] hover:text-kin-text transition ml-1 shrink-0 cursor-pointer"
+          title="Collapse Inspector Panel"
+        >
+          <PanelRightClose className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Sub-header for Agent Tab Views */}

@@ -159,7 +159,7 @@ describe('Adversarial Verification: Milestone 1 (R3, R4, R5)', () => {
           fs.rmSync(cleanDir, { recursive: true, force: true });
         } catch {}
       }
-    });
+    }, 30000);
 
     it('freeOnly combined with omitUnconfigured behaves correctly', async () => {
       const cleanDir = fs.mkdtempSync(path.join(tmpdir(), 'kin-clean-free-'));
@@ -186,7 +186,7 @@ describe('Adversarial Verification: Milestone 1 (R3, R4, R5)', () => {
           fs.rmSync(cleanDir, { recursive: true, force: true });
         } catch {}
       }
-    });
+    }, 30000);
 
     it('returns configured custom model when omitUnconfigured=true, omitting unconfigured ones', async () => {
       // Register custom endpoint on test server

@@ -240,10 +240,12 @@ export class AgentLoopRunner {
       }
 
       // Multi-turn context compaction to prevent prompt context bloat
-      if (conversationHistory.length > 4) {
+      if (conversationHistory.length > 3) {
         const estimatedTokens = conversationHistory.reduce((acc, m) => acc + Math.ceil(m.content.length / 4), 0);
-        const maxTokens = 16000;
-        if (estimatedTokens > maxTokens * 0.75) {
+        const isLocalModel = !options.modelId || options.modelId.includes('gemma') || options.modelId.includes('qwen') || options.modelId.includes('llama') || !options.modelId.includes('/');
+        const maxTokens = (options as any).maxContextTokens || (isLocalModel ? 5500 : 16000);
+        const thresholdRatio = isLocalModel ? 0.65 : 0.75;
+        if (estimatedTokens > maxTokens * thresholdRatio) {
           let persistedMessages: Array<{ id: string; content: string }> = [];
           if (options.taskRepo?.db && options.channelId) {
             try {
@@ -324,7 +326,7 @@ export class AgentLoopRunner {
             messages: compMessages,
             currentTokens: estimatedTokens,
             maxTokens,
-            compactionThresholdRatio: 0.75,
+            compactionThresholdRatio: thresholdRatio,
             snapshotState: {
               goalId: options.goalId || (options.taskId && activeTaskObj?.goalId) || options.runId,
               primaryObjective: options.userPrompt,
@@ -631,9 +633,10 @@ export class AgentLoopRunner {
       }
 
       const content = response.content;
-      let toolCall = this.extractToolCall(content);
+      const validTools = this.toolGateway ? new Set(this.toolGateway.getToolSchemas().map((s) => s.name)) : undefined;
+      let toolCall = this.extractToolCall(content, validTools);
       if (!toolCall && response.thinking) {
-        toolCall = this.extractToolCall(response.thinking);
+        toolCall = this.extractToolCall(response.thinking, validTools);
       }
 
       if (!toolCall) {
@@ -1177,8 +1180,10 @@ export class AgentLoopRunner {
         `\n\nTo invoke a connected MCP tool, use its exact name in <tool_call>:\n<tool_call>\n{"name": "${mcpSchemas[0].name}", "parameters": { ... }}\n</tool_call>`;
     }
 
-    return `${basePrompt}${skillText}
-
+    const alreadyHasTools = basePrompt.includes('AVAILABLE TOOLS SPECIFICATION') || basePrompt.includes('TOOL INSTRUCTIONS:');
+    const toolsSection = alreadyHasTools
+      ? (mcpToolsText ? `\n\n${mcpToolsText}` : '')
+      : `
 TOOL INSTRUCTIONS:
 You have access to the following native and desktop tools:
 1. readFile(path: string) — Read file contents from project jail.
@@ -1211,16 +1216,28 @@ You have access to the following native and desktop tools:
 28. recallChannel(key?: string, type?: string) — Retrieve memories recorded in this channel or department.
 29. sendDirectMessage(recipient: string, message: string) — Send private 1-on-1 direct message to the human operator ("user" or "human") or to a coworker agent.
 30. assignCoworker(coworker: string, channelId?: string) — Assign/call an existing coworker agent from another channel of this project into this channel.
-31. callMeeting(topic: string, agenda: string, participants: string[]) — Convene a dedicated meeting channel with an agenda and invited coworker agents.${mcpToolsText}
+31. callMeeting(topic: string, agenda: string, participants: string[]) — Convene a dedicated meeting channel with an agenda and invited coworker agents.${mcpToolsText}`;
+
+    return `${basePrompt}${skillText}${toolsSection}
 
 CRITICAL TOOL INVOCATION RULES:
-1. When instructed to create files, scaffold projects, build applications, or execute commands, you MUST invoke the appropriate tool (e.g. writeFile, executeShell, or an MCP tool) immediately. NEVER just describe what you plan to do in text without calling the tool.
+1. You have direct access to tools for inspecting the workspace, reading files, creating files, and running commands. When instructed to inspect, list files, read a file (e.g. package.json, README), search code, write files, or execute commands, you MUST invoke the appropriate tool (e.g. readFile, listDirectory, writeFile, executeShell) immediately using <tool_call> tags. NEVER refuse, apologize, or claim you lack access or permission.
 2. Output tool calls using EXACTLY this XML format:
 <tool_call>
 {"name": "tool_name", "parameters": {"param1": "val1"}}
 </tool_call>
 
 Examples:
+To read a file:
+<tool_call>
+{"name": "readFile", "parameters": {"filePath": "package.json"}}
+</tool_call>
+
+To list directory contents:
+<tool_call>
+{"name": "listDirectory", "parameters": {"dirPath": "."}}
+</tool_call>
+
 To write a file:
 <tool_call>
 {"name": "writeFile", "parameters": {"path": "app/build.gradle.kts", "content": "// Gradle config"}}
@@ -1241,15 +1258,15 @@ To delegate or coordinate with another specialist:
 {"name": "delegateToAgent", "parameters": {"targetAgent": "@QAEngineer", "directive": "Review test criteria"}}
 </tool_call>
 
-3. When you receive the <observation>, evaluate the result and continue with your next tool or summarize the completed work.
+3. When you receive the <observation>, synthesize the findings and report them directly to the user in your response (e.g. if you listed directory files or read a file, report the actual content, answers, and findings the user asked for). Do NOT simply say "I have evaluated the observation" without answering.
 4. When communicating via sendDirectMessage, state your question or deliverable once. Do NOT invoke sendDirectMessage repeatedly with identical content. When the interaction concludes, conclude with [ACK] or [COMPLETE].`;
   }
 
-  public extractToolCall(content: string): { name: string; params: any } | null {
-    return AgentLoopRunner.extractToolCall(content);
+  public extractToolCall(content: string, validTools?: Set<string>): { name: string; params: any } | null {
+    return AgentLoopRunner.extractToolCall(content, validTools);
   }
 
-  public static extractToolCall(content: string): { name: string; params: any } | null {
+  public static extractToolCall(content: string, validTools?: Set<string>): { name: string; params: any } | null {
     if (!content || typeof content !== 'string') return null;
 
     const extractBalancedJsonBlocks = (text: string): string[] => {
@@ -1375,12 +1392,32 @@ To delegate or coordinate with another specialist:
       return cleaned;
     };
 
-    const parseJsonPayload = (rawPayload: string): { name: string; params: any } | null => {
+    const parseJsonPayload = (
+      rawPayload: string,
+      requireParams = false,
+      validToolsSet?: Set<string>
+    ): { name: string; params: any } | null => {
       const sanitized = sanitizeJsonString(rawPayload);
       try {
         const parsed = JSON.parse(sanitized);
         const toolName = parsed.name || parsed.tool;
         if (toolName && typeof toolName === 'string') {
+          const hasParams =
+            parsed.parameters !== undefined ||
+            parsed.params !== undefined ||
+            parsed.arguments !== undefined ||
+            parsed.args !== undefined;
+
+          if (requireParams && !hasParams) {
+            return null;
+          }
+
+          if (validToolsSet && validToolsSet.size > 0) {
+            if (!validToolsSet.has(toolName) && !toolName.startsWith('mcp__')) {
+              return null;
+            }
+          }
+
           return {
             name: toolName,
             params: parsed.parameters || parsed.params || parsed.arguments || parsed.args || {},
@@ -1392,6 +1429,11 @@ To delegate or coordinate with another specialist:
           const nameMatch = rawPayload.match(/["'](?:name|tool)["']\s*:\s*["']([^"']+)["']/);
           if (nameMatch) {
             const name = nameMatch[1];
+            if (validToolsSet && validToolsSet.size > 0) {
+              if (!validToolsSet.has(name) && !name.startsWith('mcp__')) {
+                return null;
+              }
+            }
             const paramsMatch =
               rawPayload.match(/["'](?:parameters|params|arguments|args)["']\s*:\s*(\{[\s\S]*\})/i);
             if (paramsMatch) {
@@ -1402,7 +1444,9 @@ To delegate or coordinate with another specialist:
                 return { name, params };
               }
             }
-            return { name, params: {} };
+            if (!requireParams) {
+              return { name, params: {} };
+            }
           }
         } catch {}
       }
@@ -1412,7 +1456,7 @@ To delegate or coordinate with another specialist:
     // 1. Explicit tags: <tool_call> or <tool> or <function_call>
     const tagMatch = content.match(/<(tool_call|tool|function_call)>([\s\S]*?)(?:<\/\1>|$)/i);
     if (tagMatch) {
-      const res = parseJsonPayload(tagMatch[2]);
+      const res = parseJsonPayload(tagMatch[2], false, validTools);
       if (res) return res;
     }
 
@@ -1421,7 +1465,7 @@ To delegate or coordinate with another specialist:
     for (const match of codeBlockMatches) {
       const block = match[1].trim();
       if (block.includes('"name"') || block.includes('"tool"') || block.includes("'name'") || block.includes("'tool'")) {
-        const res = parseJsonPayload(block);
+        const res = parseJsonPayload(block, true, validTools);
         if (res) return res;
       }
     }
@@ -1430,7 +1474,7 @@ To delegate or coordinate with another specialist:
     const blocks = extractBalancedJsonBlocks(content);
     for (const block of blocks) {
       if (block.includes('"name"') || block.includes('"tool"') || block.includes("'name'") || block.includes("'tool'")) {
-        const res = parseJsonPayload(block);
+        const res = parseJsonPayload(block, true, validTools);
         if (res) return res;
       }
     }

@@ -1,0 +1,94 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/kin-types",
+    "crates/kin-proto",
+    "crates/kin-error",
+    "crates/kin-ports",
+    "crates/kin-crypto",
+    "crates/kin-plugin-sdk",
+    "crates/kin-store",
+    "crates/kin-ledger",
+    "crates/kin-blobs",
+    "crates/kin-index",
+    "crates/kin-vault",
+    "crates/kin-policy",
+    "crates/kin-sandbox",
+    "crates/kin-lanes",
+    "crates/kin-pty",
+    "crates/kin-lsp",
+    "crates/kin-gateway",
+    "crates/kin-egress",
+    "crates/kin-browser",
+    "crates/kin-mcp",
+    "crates/kin-memory",
+    "crates/kin-context",
+    "crates/kin-tools",
+    "crates/kin-harness",
+    "crates/kin-orch",
+    "crates/kin-tasks",
+    "crates/kin-sched",
+    "crates/kin-engine",
+    "crates/kin-shell",
+    "crates/kin-cli",
+    "crates/kin-bench",
+    "xtask",
+]
+
+[workspace.package]
+version = "10.0.0"
+edition = "2021"
+rust-version = "1.82.0"
+license = "LicenseRef-KIN-Proprietary"
+
+[workspace.lints.rust]
+# Audited OS FFI modules in kin-sandbox, kin-vault, and kin-store override `deny` via module-level `#![allow(unsafe_code)]`
+# accompanied by mandatory `// SAFETY:` proofs; all other 29 workspace crates set crate-level `#![forbid(unsafe_code)]`.
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+
+[workspace.dependencies]
+serde = { version = "=1.0.210", features = ["derive"] }
+serde_json = "=1.0.128"
+specta = { version = "=2.0.0-rc.20", features = ["derive"] }
+thiserror = "=1.0.64"
+ulid = "=1.1.3"
+jiff = "=0.1.13"
+blake3 = "=1.5.4"
+ed25519-dalek = { version = "=2.1.1", features = ["rand_core"] }
+chacha20poly1305 = "=0.10.1"
+argon2 = "=0.5.3"
+hkdf = "=0.12.4"
+sha2 = "=0.10.8"
+hmac = "=0.12.1"
+subtle = "=2.6.1"
+secrecy = "=0.10.3"
+aho-corasick = "=1.1.3"
+rusqlite = { version = "=0.32.1", features = ["bundled-sqlcipher-vendored-openssl"] }
+sqlite-vec = "=0.1.9"
+zstd = "=0.13.2"
+ort = "=2.0.0-rc.6"
+ignore = "=0.4.23"
+keyring = "=3.4.1"
+landlock = "=0.4.1"
+seccompiler = "=0.4.0"
+libc = "=0.2.161"
+windows-sys = { version = "=0.59.0", features = ["Win32_System_JobObjects", "Win32_Security", "Win32_System_Threading"] }
+cap-std = "=3.4.1"
+portable-pty = "=0.8.1"
+tree-sitter = "=0.24.3"
+tree-sitter-bash = "=0.23.1"
+# Workspace base exposes only `sync` for Layer L4 crates; L2/L3/L5 crates opt into `rt`, `macros`, `time`, `net`, `process`, `io-util`, `fs` per-crate (enforced by `xtask check-deps`).
+tokio = { version = "=1.40.0", default-features = false, features = ["sync"] }
+tokio-util = { version = "=0.7.12", features = ["sync", "rt"] }
+reqwest = { version = "=0.12.8", default-features = false, features = ["rustls-tls", "json", "stream"] }
+chromiumoxide = "=0.7.0"
+tera = "=1.20.0"
+tauri = { version = "=2.1.0", features = ["wry"] }
+clap = { version = "=4.5.20", features = ["derive"] }

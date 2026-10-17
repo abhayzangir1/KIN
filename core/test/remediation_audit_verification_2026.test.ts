@@ -439,7 +439,7 @@ describe('Audit Remediation & Vision Verification Suite', () => {
       const out = result.output as any;
       expect(out.query).toBe('TypeScript SQLite WAL');
       expect(Array.isArray(out.results)).toBe(true);
-    });
+    }, 30000);
   });
 
   describe('Shell Virtual Environment Detection', () => {
