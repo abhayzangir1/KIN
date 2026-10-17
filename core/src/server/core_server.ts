@@ -816,6 +816,10 @@ export class CoreServer {
     this.kernel.transitionState(runId, 'running');
     if (modelOverride) {
       this.db.execute('UPDATE agent_runs SET model_id = ? WHERE id = ?', modelOverride, runId);
+      if (runRow.agent_id) {
+        this.agentRepo.updateAgentModelConfig(runRow.agent_id, modelOverride);
+        this.broadcastEvent('agent:updated', { agentId: runRow.agent_id, activeModelId: modelOverride });
+      }
     }
 
     // Retrieve latest checkpoint

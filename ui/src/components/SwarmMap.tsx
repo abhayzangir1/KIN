@@ -34,6 +34,7 @@ export const SwarmMap: React.FC = () => {
     fetchAgentExecutionDetails,
     setAddAgentModalOpen,
     ollamaStatus,
+    availableModels,
     updateAgentContract,
     decommissionAgent,
     addChannelMember,
@@ -88,6 +89,63 @@ export const SwarmMap: React.FC = () => {
   const handleModelChange = async (agent: AgentDisplay, newModel: string) => {
     await updateAgentContract(agent.id, agent.role, newModel);
     fetchAgentExecutionDetails(agent.id);
+  };
+
+  const renderModelOptions = (currentModelId: string) => {
+    const localOllama = availableModels.filter((m) => m.provider === 'ollama');
+    const freeCloud = availableModels.filter((m) => m.provider !== 'ollama' && m.isFree && m.configured !== false);
+    const paidCloud = availableModels.filter((m) => m.provider !== 'ollama' && !m.isFree && m.configured !== false);
+    const hasCurrent = availableModels.some((m) => m.id === currentModelId) || (ollamaStatus.models && ollamaStatus.models.some((m) => `ollama/${m}` === currentModelId));
+
+    return (
+      <>
+        {localOllama.length > 0 ? (
+          <optgroup label="Local Ollama">
+            {localOllama.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name || m.id} (Local)
+              </option>
+            ))}
+          </optgroup>
+        ) : ollamaStatus.models?.length > 0 ? (
+          <optgroup label="Local Ollama">
+            {ollamaStatus.models.map((m) => (
+              <option key={m} value={`ollama/${m}`}>
+                {m} (Local)
+              </option>
+            ))}
+          </optgroup>
+        ) : null}
+
+        {freeCloud.length > 0 && (
+          <optgroup label="Free Cloud (OpenRouter)">
+            {freeCloud.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name || m.id} (Free)
+              </option>
+            ))}
+          </optgroup>
+        )}
+
+        {paidCloud.length > 0 && (
+          <optgroup label="Cloud Models">
+            {paidCloud.slice(0, 30).map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name || m.id}
+              </option>
+            ))}
+          </optgroup>
+        )}
+
+        {currentModelId && !hasCurrent && (
+          <optgroup label="Active Selected">
+            <option value={currentModelId}>{currentModelId}</option>
+          </optgroup>
+        )}
+
+        <option value="inherit">inherit (Project Default)</option>
+      </>
+    );
   };
 
   const orchestrator = displayedAgents.find((a) => a.isOrchestrator) || agents.find((a) => a.isOrchestrator);
@@ -254,13 +312,9 @@ export const SwarmMap: React.FC = () => {
                         handleModelChange(orchestrator, e.target.value);
                       }}
                       onClick={(e) => e.stopPropagation()}
-                      className="bg-[#090d16] text-amber-300 border border-amber-500/30 rounded px-1.5 py-0.5 text-[10px] font-mono focus:outline-none"
+                      className="bg-[#090d16] text-amber-300 border border-amber-500/30 rounded px-1.5 py-0.5 text-[10px] font-mono focus:outline-none cursor-pointer max-w-[200px] truncate"
                     >
-                      {ollamaStatus.models.map((m) => (
-                        <option key={m} value={`ollama/${m}`}>
-                          {m}
-                        </option>
-                      ))}
+                      {renderModelOptions(orchestrator.activeModelId)}
                     </select>
                   </div>
 
@@ -340,13 +394,9 @@ export const SwarmMap: React.FC = () => {
                             handleModelChange(spec, e.target.value);
                           }}
                           onClick={(e) => e.stopPropagation()}
-                          className="bg-[#090d16] text-blue-300 border border-blue-500/30 rounded px-1.5 py-0.5 text-[10px] font-mono focus:outline-none"
+                          className="bg-[#090d16] text-blue-300 border border-blue-500/30 rounded px-1.5 py-0.5 text-[10px] font-mono focus:outline-none cursor-pointer max-w-[200px] truncate"
                         >
-                          {ollamaStatus.models.map((m) => (
-                            <option key={m} value={`ollama/${m}`}>
-                              {m}
-                            </option>
-                          ))}
+                          {renderModelOptions(spec.activeModelId)}
                         </select>
                       </div>
 

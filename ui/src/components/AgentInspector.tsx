@@ -1457,9 +1457,17 @@ export const AgentInspector: React.FC = () => {
                 {/* Dynamic LLM Model Selector with Live Discovery & Manual Assignment */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-medium text-[#64748b] uppercase tracking-wider">
-                      Assigned Model (Tier 1)
-                    </label>
+                    <div className="flex items-center space-x-1.5">
+                      <label className="text-[10px] font-medium text-[#64748b] uppercase tracking-wider">
+                        Assigned Model (Tier 1)
+                      </label>
+                      {isSaved && (
+                        <span className="text-[10px] text-emerald-400 font-mono flex items-center space-x-0.5 animate-fadeIn">
+                          <Check className="w-3 h-3 text-emerald-400" />
+                          <span>Saved</span>
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center space-x-1.5">
                       <div className="flex items-center space-x-1 p-0.5 bg-[#0a0f1d] rounded border border-[#1e293b] text-[9px]">
                         <button
@@ -1506,8 +1514,16 @@ export const AgentInspector: React.FC = () => {
 
                   <select
                     value={activeModelId}
-                    onChange={(e) => setActiveModelId(e.target.value)}
-                    className="w-full bg-[#0a0f1d] border border-[#1e293b] rounded px-2.5 py-1.5 text-kin-text text-xs focus:outline-none focus:border-emerald-500 font-mono"
+                    onChange={async (e) => {
+                      const newModelId = e.target.value;
+                      setActiveModelId(newModelId);
+                      if (currentAgent) {
+                        await updateAgentContract(currentAgent.id, roleTitle, newModelId, customInstructions);
+                        setIsSaved(true);
+                        setTimeout(() => setIsSaved(false), 2000);
+                      }
+                    }}
+                    className="w-full bg-[#0a0f1d] border border-[#1e293b] rounded px-2.5 py-1.5 text-kin-text text-xs focus:outline-none focus:border-emerald-500 font-mono cursor-pointer"
                   >
                     {/* 1. Local Ollama Models */}
                     {inspectorFilteredModels.filter((m) => m.provider === 'ollama').length > 0 && (
@@ -1607,6 +1623,11 @@ export const AgentInspector: React.FC = () => {
                           const modelId = customModelInput.trim();
                           await addCustomModel(modelId);
                           setActiveModelId(modelId);
+                          if (currentAgent) {
+                            await updateAgentContract(currentAgent.id, roleTitle, modelId, customInstructions);
+                            setIsSaved(true);
+                            setTimeout(() => setIsSaved(false), 2000);
+                          }
                           setCustomModelInput('');
                         }}
                         className="px-2.5 py-1 rounded bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/40 text-[10px] font-mono font-medium transition cursor-pointer whitespace-nowrap"
