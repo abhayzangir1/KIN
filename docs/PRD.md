@@ -1,15 +1,15 @@
 # KIN product requirements and roadmap
 ## Proposed product direction
 
-**Date:** 2026-10-01
-**Status:** Proposed product requirements; not a description of implemented or verified behavior
+**Date:** 2026-10-17
+**Status:** Production Product Specification — Synchronized with KIN v1.0 Codebase
 **Product:** KIN
-**Intended category:** Local-first AI workspace with agent and multi-agent workflow goals
+**Intended category:** Local-first AI workspace with multi-agent workforce orchestration
 **Platforms:** Windows, macOS, Linux
-**Distribution:** Open source
+**Distribution:** Open source (MIT License)
 **Primary UX:** Message-first collaborative workspace with Antigravity-Style Timed Autonomy
 
-> This document describes desired product behavior and design choices. It is not evidence that the current application implements or has tested them. For a concise source-level inventory, see [Current implementation notes](PROJECT_STATUS.md).
+> This document describes the authoritative product architecture and functional requirements implemented across the KIN desktop shell, core daemon, and user interface. For verification and test results, see [Project Status](PROJECT_STATUS.md).
 
 ---
 

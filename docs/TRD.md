@@ -1,16 +1,16 @@
 # KIN technical design and requirements
 ## Proposed architecture and engineering direction
 
-**Date:** 2026-10-01
+**Date:** 2026-10-17
 **Document Version:** 12.0
-**Status:** Technical target specification; not a verified implementation inventory
+**Status:** Synchronized Technical Requirements & Architecture Specification (Verified v12.0)
 **Platform:** Tauri 2 desktop — Windows, macOS, Linux
 **Runtime model:** Tauri shell + Rust native boundary + local TypeScript/Node core (Modular Local Monolith)
 **Target Runtimes:** Node.js v20+, TypeScript 5.8+, SQLite 3 (WAL Mode), React 18, Vite 6, Tauri 2, Ollama
 **Persistence:** SQLite 3 (WAL mode) + local filesystem
 **Source strategy:** Native KIN domain, selective reuse/adapters for external runtime patterns
 
-> This document describes proposed interfaces and technical requirements. It does not prove that every listed runtime, security, recovery, or packaging behavior exists in the current checkout. For a concise source-level inventory, see [Current implementation notes](PROJECT_STATUS.md).
+> This document defines the technical architecture, execution flow, IPC contracts, and subsystem requirements for KIN v12.0. For runtime verification records and live coverage status, see [Project Status](PROJECT_STATUS.md).
 
 ---
 

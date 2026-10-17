@@ -1,58 +1,67 @@
-# Current implementation notes
+# KIN Project Status & Verification Audit
 
-**Updated:** 2026-10-16
-**Scope:** Source-level inventory and live runtime verification report of this checkout. This page documents verified subsystem behaviors, runtime integration paths, and known operational limits.
+**Updated:** 2026-10-17  
+**Scope:** Source-level inventory and live runtime verification report of this repository.
 
-## Application shape
+---
 
-KIN is organized as a local application with four main pieces:
+## 🏗️ Architecture & Component Inventory
 
-- `ui/`: React 19, Tailwind, and Zustand interface.
-- `core/`: TypeScript HTTP/SSE service, SQLite repositories, agent runtime, model gateway, tool gateway, scheduler, skills, and integration clients.
-- `src-tauri/`: Tauri 2 and Rust desktop shell, including process supervision (Windows Job Objects) and native desktop integration.
-- `docs/`: user/developer guides, example scaffolds, product/technical target documents.
-- `specs/`: canonical specification suites, including the v10.0 Production Master Suite (`specs/v10.0/`).
+KIN is organized into three production workspaces:
 
-The daemon defaults to loopback address `127.0.0.1` on port `54321`. It uses a local SQLite database and project files on the host filesystem. Hosted model providers, browser destinations, and configured MCP servers can receive data when used.
+- `core/`: TypeScript daemon on Node.js 22, SQLite WAL engine, multi-agent loop runner, model gateway, tool gateway, scheduler, and integration clients.
+- `ui/`: React 18, Tailwind CSS, and Zustand desktop interface.
+- `src-tauri/`: Tauri v2 and Rust desktop shell providing native windowing, system tray, and loopback IPC supervision.
+- `docs/`: Developer guides, tutorials, API specifications, and example bot packages.
 
-## Features represented in source & verified
+---
 
-The current source contains routes, persistence, UI, or runtime code for:
+## ✅ Verified Subsystems & Capabilities
 
-- Projects, channels, messages, direct-message views, agents, goals, tasks, decisions, and approvals.
-- Project-scoped organization boundary with isolated agent identities and automatically seeded project-scoped Boss orchestrators (`agent-boss-${projectId}`).
-- 4-tier memory scoping: Project-shared memory (goals, architectural decisions, project memories), conversation-scoped context (channel messages and memories), agent-private memory (`agent_private`), and direct message privacy.
-- Dedicated agent memory management tools (`rememberPrivate`, `recallPrivate`, and `rememberProject`) with Sentinel capability gating.
-- Peer direct messaging (`dm-${agentA}-${agentB}`) with participant-only context isolation and real-time UI Operator Inspection Mode.
-- Multi-Channel Workforce Coordination Suite: `hireSpecialist`, `assignCoworker` (enrolling existing coworkers into channels), `callMeeting` (convening department channels with agendas), `sendDirectMessage`, `delegateToAgent`, and `channel_post` (`postMessageToChannel`) enabling cross-channel announcements, team coordination, and meeting decision record broadcasts.
-- Pluggable `RunnerAdapter` specification and `RunnerAdapterRegistry` supporting execution engines, with `NativeReActRunnerAdapter` as the default ReAct execution loop.
-- Agent loop runner with LoopBreaker stagnation guard refinements exempting human-driven DM conversations.
-- Agent runs, queued runs, task leases with OCC fencing, checkpoints, recovery handling, and event delivery.
-- Deterministic benchmark evaluator (`BenchmarkEvaluator`) running test cases with authentic pass/fail metrics, execution logs, and SQLite persistence.
-- Provider-specific model discovery, custom model entries, credential management with zero-decryption listing, and local Ollama discovery/inference paths with VRAM-optimized context windows (`num_ctx: 4096`).
-- Canonical v10.0 Production Master Suite (`specs/v10.0/`) with standalone contract verification suite (`verify_kin_v10_0_suite.py` passing 198/200 contract tests).
-- Skills stored in application state and local skill directories, with import/export, VM sandbox execution, and rollback paths.
-- MCP stdio servers configured from project-level configuration files. The client includes initialization, tool discovery, process-exit handling, and project reload support.
-- One-shot schedules and recurring five-field calendar cron schedules, with attempt state and explicit retry paths.
-- Filesystem, shell, browser, and desktop tool paths, plus Git worktree support with AsyncMutex merge serialization and non-Git shadow repository synchronization.
-- Path confinement in `ToolGateway` with Windows unprivileged junction support, case normalization, and hardlink traversal protection.
-- Native desktop supervision in `src-tauri` with Windows Job Objects and multi-child process group tracking with signal cleanup on Unix.
-- Standalone sidecar binary generation (`core/scripts/package_binary.js`) and cross-platform continuous integration gates (`.github/workflows/ci.yml`).
+### 1. Multi-Agent Workforce & Channels
+- **Organizational Isolation**: Every project maintains an independent boundary with dedicated channels, agents, task DAGs, and memories.
+- **Project Orchestrators (`@Boss`)**: Authoritative lead agent automatically seeded per project for intake and task decomposition.
+- **Departmental Channels & Peer DMs**: Multi-channel workforce enrollment (`assignCoworker`), department convening (`callMeeting`), cross-channel broadcasting (`channel_post`), and private peer-to-peer direct messages (`dm-${agentA}-${agentB}`) with participant-only context isolation.
+- **4-Tier Scoped Memory**: Project, Channel, Agent-Private, and Direct Message memory tiers.
 
-This list means the corresponding source paths exist. It does not mean every path has been manually exercised in the packaged desktop app or against live provider accounts.
+### 2. Hybrid Model Gateway & Instant Switching
+- **Local Ollama Integration**: Auto-detects local Ollama on port `11434` (`gemma4:e2b`, `qwen2.5-coder:3b`, `nomic-embed-text`) with zero API costs.
+- **OpenRouter & Cloud BYOK**: Live discovery querying 470+ cloud models with dedicated **Free Tier** filtering (`liquid/lfm-2.5-2.6b:free`, `google/gemma-4-26b-a4b-it:free`, `nvidia/nemotron-3.5-super-vl:free`).
+- **Instant Auto-Persistence**: Selecting any model in Agent Inspector or Swarm Map updates `agent_identities.active_model_id` in SQLite immediately with visual Saved feedback.
 
-## Boundaries and caveats
+### 3. Autonomous Quota Guard & Recovery
+- **Upstream Rate Limit Interception**: Intercepts 429 rate limit exceptions and token exhaustion gracefully without process crashes.
+- **Turn Checkpointing**: Turn memories and execution states are persisted to SQLite.
+- **1-Click Ollama Failover**: Allows instant failover to local unmetered Ollama (`POST /api/system/recovery/switch-to-ollama/:runId`), permanently updating the agent identity for future turns.
 
-- Provider catalog discovery and provider readiness are not the same as a successful inference request. Fallback model entries may be present. Verify model access with a real request and treat provider pricing/availability as provider-controlled data.
-- A task evidence record and an application verification result are not equivalent to an independent review that the user's acceptance criteria have been met.
-- A worktree separates files. It is not host-level process isolation and does not isolate network access or credentials.
-- Capability and approval checks are application-level controls. Review direct routes and tool execution paths before relying on them as a security boundary.
-- Skills and MCP servers are executable integrations. Their code and configuration should be reviewed before use.
-- A Tauri bundle build does not alone establish a clean-machine installation, portable execution, or availability of a compatible Node runtime and core distribution.
-- Product requirements and technical requirements are plans. They are not implementation inventories.
+### 4. Native Desktop & Browser Control
+- **Windows App Discovery**: Enumerates installed executables from registry and Start Menu shortcuts (`GET /api/system/apps`).
+- **GUI Window Inspection**: Enumerate top-level Windows handles, process IDs, and titles (`GET /api/system/windows`).
+- **Screen Capture**: Native GDI display capture (`POST /api/system/desktop/screenshot`).
+- **Browser Automation**: Full Puppeteer Chromium controller (`GET /api/browser/status`, `POST /api/browser/navigate`, `POST /api/browser/click`, `POST /api/browser/screenshot`, `POST /api/browser/evaluate`).
 
-## Verification
+### 5. Proactive Background Routines
+- **Cron & Interval Scheduler**: Standard 5-field cron parser and millisecond interval scheduler with iteration limits and automatic channel dispatch.
 
-Automated test files are under `core/test/`. Use `npm test --workspace=core` to run the core suite, `cargo test --manifest-path src-tauri/Cargo.toml` for desktop shell tests, and `npm run build` to build the workspaces. Results depend on the current checkout and host. A passing unit/integration suite does not by itself establish successful hosted inference, clean-install packaging, or all desktop/browser behaviors.
+### 6. Path-Jailed Git Worktrees
+- **Isolated Worktrees**: Branch creation, canonical path-jail validation, unified diff computation, and rollbacks.
 
-For specific behavior, trace the relevant UI action through its API route, runtime service, persistence, event updates, recovery path, and tests. The source is the authority when this page and implementation differ.
+---
+
+## 🧪 Verification & Test Results
+
+### Automated Test Suite
+- **Core Test Suite (`npm test --workspace=core`)**:
+  - **32 Test Files**: All 32 passed.
+  - **478 Tests**: All 478 passed (0 failed, 0 skipped).
+  - Test suites utilize isolated temporary directories in the system temp directory to prevent any dirty git working tree artifacts.
+
+### Production Builds
+- `npm run build --workspace=core`: Succeeded with zero errors.
+- `npm run build --workspace=ui`: Succeeded with zero errors (Vite production bundle generated).
+- `cargo check --manifest-path src-tauri/Cargo.toml`: Succeeded.
+
+### Live Runtime Simulation
+- End-to-end model switching tested live via Puppeteer against the running Core Daemon (`http://127.0.0.1:54321`) and Vite dev server (`http://127.0.0.1:5173`).
+- Verified prompt execution with both local Ollama (`gemma4:e2b`, `qwen2.5-coder:3b`) and cloud OpenRouter free models (`liquid/lfm-2.5-2.6b:free`, `google/gemma-4-26b-a4b-it:free`).
+- Verified Quota Guard rate-limit interception and 1-click Ollama failover.

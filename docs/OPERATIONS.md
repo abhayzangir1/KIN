@@ -1,47 +1,123 @@
-# Local development and operations
+# KIN Operations & Administration Manual
 
-This guide covers running KIN from the repository and basic local data handling. It is not a production deployment or backup certification.
+This manual provides authoritative operational guidelines for running, configuring, monitoring, and maintaining KIN in local development and production workstation environments.
 
-## Requirements
+---
 
-- Node.js 20 or later
-- npm
-- Rust and platform build tools for the Tauri desktop shell
-- Ollama only when using local Ollama inference
+## 1. System Requirements & Runtime Prerequisites
 
-## Start the development application
+| Component | Minimum Version | Recommended Specification |
+|---|---|---|
+| **Platform** | Windows 10/11 (x64), macOS 12+ (Apple Silicon/Intel), Linux (Ubuntu 22.04+) | 64-bit system |
+| **Node.js** | v20.0.0 LTS | v22 LTS |
+| **npm** | v10.0.0 | Latest |
+| **Rust / Cargo** | v1.75+ | Required only when compiling the Tauri desktop shell |
+| **SQLite** | 3.40+ (Bundled via `better-sqlite3`) | Runs in WAL (Write-Ahead Logging) mode |
+| **Ollama** | Optional (v0.3.0+) | For local offline inference (`16GB+ RAM` recommended) |
 
-From the repository root:
+---
 
-```sh
+## 2. Booting the Runtime Services
+
+KIN operates as a modular local monolith consisting of a TypeScript Core Daemon and a React / Vite desktop UI.
+
+### Step 1: Install Dependencies & Build Workspace
+```bash
+git clone https://github.com/abhayzangir1/KIN.git
+cd KIN
 npm install
 npm run build
 ```
 
-Start the core and UI in separate terminals:
-
-```sh
+### Step 2: Launch the Core Daemon
+In your primary service terminal:
+```bash
 npm run daemon --workspace=core
 ```
+- **Default Listener**: `http://127.0.0.1:54321`
+- **Database Initialization**: Automatically runs SQLite migrations on `kin_storage.sqlite`.
+- **Health Check**: `GET http://127.0.0.1:54321/api/health` returns `{"status":"ok"}`.
 
-```sh
+### Step 3: Launch the Frontend Interface
+
+**Option A: Browser Development Mode (Fastest for Development)**
+```bash
 npm run dev --workspace=ui
 ```
+Opens the web workbench at `http://127.0.0.1:5173`.
 
-The core defaults to `127.0.0.1:54321`; `KIN_PORT` selects a different port. The server binds to loopback in the default configuration. The UI development server uses port 5173.
+**Option B: Tauri Native Desktop Shell**
+```bash
+npm run tauri dev
+```
+Launches the native desktop window with native window menus, dock/system tray integration, and window state persistence.
 
-## Application data and backups
+---
 
-KIN stores structured state in SQLite and project data in local directories. The database may contain provider credentials and should be handled as sensitive data. Stop KIN before making a simple file-copy backup of the database, its SQLite sidecar files, relevant `.kin` data, and project files. Keep them from the same stopped snapshot.
+## 3. Configuration & Environment Variables
 
-Do not delete SQLite WAL or shared-memory files while a process has the database open. Restore data only after stopping the daemon. This guide does not define or validate an online backup procedure.
+Configure KIN by creating a `.env` file in the repository root or exporting environment variables:
 
-## Operational boundaries
+| Variable | Default Value | Description |
+|---|---|---|
+| `KIN_PORT` | `54321` | TCP port for the KIN Core Daemon HTTP REST and SSE server. |
+| `KIN_HOST` | `127.0.0.1` | Network binding interface. Keep as `127.0.0.1` for local-first security. |
+| `KIN_DB_PATH` | `./kin_storage.sqlite` | Path to the authoritative SQLite database. |
+| `KIN_IPC_TOKEN` | *Auto-generated* | Secret bearer token required for authenticating all API and SSE connections. |
+| `OLLAMA_HOST` | `http://127.0.0.1:11434` | Endpoint for connecting to the local Ollama inference service. |
+| `NODE_ENV` | `development` | Runtime environment (`development` or `production`). |
 
-- Hosted model requests, browser destinations, and configured MCP tools may receive data from KIN.
-- Provider quotas and billing are managed by providers; local token accounting is not a billing limit.
-- Git worktrees isolate working directories only.
-- A Tauri build result does not establish a clean-machine install or portable execution.
-- A model marked configured or listed in a catalog still needs a successful inference request to demonstrate availability.
+---
 
-For implementation boundaries, see [Current implementation notes](PROJECT_STATUS.md).
+## 4. SQLite Storage & Backup Procedures
+
+KIN stores all operational state (agents, channels, messages, goals, tasks, schedules, memory tiers, and credentials) in `kin_storage.sqlite`.
+
+### Write-Ahead Logging (WAL) Mode
+KIN automatically configures SQLite for maximum multi-agent concurrency:
+```sql
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+PRAGMA busy_timeout = 5000;
+```
+- **Concurrent Readers**: Unlimited simultaneous read operations across all agents and UI views.
+- **Dedicated Writer**: Background loggers and schedulers do not block foreground user chat or streaming responses.
+
+### Performing Safe Backups
+Because SQLite is running in WAL mode, **do not copy the database while high-throughput writes are active without including sidecar files**.
+
+**Recommended Cold Backup Procedure:**
+1. Stop the Core Daemon process (`Ctrl+C` or kill process).
+2. Copy the database and its WAL sidecars:
+   ```bash
+   cp kin_storage.sqlite kin_storage.sqlite.bak
+   cp kin_storage.sqlite-wal kin_storage.sqlite-wal.bak 2>/dev/null || true
+   cp kin_storage.sqlite-shm kin_storage.sqlite-shm.bak 2>/dev/null || true
+   ```
+3. Restart the Core Daemon.
+
+**Recommended Online Backup (Without Stopping):**
+Use SQLite's native backup command:
+```bash
+sqlite3 kin_storage.sqlite ".backup kin_backup_$(date +%Y%m%d).sqlite"
+```
+
+---
+
+## 5. Security & Trust Hardening
+
+1. **Loopback Confinement**: KIN binds exclusively to `127.0.0.1`. Never expose KIN to public networks without a secure reverse proxy enforcing TLS and strict IP allowlisting.
+2. **IPC Token Authentication**: When `KIN_IPC_TOKEN` is active, all HTTP endpoints and SSE streams require the header `Authorization: Bearer <token>`.
+3. **Encrypted Secret Vault**: API keys and cloud credentials entered in the UI are encrypted via AES-256-GCM before writing to the `secrets` table. Plaintext keys are never logged or exposed in client responses.
+4. **Git Worktree Isolation**: All coding tasks execute inside temporary directories (`.kin/worktrees/`). Path traversal outside the active project boundary is rejected by `ToolGateway`.
+
+---
+
+## 6. Observability & Log Monitoring
+
+- **SSE Stream**: Monitor real-time system events by subscribing to `GET /api/events`.
+- **System Diagnostics**: Inspect memory usage, database size, and Ollama connectivity via:
+  ```bash
+  curl -H "Authorization: Bearer $KIN_TOKEN" http://127.0.0.1:54321/api/diagnostics
+  ```
+- **Daemon Logs**: Tail stdout/stderr in your terminal or redirect to a dedicated logfile (`kin.log`).
