@@ -332,7 +332,7 @@ export const Sidebar: React.FC = () => {
               const percent = goalTasks.length > 0 ? Math.round((completedCount / goalTasks.length) * 100) : 0;
 
               return (
-                <div key={goal.id} className="p-2.5 rounded-xl bg-kin-card/60 hover:bg-kin-card border border-kin-border transition space-y-2 shadow-xs group/goal">
+                <div key={goal.id} className="p-2.5 rounded-xl bg-kin-card hover:bg-kin-cardHover border border-kin-border transition space-y-2 shadow-xs group/goal">
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-kin-text text-xs truncate flex-1 mr-2" title={goal.title}>
                       {goal.title}

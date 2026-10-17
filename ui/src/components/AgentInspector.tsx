@@ -456,7 +456,7 @@ export const AgentInspector: React.FC = () => {
 
       {/* Sub-header for Agent Tab Views */}
       {activeRightTab === 'Agent' && (
-        <div className="h-8 border-b border-[#1e293b] px-3 flex items-center justify-between bg-[#0a0f1d] shrink-0 select-none">
+        <div className="h-8 border-b border-kin-border px-3 flex items-center justify-between bg-kin-surface shrink-0 select-none">
           <div className="flex items-center space-x-1.5">
             <span className="text-[10px] uppercase font-bold tracking-wider text-[#64748b] mr-1">View:</span>
             <button

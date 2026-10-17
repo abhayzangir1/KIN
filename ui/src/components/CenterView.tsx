@@ -407,7 +407,7 @@ export const CenterView: React.FC = () => {
         return (
           <code
             key={i}
-            className="px-1.5 py-0.5 mx-0.5 rounded bg-[#070b14] text-emerald-300 font-mono text-[11px] border border-[#1e293b]"
+            className="px-1.5 py-0.5 mx-0.5 rounded bg-slate-100 dark:bg-[#0d1117] text-emerald-800 dark:text-emerald-300 font-mono text-[11px] border border-slate-300 dark:border-[#30363d]"
           >
             {part.slice(1, -1)}
           </code>
@@ -415,7 +415,7 @@ export const CenterView: React.FC = () => {
       }
       if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
         return (
-          <strong key={i} className="font-bold text-white">
+          <strong key={i} className="font-bold text-kin-text">
             {part.slice(2, -2)}
           </strong>
         );
@@ -424,7 +424,7 @@ export const CenterView: React.FC = () => {
         return (
           <span
             key={i}
-            className="px-1.5 py-0.2 mx-0.5 rounded bg-blue-500/20 text-blue-300 font-mono text-[10px] font-bold border border-blue-500/30 inline-flex items-center"
+            className="px-1.5 py-0.2 mx-0.5 rounded bg-blue-500/15 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 font-mono text-[10px] font-bold border border-blue-500/30 inline-flex items-center"
           >
             {part}
           </span>
@@ -469,7 +469,54 @@ export const CenterView: React.FC = () => {
 
   const renderMessageContent = (content: string, isHumanMsg?: boolean) => {
     const cleaned = isHumanMsg ? content : stripThoughtsAndToolSyntax(content);
-    const paragraphs = (cleaned || content).split(/\n\n+/);
+    const textToRender = cleaned || content;
+
+    // Check for fenced code blocks ```lang ... ```
+    if (textToRender.includes('```')) {
+      const segments = textToRender.split(/(```[a-zA-Z0-9_-]*[\s\S]*?```)/g);
+      return segments.map((seg, sIdx) => {
+        if (seg.startsWith('```') && seg.endsWith('```')) {
+          const firstLineBreak = seg.indexOf('\n');
+          const lang = firstLineBreak !== -1 ? seg.slice(3, firstLineBreak).trim() : '';
+          const codeBody = firstLineBreak !== -1 ? seg.slice(firstLineBreak + 1, -3) : seg.slice(3, -3);
+          return (
+            <div key={sIdx} className="my-2 rounded-lg border border-slate-300 dark:border-[#30363d] bg-slate-100 dark:bg-[#0d1117] overflow-hidden shadow-xs">
+              {lang && (
+                <div className="flex items-center justify-between px-3 py-1 bg-slate-200/70 dark:bg-[#161b22] border-b border-slate-300 dark:border-[#30363d] text-[10px] font-mono text-slate-700 dark:text-[#8b949e]">
+                  <span>{lang}</span>
+                </div>
+              )}
+              <pre className="p-3 text-[11px] font-mono text-slate-800 dark:text-[#e2e8f0] overflow-x-auto leading-relaxed">
+                <code>{codeBody}</code>
+              </pre>
+            </div>
+          );
+        }
+        const paras = seg.split(/\n\n+/);
+        return paras.map((p, pIdx) => {
+          const trimmed = p.trim();
+          if (!trimmed) return null;
+          if (trimmed.startsWith('>')) {
+            const quoteContent = trimmed.replace(/^>\s*/gm, '');
+            return (
+              <blockquote
+                key={`${sIdx}-${pIdx}`}
+                className="border-l-2 border-emerald-500/70 bg-emerald-50 dark:bg-emerald-950/20 pl-2.5 py-1 my-1 text-emerald-800 dark:text-emerald-200/90 font-mono text-[11px] rounded-r italic whitespace-pre-wrap"
+              >
+                {formatInlineTokens(quoteContent)}
+              </blockquote>
+            );
+          }
+          return (
+            <div key={`${sIdx}-${pIdx}`} className="whitespace-pre-wrap">
+              {formatInlineTokens(p)}
+            </div>
+          );
+        });
+      });
+    }
+
+    const paragraphs = textToRender.split(/\n\n+/);
     return paragraphs.map((para, pIdx) => {
       const trimmed = para.trim();
       if (trimmed.startsWith('>')) {
@@ -477,7 +524,7 @@ export const CenterView: React.FC = () => {
         return (
           <blockquote
             key={pIdx}
-            className="border-l-2 border-emerald-500/70 bg-emerald-950/20 pl-2.5 py-1 my-1 text-emerald-200/90 font-mono text-[11px] rounded-r italic whitespace-pre-wrap"
+            className="border-l-2 border-emerald-500/70 bg-emerald-50 dark:bg-emerald-950/20 pl-2.5 py-1 my-1 text-emerald-800 dark:text-emerald-200/90 font-mono text-[11px] rounded-r italic whitespace-pre-wrap"
           >
             {formatInlineTokens(quoteContent)}
           </blockquote>
@@ -685,14 +732,14 @@ export const CenterView: React.FC = () => {
 
           {/* Dynamic Agent Routing Observability Banner */}
           {latestRoutingByChannel[activeChannelId] && !dismissedRoutingChannels[activeChannelId] && (
-            <div className="px-3 py-1.5 rounded-lg bg-[#0e1628] border border-cyan-800/40 text-[11px] text-cyan-300 flex items-center justify-between shadow-sm">
+            <div className="px-3 py-1.5 rounded-lg bg-cyan-50 dark:bg-[#0e1628] border border-cyan-200 dark:border-cyan-800/40 text-[11px] text-cyan-900 dark:text-cyan-300 flex items-center justify-between shadow-sm">
               <div className="flex items-center space-x-2 truncate">
-                <Compass className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                <span className="font-semibold text-white">Agent Routing:</span>
+                <Compass className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400 shrink-0" />
+                <span className="font-semibold text-cyan-950 dark:text-white">Agent Routing:</span>
                 <span className="truncate">
                   {latestRoutingByChannel[activeChannelId].routing.reason}
                   {latestRoutingByChannel[activeChannelId].routing.matchReason && (
-                    <span className="ml-1.5 px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 font-mono text-[10px] border border-cyan-700/50">
+                    <span className="ml-1.5 px-1.5 py-0.5 rounded bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-400 font-mono text-[10px] border border-cyan-300 dark:border-cyan-700/50">
                       {latestRoutingByChannel[activeChannelId].routing.matchReason}
                     </span>
                   )}
@@ -703,7 +750,7 @@ export const CenterView: React.FC = () => {
                       {latestRoutingByChannel[activeChannelId].routing.matchedKeywords.map((kw, idx) => (
                         <span
                           key={idx}
-                          className="px-1.5 py-0.5 rounded bg-cyan-900/60 text-cyan-200 font-mono text-[9px] border border-cyan-600/40"
+                          className="px-1.5 py-0.5 rounded bg-cyan-200/60 dark:bg-cyan-900/60 text-cyan-900 dark:text-cyan-200 font-mono text-[9px] border border-cyan-400/40 dark:border-cyan-600/40"
                           title={`Matched keyword: ${kw}`}
                         >
                           #{kw}
@@ -713,12 +760,12 @@ export const CenterView: React.FC = () => {
                   )}
               </div>
               <div className="flex items-center space-x-2 shrink-0 ml-2">
-                <span className="text-[#64748b] text-[10px] font-mono">
+                <span className="text-kin-muted text-[10px] font-mono">
                   {latestRoutingByChannel[activeChannelId].routing.action}
                 </span>
                 <button
                   onClick={() => setDismissedRoutingChannels((prev) => ({ ...prev, [activeChannelId]: true }))}
-                  className="text-[#64748b] hover:text-white p-0.5 cursor-pointer"
+                  className="text-cyan-700 dark:text-[#64748b] hover:text-cyan-950 dark:hover:text-white p-0.5 cursor-pointer"
                   title="Dismiss routing info"
                 >
                   ✕
@@ -751,7 +798,7 @@ export const CenterView: React.FC = () => {
             return (
               <div
                 key={msg.id}
-                className="p-3 rounded-xl bg-[#090f1d] border border-cyan-500/30 shadow-md space-y-2"
+                className="p-3 rounded-xl bg-cyan-50/90 dark:bg-[#090f1d] border border-cyan-200 dark:border-cyan-500/40 shadow-sm space-y-2"
               >
                 <div
                   onClick={() =>
@@ -760,33 +807,33 @@ export const CenterView: React.FC = () => {
                   className="flex items-center justify-between cursor-pointer select-none group"
                 >
                   <div className="flex items-center space-x-2">
-                    <span className="p-1 rounded bg-cyan-500/20 text-cyan-300">
+                    <span className="p-1 rounded bg-cyan-100 dark:bg-cyan-500/20 text-cyan-700 dark:text-cyan-300">
                       <Clock className="w-3.5 h-3.5" />
                     </span>
-                    <span className="text-[11px] font-bold text-cyan-200">
+                    <span className="text-[11px] font-bold text-cyan-900 dark:text-cyan-200">
                       Background Turn — {agent?.displayName || msg.senderName}
                     </span>
-                    <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-cyan-500/10 text-cyan-400 font-mono border border-cyan-500/20">
+                    <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-cyan-100 dark:bg-cyan-500/15 text-cyan-800 dark:text-cyan-300 font-mono border border-cyan-300 dark:border-cyan-500/30">
                       Automated
                     </span>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <span className="text-[10px] text-[#64748b]">
+                    <span className="text-[10px] text-kin-muted">
                       {new Date(msg.createdAt).toLocaleTimeString([], {
                         hour: '2-digit',
                         minute: '2-digit',
                       })}
                     </span>
                     {isExpanded ? (
-                      <ChevronDown className="w-4 h-4 text-cyan-400" />
+                      <ChevronDown className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
                     ) : (
-                      <ChevronRight className="w-4 h-4 text-[#64748b] group-hover:text-cyan-400 transition" />
+                      <ChevronRight className="w-4 h-4 text-kin-muted group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition" />
                     )}
                   </div>
                 </div>
 
                 {isExpanded ? (
-                  <div className="text-[#e2e8f0] text-xs leading-relaxed font-sans p-2.5 rounded-lg border bg-[#0f172a]/90 border-[#1e293b]">
+                  <div className="text-kin-text text-xs leading-relaxed font-sans p-2.5 rounded-lg border bg-white dark:bg-[#0f172a]/90 border-cyan-500/20 dark:border-[#1e293b]">
                     {renderMessageContent(msg.content)}
                   </div>
                 ) : (
@@ -794,7 +841,7 @@ export const CenterView: React.FC = () => {
                     onClick={() =>
                       setExpandedBackgroundTurns((prev) => ({ ...prev, [msg.id]: true }))
                     }
-                    className="text-[11px] text-[#94a3b8] truncate italic pl-6 cursor-pointer hover:text-cyan-300 transition"
+                    className="text-[11px] text-kin-muted truncate italic pl-6 cursor-pointer hover:text-cyan-700 dark:hover:text-cyan-300 transition"
                   >
                     {msg.content.slice(0, 140)}... (click to expand)
                   </div>
@@ -915,14 +962,14 @@ export const CenterView: React.FC = () => {
           );
         })}
         {channelMessages.length === 0 && (
-          <div className="h-56 flex flex-col items-center justify-center text-center p-6 space-y-2 border border-dashed border-[#1e293b] rounded-xl bg-[#0c1222]/40 my-6">
-            <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+          <div className="h-56 flex flex-col items-center justify-center text-center p-6 space-y-2 border border-dashed border-slate-300 dark:border-[#1e293b] rounded-xl bg-slate-50/60 dark:bg-[#0c1222]/40 my-6">
+            <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
               <MessageSquare className="w-5 h-5" />
             </div>
             <div className="font-semibold text-kin-text text-sm">
               {isDm ? `Direct Message with ${targetAgent?.displayName || '@Agent'}` : `Welcome to #${activeChannel?.name || 'general'}`}
             </div>
-            <div className="text-[#64748b] text-[11px] max-w-sm">
+            <div className="text-kin-muted text-[11px] max-w-sm">
               {isDm
                 ? `${targetAgent?.displayName || 'This agent'} will respond directly to all prompts in this private 1-on-1 thread.`
                 : `Start the conversation by sending a message, or mention specific specialists with @ to coordinate their turns.`}
@@ -932,17 +979,17 @@ export const CenterView: React.FC = () => {
 
         {/* Live In-Flight Streaming Token Draft Bubble */}
         {streamingDrafts && streamingDrafts[activeChannelId] && stripThoughtsAndToolSyntax(streamingDrafts[activeChannelId]) && (
-          <div className="p-3.5 rounded-2xl bg-gradient-to-r from-[#091122]/90 to-[#0c1830]/90 border border-blue-500/40 shadow-xl space-y-2 animate-fadeIn backdrop-blur-md">
-            <div className="flex items-center justify-between text-xs text-blue-300 font-mono">
+          <div className="p-3.5 rounded-2xl bg-blue-50/90 dark:bg-gradient-to-r dark:from-[#091122]/90 dark:to-[#0c1830]/90 border border-blue-400/40 shadow-xl space-y-2 animate-fadeIn backdrop-blur-md">
+            <div className="flex items-center justify-between text-xs text-blue-700 dark:text-blue-300 font-mono">
               <div className="flex items-center space-x-2">
-                <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
                 <span className="font-bold">Streaming Response...</span>
               </div>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-300 border border-blue-500/20">Live</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20">Live</span>
             </div>
-            <div className="font-mono text-xs text-[#cbd5e1] whitespace-pre-wrap leading-relaxed">
+            <div className="font-mono text-xs text-slate-800 dark:text-[#cbd5e1] whitespace-pre-wrap leading-relaxed">
               {stripThoughtsAndToolSyntax(streamingDrafts[activeChannelId])}
-              <span className="inline-block w-1.5 h-3.5 bg-blue-400 ml-1 animate-pulse align-middle" />
+              <span className="inline-block w-1.5 h-3.5 bg-blue-500 ml-1 animate-pulse align-middle" />
             </div>
           </div>
         )}
@@ -957,7 +1004,7 @@ export const CenterView: React.FC = () => {
 
         {/* Antigravity In-App Scheduler & Timers Bar */}
         {activeSchedules.length > 0 && (
-          <div className="p-2.5 bg-[#071318] border border-emerald-500/30 rounded-xl space-y-1.5 shadow-lg overflow-hidden">
+          <div className="p-2.5 bg-emerald-500/10 dark:bg-[#071318] border border-emerald-500/30 rounded-xl space-y-1.5 shadow-sm overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-1.5">
               <div className="flex items-center space-x-2 min-w-0">
                 <button
@@ -1014,25 +1061,25 @@ export const CenterView: React.FC = () => {
 
         {/* Live Machine Control Session Indicator */}
         {isMachineControlActive && (
-          <div className="p-2.5 rounded-xl bg-[#1c080d]/90 border border-red-500/80 text-red-200 text-xs flex flex-wrap items-center justify-between gap-2 shadow-[0_0_20px_rgba(239,68,68,0.3)] animate-fadeIn overflow-hidden">
+          <div className="p-2.5 rounded-xl bg-red-50 dark:bg-[#1c080d]/90 border border-red-200 dark:border-red-500/80 text-red-900 dark:text-red-200 text-xs flex flex-wrap items-center justify-between gap-2 shadow-xs dark:shadow-[0_0_20px_rgba(239,68,68,0.3)] animate-fadeIn overflow-hidden">
             <div className="flex items-center space-x-2.5 min-w-0">
               <span className="relative flex h-3 w-3 shrink-0">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500 shadow-[0_0_8px_#ef4444]" />
               </span>
               <div className="flex items-center space-x-1.5 font-mono truncate">
-                <span className="font-bold text-red-300 text-[12px] shrink-0">🔴 {activeMachineAgent}</span>
-                <span className="text-gray-300 truncate">Controlling Local Machine</span>
-                <span className="text-gray-400 text-[11px] shrink-0">({activeMachineTool || 'Desktop & Browser'})</span>
+                <span className="font-bold text-red-700 dark:text-red-300 text-[12px] shrink-0">🔴 {activeMachineAgent}</span>
+                <span className="text-slate-700 dark:text-gray-300 truncate font-sans">Controlling Local Machine</span>
+                <span className="text-slate-500 dark:text-gray-400 text-[11px] shrink-0">({activeMachineTool || 'Desktop & Browser'})</span>
               </div>
             </div>
             <button
               type="button"
               onClick={() => setDesktopControlModalOpen(true)}
-              className="px-2.5 py-1 rounded-lg bg-red-600/30 hover:bg-red-600/50 text-red-200 border border-red-500/50 text-xs font-semibold transition flex items-center space-x-1 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-2.5 py-1 rounded-lg bg-red-100 hover:bg-red-200 dark:bg-red-600/30 dark:hover:bg-red-600/50 text-red-800 dark:text-red-200 border border-red-300 dark:border-red-500/50 text-xs font-semibold transition flex items-center space-x-1 cursor-pointer whitespace-nowrap shrink-0"
               title="Inspect live machine interaction and windows"
             >
-              <Monitor className="w-3.5 h-3.5 text-red-400" />
+              <Monitor className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
               <span>[Inspect Session]</span>
             </button>
           </div>

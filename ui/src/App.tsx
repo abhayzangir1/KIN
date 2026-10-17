@@ -103,7 +103,7 @@ export const App: React.FC = () => {
 
   return (
     <ErrorBoundary name="KIN Root Workspace">
-      <div className={`flex flex-col h-screen w-screen overflow-hidden font-sans antialiased select-none ${theme === 'light' ? 'bg-[#f8fafc] text-slate-800' : 'bg-[#0a0f1d] text-kin-text'}`}>
+      <div className={`flex flex-col h-screen w-screen overflow-hidden font-sans antialiased select-none ${theme === 'light' ? 'bg-[#f6f8fa] text-slate-800' : 'bg-[#0d1117] text-kin-text'}`}>
         {/* Top Application Header Bar */}
         <HeaderBar />
 

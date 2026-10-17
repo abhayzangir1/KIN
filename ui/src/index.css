@@ -13,11 +13,22 @@
   --kin-subtle: #6e7681;
 }
 
+html.dark {
+  color-scheme: dark;
+  --kin-bg: #0d1117;
+  --kin-surface: #161b22;
+  --kin-card: #21262d;
+  --kin-border: rgba(255, 255, 255, 0.08);
+  --kin-text: #f0f6fc;
+  --kin-muted: #8b949e;
+  --kin-subtle: #6e7681;
+}
+
 html.light {
   color-scheme: light;
   --kin-bg: #f6f8fa;
   --kin-surface: #ffffff;
-  --kin-card: #f6f8fa;
+  --kin-card: #f3f4f6;
   --kin-border: rgba(31, 35, 40, 0.12);
   --kin-text: #1f2328;
   --kin-muted: #656d76;
@@ -59,7 +70,7 @@ html.light ::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.25);
 }
 
-/* Smooth, calm transitions for interactive surfaces */
+/* Smooth transitions for interactive surfaces */
 button,
 a,
 input,
@@ -69,12 +80,13 @@ textarea {
 }
 
 /* ============================================================================
-   COHESIVE HARMONIZED PALETTE OVERRIDES
-   Normalizes disparate arbitrary hexes into calm, professional surfaces.
+   DARK THEME PALETTE (Calm, High-Contrast, Zero Rogue Whites)
    ============================================================================ */
-
-/* DARK MODE: Soften harsh pitch-blacks, saturated dark blues, and neon borders */
+html.dark body,
+html.dark #root,
+html.dark .bg-kin-bg,
 html.dark .bg-\[\#0a0f1d\],
+html.dark [class*="bg-\[\#0a0f1d\]"],
 html.dark .bg-\[\#070b12\],
 html.dark .bg-\[\#090d16\],
 html.dark .bg-\[\#070b14\],
@@ -83,29 +95,72 @@ html.dark .bg-\[\#080d1a\],
 html.dark .bg-\[\#060911\],
 html.dark .bg-\[\#060a12\],
 html.dark .bg-\[\#070a12\],
+html.dark .bg-\[\#04060b\],
+html.dark .bg-\[\#000000\],
+html.dark .bg-\[\#090f1d\],
 html.dark .bg-\[\#0b0f19\] {
   background-color: #0d1117 !important;
+  color: #f0f6fc !important;
 }
 
+html.dark .bg-kin-surface,
 html.dark .bg-\[\#0c1222\],
 html.dark .bg-\[\#0d121f\],
 html.dark .bg-\[\#0d1117\],
 html.dark .bg-\[\#131b2e\],
 html.dark .bg-\[\#0e1628\],
-html.dark .bg-\[\#0f172a\] {
+html.dark .bg-\[\#101a30\],
+html.dark .bg-\[\#090d18\],
+html.dark .bg-\[\#0c1427\],
+html.dark .bg-\[\#090e1c\],
+html.dark .bg-\[\#0e1526\],
+html.dark .bg-\[\#0b101e\],
+html.dark .bg-\[\#070b16\] {
   background-color: #161b22 !important;
+  color: #f0f6fc !important;
 }
 
+html.dark .bg-kin-card,
+html.dark [class*="bg-kin-card"],
+html.dark .bg-\[\#0f172a\],
+html.dark [class*="bg-\[\#0f172a\]"],
 html.dark .bg-\[\#161b22\],
 html.dark .bg-\[\#1a2333\],
 html.dark .bg-\[\#1e293b\],
 html.dark .bg-\[\#21262d\],
 html.dark .bg-\[\#1c2742\],
+html.dark .bg-\[\#151c2f\],
+html.dark .bg-\[\#12192c\],
+html.dark .bg-\[\#131d35\],
+html.dark .bg-\[\#232f48\],
 html.dark .bg-\[\#252f48\] {
   background-color: #21262d !important;
+  color: #f0f6fc !important;
+}
+
+/* Ensure NO rogue bright/white cards leak in Dark Mode */
+html.dark .bg-white,
+html.dark [class*="bg-white"]:not(.bg-white\/10):not(.bg-white\/20):not(.bg-white\/5):not(.bg-white\/15),
+html.dark .bg-slate-50,
+html.dark .bg-slate-100,
+html.dark .bg-gray-50,
+html.dark .bg-gray-100 {
+  background-color: #21262d !important;
+  color: #f0f6fc !important;
+}
+
+/* Ensure NO illegible dark text on dark surfaces in Dark Mode */
+html.dark .text-slate-800,
+html.dark .text-slate-900,
+html.dark .text-gray-800,
+html.dark .text-gray-900,
+html.dark .text-black {
+  color: #f0f6fc !important;
 }
 
 /* Uniform, elegant borders in dark mode */
+html.dark .border-kin-border,
+html.dark [class*="border-kin-border"],
 html.dark .border-\[\#1e293b\],
 html.dark .border-\[\#21262d\],
 html.dark .border-\[\#30363d\],
@@ -118,7 +173,12 @@ html.dark .border-\[\#1e293b\]\/50 {
   border-color: rgba(255, 255, 255, 0.08) !important;
 }
 
-/* Soften loud text colors */
+/* Dark mode text colors */
+html.dark .text-kin-text {
+  color: #f0f6fc !important;
+}
+
+html.dark .text-kin-muted,
 html.dark .text-\[\#8b949e\],
 html.dark .text-\[\#94a3b8\],
 html.dark .text-\[\#64748b\] {
@@ -130,11 +190,41 @@ html.dark .text-\[\#e2e8f0\] {
   color: #f0f6fc !important;
 }
 
-/* LIGHT MODE OVERRIDES */
+html.dark input,
+html.dark select,
+html.dark textarea {
+  background-color: #0d1117 !important;
+  color: #f0f6fc !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+html.dark input:focus,
+html.dark select:focus,
+html.dark textarea:focus {
+  border-color: #38bdf8 !important;
+}
+
+html.dark code {
+  background-color: #161b22;
+  color: #34d399;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+html.dark pre {
+  background-color: #161b22;
+  color: #f0f6fc;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* ============================================================================
+   LIGHT THEME PALETTE (Clean, Crisp, High-Contrast, Zero Pitch Black Bleed)
+   ============================================================================ */
 html.light body,
 html.light #root,
 html.light .bg-kin-bg,
 html.light .bg-\[\#0a0f1d\],
+html.light [class*="bg-\[\#0a0f1d\]"],
 html.light .bg-\[\#070b12\],
 html.light .bg-\[\#090d16\],
 html.light .bg-\[\#070b14\],
@@ -156,23 +246,135 @@ html.light .bg-\[\#0d121f\],
 html.light .bg-\[\#0d1117\],
 html.light .bg-\[\#131b2e\],
 html.light .bg-\[\#0e1628\],
-html.light .bg-\[\#0f172a\] {
+html.light .bg-\[\#151c2f\],
+html.light .bg-\[\#12192c\],
+html.light .bg-\[\#131d35\],
+html.light .bg-\[\#101a30\],
+html.light .bg-\[\#090d18\],
+html.light .bg-\[\#0c1427\],
+html.light .bg-\[\#090e1c\],
+html.light .bg-\[\#0e1526\],
+html.light [class*="bg-\[\#0e1526\]"],
+html.light .bg-\[\#0b101e\],
+html.light [class*="bg-\[\#0b101e\]"],
+html.light .bg-\[\#070b16\],
+html.light [class*="bg-\[\#070b16\]"] {
   background-color: #ffffff !important;
   color: #1f2328 !important;
 }
 
 html.light .bg-kin-card,
+html.light [class*="bg-kin-card"],
+html.light .bg-\[\#0f172a\],
+html.light [class*="bg-\[\#0f172a\]"],
 html.light .bg-\[\#161b22\],
 html.light .bg-\[\#1a2333\],
 html.light .bg-\[\#1e293b\],
 html.light .bg-\[\#21262d\],
 html.light .bg-\[\#1c2742\],
+html.light .bg-\[\#232f48\],
 html.light .bg-\[\#252f48\] {
   background-color: #f3f4f6 !important;
   color: #1f2328 !important;
+  border-color: rgba(31, 35, 40, 0.12) !important;
+}
+
+/* Light Mode Background Turns */
+html.light .bg-\[\#090f1d\],
+html.light .dark\:bg-\[\#090f1d\],
+html.light [class*="bg-\[\#090f1d\]"] {
+  background-color: #ecfeff !important;
+  border-color: #a5f3fc !important;
+  color: #0e7490 !important;
+}
+
+html.light .bg-\[\#0f172a\]\/90,
+html.light .dark\:bg-\[\#0f172a\]\/90 {
+  background-color: #ffffff !important;
+  color: #1f2328 !important;
+  border-color: rgba(6, 182, 212, 0.25) !important;
+}
+
+/* Light Mode Machine Control Session Indicator */
+html.light .bg-\[\#1c080d\],
+html.light .bg-\[\#1c080d\]\/90,
+html.light .dark\:bg-\[\#1c080d\]\/90,
+html.light [class*="bg-\[\#1c080d\]"] {
+  background-color: #fef2f2 !important;
+  border-color: #fca5a5 !important;
+  color: #991b1b !important;
+}
+
+html.light .bg-red-950\/70,
+html.light .bg-red-950,
+html.light .dark\:bg-red-950\/70,
+html.light [class*="bg-red-950"] {
+  background-color: #fee2e2 !important;
+  border-color: #fca5a5 !important;
+  color: #991b1b !important;
+}
+
+/* Light Mode Takeover Banner */
+html.light .bg-\[\#180a0f\]\/95,
+html.light .bg-\[\#180a0f\],
+html.light [class*="bg-\[\#180a0f\]"] {
+  background-color: #fef2f2 !important;
+  color: #991b1b !important;
+}
+
+html.light .bg-\[\#181106\]\/95,
+html.light .bg-\[\#181106\],
+html.light .bg-\[\#1a1208\],
+html.light [class*="bg-\[\#181106\]"] {
+  background-color: #fffbeb !important;
+  color: #92400e !important;
+}
+
+html.light .bg-\[\#151206\]\/95,
+html.light .bg-\[\#151206\],
+html.light [class*="bg-\[\#151206\]"] {
+  background-color: #fefce8 !important;
+  color: #854d0e !important;
+}
+
+html.light .bg-\[\#0b1329\]\/95,
+html.light .bg-\[\#0b1329\],
+html.light [class*="bg-\[\#0b1329\]"] {
+  background-color: #eff6ff !important;
+  color: #1e40af !important;
+}
+
+html.light .bg-\[\#1b2234\],
+html.light [class*="bg-\[\#1b2234\]"] {
+  background-color: #dbeafe !important;
+  color: #1e40af !important;
+  border-color: #93c5fd !important;
+}
+
+html.light .bg-\[\#071318\],
+html.light [class*="bg-\[\#071318\]"] {
+  background-color: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+  color: #065f46 !important;
+}
+
+html.light .bg-\[\#070c18\],
+html.light [class*="bg-\[\#070c18\]"] {
+  background-color: #f1f5f9 !important;
+  color: #1f2328 !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.light .bg-\[\#070b14\]\/70,
+html.light .bg-\[\#070b14\],
+html.light [class*="bg-\[\#070b14\]"] {
+  background-color: #f8fafc !important;
+  color: #1f2328 !important;
+  border-color: #e2e8f0 !important;
 }
 
 html.light .border-kin-border,
+html.light [class*="border-kin-border"],
 html.light .border-\[\#1e293b\],
 html.light .border-\[\#21262d\],
 html.light .border-\[\#30363d\],
@@ -182,14 +384,12 @@ html.light .border-slate-800\/80 {
   border-color: rgba(31, 35, 40, 0.12) !important;
 }
 
+/* Typography in light mode */
 html.light .text-kin-text {
   color: #1f2328 !important;
 }
 
-html.light .text-kin-muted {
-  color: #656d76 !important;
-}
-
+html.light .text-kin-muted,
 html.light .text-\[\#8b949e\],
 html.light .text-\[\#94a3b8\],
 html.light .text-\[\#64748b\] {
@@ -204,6 +404,27 @@ html.light .text-\[\#e2e8f0\] {
 html.light .text-\[\#475569\],
 html.light .text-\[\#334155\] {
   color: #8c959f !important;
+}
+
+/* Prevent bold text from staying white on light cards */
+html.light strong,
+html.light .font-bold.text-white {
+  color: #1f2328 !important;
+}
+
+/* Retain crisp white text on colored solid action buttons in light mode */
+html.light button.bg-emerald-600,
+html.light button.bg-blue-600,
+html.light button.bg-red-600,
+html.light button.bg-rose-600,
+html.light button.bg-purple-600,
+html.light button.bg-amber-600,
+html.light .bg-emerald-600 .text-white,
+html.light .bg-blue-600 .text-white,
+html.light .bg-red-600 .text-white,
+html.light .bg-rose-600 .text-white,
+html.light .bg-purple-600 .text-white {
+  color: #ffffff !important;
 }
 
 /* Light mode diff lines */
@@ -244,17 +465,19 @@ html.light textarea:focus {
   border-color: #0969da !important;
 }
 
-/* Light mode Swarm Map cards and bus */
-html.light .bg-\[\#151c2f\],
-html.light .bg-\[\#12192c\],
-html.light .bg-\[\#131d35\],
-html.light .bg-\[\#101a30\],
-html.light .bg-\[\#090d18\],
-html.light .bg-\[\#0c1427\],
-html.light .bg-\[\#090e1c\] {
-  background-color: #ffffff !important;
+/* Light mode code and pre */
+html.light code {
+  background-color: #eaeef2 !important;
+  color: #065f46 !important;
+  border: 1px solid #d0d7de !important;
+  border-radius: 4px;
+}
+
+html.light pre {
+  background-color: #f6f8fa !important;
   color: #1f2328 !important;
-  border-color: rgba(31, 35, 40, 0.15) !important;
+  border: 1px solid #d0d7de !important;
+  border-radius: 6px;
 }
 
 html.light .bg-\[\#0c1427\]\/90 {
@@ -271,6 +494,21 @@ html.light .text-blue-300\/90 {
 html.light .text-amber-300,
 html.light .text-amber-300\/90 {
   color: #9a6700 !important;
+}
+
+/* Modal Backdrops */
+html.light .bg-black\/40,
+html.light .bg-black\/50,
+html.light .bg-black\/60 {
+  background-color: rgba(241, 245, 249, 0.9) !important;
+  color: #1f2328 !important;
+}
+
+html.light .bg-black\/70,
+html.light .bg-black\/80,
+html.light .bg-black\/85 {
+  background-color: rgba(15, 23, 42, 0.4) !important;
+  backdrop-filter: blur(4px);
 }
 
 /* Animations */

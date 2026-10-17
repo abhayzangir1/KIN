@@ -183,8 +183,8 @@ export const HumanTakeoverBanner: React.FC = () => {
             </span>
 
             <div className="flex items-center space-x-1.5 font-bold tracking-wide">
-              <span className="text-white text-[13px]">{agentDisplayName}</span>
-              <span className="text-gray-400">|</span>
+              <span className="text-slate-900 dark:text-white text-[13px]">{agentDisplayName}</span>
+              <span className="text-slate-400 dark:text-gray-400">|</span>
               <span
                 className={`uppercase text-[11px] px-2 py-0.5 rounded font-mono font-semibold ${
                   isAborted
@@ -258,7 +258,7 @@ export const HumanTakeoverBanner: React.FC = () => {
               className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition ${
                 isSteerOpen
                   ? 'bg-blue-600 text-white border-blue-400'
-                  : 'bg-[#1b2234] hover:bg-[#252f48] text-blue-300 border-blue-500/30'
+                  : 'bg-blue-100 hover:bg-blue-200 dark:bg-[#1b2234] dark:hover:bg-[#252f48] text-blue-800 dark:text-blue-300 border-blue-300 dark:border-blue-500/30'
               }`}
               title="Steer active execution without stopping task"
             >
@@ -288,7 +288,7 @@ export const HumanTakeoverBanner: React.FC = () => {
             {/* Dismiss Takeover Pill */}
             <button
               onClick={dismissTakeover}
-              className="p-1.5 rounded-lg hover:bg-white/10 text-gray-400 hover:text-white transition"
+              className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-white/10 text-slate-500 hover:text-slate-900 dark:text-gray-400 dark:hover:text-white transition cursor-pointer"
               title="Dismiss Takeover Banner"
             >
               <X className="w-3.5 h-3.5" />
@@ -298,8 +298,8 @@ export const HumanTakeoverBanner: React.FC = () => {
 
         {/* Mid-Task Steer Notification Toast */}
         {steerSent && (
-          <div className="mt-2 p-1.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[11px] flex items-center space-x-1.5">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+          <div className="mt-2 p-1.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-800 dark:text-emerald-300 text-[11px] flex items-center space-x-1.5">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
             <span>Steering directive injected into active execution context!</span>
           </div>
         )}
@@ -313,11 +313,11 @@ export const HumanTakeoverBanner: React.FC = () => {
               value={steerText}
               onChange={(e) => setSteerText(e.target.value)}
               placeholder="Inject mid-execution steering directive (e.g., 'Skip login, navigate to pricing')..."
-              className="flex-1 bg-[#090d18] border border-blue-500/50 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-400"
+              className="flex-1 bg-white dark:bg-[#090d18] border border-blue-400 dark:border-blue-500/50 rounded-lg px-3 py-1.5 text-xs text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:border-blue-500"
             />
             <button
               type="submit"
-              className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs flex items-center space-x-1 transition"
+              className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs flex items-center space-x-1 transition cursor-pointer"
             >
               <SendHorizontal className="w-3.5 h-3.5" />
               <span>Send</span>
@@ -327,13 +327,13 @@ export const HumanTakeoverBanner: React.FC = () => {
 
         {/* CRITICAL Financial Commerce Alert Box */}
         {isFinancial && (
-          <div className="mt-2.5 p-2 rounded-lg bg-red-950/70 border border-red-500/60 text-red-200 text-xs flex items-start space-x-2.5">
-            <ShieldAlert className="w-5 h-5 text-red-400 shrink-0 mt-0.5 animate-bounce" />
+          <div className="mt-2.5 p-2 rounded-lg bg-red-100 dark:bg-red-950/70 border border-red-300 dark:border-red-500/60 text-red-900 dark:text-red-200 text-xs flex items-start space-x-2.5">
+            <ShieldAlert className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5 animate-bounce" />
             <div className="space-y-0.5">
-              <div className="font-bold text-red-300 tracking-wide uppercase text-[11px]">
+              <div className="font-bold text-red-800 dark:text-red-300 tracking-wide uppercase text-[11px]">
                 Zero-Trust Financial Safety Gate Activated
               </div>
-              <p className="text-[11px] leading-relaxed text-red-200">
+              <p className="text-[11px] leading-relaxed text-red-900 dark:text-red-200">
                 The agent is preparing to execute a commercial or payment action (checkout, cart, or financial form).
                 Autonomy mode bypasses are disabled. Inspect the action below and approve or take manual steering.
               </p>
@@ -343,13 +343,13 @@ export const HumanTakeoverBanner: React.FC = () => {
 
         {/* Human Authorization Protocol Alert Box */}
         {isAuth && (
-          <div className="mt-2.5 p-2 rounded-lg bg-amber-950/70 border border-amber-500/60 text-amber-200 text-xs flex items-start space-x-2.5">
-            <KeyRound className="w-5 h-5 text-amber-400 shrink-0 mt-0.5 animate-pulse" />
+          <div className="mt-2.5 p-2 rounded-lg bg-amber-100 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-500/60 text-amber-900 dark:text-amber-200 text-xs flex items-start space-x-2.5">
+            <KeyRound className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 animate-pulse" />
             <div className="space-y-0.5">
-              <div className="font-bold text-amber-300 tracking-wide uppercase text-[11px]">
+              <div className="font-bold text-amber-800 dark:text-amber-300 tracking-wide uppercase text-[11px]">
                 Human Authorization Protocol: Sign-In / CAPTCHA Required
               </div>
-              <p className="text-[11px] leading-relaxed text-amber-200">
+              <p className="text-[11px] leading-relaxed text-amber-900 dark:text-amber-200">
                 A login or verification challenge was detected in the active browser session. Please complete credentials or CAPTCHA manually in the browser window, then click <strong>Resume (Esc)</strong>.
               </p>
             </div>
@@ -358,16 +358,16 @@ export const HumanTakeoverBanner: React.FC = () => {
 
         {/* Active Tool Action Preview Banner */}
         {activeTakeover?.previewPayload && (
-          <div className="mt-2.5 p-2 rounded-lg bg-[#070c18] border border-[#1e2a4a] text-xs flex items-center justify-between gap-2">
+          <div className="mt-2.5 p-2 rounded-lg bg-slate-100 dark:bg-[#070c18] border border-slate-300 dark:border-[#1e2a4a] text-xs flex items-center justify-between gap-2">
             <div className="flex items-center space-x-2 truncate">
-              <Eye className="w-4 h-4 text-blue-400 shrink-0" />
+              <Eye className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
               <div className="truncate">
-                <span className="font-mono text-blue-300 font-semibold">
+                <span className="font-mono text-blue-700 dark:text-blue-300 font-semibold">
                   {activeTakeover.previewPayload.toolName}:
                 </span>{' '}
-                <span className="text-gray-300">{activeTakeover.previewPayload.description}</span>
+                <span className="text-slate-700 dark:text-gray-300">{activeTakeover.previewPayload.description}</span>
                 {activeTakeover.previewPayload.target && (
-                  <span className="ml-2 font-mono text-[11px] text-emerald-300 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800">
+                  <span className="ml-2 font-mono text-[11px] text-emerald-800 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-800">
                     {activeTakeover.previewPayload.target}
                   </span>
                 )}
@@ -375,7 +375,7 @@ export const HumanTakeoverBanner: React.FC = () => {
             </div>
 
             {isPaused && (
-              <span className="text-[10px] text-amber-400 font-mono italic shrink-0">
+              <span className="text-[10px] text-amber-700 dark:text-amber-400 font-mono italic shrink-0">
                 Holding for human approval...
               </span>
             )}

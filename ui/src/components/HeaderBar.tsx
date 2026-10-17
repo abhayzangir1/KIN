@@ -112,7 +112,7 @@ export const HeaderBar: React.FC = () => {
         </div>
 
         {/* Directory Breadcrumb with Copy Button */}
-        <div className="hidden md:flex items-center space-x-1 bg-kin-card/60 border border-kin-border rounded-md px-2 py-0.5 text-kin-muted font-mono text-[11px] max-w-[220px] lg:max-w-xs">
+        <div className="hidden md:flex items-center space-x-1 bg-kin-card border border-kin-border rounded-md px-2 py-0.5 text-kin-muted font-mono text-[11px] max-w-[220px] lg:max-w-xs">
           <Folder className="w-3.5 h-3.5 text-kin-primary shrink-0" />
           <span className="truncate">{activeProject?.repoPath || 'No repository selected'}</span>
           <button
@@ -138,7 +138,7 @@ export const HeaderBar: React.FC = () => {
       {/* Right: Consolidated System Status, Autonomy Mode, Canonical Inspector Toggle */}
       <div className="flex items-center space-x-2 text-[11px] font-mono">
         {/* Consolidated System Health Capsule (Ollama & SQLite WAL) */}
-        <div className="flex items-center space-x-2 px-2.5 py-0.5 rounded-md bg-kin-card/60 border border-kin-border text-kin-muted">
+        <div className="flex items-center space-x-2 px-2.5 py-0.5 rounded-md bg-kin-card border border-kin-border text-kin-muted">
           {/* Ollama Status */}
           <div className="flex items-center space-x-1.5">
             <span
@@ -185,7 +185,7 @@ export const HeaderBar: React.FC = () => {
         </div>
 
         {/* Autonomy Mode Selector */}
-        <div className="flex items-center space-x-1 bg-kin-card/60 border border-kin-border rounded-md px-2 py-0.5">
+        <div className="flex items-center space-x-1 bg-kin-card border border-kin-border rounded-md px-2 py-0.5">
           <Shield className="w-3 h-3 text-amber-400 shrink-0" />
           <select
             value={autonomyMode}
@@ -220,14 +220,14 @@ export const HeaderBar: React.FC = () => {
         {/* Machine Control Indicator */}
         {isMachineControlActive && (
           <div
-            className="flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-red-950/70 border border-red-500/50 text-red-200 text-[11px] font-sans font-semibold animate-pulse"
+            className="flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-red-100 dark:bg-red-950/70 border border-red-300 dark:border-red-500/50 text-red-800 dark:text-red-200 text-[11px] font-sans font-semibold animate-pulse"
             title="An autonomous agent is driving desktop or browser actions"
           >
             <span className="w-2 h-2 rounded-full bg-red-500 animate-ping shrink-0" />
             <span>{activeMachineAgent || '@Agent'} Controlling Machine</span>
             <button
               onClick={() => setDesktopControlModalOpen(true)}
-              className="ml-1 px-1.5 py-0.2 rounded bg-red-800/80 hover:bg-red-700 text-white text-[10px] font-mono transition cursor-pointer"
+              className="ml-1 px-1.5 py-0.2 rounded bg-red-200 hover:bg-red-300 dark:bg-red-800/80 dark:hover:bg-red-700 text-red-900 dark:text-white text-[10px] font-mono transition cursor-pointer"
             >
               Inspect
             </button>

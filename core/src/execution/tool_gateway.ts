@@ -326,8 +326,20 @@ export class ToolGateway {
         if (anyProj) {
           resolvedProjectId = anyProj.id;
         } else {
-          const anyWs = this.db.queryOne<{ id: string }>('SELECT id FROM workspaces ORDER BY created_at ASC LIMIT 1');
-          const wsId = anyWs?.id || 'ws-default';
+          let anyWs = this.db.queryOne<{ id: string }>('SELECT id FROM workspaces ORDER BY created_at ASC LIMIT 1');
+          let wsId = anyWs?.id;
+          if (!wsId) {
+            wsId = 'ws-default';
+            try {
+              this.db.execute(
+                `INSERT OR IGNORE INTO workspaces (id, name, root_path, default_autonomy_mode, created_at, updated_at)
+                 VALUES (?, 'Default Workspace', '.', 'AUTO', ?, ?)`,
+                wsId,
+                Date.now(),
+                Date.now()
+              );
+            } catch {}
+          }
           try {
             this.db.execute(
               `INSERT OR IGNORE INTO projects (id, workspace_id, name, repo_path, settings_json, created_at, updated_at)
