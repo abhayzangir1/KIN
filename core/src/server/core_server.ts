@@ -6839,6 +6839,9 @@ Format strictly as JSON:
           stageRes = await this.execFileCommand('git', ['add', '--', body.path], project.repoPath);
         } else {
           stageRes = await this.execFileCommand('git', ['restore', '--staged', '--', body.path], project.repoPath);
+          if (stageRes.exitCode !== 0) {
+            stageRes = await this.execFileCommand('git', ['rm', '--cached', '--', body.path], project.repoPath);
+          }
         }
 
         if (stageRes.exitCode !== 0) {

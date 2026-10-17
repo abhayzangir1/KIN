@@ -25,8 +25,21 @@ export const App: React.FC = () => {
     setSidebarWidth,
     setInspectorWidth,
     isInspectorOpen,
+    setInspectorOpen,
     theme,
   } = useKinStore();
+
+  const [windowWidth, setWindowWidth] = useState(
+    typeof window !== 'undefined' ? window.innerWidth : 1280
+  );
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const isCompact = windowWidth < 1100;
 
   useEffect(() => {
     if (theme === 'light') {
@@ -130,8 +143,8 @@ export const App: React.FC = () => {
             <CenterView />
           </ErrorBoundary>
 
-          {/* Right Draggable Splitter Handle & Column 3 */}
-          {isInspectorOpen && (
+          {/* Right Draggable Splitter Handle & Column 3 (Desktop >= 1100px) */}
+          {isInspectorOpen && !isCompact && (
             <>
               <div
                 onMouseDown={(e) => {
@@ -163,6 +176,21 @@ export const App: React.FC = () => {
             </>
           )}
         </div>
+
+        {/* Compact Screen Slide-Over Inspector Drawer (< 1100px) */}
+        {isInspectorOpen && isCompact && (
+          <div className="fixed inset-0 z-40 flex justify-end animate-fadeIn">
+            <div
+              className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity"
+              onClick={() => setInspectorOpen(false)}
+            />
+            <div className="relative z-50 h-full max-w-[85vw] shadow-2xl flex flex-col animate-slideLeft">
+              <ErrorBoundary name="Agent Inspector & Diagnostics Drawer">
+                <AgentInspector />
+              </ErrorBoundary>
+            </div>
+          </div>
+        )}
 
         {/* Modals & Overlays */}
         <ErrorBoundary name="Modal System">

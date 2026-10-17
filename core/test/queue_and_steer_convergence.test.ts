@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
 import { CoreServer } from '../src/server/core_server.js';
 
 describe('Message Queuing & Mid-Execution Steering Convergence', () => {
-  const testDbPath = path.resolve(process.cwd(), 'kin_test_queue_steer.sqlite');
+  const testDbPath = path.resolve(os.tmpdir(), 'kin_test_queue_steer.sqlite');
   let server: CoreServer;
   let port: number;
   let defaultChannelId: string;

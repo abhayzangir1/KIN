@@ -13,6 +13,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
 import { KinDatabase } from '../src/storage/db.js';
 import { MigrationRunner } from '../src/storage/migration_runner.js';
 import { SchedulerService } from '../src/automation/scheduler.js';
@@ -29,7 +30,7 @@ describe('KIN Hardening: Scheduler, MCP Supervision, and Routing Observability',
   let tempDbPath: string;
 
   beforeEach(() => {
-    tempDir = path.join(process.cwd(), 'temp_test_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7));
+    tempDir = path.join(os.tmpdir(), 'temp_test_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7));
     fs.mkdirSync(tempDir, { recursive: true });
     tempDbPath = path.join(tempDir, 'test.sqlite');
     db = new KinDatabase({ dbPath: tempDbPath });

@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
 import { CoreServer } from '../src/server/core_server.js';
 
 describe('Approval Loop Resumption & Task Lease Management', () => {
-  const testDbPath = path.resolve(process.cwd(), 'kin_test_approval.sqlite');
+  const testDbPath = path.resolve(os.tmpdir(), 'kin_test_approval.sqlite');
   let server: CoreServer;
   let port: number;
 

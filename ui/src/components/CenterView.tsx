@@ -909,90 +909,31 @@ export const CenterView: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Mention Autocomplete Overlay */}
-      {showMentionMenu && matchingAgents.length > 0 && (
-        <div className="absolute bottom-16 left-4 bg-[#0f172a] border border-[#2d3748] rounded-xl shadow-2xl p-2 z-20 w-64 space-y-1">
-          <div className="text-[10px] text-[#64748b] uppercase font-bold px-2 py-0.5 flex items-center justify-between">
-            <span>Project Agents ({matchingAgents.length})</span>
-            <span className="text-[9px] font-mono lowercase text-[#94a3b8]">↑↓ Tab/Enter</span>
-          </div>
-          {matchingAgents.map((ag, idx) => (
-            <button
-              key={ag.id}
-              onClick={() => handleInsertMention(ag.displayName)}
-              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded text-left transition ${
-                idx === mentionSelectedIndex
-                  ? 'bg-[#1e293b] ring-1 ring-blue-500/50 text-white'
-                  : 'hover:bg-[#1e293b]/70 text-[#cbd5e1]'
-              }`}
-            >
-              <div className="flex items-center space-x-1.5 truncate">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                <span className="font-semibold text-kin-text truncate">{ag.displayName}</span>
-              </div>
-              <span className="text-[9px] text-[#64748b] font-mono truncate">{ag.role}</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Antigravity-Style Slash Commands Autocomplete Popup */}
-      {showSlashMenu && matchingSlashCommands.length > 0 && (
-        <div className="absolute bottom-16 left-4 bg-[#090d16] border border-[#2d3748] rounded-xl shadow-2xl p-2 z-30 w-96 max-h-72 overflow-y-auto space-y-1 text-xs animate-in fade-in duration-100">
-          <div className="text-[10px] text-[#64748b] uppercase font-bold px-2 py-1 flex items-center justify-between border-b border-[#1e293b] pb-1">
-            <span className="flex items-center space-x-1.5">
-              <Terminal className="w-3 h-3 text-emerald-400" />
-              <span>Independent Slash Commands ({matchingSlashCommands.length})</span>
-            </span>
-            <span className="text-[9px] font-mono lowercase text-[#94a3b8]">↑↓ to navigate, Tab/Enter to insert</span>
-          </div>
-          <div className="space-y-0.5 pt-1">
-            {matchingSlashCommands.map((c, idx) => (
-              <button
-                key={c.cmd}
-                type="button"
-                onClick={() => handleSlashCommand(c.cmd)}
-                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition cursor-pointer ${
-                  idx === slashSelectedIndex
-                    ? 'bg-emerald-500/20 text-white border border-emerald-500/40 shadow-sm'
-                    : 'hover:bg-[#161f36] text-[#cbd5e1]'
-                }`}
-              >
-                <div className="flex items-center space-x-2 truncate">
-                  <span className="font-mono text-emerald-400 font-bold text-xs">{c.cmd}</span>
-                </div>
-                <span className="text-[10px] text-[#94a3b8] truncate ml-2 text-right">{c.desc}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Bottom Message Input Box & Security Approvals */}
-      <div className="p-3 border-t border-[#1e293b] bg-[#090d16] space-y-2.5">
+      <div className="p-3 border-t border-[#1e293b] bg-[#090d16] space-y-2.5 relative">
 
         {/* Antigravity In-App Scheduler & Timers Bar */}
         {activeSchedules.length > 0 && (
-          <div className="p-2.5 bg-[#071318] border border-emerald-500/30 rounded-xl space-y-1.5 shadow-lg">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
+          <div className="p-2.5 bg-[#071318] border border-emerald-500/30 rounded-xl space-y-1.5 shadow-lg overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-1.5">
+              <div className="flex items-center space-x-2 min-w-0">
                 <button
                   type="button"
                   onClick={() => setAutomationsModalOpen(true)}
-                  className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-mono text-[10px] font-bold border border-emerald-500/30 transition cursor-pointer"
+                  className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-mono text-[10px] font-bold border border-emerald-500/30 transition cursor-pointer whitespace-nowrap shrink-0"
                   title="Open Automations & Routines Manager"
                 >
                   <Timer className="w-3 h-3 text-emerald-400" />
                   <span>ACTIVE TIMERS ({activeSchedules.length})</span>
                 </button>
-                <span className="text-[#64748b] text-[10px] hidden sm:inline">
+                <span className="text-[#64748b] text-[10px] truncate hidden sm:inline">
                   Non-blocking sleeping agents will wake automatically
                 </span>
               </div>
               <button
                 type="button"
                 onClick={() => setAutomationsModalOpen(true)}
-                className="text-[10px] text-cyan-400 hover:text-cyan-300 font-mono hover:underline cursor-pointer"
+                className="text-[10px] text-cyan-400 hover:text-cyan-300 font-mono hover:underline cursor-pointer whitespace-nowrap"
               >
                 + New / Manage
               </button>
@@ -1016,7 +957,7 @@ export const CenterView: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => cancelSchedule(s.id)}
-                      className="p-1 hover:text-red-400 text-[#64748b] transition"
+                      className="p-1 hover:text-red-400 text-[#64748b] transition shrink-0"
                       title="Cancel timer"
                     >
                       <X className="w-3 h-3" />
@@ -1030,22 +971,22 @@ export const CenterView: React.FC = () => {
 
         {/* Live Machine Control Session Indicator */}
         {isMachineControlActive && (
-          <div className="p-2.5 rounded-xl bg-[#1c080d]/90 border border-red-500/80 text-red-200 text-xs flex items-center justify-between shadow-[0_0_20px_rgba(239,68,68,0.3)] animate-fadeIn">
-            <div className="flex items-center space-x-2.5">
+          <div className="p-2.5 rounded-xl bg-[#1c080d]/90 border border-red-500/80 text-red-200 text-xs flex flex-wrap items-center justify-between gap-2 shadow-[0_0_20px_rgba(239,68,68,0.3)] animate-fadeIn overflow-hidden">
+            <div className="flex items-center space-x-2.5 min-w-0">
               <span className="relative flex h-3 w-3 shrink-0">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500 shadow-[0_0_8px_#ef4444]" />
               </span>
-              <div className="flex items-center space-x-1.5 font-mono">
-                <span className="font-bold text-red-300 text-[12px]">🔴 {activeMachineAgent}</span>
-                <span className="text-gray-300">Controlling Local Machine</span>
-                <span className="text-gray-400 text-[11px]">({activeMachineTool || 'Desktop & Browser'})</span>
+              <div className="flex items-center space-x-1.5 font-mono truncate">
+                <span className="font-bold text-red-300 text-[12px] shrink-0">🔴 {activeMachineAgent}</span>
+                <span className="text-gray-300 truncate">Controlling Local Machine</span>
+                <span className="text-gray-400 text-[11px] shrink-0">({activeMachineTool || 'Desktop & Browser'})</span>
               </div>
             </div>
             <button
               type="button"
               onClick={() => setDesktopControlModalOpen(true)}
-              className="px-2.5 py-1 rounded-lg bg-red-600/30 hover:bg-red-600/50 text-red-200 border border-red-500/50 text-xs font-semibold transition flex items-center space-x-1 cursor-pointer"
+              className="px-2.5 py-1 rounded-lg bg-red-600/30 hover:bg-red-600/50 text-red-200 border border-red-500/50 text-xs font-semibold transition flex items-center space-x-1 cursor-pointer whitespace-nowrap shrink-0"
               title="Inspect live machine interaction and windows"
             >
               <Monitor className="w-3.5 h-3.5 text-red-400" />
@@ -1059,27 +1000,27 @@ export const CenterView: React.FC = () => {
 
         {/* Steering Feedback Notification */}
         {steerNotification && steerNotification.channelId === activeChannelId && (
-          <div className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-300 font-mono animate-fadeIn">
-            <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Steering directive injected into active loop: "{steerNotification.directive}"</span>
+          <div className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-300 font-mono animate-fadeIn overflow-hidden">
+            <CheckCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span className="truncate">Steering directive injected into active loop: "{steerNotification.directive}"</span>
           </div>
         )}
 
         {/* Interrupted run recovery banner */}
         {pendingRecoveries.length > 0 && (
-          <div className="p-3 bg-[#1e1008]/95 backdrop-blur-sm border border-amber-500/60 rounded-xl space-y-2.5 shadow-2xl animate-fadeIn">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <AlertTriangle className="w-4 h-4 text-amber-400 animate-pulse" />
-                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300 font-mono">
+          <div className="p-3 bg-[#1e1008]/95 backdrop-blur-sm border border-amber-500/60 rounded-xl space-y-2.5 shadow-2xl animate-fadeIn overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center space-x-2 min-w-0">
+                <AlertTriangle className="w-4 h-4 text-amber-400 animate-pulse shrink-0" />
+                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300 font-mono truncate">
                   Interrupted run recovery ({pendingRecoveries.length} run{pendingRecoveries.length > 1 ? 's' : ''})
                 </span>
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                 <button
                   type="button"
                   onClick={() => setInspectingRecovery(inspectingRecovery ? null : pendingRecoveries[0])}
-                  className="px-2.5 py-1 rounded bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-[10px] font-mono transition cursor-pointer"
+                  className="px-2.5 py-1 rounded bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-[10px] font-mono transition cursor-pointer whitespace-nowrap"
                   title="Inspect turn checkpoint state and execution snapshot"
                 >
                   {inspectingRecovery ? 'Close Inspection' : 'Inspect State'}
@@ -1087,7 +1028,7 @@ export const CenterView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => discardRecoveries()}
-                  className="px-2.5 py-1 rounded bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/40 text-[10px] font-mono transition cursor-pointer"
+                  className="px-2.5 py-1 rounded bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/40 text-[10px] font-mono transition cursor-pointer whitespace-nowrap"
                   title="Discard interrupted runs and start clean"
                 >
                   Discard All
@@ -1095,10 +1036,10 @@ export const CenterView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => resumeAllRecoveries()}
-                  className="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold font-mono transition flex items-center space-x-1 shadow-lg shadow-amber-900/40 cursor-pointer"
+                  className="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold font-mono transition flex items-center space-x-1 shadow-lg shadow-amber-900/40 cursor-pointer whitespace-nowrap"
                   title="Resume all runs from their exact saved turn checkpoints"
                 >
-                  <Zap className="w-3 h-3 text-black fill-current" />
+                  <Zap className="w-3 h-3 text-black fill-current shrink-0" />
                   <span>Resume All ({pendingRecoveries.length})</span>
                 </button>
               </div>
@@ -1107,12 +1048,12 @@ export const CenterView: React.FC = () => {
               {pendingRecoveries.map((rec) => (
                 <div
                   key={rec.runId || rec.id}
-                  className="flex items-center justify-between p-2 rounded-lg bg-[#0b0805] border border-amber-900/40 text-xs font-mono"
+                  className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg bg-[#0b0805] border border-amber-900/40 text-xs font-mono"
                 >
-                  <div className="flex items-center space-x-2 min-w-0 pr-2">
+                  <div className="flex items-center space-x-2 min-w-0 pr-2 flex-1">
                     <span className="text-amber-400 font-bold shrink-0">{rec.agentName}</span>
                     <span className="text-[#94a3b8] text-[11px] truncate">
-                      Interrupted at Turn #{rec.interruptedTurn} ({rec.model || 'default'})
+                      Turn #{rec.interruptedTurn} ({rec.model || 'default'})
                     </span>
                     <span className="text-[#64748b] text-[10px] truncate max-w-[200px]">
                       {rec.checkpointReason}
@@ -1122,7 +1063,7 @@ export const CenterView: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setInspectingRecovery(rec)}
-                      className="px-2 py-0.5 rounded bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-[10px] transition cursor-pointer"
+                      className="px-2 py-0.5 rounded bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-[10px] transition cursor-pointer whitespace-nowrap"
                       title="Inspect turn snapshot"
                     >
                       Inspect
@@ -1130,7 +1071,7 @@ export const CenterView: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => switchRunToOllama(rec.runId || rec.id)}
-                      className="px-2 py-0.5 rounded bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 text-[10px] transition cursor-pointer"
+                      className="px-2 py-0.5 rounded bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 text-[10px] transition cursor-pointer whitespace-nowrap"
                       title="Switch to local Ollama fallback and resume"
                     >
                       Fallback Ollama
@@ -1138,7 +1079,7 @@ export const CenterView: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => resumeRun(rec.runId || rec.id)}
-                      className="px-2 py-0.5 rounded bg-amber-600/30 hover:bg-amber-600/50 text-amber-200 border border-amber-500/50 text-[10px] font-bold transition cursor-pointer"
+                      className="px-2 py-0.5 rounded bg-amber-600/30 hover:bg-amber-600/50 text-amber-200 border border-amber-500/50 text-[10px] font-bold transition cursor-pointer whitespace-nowrap"
                       title="Resume this specific run"
                     >
                       Resume
@@ -1485,6 +1426,7 @@ export const CenterView: React.FC = () => {
 
         <form
           onSubmit={handleSend}
+          className="relative"
           onDragOver={(e) => {
             e.preventDefault();
             setIsDragOverChat(true);
@@ -1497,7 +1439,71 @@ export const CenterView: React.FC = () => {
               handleChatFileUpload(e.dataTransfer.files);
             }
           }}
-          className={`flex items-center bg-[#0f172a] border rounded-xl px-3 py-2 transition-colors shadow-lg ${
+        >
+          {/* Mention Autocomplete Overlay */}
+          {showMentionMenu && matchingAgents.length > 0 && (
+            <div className="absolute bottom-full mb-2 left-0 bg-[#0f172a] border border-[#2d3748] rounded-xl shadow-2xl p-2 z-30 w-80 max-h-64 overflow-y-auto space-y-1 animate-fadeIn">
+              <div className="text-[10px] text-[#64748b] uppercase font-bold px-2 py-0.5 flex items-center justify-between border-b border-[#1e293b] pb-1">
+                <span>Project Agents ({matchingAgents.length})</span>
+                <span className="text-[9px] font-mono lowercase text-[#94a3b8]">↑↓ Tab/Enter</span>
+              </div>
+              <div className="space-y-0.5 pt-1">
+                {matchingAgents.map((ag, idx) => (
+                  <button
+                    key={ag.id}
+                    type="button"
+                    onClick={() => handleInsertMention(ag.displayName)}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition cursor-pointer ${
+                      idx === mentionSelectedIndex
+                        ? 'bg-blue-600/25 ring-1 ring-blue-500/50 text-white'
+                        : 'hover:bg-[#1e293b]/70 text-[#cbd5e1]'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2 shrink-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 shadow-[0_0_4px_#34d399]" />
+                      <span className="font-semibold text-kin-text text-xs whitespace-nowrap">{ag.displayName}</span>
+                    </div>
+                    <span className="text-[10px] text-[#64748b] font-mono truncate ml-2 text-right">{ag.role}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Antigravity-Style Slash Commands Autocomplete Popup */}
+          {showSlashMenu && matchingSlashCommands.length > 0 && (
+            <div className="absolute bottom-full mb-2 left-0 bg-[#090d16] border border-[#2d3748] rounded-xl shadow-2xl p-2 z-30 w-96 max-h-72 overflow-y-auto space-y-1 text-xs animate-fadeIn">
+              <div className="text-[10px] text-[#64748b] uppercase font-bold px-2 py-1 flex items-center justify-between border-b border-[#1e293b] pb-1">
+                <span className="flex items-center space-x-1.5">
+                  <Terminal className="w-3 h-3 text-emerald-400" />
+                  <span>Independent Slash Commands ({matchingSlashCommands.length})</span>
+                </span>
+                <span className="text-[9px] font-mono lowercase text-[#94a3b8]">↑↓ to navigate, Tab/Enter to insert</span>
+              </div>
+              <div className="space-y-0.5 pt-1">
+                {matchingSlashCommands.map((c, idx) => (
+                  <button
+                    key={c.cmd}
+                    type="button"
+                    onClick={() => handleSlashCommand(c.cmd)}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition cursor-pointer ${
+                      idx === slashSelectedIndex
+                        ? 'bg-emerald-500/20 text-white border border-emerald-500/40 shadow-sm'
+                        : 'hover:bg-[#161f36] text-[#cbd5e1]'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2 truncate">
+                      <span className="font-mono text-emerald-400 font-bold text-xs">{c.cmd}</span>
+                    </div>
+                    <span className="text-[10px] text-[#94a3b8] truncate ml-2 text-right">{c.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div
+            className={`flex items-center bg-[#0f172a] border rounded-xl px-3 py-2 transition-colors shadow-lg ${
             isDragOverChat
               ? 'border-cyan-400 bg-cyan-950/20 ring-2 ring-cyan-500/40'
               : 'border-[#2d3748] focus-within:border-emerald-500'
@@ -1661,8 +1667,9 @@ export const CenterView: React.FC = () => {
               )}
             </button>
           </div>
-        </form>
-      </div>
-    </main>
-  );
+        </div>
+      </form>
+    </div>
+  </main>
+);
 };

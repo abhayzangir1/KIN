@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
 import { KinDatabase } from '../src/storage/db.js';
 import { MigrationRunner } from '../src/storage/migration_runner.js';
 import { AgentRepository } from '../src/domain/agent_repository.js';
@@ -19,7 +20,7 @@ import { RecoveryEngine } from '../src/recovery/recovery_engine.js';
 import { FinancialSafetyShield } from '../src/policy/financial_safety.js';
 
 describe('KIN Enterprise Multi-Agent Workforce Architecture', () => {
-  const testDbPath = path.resolve(process.cwd(), './test_enterprise_workforce.sqlite');
+  const testDbPath = path.resolve(os.tmpdir(), './test_enterprise_workforce.sqlite');
   let db: KinDatabase;
   let workspaceRepo: WorkspaceRepository;
   let agentRepo: AgentRepository;

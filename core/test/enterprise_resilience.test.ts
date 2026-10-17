@@ -402,7 +402,7 @@ describe('KIN Enterprise Resilience & Crash Recovery Suite', () => {
 });
 
 describe('KIN Enterprise Resilience: CoreServer API & Slash Commands', () => {
-  const testDbPath = path.resolve(process.cwd(), 'kin_test_resilience_server.sqlite');
+  const testDbPath = path.resolve(os.tmpdir(), 'kin_test_resilience_server.sqlite');
   let server: CoreServer;
   let port: number;
 

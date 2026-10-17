@@ -6,6 +6,7 @@ import { MemoryRepository } from '../src/domain/memory_repository.js';
 import { ToolGateway } from '../src/execution/tool_gateway.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
 
 describe('KIN Learning & Self-Improvement Pipeline (OpenDots + Trans4mers Architecture)', () => {
   let db: KinDatabase;
@@ -14,7 +15,7 @@ describe('KIN Learning & Self-Improvement Pipeline (OpenDots + Trans4mers Archit
   let memoryRepo: MemoryRepository;
 
   beforeEach(() => {
-    testDbPath = path.join(process.cwd(), `test_learning_${Date.now()}_${Math.random().toString(36).slice(2)}.sqlite`);
+    testDbPath = path.join(os.tmpdir(), `test_learning_${Date.now()}_${Math.random().toString(36).slice(2)}.sqlite`);
     db = new KinDatabase({ dbPath: testDbPath });
     const runner = new MigrationRunner(db);
     runner.runMigrations();
@@ -381,7 +382,7 @@ describe('KIN Learning & Self-Improvement Pipeline (OpenDots + Trans4mers Archit
   });
 
   it('10. Directory Import & Loading: scans and imports skills from directory containing SKILL.md and implementation.ts', () => {
-    const tempDir = path.join(process.cwd(), `temp_skill_import_${Date.now()}`);
+    const tempDir = path.join(os.tmpdir(), `temp_skill_import_${Date.now()}`);
     const skillSubdir = path.join(tempDir, 'data-cleaner');
     fs.mkdirSync(skillSubdir, { recursive: true });
 
@@ -536,7 +537,7 @@ Procedural steps:
   });
 
   it('14. Directory Import with Standard YAML & Standalone Markdown: imports bulleted skills and standalone md files', () => {
-    const tempDir = path.join(process.cwd(), `temp_yaml_import_${Date.now()}`);
+    const tempDir = path.join(os.tmpdir(), `temp_yaml_import_${Date.now()}`);
     const skillSubdir = path.join(tempDir, 'bullet-skill');
     fs.mkdirSync(skillSubdir, { recursive: true });
 

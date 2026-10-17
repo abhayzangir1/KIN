@@ -2,25 +2,42 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { CoreServer } from '../src/server/core_server.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
+import * as child_process from 'node:child_process';
 
 describe('KIN Phase 1/2: Core IPC Server Integration & Authoritative State', () => {
-  const testDbPath = path.resolve(process.cwd(), 'kin_test_server.sqlite');
+  const testDbPath = path.resolve(os.tmpdir(), `kin_test_server_${Date.now()}.sqlite`);
+  const testProjectDir = path.resolve(os.tmpdir(), `kin_server_test_project_${Date.now()}`);
   let server: CoreServer;
   let port: number;
 
   beforeAll(async () => {
+    fs.mkdirSync(testProjectDir, { recursive: true });
+    try {
+      child_process.execSync('git init && git config user.email "test@kin.local" && git config user.name "KIN Test"', { cwd: testProjectDir });
+      fs.writeFileSync(path.join(testProjectDir, 'README.md'), '# Initial');
+      child_process.execSync('git add README.md && git commit -m "init"', { cwd: testProjectDir });
+    } catch {}
+
     if (fs.existsSync(testDbPath)) {
       try { fs.unlinkSync(testDbPath); } catch {}
     }
 
     server = new CoreServer({ port: 0, dbPath: testDbPath }); // port 0 selects free ephemeral port
     port = await server.start();
+    (server as any).db.execute("UPDATE projects SET repo_path = ? WHERE id = 'proj-kin'", testProjectDir);
   });
 
   afterAll(async () => {
     await server.stop();
-    if (fs.existsSync(testDbPath)) {
-      try { fs.unlinkSync(testDbPath); } catch {}
+    for (const ext of ['', '-wal', '-shm']) {
+      const file = `${testDbPath}${ext}`;
+      if (fs.existsSync(file)) {
+        try { fs.unlinkSync(file); } catch {}
+      }
+    }
+    if (fs.existsSync(testProjectDir)) {
+      try { fs.rmSync(testProjectDir, { recursive: true, force: true }); } catch {}
     }
   });
 
@@ -400,7 +417,7 @@ describe('KIN Phase 1/2: Core IPC Server Integration & Authoritative State', () 
 
   it('GET /api/projects/:id/git/diff and stage/revert lifecycle', async () => {
     // 1. Create a dummy untracked file in the project directory
-    const testFile = path.resolve(process.cwd(), 'test_sample_diff.txt');
+    const testFile = path.resolve(testProjectDir, 'test_sample_diff.txt');
     fs.writeFileSync(testFile, 'Hello world line 1\nHello world line 2\n');
 
     try {
@@ -652,13 +669,13 @@ describe('KIN Phase 1/2: Core IPC Server Integration & Authoritative State', () 
 
   it('Rejects prefix-collision directory traversal attempts outside project jail', async () => {
     // Attempt to access path that starts with project root string but is actually another path
-    const fakeTraversal = `../${path.basename(process.cwd())}_other/secret.txt`;
+    const fakeTraversal = `../${path.basename(testProjectDir)}_other/secret.txt`;
     const jailRes = await fetch(`http://127.0.0.1:${port}/api/projects/proj-kin/artifacts/file?path=${encodeURIComponent(fakeTraversal)}`);
     expect(jailRes.status).toBe(403);
   });
 
   it('Detects binary files in git diff and reports isBinary flag', async () => {
-    const binFile = path.resolve(process.cwd(), 'sample_test_asset.png');
+    const binFile = path.resolve(testProjectDir, 'sample_test_asset.png');
     // Write 100 bytes containing null bytes to simulate a binary image
     const binBuf = Buffer.alloc(100);
     binBuf[0] = 0x89;

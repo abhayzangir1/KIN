@@ -1590,7 +1590,7 @@ export const AgentInspector: React.FC = () => {
                   <div className="pt-1 space-y-1">
                     <div className="flex items-center justify-between text-[10px] text-[#64748b]">
                       <span>Assign Any Model ID</span>
-                      <span className="text-[9px] font-mono text-[#475569]">e.g. openai/gpt-4.5 or anthropic/claude-3-7-sonnet</span>
+                      <span className="text-[9px] font-mono text-[#475569] truncate max-w-[160px]">e.g. openai/gpt-4o</span>
                     </div>
                     <div className="flex items-center space-x-1.5">
                       <input

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
 import { KinDatabase } from '../src/storage/db.js';
 import { MigrationRunner } from '../src/storage/migration_runner.js';
 import { AgentRepository } from '../src/domain/agent_repository.js';
@@ -14,7 +15,7 @@ import { ChannelService } from '../src/communication/channel_service.js';
 import { AgentIdentity } from '../src/domain/types.js';
 
 describe('DeepSeek Harness & KIN Workforce Architecture Remediation Suite', () => {
-  const testDbPath = path.resolve(process.cwd(), './test_harness_remediation.sqlite');
+  const testDbPath = path.resolve(os.tmpdir(), './test_harness_remediation.sqlite');
   let db: KinDatabase;
   let workspaceRepo: WorkspaceRepository;
   let agentRepo: AgentRepository;
@@ -606,7 +607,7 @@ describe('DeepSeek Harness & KIN Workforce Architecture Remediation Suite', () =
   });
 
   describe('Remediation 4: Channel Message Admission Queue Fencing', () => {
-    const serverDbPath = path.resolve(process.cwd(), './test_harness_server_fencing.sqlite');
+    const serverDbPath = path.resolve(os.tmpdir(), './test_harness_server_fencing.sqlite');
     let server: CoreServer;
 
     beforeEach(() => {

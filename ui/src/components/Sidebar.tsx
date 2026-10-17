@@ -1,6 +1,6 @@
 import React from 'react';
 import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
-import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale, Trash2, Sun, Moon, Users } from 'lucide-react';
+import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale, Trash2, Sun, Moon, Users, Bot, PanelRight } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
   const {
@@ -36,6 +36,7 @@ export const Sidebar: React.FC = () => {
     theme,
     toggleTheme,
     setActiveMainView,
+    setInspectorOpen,
   } = useKinStore();
 
   const handleSelectDm = (agentId: string) => {
@@ -537,11 +538,18 @@ export const Sidebar: React.FC = () => {
         </div>
 
         <button
-          onClick={() => setActiveRightTab('Agent')}
-          className="w-full flex items-center space-x-2 px-2.5 py-1 rounded text-[#64748b] hover:text-[#94a3b8] hover:bg-[#0d121f] transition text-[11px] cursor-pointer"
-          title="Open Agent Inspector & Contract Tab"
+          onClick={() => {
+            setActiveRightTab('Agent');
+            setInspectorOpen(true);
+          }}
+          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[#94a3b8] hover:text-kin-text bg-[#0d121f] hover:bg-[#131b2e] border border-[#1e293b]/60 hover:border-blue-500/40 transition text-xs cursor-pointer group shadow-xs"
+          title="Open Agent Inspector & Telemetry Drawer"
         >
-          <span>Inspector & Telemetry</span>
+          <div className="flex items-center space-x-2">
+            <Bot className="w-3.5 h-3.5 text-blue-400 group-hover:scale-110 transition-transform" />
+            <span className="font-medium text-[11px]">Inspector &amp; Telemetry</span>
+          </div>
+          <PanelRight className="w-3 h-3 text-[#64748b] group-hover:text-blue-400 transition-colors" />
         </button>
       </div>
     </aside>

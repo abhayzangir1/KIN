@@ -17,6 +17,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
 import { KinDatabase } from '../src/storage/db.js';
 import { MigrationRunner } from '../src/storage/migration_runner.js';
 import { DesktopController } from '../src/computer/desktop_controller.js';
@@ -35,7 +36,7 @@ describe('KIN V12: Desktop & Web Control Upgrades', () => {
   let testDbPath: string;
 
   beforeEach(() => {
-    testDbPath = path.resolve(process.cwd(), `test_v12_${Date.now()}_${Math.random().toString(36).substring(7)}.sqlite`);
+    testDbPath = path.resolve(os.tmpdir(), `test_v12_${Date.now()}_${Math.random().toString(36).substring(7)}.sqlite`);
     db = new KinDatabase({ dbPath: testDbPath });
     const migrations = new MigrationRunner(db);
     migrations.runMigrations();
@@ -101,7 +102,7 @@ describe('KIN V12: Desktop & Web Control Upgrades', () => {
 
   describe('3 & 8. BrowserController: Persistent Sessions & Web Task Step Trajectory', () => {
     it('detects installed browser executable and initializes persistent profile directory', async () => {
-      const customProfile = path.resolve(process.cwd(), '.kin', 'test_browser_profile');
+      const customProfile = path.resolve(os.tmpdir(), '.kin_test_browser_profile_' + Date.now());
       const browser = new BrowserController(customProfile);
 
       const exe = browser.findBrowserExecutable();
@@ -603,7 +604,7 @@ describe('KIN V12: Desktop & Web Control Upgrades', () => {
     });
 
     it('POST /api/skills/import with directoryPath imports skills from directory', async () => {
-      const tempImportDir = path.join(process.cwd(), `temp_endpoint_import_${Date.now()}`);
+      const tempImportDir = path.join(os.tmpdir(), `temp_endpoint_import_${Date.now()}`);
       const skillSubdir = path.join(tempImportDir, 'bundle-test-skill');
       fs.mkdirSync(skillSubdir, { recursive: true });
 
@@ -743,7 +744,7 @@ Imported skill instructions.`;
         {
           runId: 'run-test-tool-import',
           agentId: 'agent-boss',
-          worktreeRoot: path.resolve(process.cwd(), '.kin/worktrees/test-sub-worktree'),
+          worktreeRoot: path.resolve(os.tmpdir(), '.kin_test_worktree_' + Date.now()),
           autonomyMode: 'AUTO',
           allowedCapabilities: ['skills:manage'],
         }

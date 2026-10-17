@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as http from 'node:http';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
 import { CoreServer } from '../src/server/core_server.js';
 import { KinDatabase } from '../src/storage/db.js';
 import { MigrationRunner } from '../src/storage/migration_runner.js';
@@ -19,7 +20,7 @@ describe('Audit Remediation & Vision Verification Suite', () => {
   let server: CoreServer;
   let port: number;
   let baseUrl: string;
-  const tempDbPath = path.join(process.cwd(), `test_audit_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.sqlite`);
+  const tempDbPath = path.join(os.tmpdir(), `test_audit_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.sqlite`);
 
   beforeEach(async () => {
     server = new CoreServer({
@@ -444,7 +445,7 @@ describe('Audit Remediation & Vision Verification Suite', () => {
 
   describe('Shell Virtual Environment Detection', () => {
     it('detects .venv Scripts or bin directory and prepends to PATH', async () => {
-      const testWorktree = path.join(process.cwd(), `test_venv_dir_${Date.now()}`);
+      const testWorktree = path.join(os.tmpdir(), `test_venv_dir_${Date.now()}`);
       const isWin = process.platform === 'win32';
       const venvBinDir = isWin ? 'Scripts' : 'bin';
       const venvBinPath = path.join(testWorktree, '.venv', venvBinDir);
@@ -478,7 +479,7 @@ describe('Audit Remediation & Vision Verification Suite', () => {
     });
 
     it('detects .venv in projectRoot when executing inside an isolated worktree child directory', async () => {
-      const testProjectRoot = path.join(process.cwd(), `test_proj_root_${Date.now()}`);
+      const testProjectRoot = path.join(os.tmpdir(), `test_proj_root_${Date.now()}`);
       const testWorktree = path.join(testProjectRoot, '.kin', 'worktrees', 'run-test-venv');
       const isWin = process.platform === 'win32';
       const venvBinDir = isWin ? 'Scripts' : 'bin';
