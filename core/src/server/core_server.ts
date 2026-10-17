@@ -2282,7 +2282,7 @@ export class CoreServer {
           return this.sendJson(res, 400, { error: 'Project name is required' });
         }
 
-        const id = `proj-${Date.now()}`;
+        const id = `proj-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
         const now = Date.now();
         const workspaceId = 'ws-default';
         const project = {
@@ -2298,7 +2298,7 @@ export class CoreServer {
         this.workspaceRepo.createProject(project);
 
         // Create default #general channel for this project
-        const channelId = `chan-${Date.now()}`;
+        const channelId = `chan-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
         this.workspaceRepo.createChannel({
           id: channelId,
           projectId: id,
@@ -2615,7 +2615,7 @@ export class CoreServer {
         }
 
         const projectId = body.projectId || this.activeProjectId;
-        const channelId = `chan-${Date.now()}`;
+        const channelId = `chan-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
         const now = Date.now();
         const cleanName = body.name.trim().toLowerCase().replace(/^#/, '');
         const isPrivate = !!body.isPrivate;

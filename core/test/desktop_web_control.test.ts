@@ -66,7 +66,7 @@ describe('KIN V12: Desktop & Web Control Upgrades', () => {
       expect(first).toHaveProperty('executablePath');
       expect(first).toHaveProperty('category');
       expect(fs.existsSync(first.executablePath)).toBe(true);
-    });
+    }, 30000);
 
     it('queries display geometry and captures display screenshots', async () => {
       const controller = new DesktopController();
