@@ -732,7 +732,7 @@ export class ModelGateway {
       } else if (provider === 'deepseek') {
         const apiKey = this.resolveApiKey('deepseek', params.callerAgentId);
         return await this.invokeOpenAiCompatible(
-          'https://api.deepseek.com/v1/chat/completions',
+          'https://api.deepseek.com/chat/completions',
           apiKey,
           modelName,
           params,
@@ -1138,7 +1138,10 @@ export class ModelGateway {
           if (dataStr === '[DONE]') continue;
           try {
             const parsed = JSON.parse(dataStr);
-            const deltaContent = parsed?.choices?.[0]?.delta?.content || '';
+            const rawDeltaContent = parsed?.choices?.[0]?.delta?.content || '';
+            const deltaContent = typeof rawDeltaContent === 'string'
+              ? rawDeltaContent
+              : (Array.isArray(rawDeltaContent) ? rawDeltaContent.map((c: any) => c?.text || c).join('') : '');
             const deltaReasoning = parsed?.choices?.[0]?.delta?.reasoning || parsed?.choices?.[0]?.delta?.reasoning_content || '';
             if (deltaReasoning) {
               fullThinking += deltaReasoning;
@@ -1163,7 +1166,10 @@ export class ModelGateway {
     } else {
       const data: any = await res.json();
       const choiceMsg = data?.choices?.[0]?.message;
-      content = (choiceMsg?.content || data?.choices?.[0]?.text || '').trim();
+      const rawMsgContent = choiceMsg?.content || data?.choices?.[0]?.text || '';
+      content = (typeof rawMsgContent === 'string'
+        ? rawMsgContent
+        : (Array.isArray(rawMsgContent) ? rawMsgContent.map((c: any) => (typeof c === 'string' ? c : c?.text || '')).join('') : '')).trim();
       const reasoning = (choiceMsg?.reasoning || choiceMsg?.reasoning_content || '').trim();
       if (reasoning) {
         fullThinking = reasoning;
@@ -1255,7 +1261,10 @@ export class ModelGateway {
           if (dataStr === '[DONE]') continue;
           try {
             const parsed = JSON.parse(dataStr);
-            const deltaContent = parsed?.choices?.[0]?.delta?.content || '';
+            const rawDeltaContent = parsed?.choices?.[0]?.delta?.content || '';
+            const deltaContent = typeof rawDeltaContent === 'string'
+              ? rawDeltaContent
+              : (Array.isArray(rawDeltaContent) ? rawDeltaContent.map((c: any) => c?.text || c).join('') : '');
             const deltaReasoning = parsed?.choices?.[0]?.delta?.reasoning || parsed?.choices?.[0]?.delta?.reasoning_content || '';
             if (deltaReasoning) {
               fullThinking += deltaReasoning;
@@ -1280,7 +1289,10 @@ export class ModelGateway {
     } else {
       const data: any = await res.json();
       const choiceMsg = data?.choices?.[0]?.message;
-      content = (choiceMsg?.content || data?.choices?.[0]?.text || '').trim();
+      const rawMsgContent = choiceMsg?.content || data?.choices?.[0]?.text || '';
+      content = (typeof rawMsgContent === 'string'
+        ? rawMsgContent
+        : (Array.isArray(rawMsgContent) ? rawMsgContent.map((c: any) => (typeof c === 'string' ? c : c?.text || '')).join('') : '')).trim();
       const reasoning = (choiceMsg?.reasoning || choiceMsg?.reasoning_content || '').trim();
       if (reasoning) {
         fullThinking = reasoning;

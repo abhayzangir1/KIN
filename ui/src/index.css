@@ -133,6 +133,7 @@ html.dark .text-\[\#e2e8f0\] {
 /* LIGHT MODE OVERRIDES */
 html.light body,
 html.light #root,
+html.light .bg-kin-bg,
 html.light .bg-\[\#0a0f1d\],
 html.light .bg-\[\#070b12\],
 html.light .bg-\[\#090d16\],
@@ -142,11 +143,14 @@ html.light .bg-\[\#080d1a\],
 html.light .bg-\[\#060911\],
 html.light .bg-\[\#060a12\],
 html.light .bg-\[\#070a12\],
+html.light .bg-\[\#04060b\],
+html.light .bg-\[\#000000\],
 html.light .bg-\[\#0b0f19\] {
   background-color: #f6f8fa !important;
   color: #1f2328 !important;
 }
 
+html.light .bg-kin-surface,
 html.light .bg-\[\#0c1222\],
 html.light .bg-\[\#0d121f\],
 html.light .bg-\[\#0d1117\],
@@ -157,6 +161,7 @@ html.light .bg-\[\#0f172a\] {
   color: #1f2328 !important;
 }
 
+html.light .bg-kin-card,
 html.light .bg-\[\#161b22\],
 html.light .bg-\[\#1a2333\],
 html.light .bg-\[\#1e293b\],
@@ -167,6 +172,7 @@ html.light .bg-\[\#252f48\] {
   color: #1f2328 !important;
 }
 
+html.light .border-kin-border,
 html.light .border-\[\#1e293b\],
 html.light .border-\[\#21262d\],
 html.light .border-\[\#30363d\],
@@ -195,18 +201,76 @@ html.light .text-\[\#e2e8f0\] {
   color: #1f2328 !important;
 }
 
+html.light .text-\[\#475569\],
+html.light .text-\[\#334155\] {
+  color: #8c959f !important;
+}
+
+/* Light mode diff lines */
+html.light .bg-emerald-950\/40 {
+  background-color: rgba(16, 185, 129, 0.12) !important;
+  color: #065f46 !important;
+}
+
+html.light .bg-red-950\/40 {
+  background-color: rgba(239, 68, 68, 0.12) !important;
+  color: #991b1b !important;
+}
+
+html.light .bg-blue-950\/40 {
+  background-color: rgba(59, 130, 246, 0.12) !important;
+  color: #1e40af !important;
+}
+
+/* Hover surfaces in light mode */
+html.light .hover\:bg-\[\#1e293b\]:hover,
+html.light .hover\:bg-\[\#253248\]:hover,
+html.light .hover\:bg-\[\#161b22\]:hover,
+html.light .hover\:bg-\[\#162035\]:hover {
+  background-color: #e5e7eb !important;
+}
+
 html.light input,
 html.light select,
 html.light textarea {
   background-color: #ffffff !important;
   color: #1f2328 !important;
-  border-color: rgba(31, 35, 40, 0.15) !important;
+  border-color: rgba(31, 35, 40, 0.18) !important;
 }
 
 html.light input:focus,
 html.light select:focus,
 html.light textarea:focus {
   border-color: #0969da !important;
+}
+
+/* Light mode Swarm Map cards and bus */
+html.light .bg-\[\#151c2f\],
+html.light .bg-\[\#12192c\],
+html.light .bg-\[\#131d35\],
+html.light .bg-\[\#101a30\],
+html.light .bg-\[\#090d18\],
+html.light .bg-\[\#0c1427\],
+html.light .bg-\[\#090e1c\] {
+  background-color: #ffffff !important;
+  color: #1f2328 !important;
+  border-color: rgba(31, 35, 40, 0.15) !important;
+}
+
+html.light .bg-\[\#0c1427\]\/90 {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+  color: #1f2328 !important;
+  border-color: rgba(9, 105, 218, 0.3) !important;
+}
+
+html.light .text-blue-300,
+html.light .text-blue-300\/90 {
+  color: #0969da !important;
+}
+
+html.light .text-amber-300,
+html.light .text-amber-300\/90 {
+  color: #9a6700 !important;
 }
 
 /* Animations */

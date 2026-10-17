@@ -92,14 +92,14 @@ export const Sidebar: React.FC = () => {
       <div className="flex-1 overflow-y-auto p-2 space-y-4">
         {/* CHANNELS SECTION */}
         <div className="space-y-1">
-          <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-[#64748b]">
+          <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-kin-muted">
             <div className="flex items-center space-x-1">
-              <Hash className="w-3 h-3 text-[#64748b]" />
+              <Hash className="w-3 h-3 text-kin-muted" />
               <span>Channels</span>
             </div>
             <button
               onClick={() => setCreateChannelModalOpen(true)}
-              className="p-0.5 rounded hover:bg-[#1e293b] text-[#64748b] hover:text-emerald-400 transition"
+              className="p-0.5 rounded hover:bg-kin-card text-kin-muted hover:text-emerald-500 transition cursor-pointer"
               title="Create New Channel"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -116,24 +116,24 @@ export const Sidebar: React.FC = () => {
                     setActiveChannel(chan.id);
                     setActiveMainView('chat');
                   }}
-                  className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg transition group relative ${
+                  className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg transition group relative cursor-pointer ${
                     isActive
-                      ? 'bg-emerald-500/15 text-emerald-300 font-semibold border border-emerald-500/30 shadow-sm pl-4 before:absolute before:left-1.5 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-emerald-400'
-                      : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-200'
+                      ? 'bg-emerald-500/15 text-emerald-500 font-semibold border border-emerald-500/30 shadow-xs pl-4 before:absolute before:left-1.5 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-emerald-500'
+                      : 'text-kin-muted hover:bg-kin-card hover:text-kin-text'
                   }`}
                 >
                   <div className="flex items-center space-x-2 truncate">
-                    <span className="text-emerald-400 font-mono">#</span>
+                    <span className="text-emerald-500 font-mono font-bold">#</span>
                     <span className="truncate">{chan.name}</span>
                   </div>
                   <div className="flex items-center space-x-1.5 shrink-0">
                     {chan.unreadCount > 0 && !isActive && (
-                      <span className="px-1.5 py-0.2 rounded-full bg-emerald-500 text-black font-bold text-[9px] shadow-[0_0_6px_#34d399]">
+                      <span className="px-1.5 py-0.2 rounded-full bg-emerald-500 text-white font-bold text-[9px] shadow-xs">
                         {chan.unreadCount}
                       </span>
                     )}
                     {chan.memberIds && (
-                      <span className="text-[9px] text-[#64748b] group-hover:text-kin-muted">
+                      <span className="text-[9px] text-kin-muted">
                         {chan.memberIds.length}
                       </span>
                     )}
@@ -145,7 +145,7 @@ export const Sidebar: React.FC = () => {
                             deleteChannel(chan.id);
                           }
                         }}
-                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-500/20 text-[#64748b] hover:text-red-400 transition"
+                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-500/20 text-kin-muted hover:text-red-500 transition cursor-pointer"
                         title="Delete Channel"
                       >
                         <Trash2 className="w-3 h-3" />
@@ -160,14 +160,14 @@ export const Sidebar: React.FC = () => {
 
         {/* DIRECT MESSAGES SECTION */}
         <div className="space-y-1">
-          <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-[#64748b]">
+          <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-kin-muted">
             <div className="flex items-center space-x-1">
-              <MessageSquare className="w-3 h-3 text-[#64748b]" />
+              <MessageSquare className="w-3 h-3 text-kin-muted" />
               <span>Direct Messages</span>
             </div>
             <button
               onClick={() => setAddAgentModalOpen(true)}
-              className="p-0.5 rounded hover:bg-[#1e293b] text-[#64748b] hover:text-blue-400 transition"
+              className="p-0.5 rounded hover:bg-kin-card text-kin-muted hover:text-blue-500 transition cursor-pointer"
               title="Hire New Specialist for Project"
             >
               <UserPlus className="w-3.5 h-3.5" />
@@ -187,10 +187,10 @@ export const Sidebar: React.FC = () => {
                     onClick={() => handleSelectDm(agent.id)}
                     className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg transition cursor-pointer relative ${
                       isDmActive
-                        ? 'bg-blue-500/15 border border-blue-500/40 text-blue-300 font-semibold shadow-sm pl-4 before:absolute before:left-1.5 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-blue-400'
+                        ? 'bg-blue-500/15 border border-blue-500/40 text-blue-500 font-semibold shadow-xs pl-4 before:absolute before:left-1.5 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-blue-500'
                         : isSelected
-                        ? 'bg-[#131b2e] text-slate-200'
-                        : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-200'
+                        ? 'bg-kin-card text-kin-text font-medium'
+                        : 'text-kin-muted hover:bg-kin-card hover:text-kin-text'
                     }`}
                     title={`Open 1-on-1 Direct Message with ${agent.displayName}`}
                   >
@@ -198,8 +198,8 @@ export const Sidebar: React.FC = () => {
                       <span
                         className={`w-2 h-2 rounded-full shrink-0 ${
                           isThinking
-                            ? 'bg-amber-400 animate-pulse shadow-[0_0_6px_#fbbf24]'
-                            : 'bg-emerald-400 shadow-[0_0_4px_#34d399]'
+                            ? 'bg-amber-400 animate-pulse'
+                            : 'bg-emerald-500'
                         }`}
                       />
                       <span className="truncate">{agent.displayName}</span>
@@ -239,12 +239,12 @@ export const Sidebar: React.FC = () => {
 
         {/* COWORKER DIRECT MESSAGES SECTION */}
         <div className="space-y-1">
-          <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-[#64748b]">
+          <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-kin-muted">
             <div className="flex items-center space-x-1">
-              <Users className="w-3 h-3 text-[#64748b]" />
+              <Users className="w-3 h-3 text-kin-muted" />
               <span>Coworker Direct Messages</span>
             </div>
-            <span className="text-[9px] font-mono text-[#475569]">
+            <span className="text-[9px] font-mono text-kin-muted">
               {coworkerDms.length}
             </span>
           </div>
@@ -265,25 +265,25 @@ export const Sidebar: React.FC = () => {
                       setActiveChannel(dm.id);
                       setActiveMainView('chat');
                     }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded transition cursor-pointer group ${
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg transition cursor-pointer group ${
                       isActive
-                        ? 'bg-indigo-600/20 border border-indigo-500/40 text-indigo-300 font-medium'
-                        : 'text-[#94a3b8] hover:bg-[#131b2e] hover:text-kin-text'
+                        ? 'bg-indigo-500/15 border border-indigo-500/40 text-indigo-400 font-semibold shadow-xs'
+                        : 'text-kin-muted hover:bg-kin-card hover:text-kin-text'
                     }`}
                     title={`Inspect Coworker DM: ${displayLabel}`}
                   >
                     <div className="flex items-center space-x-2 truncate">
-                      <span className="w-2 h-2 rounded-full bg-indigo-400 shadow-[0_0_4px_#818cf8] shrink-0" />
+                      <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
                       <span className="truncate">{displayLabel}</span>
                     </div>
 
                     <div className="flex items-center space-x-1.5 shrink-0">
                       {dm.unreadCount > 0 && !isActive && (
-                        <span className="px-1.5 py-0.2 rounded-full bg-indigo-500 text-black font-bold text-[9px]">
+                        <span className="px-1.5 py-0.2 rounded-full bg-indigo-500 text-white font-bold text-[9px]">
                           {dm.unreadCount}
                         </span>
                       )}
-                      <span className="text-[9px] font-mono uppercase px-1 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                      <span className="text-[9px] font-mono uppercase px-1 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
                         Audit
                       </span>
                     </div>
@@ -291,7 +291,7 @@ export const Sidebar: React.FC = () => {
                 );
               })
             ) : (
-              <div className="px-2.5 py-1.5 text-[10px] text-[#475569] italic">
+              <div className="px-2.5 py-1.5 text-[10px] text-kin-muted italic">
                 No active coworker direct messages
               </div>
             )}
@@ -299,27 +299,27 @@ export const Sidebar: React.FC = () => {
         </div>
 
         {/* TASKS & GOALS SECTION */}
-        <div className="space-y-1">
-          <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-[#64748b]">
-            <div className="flex items-center space-x-1">
-              <Target className="w-3 h-3 text-[#64748b]" />
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-kin-muted">
+            <div className="flex items-center space-x-1.5">
+              <Target className="w-3.5 h-3.5 text-emerald-500" />
               <span>Goals & Tasks</span>
             </div>
             <div className="flex items-center space-x-1">
               <button
                 onClick={() => setNewGoalModalOpen(true)}
-                className="flex items-center space-x-0.5 px-1 py-0.5 rounded hover:bg-[#1e293b] text-[#64748b] hover:text-emerald-400 transition"
+                className="flex items-center space-x-0.5 px-1.5 py-0.5 rounded hover:bg-kin-card text-kin-muted hover:text-emerald-500 transition cursor-pointer"
                 title="Create New Goal in Project"
               >
-                <Plus className="w-3 h-3 text-emerald-400" />
+                <Plus className="w-3 h-3 text-emerald-500" />
                 <span className="text-[9px] font-mono lowercase">Goal</span>
               </button>
               <button
                 onClick={() => setNewTaskModalOpen(true)}
-                className="flex items-center space-x-0.5 px-1 py-0.5 rounded hover:bg-[#1e293b] text-[#64748b] hover:text-blue-400 transition"
+                className="flex items-center space-x-0.5 px-1.5 py-0.5 rounded hover:bg-kin-card text-kin-muted hover:text-blue-500 transition cursor-pointer"
                 title="Create Task in Active Goal"
               >
-                <Plus className="w-3 h-3 text-blue-400" />
+                <Plus className="w-3 h-3 text-blue-500" />
                 <span className="text-[9px] font-mono lowercase">Task</span>
               </button>
             </div>
@@ -329,15 +329,16 @@ export const Sidebar: React.FC = () => {
             {uniqueGoals.map((goal) => {
               const goalTasks = tasks.filter((t) => t.goalId === goal.id);
               const completedCount = goalTasks.filter((t) => t.status === 'completed').length;
+              const percent = goalTasks.length > 0 ? Math.round((completedCount / goalTasks.length) * 100) : 0;
 
               return (
-                <div key={goal.id} className="p-2 rounded-lg bg-[#0e1424] border border-[#1e293b] space-y-1.5">
+                <div key={goal.id} className="p-2.5 rounded-xl bg-kin-card/60 hover:bg-kin-card border border-kin-border transition space-y-2 shadow-xs group/goal">
                   <div className="flex items-center justify-between">
-                    <span className="font-semibold text-kin-text text-[11px] truncate flex-1 mr-1" title={goal.title}>
+                    <span className="font-semibold text-kin-text text-xs truncate flex-1 mr-2" title={goal.title}>
                       {goal.title}
                     </span>
-                    <div className="flex items-center space-x-1 shrink-0">
-                      <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-[#1e293b] text-emerald-400">
+                    <div className="flex items-center space-x-1.5 shrink-0">
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-500 font-bold border border-emerald-500/20">
                         {completedCount}/{goalTasks.length}
                       </span>
                       <button
@@ -346,13 +347,23 @@ export const Sidebar: React.FC = () => {
                             deleteGoal(goal.id);
                           }
                         }}
-                        className="p-0.5 rounded hover:bg-red-500/20 text-[#64748b] hover:text-red-400 transition"
+                        className="opacity-0 group-hover/goal:opacity-100 p-0.5 rounded hover:bg-red-500/10 text-kin-muted hover:text-red-500 transition cursor-pointer"
                         title="Delete Goal"
                       >
-                        <Trash2 className="w-2.5 h-2.5" />
+                        <Trash2 className="w-3 h-3" />
                       </button>
                     </div>
                   </div>
+
+                  {/* Sleek Mini Progress Bar */}
+                  {goalTasks.length > 0 && (
+                    <div className="w-full bg-kin-surface h-1 rounded-full overflow-hidden border border-kin-border/50">
+                      <div
+                        className="bg-emerald-500 h-full transition-all duration-300 rounded-full"
+                        style={{ width: `${percent}%` }}
+                      />
+                    </div>
+                  )}
 
                   <div className="space-y-1">
                     {goalTasks.map((task) => {
@@ -366,31 +377,31 @@ export const Sidebar: React.FC = () => {
                       return (
                         <div
                           key={task.id}
-                          className="flex items-center justify-between px-1.5 py-1 rounded bg-[#070b12] border border-[#1e293b]/60 group text-[10px]"
+                          className="flex items-center justify-between px-2 py-1 rounded-lg bg-kin-surface border border-kin-border hover:border-kin-border/80 group/task text-[11px] transition"
                         >
-                          <div className="flex items-center space-x-1.5 truncate flex-1 mr-1">
+                          <div className="flex items-center space-x-2 truncate flex-1 mr-1">
                             <button
                               onClick={() => updateTaskStatus(task.id, nextStatus[task.status] || 'ready')}
-                              className="shrink-0 hover:scale-110 transition"
+                              className="shrink-0 hover:scale-110 transition cursor-pointer"
                               title={`Status: ${task.status} (Click to advance)`}
                             >
                               {task.status === 'completed' ? (
-                                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
                               ) : task.status === 'running' ? (
-                                <PlayCircle className="w-3 h-3 text-blue-400 animate-pulse" />
+                                <PlayCircle className="w-3.5 h-3.5 text-blue-500 animate-pulse" />
                               ) : task.status === 'failed' ? (
-                                <AlertCircle className="w-3 h-3 text-red-400" />
+                                <AlertCircle className="w-3.5 h-3.5 text-red-500" />
                               ) : (
-                                <Clock className="w-3 h-3 text-amber-400" />
+                                <Clock className="w-3.5 h-3.5 text-amber-500" />
                               )}
                             </button>
                             <span
-                              className={`truncate ${
+                              className={`truncate text-[11px] ${
                                 task.status === 'completed'
-                                  ? 'line-through text-[#64748b]'
+                                  ? 'line-through text-kin-muted'
                                   : task.status === 'running'
-                                  ? 'text-blue-300 font-medium'
-                                  : 'text-[#94a3b8]'
+                                  ? 'text-blue-500 font-medium'
+                                  : 'text-kin-text'
                               }`}
                               title={task.title}
                             >
@@ -400,19 +411,19 @@ export const Sidebar: React.FC = () => {
 
                           <div className="flex items-center space-x-1 shrink-0">
                             <span
-                              className={`text-[8px] font-mono uppercase px-1 py-0.2 rounded ${
+                              className={`text-[8px] font-mono uppercase px-1.5 py-0.5 rounded font-semibold ${
                                 task.status === 'completed'
-                                  ? 'bg-emerald-500/10 text-emerald-400'
+                                  ? 'bg-emerald-500/10 text-emerald-500'
                                   : task.status === 'running'
-                                  ? 'bg-blue-500/10 text-blue-400'
-                                  : 'bg-[#1e293b] text-[#64748b]'
+                                  ? 'bg-blue-500/10 text-blue-500'
+                                  : 'bg-kin-card text-kin-muted border border-kin-border/50'
                               }`}
                             >
                               {task.status}
                             </span>
                             <button
                               onClick={() => deleteTask(task.id)}
-                              className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-500/20 text-[#64748b] hover:text-red-400 transition"
+                              className="opacity-0 group-hover/task:opacity-100 p-0.5 rounded hover:bg-red-500/10 text-kin-muted hover:text-red-500 transition cursor-pointer"
                               title="Delete Task"
                             >
                               <Trash2 className="w-2.5 h-2.5" />
@@ -427,7 +438,7 @@ export const Sidebar: React.FC = () => {
             })}
 
             {goals.length === 0 && (
-              <div className="text-[10px] text-[#64748b] text-center py-2 italic">
+              <div className="text-[11px] text-kin-muted text-center py-3 italic">
                 No active goals in project
               </div>
             )}
@@ -436,14 +447,14 @@ export const Sidebar: React.FC = () => {
 
         {/* ARCHITECTURE DECISION RECORDS (ADR) SECTION */}
         <div className="space-y-1">
-          <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-[#64748b]">
+          <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-kin-muted">
             <div className="flex items-center space-x-1">
-              <Scale className="w-3 h-3 text-amber-400" />
+              <Scale className="w-3.5 h-3.5 text-amber-500" />
               <span>Decisions (ADR)</span>
             </div>
             <button
               onClick={() => setDecisionsModalOpen(true)}
-              className="p-0.5 rounded hover:bg-[#1e293b] text-[#64748b] hover:text-amber-400 transition"
+              className="p-0.5 rounded hover:bg-kin-card text-kin-muted hover:text-amber-500 transition cursor-pointer"
               title="Open Architecture Decision Records Modal"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -452,13 +463,13 @@ export const Sidebar: React.FC = () => {
 
           <button
             onClick={() => setDecisionsModalOpen(true)}
-            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded text-[#94a3b8] hover:bg-[#131b2e] hover:text-kin-text transition border border-[#1e293b]/50 group"
+            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-kin-muted hover:bg-kin-card hover:text-kin-text transition border border-kin-border group cursor-pointer"
           >
             <div className="flex items-center space-x-2 truncate">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shadow-[0_0_4px_#fbbf24]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
               <span className="truncate">Decision Records</span>
             </div>
-            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">
+            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-500 font-semibold border border-amber-500/20">
               {decisions.length}
             </span>
           </button>
@@ -466,9 +477,9 @@ export const Sidebar: React.FC = () => {
 
         {/* AUTOMATIONS & SCHEDULES SECTION */}
         <div className="space-y-1">
-          <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-[#64748b]">
+          <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-kin-muted">
             <div className="flex items-center space-x-1">
-              <Clock className="w-3 h-3 text-cyan-400" />
+              <Clock className="w-3.5 h-3.5 text-cyan-500" />
               <span>Automations & Schedules</span>
             </div>
             <button
@@ -476,7 +487,7 @@ export const Sidebar: React.FC = () => {
                 setActiveMainView('automations');
                 setAutomationsModalOpen(true);
               }}
-              className="p-0.5 rounded hover:bg-[#1e293b] text-[#64748b] hover:text-cyan-400 transition cursor-pointer"
+              className="p-0.5 rounded hover:bg-kin-card text-kin-muted hover:text-cyan-500 transition cursor-pointer"
               title="Add New Automation / Schedule"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -485,17 +496,17 @@ export const Sidebar: React.FC = () => {
 
           <button
             onClick={() => setActiveMainView('automations')}
-            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded transition border group cursor-pointer ${
+            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg transition border group cursor-pointer ${
               activeMainView === 'automations'
-                ? 'bg-cyan-600/20 text-cyan-300 font-medium border-cyan-500/40 shadow-sm'
-                : 'text-[#94a3b8] hover:bg-[#131b2e] hover:text-kin-text border-[#1e293b]/50'
+                ? 'bg-cyan-500/15 text-cyan-500 font-semibold border-cyan-500/40 shadow-xs'
+                : 'text-kin-muted hover:bg-kin-card hover:text-kin-text border-kin-border'
             }`}
           >
             <div className="flex items-center space-x-2 truncate">
-              <span className={`w-1.5 h-1.5 rounded-full ${activeMainView === 'automations' ? 'bg-cyan-300 shadow-[0_0_6px_#67e8f9]' : 'bg-cyan-400 shadow-[0_0_4px_#22d3ee]'}`} />
+              <span className={`w-1.5 h-1.5 rounded-full ${activeMainView === 'automations' ? 'bg-cyan-400' : 'bg-cyan-500'}`} />
               <span className="truncate">Schedules & Routines</span>
             </div>
-            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-cyan-500/10 text-cyan-500 font-semibold border border-cyan-500/20">
               {schedules.filter((s) => s.status === 'active').length} active
             </span>
           </button>

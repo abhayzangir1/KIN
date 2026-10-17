@@ -29,6 +29,9 @@ import {
   Lightbulb,
   Info,
   Compass,
+  Plus,
+  Cpu,
+  Wrench,
 } from 'lucide-react';
 import { HumanTakeoverBanner } from './HumanTakeoverBanner.js';
 import { AutomationsView } from './AutomationsView.js';
@@ -83,6 +86,9 @@ export const CenterView: React.FC = () => {
     submitGrillMeAnswers,
     dismissGrillMe,
     clearQuotaPause,
+    skills,
+    fetchSkills,
+    setSettingsModalOpen,
   } = useKinStore();
 
   const isMachineTool = (tool?: string) => {
@@ -268,7 +274,26 @@ export const CenterView: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [channelMessages.length, channelMessages[channelMessages.length - 1]?.content]);
 
-  const slashCommands = [
+  const [showPlusMenu, setShowPlusMenu] = useState(false);
+  const plusMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetchSkills();
+  }, [fetchSkills]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (plusMenuRef.current && !plusMenuRef.current.contains(e.target as Node)) {
+        setShowPlusMenu(false);
+      }
+    };
+    if (showPlusMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showPlusMenu]);
+
+  const baseSlashCommands = [
     { cmd: '/plan', desc: 'Generate multi-phase plan in DAG (e.g. /plan Core Architecture)' },
     { cmd: '/boost', desc: 'Deep architecture audit & autonomous verification directive' },
     { cmd: '/teamwork-preview', desc: 'Inspect workforce topology & model readiness' },
@@ -287,6 +312,21 @@ export const CenterView: React.FC = () => {
     { cmd: '/grill-me', desc: 'Adversarial architectural assessment & tradeoff analysis' },
     { cmd: '/clear', desc: 'Clear input' },
   ];
+
+  const slashCommands = React.useMemo(() => {
+    const list: Array<{ cmd: string; desc: string; isSkill?: boolean }> = [...baseSlashCommands];
+    if (Array.isArray(skills) && skills.length > 0) {
+      skills.forEach((sk) => {
+        const slug = sk.name.toLowerCase().replace(/\s+/g, '-');
+        list.push({
+          cmd: `/skill:${slug}`,
+          desc: `Skill: ${sk.description || sk.name}`,
+          isSkill: true,
+        });
+      });
+    }
+    return list;
+  }, [skills]);
 
   const lastSlashWord = inputText.split(/\s/).pop() || '';
   const matchingSlashCommands = slashCommands.filter((c) => {
@@ -1475,13 +1515,13 @@ export const CenterView: React.FC = () => {
 
           {/* Antigravity-Style Slash Commands Autocomplete Popup */}
           {showSlashMenu && matchingSlashCommands.length > 0 && (
-            <div className="absolute bottom-full mb-2 left-0 bg-[#090d16] border border-[#2d3748] rounded-xl shadow-2xl p-2 z-30 w-96 max-h-72 overflow-y-auto space-y-1 text-xs animate-fadeIn">
-              <div className="text-[10px] text-[#64748b] uppercase font-bold px-2 py-1 flex items-center justify-between border-b border-[#1e293b] pb-1">
+            <div className="absolute bottom-full mb-2 left-0 bg-kin-surface border border-kin-border rounded-xl shadow-2xl p-2 z-30 w-96 max-h-72 overflow-y-auto space-y-1 text-xs animate-fadeIn select-none">
+              <div className="text-[10px] text-kin-muted uppercase font-bold px-2 py-1 flex items-center justify-between border-b border-kin-border pb-1">
                 <span className="flex items-center space-x-1.5">
-                  <Terminal className="w-3 h-3 text-emerald-400" />
-                  <span>Independent Slash Commands ({matchingSlashCommands.length})</span>
+                  <Terminal className="w-3 h-3 text-emerald-500" />
+                  <span>Slash Commands & Skills ({matchingSlashCommands.length})</span>
                 </span>
-                <span className="text-[9px] font-mono lowercase text-[#94a3b8]">↑↓ to navigate, Tab/Enter to insert</span>
+                <span className="text-[9px] font-mono lowercase text-kin-muted">↑↓ to navigate, Tab/Enter</span>
               </div>
               <div className="space-y-0.5 pt-1">
                 {matchingSlashCommands.map((c, idx) => (
@@ -1491,14 +1531,26 @@ export const CenterView: React.FC = () => {
                     onClick={() => handleSlashCommand(c.cmd)}
                     className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition cursor-pointer ${
                       idx === slashSelectedIndex
-                        ? 'bg-emerald-500/20 text-white border border-emerald-500/40 shadow-sm'
-                        : 'hover:bg-[#161f36] text-[#cbd5e1]'
+                        ? 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 shadow-xs'
+                        : 'hover:bg-kin-card text-kin-text'
                     }`}
                   >
                     <div className="flex items-center space-x-2 truncate">
-                      <span className="font-mono text-emerald-400 font-bold text-xs">{c.cmd}</span>
+                      {c.isSkill ? (
+                        <Wrench className="w-3 h-3 text-cyan-500 shrink-0" />
+                      ) : (
+                        <Terminal className="w-3 h-3 text-emerald-500 shrink-0" />
+                      )}
+                      <span className={`font-mono font-bold text-xs ${c.isSkill ? 'text-cyan-500' : 'text-emerald-500'}`}>
+                        {c.cmd}
+                      </span>
+                      {c.isSkill && (
+                        <span className="px-1 py-0.2 rounded text-[8px] font-mono bg-cyan-500/10 text-cyan-500 border border-cyan-500/20 font-bold uppercase">
+                          Skill
+                        </span>
+                      )}
                     </div>
-                    <span className="text-[10px] text-[#94a3b8] truncate ml-2 text-right">{c.desc}</span>
+                    <span className="text-[10px] text-kin-muted truncate ml-2 text-right">{c.desc}</span>
                   </button>
                 ))}
               </div>
@@ -1512,6 +1564,175 @@ export const CenterView: React.FC = () => {
               : 'border-kin-border focus-within:border-kin-primary'
           }`}
         >
+          {/* Plus Capabilities Button & Popover */}
+          <div className="relative shrink-0" ref={plusMenuRef}>
+            <button
+              type="button"
+              onClick={() => setShowPlusMenu(!showPlusMenu)}
+              className={`p-1 rounded-lg transition mr-2 cursor-pointer ${
+                showPlusMenu
+                  ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/30'
+                  : 'text-kin-muted hover:text-kin-text hover:bg-kin-surface'
+              }`}
+              title="Capabilities & Integrations (Connectors, MCP, Skills, Uploads)"
+            >
+              <Plus className={`w-4 h-4 transition-transform duration-200 ${showPlusMenu ? 'rotate-45' : ''}`} />
+            </button>
+
+            {/* Popover Menu */}
+            {showPlusMenu && (
+              <div className="absolute bottom-full mb-2 left-0 w-80 bg-kin-surface border border-kin-border rounded-xl shadow-2xl p-2.5 z-40 animate-fadeIn space-y-2.5 select-none text-xs">
+                <div className="flex items-center justify-between pb-1.5 border-b border-kin-border">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-kin-muted">
+                    Capabilities & Integrations
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowPlusMenu(false)}
+                    className="p-0.5 rounded hover:bg-kin-card text-kin-muted hover:text-kin-text transition cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+
+                {/* Section 1: Connectors & Models */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[10px] font-semibold text-kin-muted">
+                    <div className="flex items-center space-x-1.5">
+                      <Cpu className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>Model Connectors</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowPlusMenu(false);
+                        setSettingsModalOpen(true);
+                      }}
+                      className="text-[10px] text-emerald-500 hover:underline cursor-pointer font-medium"
+                    >
+                      Settings
+                    </button>
+                  </div>
+                  <div className="px-2.5 py-1.5 rounded-lg bg-kin-card border border-kin-border flex items-center justify-between">
+                    <span className="font-mono text-kin-text text-[11px] truncate mr-2">
+                      {agents.find((a) => a.isOrchestrator)?.activeModelId || 'Ollama (Local)'}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-bold shrink-0">
+                      ACTIVE
+                    </span>
+                  </div>
+                </div>
+
+                {/* Section 2: MCP Tools */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[10px] font-semibold text-kin-muted">
+                    <div className="flex items-center space-x-1.5">
+                      <Terminal className="w-3.5 h-3.5 text-purple-500" />
+                      <span>MCP Servers & Tools</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const res = await fetch('/api/mcp/reload', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({}),
+                          });
+                          const data = await res.json();
+                          alert(`MCP Servers reloaded! Tools discovered: ${data.toolsCount || 0}`);
+                        } catch (err: any) {
+                          alert(`Failed to reload MCP: ${err.message}`);
+                        }
+                      }}
+                      className="text-[10px] text-purple-500 hover:underline cursor-pointer font-medium"
+                    >
+                      Reload
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPlusMenu(false);
+                      handleSlashCommand('/skills');
+                    }}
+                    className="w-full text-left px-2.5 py-1.5 rounded-lg bg-kin-card hover:bg-kin-surface border border-kin-border flex items-center justify-between text-kin-text transition cursor-pointer"
+                  >
+                    <span className="truncate">Inspect Registered MCP Tools</span>
+                    <span className="text-[10px] text-kin-muted font-mono font-medium">Tools</span>
+                  </button>
+                </div>
+
+                {/* Section 3: Workforce Skills */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[10px] font-semibold text-kin-muted">
+                    <div className="flex items-center space-x-1.5">
+                      <Wrench className="w-3.5 h-3.5 text-cyan-500" />
+                      <span>Workforce Skills ({skills.length})</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowPlusMenu(false);
+                        handleSlashCommand('/skills');
+                      }}
+                      className="text-[10px] text-cyan-500 hover:underline cursor-pointer font-medium"
+                    >
+                      Browse
+                    </button>
+                  </div>
+                  <div className="space-y-1 max-h-24 overflow-y-auto">
+                    {skills.slice(0, 3).map((sk) => (
+                      <button
+                        key={sk.id}
+                        type="button"
+                        onClick={() => {
+                          setShowPlusMenu(false);
+                          handleSlashCommand(`/skill:${sk.name.toLowerCase().replace(/\s+/g, '-')}`);
+                        }}
+                        className="w-full text-left px-2 py-1 rounded-md hover:bg-kin-card flex items-center justify-between text-kin-text transition cursor-pointer group"
+                      >
+                        <span className="font-mono text-cyan-500 text-[11px] truncate mr-2 font-medium">{sk.name}</span>
+                        <span className="text-[10px] text-kin-muted truncate">{sk.description}</span>
+                      </button>
+                    ))}
+                    {skills.length === 0 && (
+                      <div className="text-[10px] text-kin-muted px-2 py-1 italic">
+                        Default platform primitives active
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Section 4: Quick Actions */}
+                <div className="pt-1.5 border-t border-kin-border grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPlusMenu(false);
+                      chatFileInputRef.current?.click();
+                    }}
+                    className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-kin-card hover:bg-kin-surface border border-kin-border text-kin-text transition cursor-pointer"
+                  >
+                    <Paperclip className="w-3.5 h-3.5 text-kin-muted" />
+                    <span className="truncate">Attach File</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPlusMenu(false);
+                      handleSlashCommand('/plan');
+                    }}
+                    className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-kin-card hover:bg-kin-surface border border-kin-border text-kin-text transition cursor-pointer"
+                  >
+                    <Terminal className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>/plan</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           <input
             ref={inputRef}
             type="text"

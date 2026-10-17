@@ -4818,6 +4818,60 @@ export class CoreServer {
               return;
             }
 
+            // Subcommand: /skill <name> [instructions] or /skill:<name> [instructions]
+            if (rawSub.length > 0) {
+              const allSkills = this.skillEngine.listSkills('all');
+              const firstSpace = rawSub.indexOf(' ');
+              const targetName = (firstSpace === -1 ? rawSub : rawSub.substring(0, firstSpace)).trim().toLowerCase().replace(/^:/, '');
+              const userInstructions = firstSpace === -1 ? '' : rawSub.substring(firstSpace + 1).trim();
+
+              const matchedSkill = allSkills.find(
+                (s) =>
+                  s.name.toLowerCase() === targetName ||
+                  s.id.toLowerCase() === targetName ||
+                  s.name.toLowerCase().replace(/\s+/g, '-') === targetName
+              );
+              if (matchedSkill) {
+                if (userInstructions) {
+                  // Direct execution of skill
+                  const skillPrompt = `[SKILL EXECUTION: ${matchedSkill.name}]\nSkill Instructions: ${matchedSkill.instructions}\n\nTask: ${userInstructions}`;
+                  const execDirective = {
+                    id: `msg-skill-${Date.now()}`,
+                    channelId,
+                    senderId: 'user-operator',
+                    senderType: 'human' as const,
+                    content: skillPrompt,
+                    createdAt: Date.now(),
+                  };
+                  this.executeSequentialAgents(routing.targetAgents.length > 0 ? routing.targetAgents : [boss], channelId, execDirective as any).catch((err) => {
+                    console.error('[KIN CORE] Skill execution error:', err);
+                  });
+                  return;
+                } else {
+                  // Display skill details
+                  const skillCard = `🛠️ **Skill: ${matchedSkill.name}** \`v${matchedSkill.version || '1.0.0'}\`\n- **Description**: ${matchedSkill.description}\n- **Instructions**: ${matchedSkill.instructions}\n- **Required Tools**: ${matchedSkill.requiredTools?.length ? matchedSkill.requiredTools.map((t: string) => `\`${t}\``).join(', ') : 'Default tools'}\n\n💡 *To execute*: \`/skill:${matchedSkill.name.toLowerCase().replace(/\s+/g, '-')} <your task>\``;
+                  const reply = this.channelService.sendMessage({
+                    channelId,
+                    senderId: boss.id,
+                    senderType: 'agent',
+                    content: skillCard,
+                    productivityScore: 100,
+                  });
+                  this.broadcastEvent('message:created', {
+                    id: reply.id,
+                    channelId: reply.channelId,
+                    senderId: reply.senderId,
+                    senderName: boss.displayName.replace(/^@/, ''),
+                    senderType: 'agent',
+                    content: reply.content,
+                    createdAt: reply.createdAt,
+                    productivityScore: reply.productivityScore,
+                  });
+                  return;
+                }
+              }
+            }
+
             // Default: List all skills
             const allSkills = this.skillEngine.listSkills('all');
             let skillsText = `🛠️ **Registered Agent Skills & Capabilities (${allSkills.length})**\n\n`;
@@ -4834,7 +4888,7 @@ export class CoreServer {
                 }
               }
             }
-            skillsText += `\n💡 *Commands*: \`/skills create <name> | <desc> | <instructions>\` • \`/skills import <path/bundle>\``;
+            skillsText += `\n💡 *Commands*: \`/skills create <name> | <desc> | <instructions>\` • \`/skills import <path/bundle>\` • \`/skill:<name> <task>\``;
 
             const reply = this.channelService.sendMessage({
               channelId,

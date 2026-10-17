@@ -1005,7 +1005,7 @@ export const useKinStore = create<KinState>((set, get) => ({
       const saved = localStorage.getItem('kin_theme');
       if (saved === 'light' || saved === 'dark') return saved;
     } catch {}
-    return 'dark';
+    return 'light';
   })(),
   setTheme: (theme: 'dark' | 'light') => {
     try {

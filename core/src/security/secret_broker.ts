@@ -164,7 +164,11 @@ export class SecretBroker {
             sanitized[key] = redacted;
           } else if (/apiKey|api_key/i.test(key)) {
             sanitized[key] = '[REDACTED][REDACTED_KEY]';
-          } else if (/token|auth/i.test(key)) {
+          } else if (
+            /auth_?header|auth_?token|bearer_?token|access_?token|refresh_?token|session_?token|jwt_?token|secret_?token|ipc_?token/i.test(key) ||
+            (key.toLowerCase() === 'auth') ||
+            (key.toLowerCase() === 'token' && !('runId' in (payload as any) || 'agentId' in (payload as any) || 'channelId' in (payload as any)))
+          ) {
             sanitized[key] = '[REDACTED][REDACTED_TOKEN]';
           } else if (/secret|password/i.test(key)) {
             sanitized[key] = '[REDACTED][REDACTED_SECRET]';

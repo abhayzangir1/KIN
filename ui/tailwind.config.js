@@ -9,21 +9,21 @@ export default {
     extend: {
       colors: {
         kin: {
-          bg: '#0d1117',
-          surface: '#161b22',
-          surfaceHover: '#1c2128',
-          card: '#21262d',
-          cardHover: '#292e36',
-          border: 'rgba(255, 255, 255, 0.08)',
-          borderSubtle: 'rgba(255, 255, 255, 0.04)',
+          bg: 'var(--kin-bg)',
+          surface: 'var(--kin-surface)',
+          surfaceHover: 'var(--kin-surface)',
+          card: 'var(--kin-card)',
+          cardHover: 'var(--kin-card)',
+          border: 'var(--kin-border)',
+          borderSubtle: 'var(--kin-border)',
           primary: '#38bdf8',
           primaryHover: '#0284c7',
           success: '#10b981',
           warning: '#f59e0b',
           danger: '#ef4444',
-          text: '#f0f6fc',
-          muted: '#8b949e',
-          subtle: '#6e7681',
+          text: 'var(--kin-text)',
+          muted: 'var(--kin-muted)',
+          subtle: 'var(--kin-subtle)',
         }
       }
     },
