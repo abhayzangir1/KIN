@@ -17,6 +17,9 @@ import {
   Cpu,
   RefreshCw,
   Trash2,
+  GitFork,
+  PanelRight,
+  PanelRightClose,
 } from 'lucide-react';
 
 export const SwarmMap: React.FC = () => {
@@ -55,6 +58,7 @@ export const SwarmMap: React.FC = () => {
     coordination: true,
   });
   const [expandedJson, setExpandedJson] = useState<Record<string, boolean>>({});
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   // Active agents based on filter
   const displayedAgents =
@@ -154,10 +158,10 @@ export const SwarmMap: React.FC = () => {
   const specialists = displayedAgents.filter((a) => !a.isOrchestrator);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fadeIn select-none font-sans">
-      <div className="bg-[#090d16] border border-[#1e293b] rounded-2xl w-full max-w-7xl h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-3 sm:p-6 animate-fadeIn select-none font-sans">
+      <div className="bg-[#090d16] border border-[#1e293b] rounded-2xl w-full max-w-7xl h-[94vh] flex flex-col shadow-2xl overflow-hidden">
         {/* Top Control Bar */}
-        <div className="px-6 py-3.5 border-b border-[#1e293b] bg-[#0c1222] flex items-center justify-between shrink-0">
+        <div className="px-6 py-3.5 border-b border-[#1e293b] bg-[#0c1222] flex items-center justify-between shrink-0 flex-wrap gap-2">
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
               <Network className="w-4 h-4" />
@@ -172,13 +176,13 @@ export const SwarmMap: React.FC = () => {
                 </span>
               </div>
               <p className="text-[11px] text-[#64748b]">
-                Real-time agent relations, model routing, and Antigravity execution telemetry
+                Multi-agent organizational hierarchy, model routing, and Antigravity execution telemetry
               </p>
             </div>
           </div>
 
           {/* Scope Filters & Actions */}
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-2.5">
             {/* Filter Scope Toggle */}
             <div className="flex items-center bg-[#070b12] p-0.5 rounded-lg border border-[#1e293b]">
               <button
@@ -189,7 +193,7 @@ export const SwarmMap: React.FC = () => {
                     : 'text-[#64748b] hover:text-kin-text'
                 }`}
               >
-                All Project ({agents.length})
+                All Workforce ({agents.length})
               </button>
               <button
                 onClick={() => setFilterScope('channel')}
@@ -232,6 +236,20 @@ export const SwarmMap: React.FC = () => {
               <span>+ Hire Specialist</span>
             </button>
 
+            {/* Toggle Activity Drawer */}
+            <button
+              onClick={() => setIsDrawerOpen(!isDrawerOpen)}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
+                isDrawerOpen
+                  ? 'bg-blue-600/20 border-blue-500/40 text-blue-300'
+                  : 'bg-[#1e293b] border-[#334155] text-[#94a3b8] hover:text-white'
+              }`}
+              title={isDrawerOpen ? 'Collapse Agent Activity Drawer' : 'Open Agent Activity Drawer'}
+            >
+              {isDrawerOpen ? <PanelRightClose className="w-3.5 h-3.5 text-blue-400" /> : <PanelRight className="w-3.5 h-3.5 text-blue-400" />}
+              <span>{isDrawerOpen ? 'Drawer' : 'Inspect'}</span>
+            </button>
+
             {/* Refresh */}
             <button
               onClick={() => {
@@ -256,9 +274,9 @@ export const SwarmMap: React.FC = () => {
         </div>
 
         {/* Content Body: Left Visual Graph + Right Antigravity Activity Drawer */}
-        <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 flex overflow-hidden relative">
           {/* LEFT: VISUAL TOPOLOGY GRAPH */}
-          <div className="flex-1 bg-[#070b12] p-6 overflow-y-auto relative flex flex-col items-center space-y-8">
+          <div className="flex-1 bg-[#070b12] p-8 overflow-auto relative flex flex-col items-center select-none">
             {/* Visual Background Grid Lines */}
             <div
               className="absolute inset-0 pointer-events-none opacity-20"
@@ -270,41 +288,49 @@ export const SwarmMap: React.FC = () => {
               }}
             />
 
-            {/* ROOT ORCHESTRATOR NODE */}
-            {orchestrator && (
-              <div className="relative z-10 flex flex-col items-center">
+            {/* TIER 1: ROOT WORKFORCE ORCHESTRATOR */}
+            <div className="relative z-10 flex flex-col items-center w-full max-w-5xl">
+              <div className="flex items-center space-x-2 px-3.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-mono font-bold tracking-wider mb-3 shadow-[0_0_12px_rgba(251,191,36,0.15)]">
+                <Shield className="w-4 h-4 text-amber-400" />
+                <span>TIER 1: WORKFORCE ORCHESTRATOR (ROOT COORDINATOR)</span>
+              </div>
+
+              {orchestrator && (
                 <div
-                  onClick={() => setSelectedSwarmAgentId(orchestrator.id)}
-                  className={`w-72 p-4 rounded-xl cursor-pointer transition-all duration-200 border shadow-xl ${
+                  onClick={() => {
+                    setSelectedSwarmAgentId(orchestrator.id);
+                    setIsDrawerOpen(true);
+                  }}
+                  className={`w-80 md:w-96 p-4 rounded-2xl cursor-pointer transition-all duration-200 border shadow-2xl ${
                     selectedSwarmAgentId === orchestrator.id
-                      ? 'bg-[#151c2f] border-amber-400 shadow-[0_0_20px_rgba(251,191,36,0.25)] ring-2 ring-amber-400/40'
+                      ? 'bg-[#151c2f] border-amber-400 shadow-[0_0_24px_rgba(251,191,36,0.3)] ring-2 ring-amber-400/50'
                       : 'bg-[#0f172a] border-amber-500/40 hover:border-amber-400/80 hover:bg-[#131b2e]'
                   }`}
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center space-x-2">
-                      <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 font-bold">
-                        <Shield className="w-4 h-4" />
+                    <div className="flex items-center space-x-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 font-bold shadow-inner">
+                        <Shield className="w-5 h-5" />
                       </div>
                       <div>
-                        <div className="font-bold text-kin-text text-xs flex items-center space-x-1.5">
+                        <div className="font-bold text-kin-text text-sm flex items-center space-x-1.5">
                           <span>{orchestrator.displayName}</span>
                           <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]" />
                         </div>
-                        <span className="text-[10px] text-amber-300/80 font-mono font-medium">
-                          {orchestrator.role}
+                        <span className="text-[11px] text-amber-300/90 font-mono font-medium">
+                          {orchestrator.role || 'Workspace Orchestrator & Delegator'}
                         </span>
                       </div>
                     </div>
-                    <span className="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
-                      Root
+                    <span className="text-[9px] uppercase font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
+                      ROOT
                     </span>
                   </div>
 
                   {/* Model Selector on Card */}
-                  <div className="mt-3 pt-2.5 border-t border-[#1e293b] flex items-center justify-between text-[11px]">
-                    <span className="text-[#64748b] flex items-center space-x-1">
-                      <Cpu className="w-3 h-3 text-amber-400" />
+                  <div className="mt-3 pt-2.5 border-t border-[#1e293b] flex items-center justify-between text-xs">
+                    <span className="text-[#64748b] flex items-center space-x-1 font-mono text-[11px]">
+                      <Cpu className="w-3.5 h-3.5 text-amber-400" />
                       <span>Model:</span>
                     </span>
                     <select
@@ -314,16 +340,16 @@ export const SwarmMap: React.FC = () => {
                         handleModelChange(orchestrator, e.target.value);
                       }}
                       onClick={(e) => e.stopPropagation()}
-                      className="bg-[#090d16] text-amber-300 border border-amber-500/30 rounded px-1.5 py-0.5 text-[10px] font-mono focus:outline-none cursor-pointer max-w-[200px] truncate"
+                      className="bg-[#090d16] text-amber-300 border border-amber-500/30 rounded-lg px-2 py-0.5 text-[11px] font-mono focus:outline-none cursor-pointer max-w-[210px] truncate"
                     >
                       {renderModelOptions(orchestrator.activeModelId)}
                     </select>
                   </div>
 
                   {/* Quick Activity Stats */}
-                  <div className="mt-2 flex items-center justify-between text-[10px] text-[#94a3b8]">
+                  <div className="mt-2.5 flex items-center justify-between text-[11px] text-[#94a3b8] font-mono">
                     <span>Channels: {orchestrator.assignedChannels?.length || 1}</span>
-                    <span className="text-emerald-400 font-mono font-semibold">Status: {orchestrator.status}</span>
+                    <span className="text-emerald-400 font-semibold">Status: {orchestrator.status}</span>
                   </div>
 
                   {/* Live Thinking / Active Tool Pill */}
@@ -344,25 +370,33 @@ export const SwarmMap: React.FC = () => {
                     </div>
                   )}
                 </div>
-
-                {/* Vertical SVG connector downwards */}
-                <div className="w-0.5 h-10 bg-gradient-to-b from-amber-400/80 to-blue-500/80 relative">
-                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-blue-400 animate-ping" />
-                </div>
-              </div>
-            )}
-
-            {/* HORIZONTAL BUS & SPECIALISTS ROW */}
-            <div className="relative z-10 w-full flex flex-col items-center">
-              {/* Horizontal line spreading to specialists */}
-              {specialists.length > 1 && (
-                <div className="w-3/4 h-0.5 bg-[#1e293b] mb-8 relative">
-                  <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500/20 via-blue-500/80 to-blue-500/20" />
-                </div>
               )}
 
-              {/* Specialists Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 max-w-5xl w-full">
+              {/* TREE HIERARCHY CONNECTOR & DISTRIBUTION BUS */}
+              <div className="w-full flex flex-col items-center my-3 select-none pointer-events-none">
+                {/* Vertical Trunk */}
+                <div className="w-0.5 h-8 bg-gradient-to-b from-amber-400 via-blue-400 to-blue-500 relative">
+                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-blue-400 animate-ping" />
+                </div>
+                {/* Junction Node */}
+                <div className="px-3 py-1 rounded-full bg-[#0c1427] border border-blue-500/50 text-[10px] font-mono text-blue-300 flex items-center space-x-1.5 shadow-lg">
+                  <GitFork className="w-3 h-3 text-blue-400" />
+                  <span>Task Delegation & Tool Routing Bus</span>
+                </div>
+                {/* Horizontal Tree Bus */}
+                {specialists.length > 0 && (
+                  <div className="w-full max-w-4xl h-0.5 bg-gradient-to-r from-transparent via-blue-500/60 to-transparent mt-2" />
+                )}
+              </div>
+
+              {/* TIER 2: DOMAIN SPECIALISTS & WORKFORCE */}
+              <div className="flex items-center space-x-2 px-3.5 py-1 rounded-full bg-blue-500/15 border border-blue-500/30 text-blue-300 text-xs font-mono font-bold tracking-wider my-3 shadow-[0_0_12px_rgba(59,130,246,0.15)]">
+                <Bot className="w-4 h-4 text-blue-400" />
+                <span>TIER 2: DOMAIN SPECIALISTS ({specialists.length} ACTIVE IN WORKFORCE)</span>
+              </div>
+
+              {/* Specialists Cards Container */}
+              <div className="flex flex-wrap justify-center gap-6 max-w-6xl w-full pb-16">
                 {specialists.map((spec) => {
                   const isSelected = selectedSwarmAgentId === spec.id;
                   const isThinking = spec.status === 'thinking' || spec.status === 'working';
@@ -370,20 +404,23 @@ export const SwarmMap: React.FC = () => {
                   return (
                     <div
                       key={spec.id}
-                      onClick={() => setSelectedSwarmAgentId(spec.id)}
-                      className={`p-4 rounded-xl cursor-pointer transition-all duration-200 border shadow-lg relative ${
+                      onClick={() => {
+                        setSelectedSwarmAgentId(spec.id);
+                        setIsDrawerOpen(true);
+                      }}
+                      className={`w-[320px] max-w-[340px] flex-shrink-0 p-4 rounded-2xl cursor-pointer transition-all duration-200 border shadow-xl relative ${
                         isSelected
-                          ? 'bg-[#151c2f] border-blue-400 shadow-[0_0_18px_rgba(59,130,246,0.25)] ring-2 ring-blue-400/40'
-                          : 'bg-[#0f172a] border-[#1e293b] hover:border-blue-500/60 hover:bg-[#131b2e]'
+                          ? 'bg-[#131d35] border-blue-400 shadow-[0_0_24px_rgba(59,130,246,0.3)] ring-2 ring-blue-400/50 scale-[1.02]'
+                          : 'bg-[#0c1427] border-slate-800 hover:border-blue-500/60 hover:bg-[#101a30]'
                       }`}
                     >
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center space-x-2">
-                          <div className="w-8 h-8 rounded-lg bg-blue-500/15 border border-blue-500/30 flex items-center justify-center text-blue-400 font-bold">
-                            <Bot className="w-4 h-4" />
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex items-center space-x-2.5">
+                          <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center text-blue-400 font-bold shadow-inner shrink-0">
+                            <Bot className="w-5 h-5" />
                           </div>
                           <div>
-                            <div className="font-bold text-kin-text text-xs flex items-center space-x-1.5">
+                            <div className="font-bold text-kin-text text-sm flex items-center space-x-1.5">
                               <span>{spec.displayName}</span>
                               <span
                                 className={`w-2 h-2 rounded-full ${
@@ -393,18 +430,20 @@ export const SwarmMap: React.FC = () => {
                                 }`}
                               />
                             </div>
-                            <span className="text-[10px] text-blue-300 font-mono">{spec.role}</span>
+                            <span className="text-[11px] text-blue-300/90 font-mono font-medium block leading-snug">
+                              {spec.role}
+                            </span>
                           </div>
                         </div>
-                        <span className="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-bold border border-blue-500/30">
+                        <span className="text-[9px] uppercase font-mono px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-bold border border-blue-500/30 shrink-0">
                           Specialist
                         </span>
                       </div>
 
                       {/* Model Selector on Card */}
-                      <div className="mt-3 pt-2.5 border-t border-[#1e293b] flex items-center justify-between text-[11px]">
-                        <span className="text-[#64748b] flex items-center space-x-1">
-                          <Cpu className="w-3 h-3 text-blue-400" />
+                      <div className="mt-3 pt-2.5 border-t border-[#1e293b] flex items-center justify-between text-xs">
+                        <span className="text-[#64748b] flex items-center space-x-1 font-mono text-[11px]">
+                          <Cpu className="w-3.5 h-3.5 text-blue-400" />
                           <span>Model:</span>
                         </span>
                         <select
@@ -414,7 +453,7 @@ export const SwarmMap: React.FC = () => {
                             handleModelChange(spec, e.target.value);
                           }}
                           onClick={(e) => e.stopPropagation()}
-                          className="bg-[#090d16] text-blue-300 border border-blue-500/30 rounded px-1.5 py-0.5 text-[10px] font-mono focus:outline-none cursor-pointer max-w-[200px] truncate"
+                          className="bg-[#090d16] text-blue-300 border border-blue-500/30 rounded-lg px-2 py-0.5 text-[11px] font-mono focus:outline-none cursor-pointer max-w-[210px] truncate"
                         >
                           {renderModelOptions(spec.activeModelId)}
                         </select>
@@ -439,21 +478,21 @@ export const SwarmMap: React.FC = () => {
                       )}
 
                       {/* Action buttons on card */}
-                      <div className="mt-3 pt-2 border-t border-[#1e293b]/60 flex items-center justify-between text-[10px]">
+                      <div className="mt-3 pt-2.5 border-t border-[#1e293b]/70 flex items-center justify-between text-[11px]">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             setSwarmMapOpen(false);
                             setActiveChannel(`dm-${spec.id}`);
                           }}
-                          className="flex items-center space-x-1 text-blue-400 hover:text-blue-300 transition"
+                          className="flex items-center space-x-1 text-blue-400 hover:text-blue-300 transition font-medium"
                           title="Open Direct Message Thread"
                         >
-                          <MessageSquare className="w-3 h-3" />
-                          <span>DM</span>
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>Direct Message</span>
                         </button>
 
-                        <div className="flex items-center space-x-1.5">
+                        <div className="flex items-center space-x-2">
                           {/* Channel quick enroll dropdown */}
                           <select
                             onClick={(e) => e.stopPropagation()}
@@ -465,11 +504,11 @@ export const SwarmMap: React.FC = () => {
                               }
                             }}
                             defaultValue=""
-                            className="bg-[#090d16] text-[#94a3b8] hover:text-kin-text border border-[#1e293b] rounded px-1.5 py-0.5 text-[9px] focus:outline-none"
+                            className="bg-[#090d16] text-[#94a3b8] hover:text-kin-text border border-[#1e293b] rounded-md px-1.5 py-0.5 text-[10px] focus:outline-none"
                             title="Assign to another channel"
                           >
                             <option value="" disabled>
-                              + Chan
+                              + Assign Channel
                             </option>
                             {channels
                               .filter((c) => !c.id.startsWith('dm-') && !spec.assignedChannels?.includes(c.id))
@@ -491,7 +530,7 @@ export const SwarmMap: React.FC = () => {
                             className="p-1 rounded text-[#64748b] hover:text-red-400 hover:bg-red-500/10 transition"
                             title={`Decommission ${spec.displayName}`}
                           >
-                            <Trash2 className="w-3 h-3" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </div>
@@ -500,44 +539,67 @@ export const SwarmMap: React.FC = () => {
                 })}
 
                 {specialists.length === 0 && (
-                  <div className="col-span-full py-8 text-center text-[#64748b] italic border border-dashed border-[#1e293b] rounded-xl bg-[#0b0f19]">
-                    No specialists in this channel scope. Click "+ Hire Specialist" to expand the workforce!
+                  <div className="col-span-full py-10 px-6 text-center text-[#64748b] italic border border-dashed border-[#1e293b] rounded-2xl bg-[#0b0f19]">
+                    No specialists found in this channel scope. Click "+ Hire Specialist" to expand the workforce!
                   </div>
                 )}
               </div>
             </div>
+
+            {/* Quick Inspect Floating Pill when Drawer is Closed */}
+            {!isDrawerOpen && selectedAgent && (
+              <button
+                onClick={() => setIsDrawerOpen(true)}
+                className="fixed bottom-10 right-10 z-30 flex items-center space-x-2 px-4 py-2.5 rounded-full bg-blue-600 hover:bg-blue-500 text-white shadow-2xl shadow-blue-900/60 text-xs font-semibold transition cursor-pointer border border-blue-400/40 animate-fadeIn"
+                title={`Inspect ${selectedAgent.displayName}`}
+              >
+                <PanelRight className="w-4 h-4" />
+                <span>Inspect {selectedAgent.displayName} Activity</span>
+              </button>
+            )}
           </div>
 
           {/* RIGHT: ANTIGRAVITY-STYLE TRANSPARENT ACTIVITY DRAWER */}
-          <div className="w-[480px] shrink-0 bg-[#090d16] border-l border-[#1e293b] flex flex-col h-full overflow-hidden">
-            {/* Drawer Header */}
-            <div className="p-4 border-b border-[#1e293b] bg-[#0c1222] shrink-0 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <div className="w-8 h-8 rounded-lg bg-[#1e293b] border border-blue-500/30 flex items-center justify-center text-blue-400 font-bold">
-                    {selectedAgent?.isOrchestrator ? <Shield className="w-4 h-4 text-amber-400" /> : <Bot className="w-4 h-4" />}
-                  </div>
-                  <div>
-                    <div className="font-bold text-kin-text text-sm flex items-center space-x-1.5">
-                      <span>{selectedAgent?.displayName}</span>
-                      <span className="text-[10px] text-[#64748b] font-normal">({selectedAgent?.role})</span>
+          {isDrawerOpen && (
+            <div className="w-[380px] lg:w-[420px] shrink-0 bg-[#090d16] border-l border-[#1e293b] flex flex-col h-full overflow-hidden animate-fadeIn">
+              {/* Drawer Header */}
+              <div className="p-4 border-b border-[#1e293b] bg-[#0c1222] shrink-0 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-[#1e293b] border border-blue-500/30 flex items-center justify-center text-blue-400 font-bold">
+                      {selectedAgent?.isOrchestrator ? <Shield className="w-4 h-4 text-amber-400" /> : <Bot className="w-4 h-4" />}
                     </div>
-                    <span className="text-[10px] text-blue-400 font-mono">{selectedAgent?.activeModelId}</span>
+                    <div>
+                      <div className="font-bold text-kin-text text-sm flex items-center space-x-1.5">
+                        <span>{selectedAgent?.displayName}</span>
+                        <span className="text-[10px] text-[#64748b] font-normal">({selectedAgent?.role})</span>
+                      </div>
+                      <span className="text-[10px] text-blue-400 font-mono">{selectedAgent?.activeModelId}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-1.5">
+                    <button
+                      onClick={() => {
+                        setSwarmMapOpen(false);
+                        setActiveChannel(`dm-${selectedAgent?.id}`);
+                      }}
+                      className="px-2.5 py-1 rounded-md bg-[#1e293b] hover:bg-blue-600/30 hover:text-blue-300 text-kin-text text-xs transition flex items-center space-x-1"
+                      title="Open Direct Message Thread"
+                    >
+                      <MessageSquare className="w-3 h-3 text-blue-400" />
+                      <span>DM</span>
+                    </button>
+
+                    <button
+                      onClick={() => setIsDrawerOpen(false)}
+                      className="p-1 rounded-md hover:bg-white/10 text-slate-400 hover:text-white transition"
+                      title="Close Activity Drawer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
-
-                <button
-                  onClick={() => {
-                    setSwarmMapOpen(false);
-                    setActiveChannel(`dm-${selectedAgent?.id}`);
-                  }}
-                  className="px-2.5 py-1 rounded bg-[#1e293b] hover:bg-blue-600/30 hover:text-blue-300 text-kin-text text-xs transition flex items-center space-x-1"
-                  title="Open Direct Message Thread"
-                >
-                  <MessageSquare className="w-3 h-3 text-blue-400" />
-                  <span>DM</span>
-                </button>
-              </div>
 
               {/* Antigravity Trajectory Summary Pill */}
               <div className="p-2.5 rounded-xl bg-[#070b12] border border-[#1e293b] space-y-1.5">
@@ -770,8 +832,9 @@ export const SwarmMap: React.FC = () => {
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
+  </div>
   );
 };
