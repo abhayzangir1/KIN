@@ -37,6 +37,71 @@ function resolveEffectiveSignal(signal?: AbortSignal, timeoutMs: number = 120000
   return typeof (AbortSignal as any).any === 'function' ? (AbortSignal as any).any([signal, timeoutSignal]) : signal;
 }
 
+/**
+ * Strips raw thinking / chain-of-thought tags, reasoning blocks, and raw tool syntax
+ * so channel & DM messages remain 100% clean, crisp, and user-facing.
+ */
+export function separateThinkingAndContent(
+  rawContent: string,
+  existingThinking?: string,
+  options: { stripToolCalls?: boolean } = {}
+): { cleanContent: string; thinking?: string } {
+  let content = rawContent || '';
+  let thinking = existingThinking || '';
+
+  // 1. Extract <think>...</think> tags
+  if (content.includes('<think>')) {
+    const thinkMatches = content.match(/<think>([\s\S]*?)<\/think>/gi);
+    if (thinkMatches) {
+      for (const m of thinkMatches) {
+        const inner = m.replace(/<\/?think>/gi, '').trim();
+        if (inner) thinking = thinking ? `${thinking}\n${inner}` : inner;
+      }
+      content = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    } else if (content.includes('</think>')) {
+      const parts = content.split('</think>');
+      const inner = parts[0].replace(/<think>/gi, '').trim();
+      if (inner) thinking = thinking ? `${thinking}\n${inner}` : inner;
+      content = parts.slice(1).join('').trim();
+    }
+  } else if (content.includes('</think>')) {
+    const parts = content.split('</think>');
+    const inner = parts[0].trim();
+    if (inner) thinking = thinking ? `${thinking}\n${inner}` : inner;
+    content = parts.slice(1).join('').trim();
+  }
+
+  // 2. Extract <reasoning>...</reasoning>
+  if (content.includes('<reasoning>')) {
+    const reasoningMatches = content.match(/<reasoning>([\s\S]*?)<\/reasoning>/gi);
+    if (reasoningMatches) {
+      for (const m of reasoningMatches) {
+        const inner = m.replace(/<\/?reasoning>/gi, '').trim();
+        if (inner) thinking = thinking ? `${thinking}\n${inner}` : inner;
+      }
+      content = content.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '').trim();
+    }
+  }
+
+  // 3. Extract explicit "Thinking Process:\n\n" or "Reasoning:\n\n" prefix
+  const thinkingProcessMatch = content.match(/^(?:Thinking Process|Reasoning):\s*([\s\S]*?)(?:\r?\n\r?\n|\n\n)([\s\S]*)$/i);
+  if (thinkingProcessMatch) {
+    const inner = thinkingProcessMatch[1].trim();
+    if (inner) thinking = thinking ? `${thinking}\n${inner}` : inner;
+    content = thinkingProcessMatch[2].trim();
+  }
+
+  // 4. Strip stray unexecuted <tool_call>...</tool_call> tags ONLY if explicitly requested (e.g. final user message)
+  if (options.stripToolCalls && content.includes('<tool_call>')) {
+    content = content.replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '').trim();
+  }
+
+  return {
+    cleanContent: content.trim(),
+    thinking: thinking.trim() || undefined,
+  };
+}
+
 export interface ModelInvocationResult {
   content: string;
   thinking?: string;
@@ -980,6 +1045,8 @@ export class ModelGateway {
       content = fullThinking.trim();
     }
 
+    const separated = separateThinkingAndContent(content, fullThinking);
+
     const tokensUsed = {
       promptTokens,
       completionTokens,
@@ -991,8 +1058,8 @@ export class ModelGateway {
     }
 
     return {
-      content,
-      thinking: fullThinking.trim() || undefined,
+      content: separated.cleanContent,
+      thinking: separated.thinking,
       modelId: params.modelId,
       provider: 'ollama',
       tokensUsed,
@@ -1049,6 +1116,7 @@ export class ModelGateway {
     }
 
     let content = '';
+    let fullThinking = '';
     let promptTokens = 0;
     let completionTokens = 0;
     let totalTokens = 0;
@@ -1070,10 +1138,19 @@ export class ModelGateway {
           if (dataStr === '[DONE]') continue;
           try {
             const parsed = JSON.parse(dataStr);
-            const delta = parsed?.choices?.[0]?.delta?.content || parsed?.choices?.[0]?.delta?.reasoning || '';
-            if (delta) {
-              content += delta;
-              params.onToken!(delta);
+            const deltaContent = parsed?.choices?.[0]?.delta?.content || '';
+            const deltaReasoning = parsed?.choices?.[0]?.delta?.reasoning || parsed?.choices?.[0]?.delta?.reasoning_content || '';
+            if (deltaReasoning) {
+              fullThinking += deltaReasoning;
+              if (params.onThinkingToken) {
+                params.onThinkingToken(deltaReasoning);
+              }
+            }
+            if (deltaContent) {
+              content += deltaContent;
+              if (params.onToken) {
+                params.onToken(deltaContent);
+              }
             }
             if (parsed.usage) {
               promptTokens = parsed.usage.prompt_tokens || promptTokens;
@@ -1086,7 +1163,11 @@ export class ModelGateway {
     } else {
       const data: any = await res.json();
       const choiceMsg = data?.choices?.[0]?.message;
-      content = (choiceMsg?.content || choiceMsg?.reasoning || data?.choices?.[0]?.text || '').trim();
+      content = (choiceMsg?.content || data?.choices?.[0]?.text || '').trim();
+      const reasoning = (choiceMsg?.reasoning || choiceMsg?.reasoning_content || '').trim();
+      if (reasoning) {
+        fullThinking = reasoning;
+      }
       promptTokens = data?.usage?.prompt_tokens || 0;
       completionTokens = data?.usage?.completion_tokens || 0;
       totalTokens = data?.usage?.total_tokens || 0;
@@ -1094,6 +1175,8 @@ export class ModelGateway {
         params.onToken(content);
       }
     }
+
+    const separated = separateThinkingAndContent(content, fullThinking);
 
     const tokensUsed = {
       promptTokens,
@@ -1106,7 +1189,8 @@ export class ModelGateway {
     }
 
     return {
-      content,
+      content: separated.cleanContent,
+      thinking: separated.thinking,
       modelId: params.modelId,
       provider: 'openrouter',
       tokensUsed,
@@ -1149,6 +1233,7 @@ export class ModelGateway {
     }
 
     let content = '';
+    let fullThinking = '';
     let promptTokens = 0;
     let completionTokens = 0;
     let totalTokens = 0;
@@ -1170,10 +1255,19 @@ export class ModelGateway {
           if (dataStr === '[DONE]') continue;
           try {
             const parsed = JSON.parse(dataStr);
-            const delta = parsed?.choices?.[0]?.delta?.content || parsed?.choices?.[0]?.delta?.reasoning || '';
-            if (delta) {
-              content += delta;
-              params.onToken!(delta);
+            const deltaContent = parsed?.choices?.[0]?.delta?.content || '';
+            const deltaReasoning = parsed?.choices?.[0]?.delta?.reasoning || parsed?.choices?.[0]?.delta?.reasoning_content || '';
+            if (deltaReasoning) {
+              fullThinking += deltaReasoning;
+              if (params.onThinkingToken) {
+                params.onThinkingToken(deltaReasoning);
+              }
+            }
+            if (deltaContent) {
+              content += deltaContent;
+              if (params.onToken) {
+                params.onToken(deltaContent);
+              }
             }
             if (parsed.usage) {
               promptTokens = parsed.usage.prompt_tokens || promptTokens;
@@ -1185,7 +1279,12 @@ export class ModelGateway {
       }
     } else {
       const data: any = await res.json();
-      content = data?.choices?.[0]?.message?.content || '';
+      const choiceMsg = data?.choices?.[0]?.message;
+      content = (choiceMsg?.content || data?.choices?.[0]?.text || '').trim();
+      const reasoning = (choiceMsg?.reasoning || choiceMsg?.reasoning_content || '').trim();
+      if (reasoning) {
+        fullThinking = reasoning;
+      }
       promptTokens = data?.usage?.prompt_tokens || 0;
       completionTokens = data?.usage?.completion_tokens || 0;
       totalTokens = data?.usage?.total_tokens || 0;
@@ -1193,6 +1292,8 @@ export class ModelGateway {
         params.onToken(content);
       }
     }
+
+    const separated = separateThinkingAndContent(content, fullThinking);
 
     const tokensUsed = {
       promptTokens,
@@ -1205,7 +1306,8 @@ export class ModelGateway {
     }
 
     return {
-      content,
+      content: separated.cleanContent,
+      thinking: separated.thinking,
       modelId: params.modelId,
       provider,
       tokensUsed,
@@ -1265,6 +1367,7 @@ export class ModelGateway {
     }
 
     let content = '';
+    let fullThinking = '';
     let promptTokens = 0;
     let completionTokens = 0;
 
@@ -1286,6 +1389,7 @@ export class ModelGateway {
             const parsed = JSON.parse(dataStr);
             if (parsed.type === 'content_block_delta') {
               if (parsed.delta?.type === 'thinking_delta' && parsed.delta?.thinking) {
+                fullThinking += parsed.delta.thinking;
                 if (params.onThinkingToken) {
                   params.onThinkingToken(parsed.delta.thinking);
                 }
@@ -1315,6 +1419,8 @@ export class ModelGateway {
       }
     }
 
+    const separated = separateThinkingAndContent(content, fullThinking);
+
     const tokensUsed = {
       promptTokens,
       completionTokens,
@@ -1326,7 +1432,8 @@ export class ModelGateway {
     }
 
     return {
-      content,
+      content: separated.cleanContent,
+      thinking: separated.thinking,
       modelId: params.modelId,
       provider: 'anthropic',
       tokensUsed,

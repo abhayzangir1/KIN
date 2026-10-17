@@ -415,8 +415,24 @@ export const CenterView: React.FC = () => {
     );
   };
 
-  const renderMessageContent = (content: string) => {
-    const paragraphs = content.split(/\n\n+/);
+  const stripThoughtsAndToolSyntax = (raw: string): string => {
+    if (!raw) return '';
+    let text = raw;
+    // Strip <think>...</think>, <thought>...</thought>, <reasoning>...</reasoning>, <tool_call>...</tool_call>
+    text = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
+    text = text.replace(/<thought>[\s\S]*?<\/thought>/gi, '');
+    text = text.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '');
+    text = text.replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '');
+    // Strip unclosed <think> or <reasoning> tags
+    text = text.replace(/<(?:think|thought|reasoning)>[\s\S]*$/gi, '');
+    // Strip leading "Thinking Process: ... \n\n"
+    text = text.replace(/^Thinking Process:[\s\S]*?\n\n/i, '');
+    return text.trim();
+  };
+
+  const renderMessageContent = (content: string, isHumanMsg?: boolean) => {
+    const cleaned = isHumanMsg ? content : stripThoughtsAndToolSyntax(content);
+    const paragraphs = (cleaned || content).split(/\n\n+/);
     return paragraphs.map((para, pIdx) => {
       const trimmed = para.trim();
       if (trimmed.startsWith('>')) {
@@ -839,12 +855,14 @@ export const CenterView: React.FC = () => {
                   const decision = parseDecisionProposal(msg.content);
                   return (
                     <div
-                      className={`text-[#e2e8f0] text-xs leading-relaxed font-sans p-2.5 rounded-lg border transition ${
+                      className={`text-[#e2e8f0] text-xs leading-relaxed font-sans p-3 rounded-2xl border transition ${
                         isSideQuery
                           ? 'bg-[#181507]/90 border-amber-400/50 shadow-lg shadow-amber-950/30'
                           : isSlashCard(msg.content)
                           ? 'bg-[#0a1128]/85 border-blue-500/40 shadow-lg shadow-blue-950/20'
-                          : 'bg-[#0f172a]/50 border-[#1e293b]/50'
+                          : isHuman
+                          ? 'bg-gradient-to-br from-emerald-950/30 to-[#0e172a] border-emerald-500/30 shadow-sm'
+                          : 'bg-[#0c1427]/80 border-slate-800/80 shadow-sm backdrop-blur-sm'
                       }`}
                     >
                       {isSideQuery && (
@@ -853,7 +871,7 @@ export const CenterView: React.FC = () => {
                           <span>EPHEMERAL SIDE QUERY (/btw) — UNPOLLUTED ACTIVE CONTEXT</span>
                         </div>
                       )}
-                      {renderMessageContent(msg.content)}
+                      {renderMessageContent(msg.content, isHuman)}
                       {decision && (
                         <DecisionCard
                           title={decision.title}
@@ -890,17 +908,17 @@ export const CenterView: React.FC = () => {
         )}
 
         {/* Live In-Flight Streaming Token Draft Bubble */}
-        {streamingDrafts && streamingDrafts[activeChannelId] && (
-          <div className="p-3.5 rounded-xl bg-[#091122] border border-blue-500/40 shadow-lg space-y-2 animate-fadeIn">
+        {streamingDrafts && streamingDrafts[activeChannelId] && stripThoughtsAndToolSyntax(streamingDrafts[activeChannelId]) && (
+          <div className="p-3.5 rounded-2xl bg-gradient-to-r from-[#091122]/90 to-[#0c1830]/90 border border-blue-500/40 shadow-xl space-y-2 animate-fadeIn backdrop-blur-md">
             <div className="flex items-center justify-between text-xs text-blue-300 font-mono">
               <div className="flex items-center space-x-2">
                 <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
                 <span className="font-bold">Streaming Response...</span>
               </div>
-              <span className="text-[10px] text-[#64748b]">Live In-Flight Tokens</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-300 border border-blue-500/20">Live</span>
             </div>
             <div className="font-mono text-xs text-[#cbd5e1] whitespace-pre-wrap leading-relaxed">
-              {streamingDrafts[activeChannelId]}
+              {stripThoughtsAndToolSyntax(streamingDrafts[activeChannelId])}
               <span className="inline-block w-1.5 h-3.5 bg-blue-400 ml-1 animate-pulse align-middle" />
             </div>
           </div>

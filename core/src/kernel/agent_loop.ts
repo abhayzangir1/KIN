@@ -5,7 +5,7 @@
 // and bounded execution quotas.
 // ============================================================================
 
-import { ModelGateway } from '../execution/model_gateway.js';
+import { ModelGateway, separateThinkingAndContent } from '../execution/model_gateway.js';
 import { ToolGateway, ToolExecutionContext } from '../execution/tool_gateway.js';
 import { SchedulerService } from '../automation/scheduler.js';
 import { SkillEngine, Skill } from '../skills/skill_engine.js';
@@ -632,7 +632,14 @@ export class AgentLoopRunner {
         };
       }
 
-      const content = response.content;
+      const { cleanContent, thinking: extractedThinking } = separateThinkingAndContent(response.content, response.thinking);
+      if (extractedThinking && !response.thinking) {
+        response.thinking = extractedThinking;
+        if (options.onThinkingToken) {
+          options.onThinkingToken(extractedThinking);
+        }
+      }
+      const content = cleanContent;
       const validTools = this.toolGateway ? new Set(this.toolGateway.getToolSchemas().map((s) => s.name)) : undefined;
       let toolCall = this.extractToolCall(content, validTools);
       if (!toolCall && response.thinking) {
@@ -653,8 +660,8 @@ export class AgentLoopRunner {
           }
           continue;
         }
-        // No tool call requested — agent has reached final response
-        finalContent = content.trim();
+        // No tool call requested — agent has reached clean final response
+        finalContent = separateThinkingAndContent(content, response.thinking, { stripToolCalls: true }).cleanContent.trim();
         if (options.onTurnCheckpoint) {
           try {
             await options.onTurnCheckpoint(currentTurn, conversationHistory, actions);

@@ -747,6 +747,8 @@ interface KinState {
   queuedMessages: QueuedMessage[];
   streamingDrafts: Record<string, string>;
   thinkingDrafts: Record<string, string>;
+  agentThinkingDrafts: Record<string, string>;
+  agentLiveTools: Record<string, { toolName: string; params: any } | null>;
   latestDelegation: {
     fromAgentId: string;
     targetAgentId: string;
@@ -981,6 +983,8 @@ export const useKinStore = create<KinState>((set, get) => ({
   queuedMessages: [],
   streamingDrafts: {},
   thinkingDrafts: {},
+  agentThinkingDrafts: {},
+  agentLiveTools: {},
   latestDelegation: null,
   latestAntiLoopEvent: null,
   activeAgentChannels: {},
@@ -1573,14 +1577,25 @@ export const useKinStore = create<KinState>((set, get) => ({
 
       sse.addEventListener('agent:thinking_token', (e) => {
         try {
-          const { channelId, token } = JSON.parse(e.data);
-          if (channelId && token) {
-            set((state) => ({
-              thinkingDrafts: {
-                ...state.thinkingDrafts,
-                [channelId]: (state.thinkingDrafts[channelId] || '') + token,
-              },
-            }));
+          const { agentId, channelId, token } = JSON.parse(e.data);
+          if (token) {
+            set((state) => {
+              const nextAgentThinking = { ...state.agentThinkingDrafts };
+              if (agentId) {
+                nextAgentThinking[agentId] = (nextAgentThinking[agentId] || '') + token;
+              }
+              const nextChanThinking = channelId
+                ? { ...state.thinkingDrafts, [channelId]: (state.thinkingDrafts[channelId] || '') + token }
+                : state.thinkingDrafts;
+
+              return {
+                agentThinkingDrafts: nextAgentThinking,
+                thinkingDrafts: nextChanThinking,
+                agents: agentId
+                  ? state.agents.map((a) => (a.id === agentId ? { ...a, status: 'thinking' } : a))
+                  : state.agents,
+              };
+            });
           }
         } catch {}
       });
@@ -1735,6 +1750,10 @@ export const useKinStore = create<KinState>((set, get) => ({
         try {
           const data = JSON.parse(e.data);
           set((state) => ({
+            agentLiveTools: {
+              ...state.agentLiveTools,
+              [data.agentId]: { toolName: data.toolName, params: data.params },
+            },
             agents: state.agents.map((a) => (a.id === data.agentId ? { ...a, status: 'working', currentTool: data.toolName } : a)),
             channelMembers: state.channelMembers.map((a) => (a.id === data.agentId ? { ...a, status: 'working', currentTool: data.toolName } : a)),
           }));
@@ -1746,10 +1765,15 @@ export const useKinStore = create<KinState>((set, get) => ({
       sse.addEventListener('agent:tool_end', (e) => {
         try {
           const data = JSON.parse(e.data);
-          set((state) => ({
-            agents: state.agents.map((a) => (a.id === data.agentId ? { ...a, currentTool: undefined } : a)),
-            channelMembers: state.channelMembers.map((a) => (a.id === data.agentId ? { ...a, currentTool: undefined } : a)),
-          }));
+          set((state) => {
+            const nextTools = { ...state.agentLiveTools };
+            delete nextTools[data.agentId];
+            return {
+              agentLiveTools: nextTools,
+              agents: state.agents.map((a) => (a.id === data.agentId ? { ...a, currentTool: undefined } : a)),
+              channelMembers: state.channelMembers.map((a) => (a.id === data.agentId ? { ...a, currentTool: undefined } : a)),
+            };
+          });
         } catch (err) {
           console.error('[KIN UI] Failed to parse agent:tool_end event', err);
         }

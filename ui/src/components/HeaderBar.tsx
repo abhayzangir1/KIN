@@ -64,12 +64,12 @@ export const HeaderBar: React.FC = () => {
   };
 
   return (
-    <header className="h-10 bg-[#0d1117] border-b border-[#21262d] px-4 flex items-center justify-between text-xs select-none">
+    <header className="h-11 bg-[#0c1222]/95 border-b border-slate-800/80 backdrop-blur-md px-4 flex items-center justify-between text-xs select-none transition-colors">
       {/* Left: Brand & Project Switcher */}
       <div className="flex items-center space-x-3">
         <div className="flex items-center space-x-1.5 font-bold tracking-wide text-kin-text">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
-          <span>KIN</span>
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_10px_#34d399]" />
+          <span className="text-sm font-semibold tracking-wider bg-gradient-to-r from-emerald-400 via-teal-300 to-blue-400 bg-clip-text text-transparent">KIN</span>
         </div>
 
         <span className="text-[#30363d]">|</span>

@@ -120,10 +120,10 @@ export const Sidebar: React.FC = () => {
                     setActiveChannel(chan.id);
                     setActiveMainView('chat');
                   }}
-                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded transition group ${
+                  className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg transition group relative ${
                     isActive
-                      ? 'bg-emerald-600/20 text-emerald-400 font-medium border border-emerald-500/30'
-                      : 'text-[#94a3b8] hover:bg-[#131b2e] hover:text-kin-text'
+                      ? 'bg-emerald-500/15 text-emerald-300 font-semibold border border-emerald-500/30 shadow-sm pl-4 before:absolute before:left-1.5 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-emerald-400'
+                      : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-200'
                   }`}
                 >
                   <div className="flex items-center space-x-2 truncate">
@@ -189,12 +189,12 @@ export const Sidebar: React.FC = () => {
                   <button
                     key={agent.id}
                     onClick={() => handleSelectDm(agent.id)}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded transition cursor-pointer ${
+                    className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg transition cursor-pointer relative ${
                       isDmActive
-                        ? 'bg-blue-600/20 border border-blue-500/40 text-blue-300 font-medium'
+                        ? 'bg-blue-500/15 border border-blue-500/40 text-blue-300 font-semibold shadow-sm pl-4 before:absolute before:left-1.5 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-blue-400'
                         : isSelected
-                        ? 'bg-[#131b2e] text-kin-text'
-                        : 'text-[#94a3b8] hover:bg-[#131b2e] hover:text-kin-text'
+                        ? 'bg-[#131b2e] text-slate-200'
+                        : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-200'
                     }`}
                     title={`Open 1-on-1 Direct Message with ${agent.displayName}`}
                   >

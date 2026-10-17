@@ -39,6 +39,8 @@ export const SwarmMap: React.FC = () => {
     decommissionAgent,
     addChannelMember,
     fetchState,
+    agentThinkingDrafts,
+    agentLiveTools,
   } = useKinStore();
 
   const [filterScope, setFilterScope] = useState<'all' | 'channel'>('all');
@@ -323,6 +325,24 @@ export const SwarmMap: React.FC = () => {
                     <span>Channels: {orchestrator.assignedChannels?.length || 1}</span>
                     <span className="text-emerald-400 font-mono font-semibold">Status: {orchestrator.status}</span>
                   </div>
+
+                  {/* Live Thinking / Active Tool Pill */}
+                  {agentThinkingDrafts[orchestrator.id] && (
+                    <div className="mt-2.5 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] flex items-center space-x-1.5 animate-pulse">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span className="font-mono truncate">
+                        🧠 Thinking: {agentThinkingDrafts[orchestrator.id].slice(-60)}
+                      </span>
+                    </div>
+                  )}
+                  {(agentLiveTools[orchestrator.id] || orchestrator.currentTool) && (
+                    <div className="mt-2.5 p-2 rounded-lg bg-purple-500/15 border border-purple-500/40 text-purple-300 text-[10px] flex items-center space-x-1.5 animate-pulse">
+                      <Terminal className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                      <span className="font-mono truncate font-semibold">
+                        ⚡ Tool: {agentLiveTools[orchestrator.id]?.toolName || orchestrator.currentTool}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Vertical SVG connector downwards */}
@@ -399,6 +419,24 @@ export const SwarmMap: React.FC = () => {
                           {renderModelOptions(spec.activeModelId)}
                         </select>
                       </div>
+
+                      {/* Live Thinking / Active Tool Pill */}
+                      {agentThinkingDrafts[spec.id] && (
+                        <div className="mt-2.5 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] flex items-center space-x-1.5 animate-pulse">
+                          <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span className="font-mono truncate">
+                            🧠 Thinking: {agentThinkingDrafts[spec.id].slice(-60)}
+                          </span>
+                        </div>
+                      )}
+                      {(agentLiveTools[spec.id] || spec.currentTool) && (
+                        <div className="mt-2.5 p-2 rounded-lg bg-purple-500/15 border border-purple-500/40 text-purple-300 text-[10px] flex items-center space-x-1.5 animate-pulse">
+                          <Terminal className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                          <span className="font-mono truncate font-semibold">
+                            ⚡ Tool: {agentLiveTools[spec.id]?.toolName || spec.currentTool}
+                          </span>
+                        </div>
+                      )}
 
                       {/* Action buttons on card */}
                       <div className="mt-3 pt-2 border-t border-[#1e293b]/60 flex items-center justify-between text-[10px]">
@@ -552,6 +590,23 @@ export const SwarmMap: React.FC = () => {
 
                 {openAccordion.thoughts && (
                   <div className="p-3 space-y-2 text-[11px] text-[#cbd5e1] bg-[#070b12] leading-relaxed">
+                    {/* Live in-flight streaming thought */}
+                    {agentThinkingDrafts[selectedAgent?.id || ''] && (
+                      <div className="p-3 rounded-xl bg-amber-950/20 border border-amber-500/40 text-amber-200 space-y-1.5 animate-pulse">
+                        <div className="flex items-center justify-between text-[10px] font-mono text-amber-400 font-bold">
+                          <div className="flex items-center space-x-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                            <span>LIVE AGENT REASONING STREAM</span>
+                          </div>
+                          <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold text-[9px]">ACTIVE</span>
+                        </div>
+                        <div className="font-mono text-[11px] whitespace-pre-wrap leading-relaxed text-amber-100">
+                          {agentThinkingDrafts[selectedAgent?.id || '']}
+                          <span className="inline-block w-1.5 h-3.5 bg-amber-400 ml-1 animate-pulse align-middle" />
+                        </div>
+                      </div>
+                    )}
+
                     {execDetails?.phases?.find((p) => p.id === 'phase-reasoning')?.items?.map((item: any, idx: number) => (
                       <div key={item.id || idx} className="p-2.5 rounded-lg bg-black/40 border border-[#1e293b] text-[#e2e8f0] font-mono text-[10px] whitespace-pre-wrap">
                         {item.summary}
@@ -617,6 +672,30 @@ export const SwarmMap: React.FC = () => {
 
                 {openAccordion.tools && (
                   <div className="p-2.5 space-y-2 bg-[#070b12]">
+                    {/* Live in-flight executing action */}
+                    {(agentLiveTools[selectedAgent?.id || ''] || selectedAgent?.currentTool) && (
+                      <div className="p-3 rounded-xl bg-purple-950/30 border border-purple-500/50 text-purple-200 space-y-1.5 animate-pulse">
+                        <div className="flex items-center justify-between text-[10px] font-mono text-purple-300 font-bold">
+                          <div className="flex items-center space-x-1.5">
+                            <Terminal className="w-3.5 h-3.5 text-purple-400" />
+                            <span>CURRENTLY EXECUTING ACTION</span>
+                          </div>
+                          <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-bold text-[9px]">RUNNING</span>
+                        </div>
+                        <div className="font-mono text-xs font-bold text-white flex items-center space-x-1.5">
+                          <span>Tool:</span>
+                          <span className="text-purple-300 underline underline-offset-2">
+                            {agentLiveTools[selectedAgent?.id || '']?.toolName || selectedAgent?.currentTool}
+                          </span>
+                        </div>
+                        {agentLiveTools[selectedAgent?.id || '']?.params && Object.keys(agentLiveTools[selectedAgent?.id || '']?.params || {}).length > 0 && (
+                          <pre className="p-2 rounded bg-black/60 border border-purple-500/30 text-[10px] font-mono text-emerald-300 overflow-x-auto whitespace-pre-wrap">
+                            {JSON.stringify(agentLiveTools[selectedAgent?.id || '']?.params, null, 2)}
+                          </pre>
+                        )}
+                      </div>
+                    )}
+
                     {execDetails?.phases?.find((p) => p.id === 'phase-tools')?.items?.length ? (
                       execDetails.phases.find((p) => p.id === 'phase-tools')!.items.map((item: any, idx: number) => {
                         const itemKey = item.id || `tool-${idx}`;

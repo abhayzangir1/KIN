@@ -22,7 +22,7 @@ import { AgentKernel } from '../kernel/agent_kernel.js';
 import { EventLedger } from '../security/event_ledger.js';
 import { Sentinel } from '../security/sentinel.js';
 import { LoopBreaker } from '../communication/loop_breaker.js';
-import { ModelGateway } from '../execution/model_gateway.js';
+import { ModelGateway, separateThinkingAndContent } from '../execution/model_gateway.js';
 import { ContextCompiler } from '../context/context_compiler.js';
 import { ContextCompactor } from '../context/context_compactor.js';
 import { ToolGateway, hasDirectMessageCompletionToken } from '../execution/tool_gateway.js';
@@ -126,6 +126,12 @@ export class CoreServer {
     checkpointReason?: string;
   }> = [];
   private nativeRunnerAdapter: TypedRunnerAdapter;
+  private agentLiveActivity: Map<string, {
+    latestThinking: string;
+    activeTool?: { toolName: string; params: any; startTime: number };
+    recentTools: Array<{ toolName: string; params: any; output?: any; error?: string; timestamp: number; durationMs?: number }>;
+    recentThoughts: Array<{ thought: string; timestamp: number }>;
+  }> = new Map();
 
   constructor(options: CoreServerOptions = {}) {
     this.port = options.port ?? 54321;
@@ -1420,11 +1426,12 @@ export class CoreServer {
    */
   public sanitizeTerminology(text: string): string {
     if (!text || typeof text !== 'string') return text;
+    const { cleanContent } = separateThinkingAndContent(text, undefined, { stripToolCalls: true });
     const rePlatformOld = new RegExp('\\bKIN\\s+Operating\\s+System\\b', 'gi');
     const rePlatformShort = new RegExp('\\bKIN\\s+' + 'O' + 'S\\b', 'gi');
     const rePlatformRuntime = new RegExp('\\b' + ['operating', 'system'].join('\\s+') + '\\b', 'gi');
     const reBackground = new RegExp('\\b' + 'O' + 'S\\s+background\\b', 'gi');
-    return text
+    return cleanContent
       .replace(rePlatformOld, 'KIN Platform')
       .replace(rePlatformShort, 'KIN Platform')
       .replace(rePlatformRuntime, 'platform runtime')
@@ -5554,7 +5561,11 @@ Format strictly as JSON:
           };
         });
 
-        const latestThought = latestRun
+        const live = this.agentLiveActivity.get(agentId);
+
+        const latestThought = live?.latestThinking
+          ? live.latestThinking
+          : latestRun
           ? `Coordinating execution for run '${latestRun.id.slice(0, 8)}' using assigned model '${identity.activeModelId}'.`
           : `Active specialist listening for directives on channel with model '${identity.activeModelId}'.`;
 
@@ -5562,19 +5573,102 @@ Format strictly as JSON:
         const coordinationDurationMs = peerCoordination.length > 0 ? peerCoordination.length * 500 : 0;
         const reasoningDurationMs = Math.max(0, durationMs - toolsDurationMs - coordinationDurationMs);
 
+        // Prepend live active tool if running right now
+        if (live?.activeTool) {
+          toolItems.unshift({
+            id: `live-tool-${Date.now()}`,
+            type: 'tool_execution',
+            summary: `⚡ Executing: ${live.activeTool.toolName}`,
+            timestamp: live.activeTool.startTime,
+            details: {
+              tool: live.activeTool.toolName,
+              params: live.activeTool.params,
+              status: 'running',
+            },
+          });
+        }
+
+        // Prepend recent in-memory tools
+        if (live?.recentTools) {
+          for (const rt of live.recentTools) {
+            if (!toolItems.some((t) => t.summary?.includes(rt.toolName) && Math.abs((t.timestamp || 0) - rt.timestamp) < 2000)) {
+              toolItems.unshift({
+                id: `recent-tool-${rt.timestamp}`,
+                type: 'tool_execution',
+                summary: `Tool '${rt.toolName}' ${rt.error ? 'failed' : 'completed'}`,
+                timestamp: rt.timestamp,
+                details: { tool: rt.toolName, params: rt.params, output: rt.output, error: rt.error },
+              });
+            }
+          }
+        }
+
+        // Construct thought items including real recorded reasoning
+        const reasoningItems: any[] = [];
+        if (live?.latestThinking) {
+          reasoningItems.push({
+            id: 'live-thought-streaming',
+            type: 'live_thought',
+            summary: live.latestThinking,
+            timestamp: Date.now(),
+            durationFormatted: 'Live',
+            details: { reasoning: live.latestThinking },
+          });
+        }
+
+        if (live?.recentThoughts && live.recentThoughts.length > 0) {
+          for (let i = 0; i < live.recentThoughts.length; i++) {
+            const rt = live.recentThoughts[i];
+            reasoningItems.push({
+              id: `live-thought-${i}`,
+              type: 'thought',
+              summary: rt.thought.length > 150 ? rt.thought.slice(0, 150) + '...' : rt.thought,
+              timestamp: rt.timestamp,
+              durationFormatted: 'Completed',
+              details: { reasoning: rt.thought },
+            });
+          }
+        }
+
+        if (reasoningItems.length === 0) {
+          reasoningItems.push({
+            id: 'item-thought-1',
+            type: 'thought',
+            summary: latestThought,
+            timestamp: latestRun ? latestRun.created_at : identity.createdAt,
+            durationFormatted: `${Math.round(reasoningDurationMs / 1000)}s`,
+            details: {
+              reasoning: `Identified active project '${project?.name || 'KIN'}'. Verified database WAL mode and ensured no mock fallbacks exist. Evaluated model routing for '${identity.activeModelId}'.`,
+            },
+          });
+        }
+
+        for (let idx = 0; idx < Math.min(5, exploredFiles.length); idx++) {
+          const f = exploredFiles[idx];
+          reasoningItems.push({
+            id: `item-explore-${idx}`,
+            type: 'file_explore',
+            summary: `Surveyed context: ${f}`,
+            timestamp: (latestRun ? latestRun.created_at : identity.createdAt) + 1000 * (idx + 1),
+            details: { file: f, path: f },
+          });
+        }
+
         const executionDetails = {
           agentId,
           displayName: identity.displayName,
           role: def?.role || (identity.isOrchestrator ? 'Workspace Orchestrator' : 'Specialist'),
           activeModelId: identity.activeModelId,
-          status: this.activeAgentExecutions.has(agentId) ? 'thinking' : 'idle',
+          status: this.activeAgentExecutions.has(agentId) ? (live?.activeTool ? 'working' : 'thinking') : 'idle',
           totalDurationMs: durationMs,
           durationFormatted,
           exploredFiles,
+          liveThinking: live?.latestThinking || '',
+          activeTool: live?.activeTool || null,
           metrics: {
             exploredFilesCount: exploredFiles.length,
             tasksCount: assignedTasks.length,
-            actionsCount: realActions.length,
+            actionsCount: realActions.length + (live?.recentTools?.length || 0),
             commandsCount: realCommands.length,
             editedFilesCount: editedFiles.length,
           },
@@ -5584,29 +5678,11 @@ Format strictly as JSON:
               title: `Explored ${exploredFiles.length} file(s) • ${decisions.length} architectural decision(s)`,
               durationMs: reasoningDurationMs,
               durationFormatted: `${Math.round(reasoningDurationMs / 1000)}s`,
-              items: [
-                {
-                  id: 'item-thought-1',
-                  type: 'thought',
-                  summary: latestThought,
-                  timestamp: latestRun ? latestRun.created_at : identity.createdAt,
-                  durationFormatted: `${Math.round(reasoningDurationMs / 1000)}s`,
-                  details: {
-                    reasoning: `Identified active project '${project?.name || 'KIN'}'. Verified database WAL mode and ensured no mock fallbacks exist. Evaluated model routing for '${identity.activeModelId}'.`,
-                  },
-                },
-                ...exploredFiles.slice(0, 5).map((f, idx) => ({
-                  id: `item-explore-${idx}`,
-                  type: 'file_explore',
-                  summary: `Surveyed context: ${f}`,
-                  timestamp: (latestRun ? latestRun.created_at : identity.createdAt) + 1000 * (idx + 1),
-                  details: { file: f, path: f },
-                })),
-              ],
+              items: reasoningItems,
             },
             {
               id: 'phase-tools',
-              title: `Executed ${realActions.length} recorded action(s)`,
+              title: `Executed ${toolItems.length} action(s)`,
               durationMs: toolsDurationMs,
               durationFormatted: `${Math.round(toolsDurationMs / 1000)}s`,
               items: toolItems,
@@ -9655,6 +9731,13 @@ Format strictly as JSON:
           });
         },
         onThinkingToken: (token: string) => {
+          let live = this.agentLiveActivity.get(freshIdentity.id);
+          if (!live) {
+            live = { latestThinking: '', recentTools: [], recentThoughts: [] };
+            this.agentLiveActivity.set(freshIdentity.id, live);
+          }
+          live.latestThinking += token;
+
           this.broadcastEvent('agent:thinking_token', {
             runId: run.id,
             agentId: freshIdentity.id,
@@ -9781,6 +9864,14 @@ Format strictly as JSON:
             financialGate: preview.riskLevel === 'CRITICAL',
             riskLevel: preview.riskLevel,
           });
+
+          let live = this.agentLiveActivity.get(freshIdentity.id);
+          if (!live) {
+            live = { latestThinking: '', recentTools: [], recentThoughts: [] };
+            this.agentLiveActivity.set(freshIdentity.id, live);
+          }
+          live.activeTool = { toolName, params: sanitizedParams, startTime: Date.now() };
+
           this.broadcastEvent('agent:tool_preview', {
             runId: run.id,
             agentId: freshIdentity.id,
@@ -9800,6 +9891,21 @@ Format strictly as JSON:
           if (currentTakeover) {
             currentTakeover.activeTool = undefined;
             currentTakeover.previewPayload = undefined;
+          }
+
+          let live = this.agentLiveActivity.get(freshIdentity.id);
+          if (live) {
+            const durationMs = live.activeTool?.startTime ? Date.now() - live.activeTool.startTime : undefined;
+            live.recentTools.unshift({
+              toolName,
+              params: live.activeTool?.params,
+              output,
+              error,
+              timestamp: Date.now(),
+              durationMs,
+            });
+            if (live.recentTools.length > 50) live.recentTools.pop();
+            live.activeTool = undefined;
           }
 
           // Evaluate Human Authorization Protocol boundary
@@ -9830,6 +9936,16 @@ Format strictly as JSON:
           });
         },
       });
+
+      const live = this.agentLiveActivity.get(freshIdentity.id);
+      if (live) {
+        if (live.latestThinking && live.latestThinking.trim()) {
+          live.recentThoughts.unshift({ thought: live.latestThinking.trim(), timestamp: Date.now() });
+          if (live.recentThoughts.length > 20) live.recentThoughts.pop();
+          live.latestThinking = '';
+        }
+        live.activeTool = undefined;
+      }
 
       this.takeoverStates.delete(run.id);
       this.broadcastEvent('takeover:finished', { runId: run.id, agentId: freshIdentity.id });
