@@ -595,6 +595,26 @@ describe('KIN Enterprise Multi-Agent Workforce Architecture', () => {
       const createdChan = workspaceRepo.getChannel('workforce-test');
       expect(createdChan).toBeDefined();
       expect(workspaceRepo.listChannelMemberIds(createdChan!.id)).toContain('agent-arch');
+
+      // Test 1d: Direct workspaceRepo.addChannelMember auto-creates channel when not found
+      workspaceRepo.addChannelMember('#dynamic-ops', 'agent-arch');
+      const dynamicOpsChan = workspaceRepo.getChannel('dynamic-ops');
+      expect(dynamicOpsChan).toBeDefined();
+      expect(workspaceRepo.listChannelMemberIds(dynamicOpsChan!.id)).toContain('agent-arch');
+
+      // Test 1e: Direct workspaceRepo.addChannelMember resolves @DisplayName to ID
+      workspaceRepo.addChannelMember('chan-infra', '@Architect');
+      expect(workspaceRepo.listChannelMemberIds('chan-infra')).toContain('agent-arch');
+
+      // Test 1f: assignCoworker with omitted channelId defaults safely to context channel
+      const resOmittedChannel = await gateway.executeTool<any>(
+        'assignCoworker',
+        { coworker: '@Architect' },
+        { agentId: boss.id, projectId: 'proj-org', channelId: 'chan-infra', allowedCapabilities: ['*'] }
+      );
+      expect(resOmittedChannel.success).toBe(true);
+      expect(resOmittedChannel.output?.assigned).toBe(true);
+      expect(resOmittedChannel.output?.channelId).toBe('chan-infra');
     });
 
     it('allows Boss to convene a meeting with agenda and invited participants', async () => {

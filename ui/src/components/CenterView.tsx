@@ -504,7 +504,8 @@ export const CenterView: React.FC = () => {
   return (
     <main className="flex-1 flex flex-col h-full bg-kin-bg min-w-0 relative">
       {/* Context Scope Header Bar */}
-      <div className="px-4 py-2 border-b border-kin-border bg-kin-surface flex items-center justify-between text-xs">
+      <div className="border-b border-kin-border bg-kin-surface py-2.5">
+        <div className="max-w-4xl mx-auto w-full px-6 flex items-center justify-between text-xs">
         {isAgentToAgentDm ? (
           <div className="flex items-center space-x-2 truncate">
             <span className="w-2.5 h-2.5 rounded-full bg-indigo-400 shadow-[0_0_6px_#818cf8]" />
@@ -594,6 +595,7 @@ export const CenterView: React.FC = () => {
             </div>
           </div>
         )}
+        </div>
       </div>
 
       {/* Notifications and Diagnostics Banners */}

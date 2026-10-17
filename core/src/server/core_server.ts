@@ -473,6 +473,10 @@ export class CoreServer {
     });
     this.toolGateway.setAssignCoworkerCallback((coworker, channelId) => {
       this.workspaceRepo.addChannelMember(channelId, coworker.id);
+      const chan = this.workspaceRepo.getChannel(channelId);
+      if (chan) {
+        this.broadcastEvent('channel:created', { channel: chan });
+      }
       this.broadcastEvent('channel:member_added', { channelId, agentId: coworker.id, agent: coworker });
     });
     this.toolGateway.setCallMeetingCallback(({ channelId, topic, agenda, participantIds }) => {
@@ -2756,9 +2760,9 @@ export class CoreServer {
           });
         }
 
-        this.workspaceRepo.addChannelMember(channelId, body.agentId);
-        this.broadcastEvent('channel:member_added', { channelId, agentId: body.agentId });
-        return this.sendJson(res, 200, { success: true, channelId, agentId: body.agentId });
+        this.workspaceRepo.addChannelMember(channel.id, agent.id);
+        this.broadcastEvent('channel:member_added', { channelId: channel.id, agentId: agent.id });
+        return this.sendJson(res, 200, { success: true, channelId: channel.id, agentId: agent.id });
       }
 
       // 7e. DELETE /api/channels/:id/members/:agentId — Remove agent from channel

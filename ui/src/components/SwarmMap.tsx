@@ -45,6 +45,7 @@ export const SwarmMap: React.FC = () => {
     updateAgentContract,
     decommissionAgent,
     addChannelMember,
+    removeChannelMember,
     fetchState,
     agentThinkingDrafts,
     agentLiveTools,
@@ -58,6 +59,7 @@ export const SwarmMap: React.FC = () => {
   );
   const [searchQuery, setSearchQuery] = useState('');
   const [hoveredAgentId, setHoveredAgentId] = useState<string | null>(null);
+  const [hoveredChannelId, setHoveredChannelId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'hierarchy' | 'matrix'>('hierarchy');
   const [openAccordion, setOpenAccordion] = useState<Record<string, boolean>>({
     thoughts: true,
@@ -512,10 +514,14 @@ export const SwarmMap: React.FC = () => {
                       .map((c) => {
                         const isExecuting = Object.values(activeAgentChannels).includes(c.id);
                         const isSelected = filterScope === 'channel' && selectedChannelId === c.id;
+                        const isHoveredChannel = hoveredChannelId === c.id;
+                        const isFocusedAgentChannel = !!(focusedAgent?.assignedChannels?.includes(c.id) || (c.memberIds && focusedAgent && c.memberIds.includes(focusedAgent.id)));
                         const memberCount = c.memberIds?.length || 1;
                         return (
                           <button
                             key={c.id}
+                            onMouseEnter={() => setHoveredChannelId(c.id)}
+                            onMouseLeave={() => setHoveredChannelId(null)}
                             onClick={() => {
                               if (filterScope === 'channel' && selectedChannelId === c.id) {
                                 setFilterScope('all');
@@ -527,13 +533,15 @@ export const SwarmMap: React.FC = () => {
                             className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-[11px] font-mono transition border cursor-pointer ${
                               isSelected
                                 ? 'bg-blue-600/30 border-blue-400 text-blue-200 shadow-[0_0_10px_rgba(59,130,246,0.3)] ring-1 ring-blue-400'
+                                : isHoveredChannel || isFocusedAgentChannel
+                                ? 'bg-cyan-950/70 border-cyan-400 text-cyan-200 shadow-[0_0_12px_rgba(6,182,212,0.35)] ring-1 ring-cyan-400/50 scale-105'
                                 : isExecuting
                                 ? 'bg-emerald-950/70 border-emerald-500/50 text-emerald-300 animate-pulse'
                                 : 'bg-[#090e1c] border-[#1e293b] text-[#94a3b8] hover:text-white hover:border-blue-500/40'
                             }`}
                             title={`Click to filter swarm by #${c.name} (${memberCount} enrolled members)`}
                           >
-                            <span className={isExecuting ? 'text-emerald-400 font-bold' : 'text-blue-400'}>#</span>
+                            <span className={isExecuting ? 'text-emerald-400 font-bold' : (isHoveredChannel || isFocusedAgentChannel) ? 'text-cyan-400 font-bold' : 'text-blue-400'}>#</span>
                             <span className="font-semibold">{c.name}</span>
                             <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/50 text-[#64748b]">
                               {memberCount}
@@ -665,199 +673,242 @@ export const SwarmMap: React.FC = () => {
                     const isThinking = spec.status === 'thinking' || spec.status === 'working';
                     const isCoordinating =
                       focusedAgent?.id === spec.id || coordinatingPeerIds.has(spec.id);
-                    const isDimmed = focusedAgent && !isCoordinating;
+                    const isInHoveredChannel = hoveredChannelId
+                      ? (spec.assignedChannels?.includes(hoveredChannelId) || channels.find((c) => c.id === hoveredChannelId)?.memberIds?.includes(spec.id))
+                      : false;
+                    const isDimmed = (focusedAgent && !isCoordinating) || (hoveredChannelId && !isInHoveredChannel);
                     const activeChan = activeAgentChannels[spec.id];
                     const activeChanObj = activeChan ? channels.find((c) => c.id === activeChan) : null;
                     const isDirectedByBoss = latestDelegation?.targetAgentId === spec.id;
 
                     return (
-                      <div
-                        key={spec.id}
-                        onMouseEnter={() => setHoveredAgentId(spec.id)}
-                        onMouseLeave={() => setHoveredAgentId(null)}
-                        onClick={() => {
-                          setSelectedSwarmAgentId(spec.id);
-                          setIsDrawerOpen(true);
-                        }}
-                        className={`w-[320px] max-w-[340px] flex-shrink-0 p-4 rounded-2xl cursor-pointer transition-all duration-200 border shadow-xl relative ${
-                          isSelected
-                            ? 'bg-[#131d35] border-blue-400 shadow-[0_0_24px_rgba(59,130,246,0.3)] ring-2 ring-blue-400/50 scale-[1.02]'
-                            : isCoordinating
-                            ? 'bg-[#101a30] border-cyan-500/70 shadow-[0_0_18px_rgba(6,182,212,0.25)] ring-1 ring-cyan-500/40'
-                            : isDimmed
-                            ? 'bg-[#090d18] border-slate-900 opacity-60 hover:opacity-100 hover:border-slate-700'
-                            : 'bg-[#0c1427] border-slate-800 hover:border-blue-500/60 hover:bg-[#101a30]'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex items-center space-x-2.5">
-                            <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center text-blue-400 font-bold shadow-inner shrink-0">
-                              <Bot className="w-5 h-5" />
-                            </div>
-                            <div>
-                              <div className="font-bold text-kin-text text-sm flex items-center space-x-1.5">
-                                <span>{spec.displayName}</span>
-                                <span
-                                  className={`w-2 h-2 rounded-full ${
-                                    isThinking
-                                      ? 'bg-amber-400 animate-pulse shadow-[0_0_6px_#fbbf24]'
-                                      : 'bg-emerald-400 shadow-[0_0_6px_#34d399]'
-                                  }`}
-                                />
+                      <div key={spec.id} className="flex flex-col items-center flex-shrink-0">
+                        {/* Dynamic Bus Feeder / Drop Line */}
+                        <div className="flex flex-col items-center">
+                          <div
+                            className={`w-0.5 h-6 transition-all duration-300 ${
+                              isCoordinating || isInHoveredChannel
+                                ? 'bg-gradient-to-b from-cyan-400 to-cyan-500 shadow-[0_0_8px_#06b6d4]'
+                                : isThinking
+                                ? 'bg-gradient-to-b from-amber-400 to-amber-500 shadow-[0_0_8px_#f59e0b]'
+                                : 'bg-gradient-to-b from-blue-500/50 to-slate-800'
+                            }`}
+                          />
+                          <div
+                            className={`w-2 h-2 rounded-full -mb-1 z-10 transition-all duration-300 ${
+                              isThinking
+                                ? 'bg-amber-400 animate-ping'
+                                : isCoordinating || isInHoveredChannel
+                                ? 'bg-cyan-400 shadow-[0_0_6px_#22d3ee]'
+                                : 'bg-blue-500/70'
+                            }`}
+                          />
+                        </div>
+
+                        {/* Specialist Card Container */}
+                        <div
+                          onMouseEnter={() => setHoveredAgentId(spec.id)}
+                          onMouseLeave={() => setHoveredAgentId(null)}
+                          onClick={() => {
+                            setSelectedSwarmAgentId(spec.id);
+                            setIsDrawerOpen(true);
+                          }}
+                          className={`w-[320px] max-w-[340px] p-4 rounded-2xl cursor-pointer transition-all duration-200 border shadow-xl relative ${
+                            isSelected
+                              ? 'bg-[#131d35] border-blue-400 shadow-[0_0_24px_rgba(59,130,246,0.3)] ring-2 ring-blue-400/50 scale-[1.02]'
+                              : isInHoveredChannel
+                              ? 'bg-[#101a30] border-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.3)] ring-2 ring-cyan-400/60 scale-[1.01]'
+                              : isCoordinating
+                              ? 'bg-[#101a30] border-cyan-500/70 shadow-[0_0_18px_rgba(6,182,212,0.25)] ring-1 ring-cyan-500/40'
+                              : isDimmed
+                              ? 'bg-[#090d18] border-slate-900 opacity-60 hover:opacity-100 hover:border-slate-700'
+                              : 'bg-[#0c1427] border-slate-800 hover:border-blue-500/60 hover:bg-[#101a30]'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex items-center space-x-2.5">
+                              <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center text-blue-400 font-bold shadow-inner shrink-0">
+                                <Bot className="w-5 h-5" />
                               </div>
-                              <span className="text-[11px] text-blue-300/90 font-mono font-medium block leading-snug">
-                                {spec.role}
+                              <div>
+                                <div className="font-bold text-kin-text text-sm flex items-center space-x-1.5">
+                                  <span>{spec.displayName}</span>
+                                  <span
+                                    className={`w-2 h-2 rounded-full ${
+                                      isThinking
+                                        ? 'bg-amber-400 animate-pulse shadow-[0_0_6px_#fbbf24]'
+                                        : 'bg-emerald-400 shadow-[0_0_6px_#34d399]'
+                                    }`}
+                                  />
+                                </div>
+                                <span className="text-[11px] text-blue-300/90 font-mono font-medium block leading-snug">
+                                  {spec.role}
+                                </span>
+                              </div>
+                            </div>
+                            <span className="text-[9px] uppercase font-mono px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-bold border border-blue-500/30 shrink-0">
+                              Specialist
+                            </span>
+                          </div>
+
+                          {/* Model Selector on Card */}
+                          <div className="mt-3 pt-2.5 border-t border-[#1e293b] flex items-center justify-between text-xs">
+                            <span className="text-[#64748b] flex items-center space-x-1 font-mono text-[11px]">
+                              <Cpu className="w-3.5 h-3.5 text-blue-400" />
+                              <span>Model:</span>
+                            </span>
+                            <select
+                              value={spec.activeModelId}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                handleModelChange(spec, e.target.value);
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="bg-[#090d16] text-blue-300 border border-blue-500/30 rounded-lg px-2 py-0.5 text-[11px] font-mono focus:outline-none cursor-pointer max-w-[210px] truncate"
+                            >
+                              {renderModelOptions(spec.activeModelId)}
+                            </select>
+                          </div>
+
+                          {/* Live Active Channel Badge */}
+                          {activeChan && (
+                            <div className="mt-2.5 px-2.5 py-1 rounded-lg bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-[10px] font-mono flex items-center justify-between animate-pulse">
+                              <div className="flex items-center space-x-1.5 truncate">
+                                <Radio className="w-3 h-3 text-emerald-400 shrink-0" />
+                                <span className="truncate">Active in #{activeChanObj?.name || activeChan}</span>
+                              </div>
+                              <span className="text-[9px] uppercase font-bold text-emerald-400 shrink-0">Live</span>
+                            </div>
+                          )}
+
+                          {/* Live Delegation Indicator */}
+                          {isDirectedByBoss && (
+                            <div className="mt-2 px-2.5 py-1 rounded-lg bg-purple-950/60 border border-purple-500/40 text-purple-200 text-[10px] font-mono flex items-center space-x-1.5">
+                              <Zap className="w-3 h-3 text-purple-400 shrink-0" />
+                              <span className="truncate">Directed: {latestDelegation?.directive?.slice(0, 36)}...</span>
+                            </div>
+                          )}
+
+                          {/* Enrolled Channels Pills */}
+                          {spec.assignedChannels && spec.assignedChannels.length > 0 && (
+                            <div className="mt-2.5 flex flex-wrap items-center gap-1">
+                              <span className="text-[10px] text-[#64748b] font-mono mr-1">Channels:</span>
+                              {spec.assignedChannels.map((cId) => {
+                                const cName = channels.find((c) => c.id === cId)?.name || cId.replace(/^chan-/, '');
+                                return (
+                                  <span
+                                    key={cId}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setFilterScope('channel');
+                                      setSelectedChannelId(cId);
+                                    }}
+                                    className="group/pill inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-blue-950/60 hover:bg-blue-900/80 text-blue-300 border border-blue-800/40 text-[9px] font-mono cursor-pointer transition"
+                                    title={`Filter workforce to #${cName}`}
+                                  >
+                                    <span>#{cName}</span>
+                                    {spec.assignedChannels!.length > 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={async (ev) => {
+                                          ev.stopPropagation();
+                                          await removeChannelMember(cId, spec.id);
+                                        }}
+                                        className="opacity-0 group-hover/pill:opacity-100 hover:text-red-400 text-slate-400 ml-0.5"
+                                        title={`Remove from #${cName}`}
+                                      >
+                                        ×
+                                      </button>
+                                    )}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {/* Coordinating Peer Indicator */}
+                          {isCoordinating && focusedAgent?.id !== spec.id && (
+                            <div className="mt-2 px-2 py-0.5 rounded bg-cyan-950/70 border border-cyan-500/40 text-cyan-300 text-[10px] font-mono flex items-center space-x-1">
+                              <Activity className="w-3 h-3 text-cyan-400 shrink-0" />
+                              <span className="truncate">Coordinating with {focusedAgent?.displayName}</span>
+                            </div>
+                          )}
+
+                          {/* Live Thinking / Active Tool Pill */}
+                          {agentThinkingDrafts[spec.id] && (
+                            <div className="mt-2.5 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] flex items-center space-x-1.5 animate-pulse">
+                              <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                              <span className="font-mono truncate">
+                                🧠 Thinking: {agentThinkingDrafts[spec.id].slice(-60)}
                               </span>
                             </div>
-                          </div>
-                          <span className="text-[9px] uppercase font-mono px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-bold border border-blue-500/30 shrink-0">
-                            Specialist
-                          </span>
-                        </div>
-
-                        {/* Model Selector on Card */}
-                        <div className="mt-3 pt-2.5 border-t border-[#1e293b] flex items-center justify-between text-xs">
-                          <span className="text-[#64748b] flex items-center space-x-1 font-mono text-[11px]">
-                            <Cpu className="w-3.5 h-3.5 text-blue-400" />
-                            <span>Model:</span>
-                          </span>
-                          <select
-                            value={spec.activeModelId}
-                            onChange={(e) => {
-                              e.stopPropagation();
-                              handleModelChange(spec, e.target.value);
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                            className="bg-[#090d16] text-blue-300 border border-blue-500/30 rounded-lg px-2 py-0.5 text-[11px] font-mono focus:outline-none cursor-pointer max-w-[210px] truncate"
-                          >
-                            {renderModelOptions(spec.activeModelId)}
-                          </select>
-                        </div>
-
-                        {/* Live Active Channel Badge */}
-                        {activeChan && (
-                          <div className="mt-2.5 px-2.5 py-1 rounded-lg bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-[10px] font-mono flex items-center justify-between animate-pulse">
-                            <div className="flex items-center space-x-1.5 truncate">
-                              <Radio className="w-3 h-3 text-emerald-400 shrink-0" />
-                              <span className="truncate">Active in #{activeChanObj?.name || activeChan}</span>
+                          )}
+                          {(agentLiveTools[spec.id] || spec.currentTool) && (
+                            <div className="mt-2.5 p-2 rounded-lg bg-purple-500/15 border border-purple-500/40 text-purple-300 text-[10px] flex items-center space-x-1.5 animate-pulse">
+                              <Terminal className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                              <span className="font-mono truncate font-semibold">
+                                ⚡ Tool: {agentLiveTools[spec.id]?.toolName || spec.currentTool}
+                              </span>
                             </div>
-                            <span className="text-[9px] uppercase font-bold text-emerald-400 shrink-0">Live</span>
-                          </div>
-                        )}
+                          )}
 
-                        {/* Live Delegation Indicator */}
-                        {isDirectedByBoss && (
-                          <div className="mt-2 px-2.5 py-1 rounded-lg bg-purple-950/60 border border-purple-500/40 text-purple-200 text-[10px] font-mono flex items-center space-x-1.5">
-                            <Zap className="w-3 h-3 text-purple-400 shrink-0" />
-                            <span className="truncate">Directed: {latestDelegation?.directive?.slice(0, 36)}...</span>
-                          </div>
-                        )}
-
-                        {/* Enrolled Channels Pills */}
-                        {spec.assignedChannels && spec.assignedChannels.length > 0 && (
-                          <div className="mt-2.5 flex flex-wrap items-center gap-1">
-                            <span className="text-[10px] text-[#64748b] font-mono mr-1">Channels:</span>
-                            {spec.assignedChannels.map((cId) => {
-                              const cName = channels.find((c) => c.id === cId)?.name || cId.replace(/^chan-/, '');
-                              return (
-                                <span
-                                  key={cId}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setFilterScope('channel');
-                                    setSelectedChannelId(cId);
-                                  }}
-                                  className="px-1.5 py-0.5 rounded bg-blue-950/60 hover:bg-blue-900/80 text-blue-300 border border-blue-800/40 text-[9px] font-mono cursor-pointer transition"
-                                  title={`Filter workforce to #${cName}`}
-                                >
-                                  #{cName}
-                                </span>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        {/* Coordinating Peer Indicator */}
-                        {isCoordinating && focusedAgent?.id !== spec.id && (
-                          <div className="mt-2 px-2 py-0.5 rounded bg-cyan-950/70 border border-cyan-500/40 text-cyan-300 text-[10px] font-mono flex items-center space-x-1">
-                            <Activity className="w-3 h-3 text-cyan-400 shrink-0" />
-                            <span className="truncate">Coordinating with {focusedAgent?.displayName}</span>
-                          </div>
-                        )}
-
-                        {/* Live Thinking / Active Tool Pill */}
-                        {agentThinkingDrafts[spec.id] && (
-                          <div className="mt-2.5 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] flex items-center space-x-1.5 animate-pulse">
-                            <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                            <span className="font-mono truncate">
-                              🧠 Thinking: {agentThinkingDrafts[spec.id].slice(-60)}
-                            </span>
-                          </div>
-                        )}
-                        {(agentLiveTools[spec.id] || spec.currentTool) && (
-                          <div className="mt-2.5 p-2 rounded-lg bg-purple-500/15 border border-purple-500/40 text-purple-300 text-[10px] flex items-center space-x-1.5 animate-pulse">
-                            <Terminal className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                            <span className="font-mono truncate font-semibold">
-                              ⚡ Tool: {agentLiveTools[spec.id]?.toolName || spec.currentTool}
-                            </span>
-                          </div>
-                        )}
-
-                        {/* Action buttons on card */}
-                        <div className="mt-3 pt-2.5 border-t border-[#1e293b]/70 flex items-center justify-between text-[11px]">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSwarmMapOpen(false);
-                              setActiveChannel(`dm-${spec.id}`);
-                            }}
-                            className="flex items-center space-x-1 text-blue-400 hover:text-blue-300 transition font-medium"
-                            title="Open Direct Message Thread"
-                          >
-                            <MessageSquare className="w-3.5 h-3.5" />
-                            <span>Direct Message</span>
-                          </button>
-
-                          <div className="flex items-center space-x-2">
-                            {/* Channel quick enroll dropdown */}
-                            <select
-                              onClick={(e) => e.stopPropagation()}
-                              onChange={async (e) => {
-                                e.stopPropagation();
-                                const targetChanId = e.target.value;
-                                if (targetChanId) {
-                                  await addChannelMember(targetChanId, spec.id);
-                                }
-                              }}
-                              defaultValue=""
-                              className="bg-[#090d16] text-[#94a3b8] hover:text-kin-text border border-[#1e293b] rounded-md px-1.5 py-0.5 text-[10px] focus:outline-none cursor-pointer"
-                              title="Assign to another channel"
-                            >
-                              <option value="" disabled>
-                                + Assign Channel
-                              </option>
-                              {channels
-                                .filter((c) => !c.id.startsWith('dm-') && !spec.assignedChannels?.includes(c.id))
-                                .map((c) => (
-                                  <option key={c.id} value={c.id}>
-                                    #{c.name}
-                                  </option>
-                                ))}
-                            </select>
-
-                            {/* Decommission specialist */}
+                          {/* Action buttons on card */}
+                          <div className="mt-3 pt-2.5 border-t border-[#1e293b]/70 flex items-center justify-between text-[11px]">
                             <button
-                              onClick={async (e) => {
+                              onClick={(e) => {
                                 e.stopPropagation();
-                                if (window.confirm(`Decommission and remove ${spec.displayName} from workforce?`)) {
-                                  await decommissionAgent(spec.id);
-                                }
+                                setSwarmMapOpen(false);
+                                setActiveChannel(`dm-${spec.id}`);
                               }}
-                              className="p-1 rounded text-[#64748b] hover:text-red-400 hover:bg-red-500/10 transition"
-                              title={`Decommission ${spec.displayName}`}
+                              className="flex items-center space-x-1 text-blue-400 hover:text-blue-300 transition font-medium"
+                              title="Open Direct Message Thread"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              <span>Direct Message</span>
                             </button>
+
+                            <div className="flex items-center space-x-2">
+                              {/* Channel quick enroll dropdown */}
+                              <select
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={async (e) => {
+                                  e.stopPropagation();
+                                  const targetChanId = e.target.value;
+                                  if (targetChanId) {
+                                    await addChannelMember(targetChanId, spec.id);
+                                    e.target.value = '';
+                                  }
+                                }}
+                                defaultValue=""
+                                className="bg-[#090d16] text-[#94a3b8] hover:text-kin-text border border-[#1e293b] rounded-md px-1.5 py-0.5 text-[10px] focus:outline-none cursor-pointer"
+                                title="Assign to another channel"
+                              >
+                                <option value="" disabled>
+                                  + Assign Channel
+                                </option>
+                                {channels
+                                  .filter((c) => !c.id.startsWith('dm-') && !spec.assignedChannels?.includes(c.id))
+                                  .map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                      #{c.name}
+                                    </option>
+                                  ))}
+                              </select>
+
+                              {/* Decommission specialist */}
+                              <button
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (window.confirm(`Decommission and remove ${spec.displayName} from workforce?`)) {
+                                    await decommissionAgent(spec.id);
+                                  }
+                                }}
+                                className="p-1 rounded text-[#64748b] hover:text-red-400 hover:bg-red-500/10 transition"
+                                title={`Decommission ${spec.displayName}`}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>

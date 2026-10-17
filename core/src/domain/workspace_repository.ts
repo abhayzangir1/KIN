@@ -240,9 +240,9 @@ export class WorkspaceRepository {
   }
 
   public addChannelMember(channelId: string, agentId: string): void {
-    let targetId = channelId;
-    const exists = this.db.queryOne<{ id: string }>('SELECT id FROM channels WHERE id = ?', channelId);
-    if (!exists) {
+    let targetChanId = channelId;
+    const chanExists = this.db.queryOne<{ id: string }>('SELECT id FROM channels WHERE id = ?', channelId);
+    if (!chanExists) {
       const cleanName = channelId.replace(/^#/, '').trim();
       const byName = this.db.queryOne<{ id: string }>(
         'SELECT id FROM channels WHERE (name = ? COLLATE NOCASE OR name = ? COLLATE NOCASE OR id = ? OR id = ?) LIMIT 1',
@@ -252,16 +252,82 @@ export class WorkspaceRepository {
         `chan-${cleanName}`
       );
       if (byName) {
-        targetId = byName.id;
+        targetChanId = byName.id;
+      } else {
+        // Channel does not exist yet: dynamically auto-create channel to prevent foreign key errors
+        let projId = 'proj-kin';
+        const anyProj = this.db.queryOne<{ id: string }>('SELECT id FROM projects ORDER BY created_at ASC LIMIT 1');
+        if (anyProj) {
+          projId = anyProj.id;
+        } else {
+          const anyWs = this.db.queryOne<{ id: string }>('SELECT id FROM workspaces ORDER BY created_at ASC LIMIT 1');
+          const wsId = anyWs?.id || 'ws-default';
+          try {
+            this.db.execute(
+              `INSERT OR IGNORE INTO projects (id, workspace_id, name, repo_path, settings_json, created_at, updated_at)
+               VALUES (?, ?, 'Default Project', '.', '{}', ?, ?)`,
+              projId,
+              wsId,
+              Date.now(),
+              Date.now()
+            );
+          } catch {}
+        }
+
+        const newChanId = cleanName.startsWith('chan-') ? cleanName : `chan-${cleanName}`;
+        try {
+          this.db.execute(
+            `INSERT OR IGNORE INTO channels (id, project_id, name, topic, is_private, channel_type, created_at)
+             VALUES (?, ?, ?, ?, 0, 'channel', ?)`,
+            newChanId,
+            projId,
+            cleanName,
+            `Workforce channel for #${cleanName}`,
+            Date.now()
+          );
+          targetChanId = newChanId;
+        } catch (err) {
+          console.warn('[WORKSPACE REPO] Failed to auto-create channel for member:', err);
+        }
       }
     }
-    this.db.execute(
-      `INSERT OR IGNORE INTO channel_members (channel_id, agent_id, joined_at)
-       VALUES (?, ?, ?)`,
-      targetId,
-      agentId,
-      Date.now()
-    );
+
+    // Resolve agent identifier (handling @DisplayName or name vs ID)
+    let targetAgentId = agentId;
+    const agentExists = this.db.queryOne<{ id: string }>('SELECT id FROM agent_identities WHERE id = ?', agentId);
+    if (!agentExists) {
+      const cleanAgent = agentId.replace(/^@/, '').trim();
+      const byAgentName = this.db.queryOne<{ id: string }>(
+        'SELECT id FROM agent_identities WHERE (id = ? OR display_name = ? COLLATE NOCASE OR display_name = ? COLLATE NOCASE OR id = ?) LIMIT 1',
+        cleanAgent,
+        cleanAgent,
+        `@${cleanAgent}`,
+        `agent-${cleanAgent.toLowerCase()}`
+      );
+      if (byAgentName) {
+        targetAgentId = byAgentName.id;
+      }
+    }
+
+    // Check that both foreign key references actually exist before attempting insertion
+    const validChan = this.db.queryOne<{ id: string }>('SELECT id FROM channels WHERE id = ?', targetChanId);
+    const validAgent = this.db.queryOne<{ id: string }>('SELECT id FROM agent_identities WHERE id = ?', targetAgentId);
+    if (!validChan || !validAgent) {
+      console.warn(`[WORKSPACE REPO] Skipping addChannelMember: channel exists=${!!validChan}, agent exists=${!!validAgent}`);
+      return;
+    }
+
+    try {
+      this.db.execute(
+        `INSERT OR IGNORE INTO channel_members (channel_id, agent_id, joined_at)
+         VALUES (?, ?, ?)`,
+        targetChanId,
+        targetAgentId,
+        Date.now()
+      );
+    } catch (err) {
+      console.warn('[WORKSPACE REPO] addChannelMember error:', err);
+    }
   }
 
   public removeChannelMember(channelId: string, agentId: string): void {

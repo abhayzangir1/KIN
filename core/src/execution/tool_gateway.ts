@@ -318,15 +318,38 @@ export class ToolGateway {
       );
       if (fallbackRow) return fallbackRow;
 
+      // Ensure target project exists in SQLite to prevent foreign key constraint violation on channels(project_id)
+      let resolvedProjectId = projectId;
+      const projExists = this.db.queryOne<{ id: string }>('SELECT id FROM projects WHERE id = ?', projectId);
+      if (!projExists) {
+        const anyProj = this.db.queryOne<{ id: string }>('SELECT id FROM projects ORDER BY created_at ASC LIMIT 1');
+        if (anyProj) {
+          resolvedProjectId = anyProj.id;
+        } else {
+          const anyWs = this.db.queryOne<{ id: string }>('SELECT id FROM workspaces ORDER BY created_at ASC LIMIT 1');
+          const wsId = anyWs?.id || 'ws-default';
+          try {
+            this.db.execute(
+              `INSERT OR IGNORE INTO projects (id, workspace_id, name, repo_path, settings_json, created_at, updated_at)
+               VALUES (?, ?, 'Default Project', '.', '{}', ?, ?)`,
+              resolvedProjectId,
+              wsId,
+              Date.now(),
+              Date.now()
+            );
+          } catch {}
+        }
+      }
+
       // 4. Channel does not exist: dynamically create it so foreign key constraint always succeeds
-      const newChanId = clean.startsWith('chan-') ? clean : `chan-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+      const newChanId = clean.startsWith('chan-') ? clean : `chan-${clean}`;
       const now = Date.now();
       try {
         this.db.execute(
           `INSERT OR IGNORE INTO channels (id, project_id, name, topic, is_private, channel_type, created_at)
            VALUES (?, ?, ?, ?, 0, 'channel', ?)`,
           newChanId,
-          projectId,
+          resolvedProjectId,
           clean,
           channelTopic || `Workforce channel for #${clean}`,
           now
@@ -2859,12 +2882,9 @@ export class ToolGateway {
         case 'assign_coworker':
         case 'inviteToChannel': {
           const rawCoworker = params.coworker || params.agentName || params.agentId;
-          const targetChannelParam = params.channelId || params.channel || params.targetChannel || context.channelId;
+          const targetChannelParam = params.channelId || params.channel || params.targetChannel || context.channelId || 'chan-general';
           if (!rawCoworker) {
             throw new Error("assignCoworker requires 'coworker' parameter");
-          }
-          if (!targetChannelParam) {
-            throw new Error("assignCoworker requires 'channelId' parameter");
           }
           const targetProjectId = context.projectId || 'proj-kin';
           const cleanCoworkerName = String(rawCoworker).trim();
@@ -2878,10 +2898,12 @@ export class ToolGateway {
           if (!coworker && this.db) {
             const raw = cleanCoworkerName.replace(/^@/, '');
             const row = this.db.queryOne<{ id: string }>(
-              `SELECT id FROM agent_identities WHERE (id = ? OR display_name = ? COLLATE NOCASE OR display_name = ? COLLATE NOCASE) LIMIT 1`,
+              `SELECT id FROM agent_identities WHERE (id = ? OR id = ? OR display_name = ? COLLATE NOCASE OR display_name = ? COLLATE NOCASE OR id = ?) LIMIT 1`,
               cleanCoworkerName,
-              cleanCoworkerName,
-              `@${raw}`
+              raw,
+              raw,
+              `@${raw}`,
+              `agent-${raw.toLowerCase()}`
             );
             if (row && this.agentRepo) {
               coworker = this.agentRepo.getIdentity(row.id);
@@ -2894,12 +2916,16 @@ export class ToolGateway {
           const { id: finalChannelId, name: finalChannelName } = this.resolveChannelId(targetChannelParam, targetProjectId);
           const now = Date.now();
           if (this.db) {
-            this.db.execute(
-              `INSERT OR IGNORE INTO channel_members (channel_id, agent_id, joined_at) VALUES (?, ?, ?)`,
-              finalChannelId,
-              coworker.id,
-              now
-            );
+            try {
+              this.db.execute(
+                `INSERT OR IGNORE INTO channel_members (channel_id, agent_id, joined_at) VALUES (?, ?, ?)`,
+                finalChannelId,
+                coworker.id,
+                now
+              );
+            } catch (insErr) {
+              console.warn('[TOOL GATEWAY] assignCoworker channel_members insert error:', insErr);
+            }
           }
 
           if (this.assignCoworkerCallback) {
