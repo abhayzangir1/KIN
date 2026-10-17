@@ -324,10 +324,10 @@ export const AgentInspector: React.FC = () => {
   return (
     <aside
       style={{ width: `${inspectorWidth}px` }}
-      className="shrink-0 bg-[#090d16] border-l border-[#1e293b] flex flex-col h-full text-xs select-none"
+      className="shrink-0 bg-kin-surface border-l border-kin-border flex flex-col h-full text-xs select-none"
     >
       {/* Top Header: 6 Antigravity Primary Tabs (Agent, Changes, Review, Artifacts, Uploads, Terminal) */}
-      <div className="h-10 border-b border-[#1e293b] px-2 flex items-center justify-between bg-[#070b12] overflow-x-auto shrink-0">
+      <div className="h-10 border-b border-kin-border px-2 flex items-center justify-between bg-kin-surface overflow-x-auto shrink-0">
         <div className="flex items-center space-x-0.5">
           {/* 1. Agent */}
           <button

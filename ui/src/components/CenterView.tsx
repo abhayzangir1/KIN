@@ -29,7 +29,6 @@ import {
   Lightbulb,
   Info,
   Compass,
-  PanelRight,
 } from 'lucide-react';
 import { HumanTakeoverBanner } from './HumanTakeoverBanner.js';
 import { AutomationsView } from './AutomationsView.js';
@@ -84,8 +83,6 @@ export const CenterView: React.FC = () => {
     submitGrillMeAnswers,
     dismissGrillMe,
     clearQuotaPause,
-    isInspectorOpen,
-    setInspectorOpen,
   } = useKinStore();
 
   const isMachineTool = (tool?: string) => {
@@ -505,9 +502,9 @@ export const CenterView: React.FC = () => {
   }
 
   return (
-    <main className="flex-1 flex flex-col h-full bg-[#0a0f1d] min-w-0 relative">
+    <main className="flex-1 flex flex-col h-full bg-kin-bg min-w-0 relative">
       {/* Context Scope Header Bar */}
-      <div className="px-4 py-2 border-b border-[#1e293b] bg-[#0c1222] flex items-center justify-between text-xs">
+      <div className="px-4 py-2 border-b border-kin-border bg-kin-surface flex items-center justify-between text-xs">
         {isAgentToAgentDm ? (
           <div className="flex items-center space-x-2 truncate">
             <span className="w-2.5 h-2.5 rounded-full bg-indigo-400 shadow-[0_0_6px_#818cf8]" />
@@ -535,16 +532,6 @@ export const CenterView: React.FC = () => {
                 Private 1-on-1 Direct Message thread
               </span>
             </div>
-            {!isInspectorOpen && (
-              <button
-                onClick={() => setInspectorOpen(true)}
-                className="flex items-center space-x-1 px-2.5 py-1 rounded-full bg-[#1e293b] hover:bg-blue-600/30 hover:text-blue-300 text-kin-text border border-[#2d3748] text-[11px] transition shrink-0 ml-2 cursor-pointer"
-                title="Expand Agent Inspector Panel"
-              >
-                <PanelRight className="w-3 h-3 text-blue-400" />
-                <span>Inspector</span>
-              </button>
-            )}
           </div>
         ) : (
           <div className="flex items-center justify-between w-full min-w-0 overflow-hidden">
@@ -604,18 +591,6 @@ export const CenterView: React.FC = () => {
                 <UserPlus className="w-3 h-3 text-emerald-400" />
                 <span>+ Add Agent</span>
               </button>
-
-              {/* Inspector Expand Button if collapsed */}
-              {!isInspectorOpen && (
-                <button
-                  onClick={() => setInspectorOpen(true)}
-                  className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-[#1e293b] hover:bg-blue-600/30 hover:text-blue-300 text-kin-text border border-[#2d3748] text-[11px] transition shrink-0 cursor-pointer"
-                  title="Expand Agent Inspector Panel"
-                >
-                  <PanelRight className="w-3 h-3 text-blue-400" />
-                  <span className="hidden sm:inline">Inspector</span>
-                </button>
-              )}
             </div>
           </div>
         )}
@@ -855,14 +830,14 @@ export const CenterView: React.FC = () => {
                   const decision = parseDecisionProposal(msg.content);
                   return (
                     <div
-                      className={`text-[#e2e8f0] text-xs leading-relaxed font-sans p-3 rounded-2xl border transition ${
+                      className={`text-kin-text text-xs leading-relaxed font-sans p-3 rounded-xl border transition ${
                         isSideQuery
-                          ? 'bg-[#181507]/90 border-amber-400/50 shadow-lg shadow-amber-950/30'
+                          ? 'bg-amber-500/10 border-amber-500/30'
                           : isSlashCard(msg.content)
-                          ? 'bg-[#0a1128]/85 border-blue-500/40 shadow-lg shadow-blue-950/20'
+                          ? 'bg-blue-500/10 border-blue-500/30'
                           : isHuman
-                          ? 'bg-gradient-to-br from-emerald-950/30 to-[#0e172a] border-emerald-500/30 shadow-sm'
-                          : 'bg-[#0c1427]/80 border-slate-800/80 shadow-sm backdrop-blur-sm'
+                          ? 'bg-emerald-500/10 border-emerald-500/20'
+                          : 'bg-kin-card border-kin-border'
                       }`}
                     >
                       {isSideQuery && (
@@ -928,7 +903,7 @@ export const CenterView: React.FC = () => {
       </div>
 
       {/* Bottom Message Input Box & Security Approvals */}
-      <div className="p-3 border-t border-[#1e293b] bg-[#090d16] space-y-2.5 relative">
+      <div className="p-3 border-t border-kin-border bg-kin-surface space-y-2.5 relative">
 
         {/* Antigravity In-App Scheduler & Timers Bar */}
         {activeSchedules.length > 0 && (
@@ -1521,10 +1496,10 @@ export const CenterView: React.FC = () => {
           )}
 
           <div
-            className={`flex items-center bg-[#0f172a] border rounded-xl px-3 py-2 transition-colors shadow-lg ${
+            className={`flex items-center bg-kin-card border rounded-xl px-3 py-2 transition-colors ${
             isDragOverChat
-              ? 'border-cyan-400 bg-cyan-950/20 ring-2 ring-cyan-500/40'
-              : 'border-[#2d3748] focus-within:border-emerald-500'
+              ? 'border-kin-primary bg-kin-primary/10 ring-2 ring-kin-primary/30'
+              : 'border-kin-border focus-within:border-kin-primary'
           }`}
         >
           <input

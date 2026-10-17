@@ -4,20 +4,26 @@ export default {
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
         kin: {
-          bg: '#0B0F17',
-          surface: '#121826',
-          card: '#1A2234',
-          border: '#2A364F',
-          primary: '#3B82F6',
-          success: '#10B981',
-          warning: '#F59E0B',
-          danger: '#EF4444',
-          text: '#F3F4F6',
-          muted: '#9CA3AF',
+          bg: '#0d1117',
+          surface: '#161b22',
+          surfaceHover: '#1c2128',
+          card: '#21262d',
+          cardHover: '#292e36',
+          border: 'rgba(255, 255, 255, 0.08)',
+          borderSubtle: 'rgba(255, 255, 255, 0.04)',
+          primary: '#38bdf8',
+          primaryHover: '#0284c7',
+          success: '#10b981',
+          warning: '#f59e0b',
+          danger: '#ef4444',
+          text: '#f0f6fc',
+          muted: '#8b949e',
+          subtle: '#6e7681',
         }
       }
     },

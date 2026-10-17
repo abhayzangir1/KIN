@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useKinStore } from '../store/kinStore.js';
-import { Folder, Plus, X, Play, Copy, Check, Shield, Activity, Network, Sun, Moon, PanelRight, PanelRightClose } from 'lucide-react';
+import { Folder, Plus, X, Play, Copy, Check, Shield, Activity, Network, PanelRight, PanelRightClose } from 'lucide-react';
 
 export const HeaderBar: React.FC = () => {
   const {
@@ -11,8 +11,6 @@ export const HeaderBar: React.FC = () => {
     deleteProject,
     setNewProjectModalOpen,
     setSwarmMapOpen,
-    theme,
-    toggleTheme,
     ollamaStatus,
     startOllama,
     isConnected,
@@ -64,23 +62,23 @@ export const HeaderBar: React.FC = () => {
   };
 
   return (
-    <header className="h-11 bg-[#0c1222]/95 border-b border-slate-800/80 backdrop-blur-md px-4 flex items-center justify-between text-xs select-none transition-colors">
+    <header className="h-11 bg-kin-surface border-b border-kin-border px-3.5 flex items-center justify-between text-xs select-none transition-colors shrink-0">
       {/* Left: Brand & Project Switcher */}
-      <div className="flex items-center space-x-3">
+      <div className="flex items-center space-x-2.5">
         <div className="flex items-center space-x-1.5 font-bold tracking-wide text-kin-text">
-          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_10px_#34d399]" />
-          <span className="text-sm font-semibold tracking-wider bg-gradient-to-r from-emerald-400 via-teal-300 to-blue-400 bg-clip-text text-transparent">KIN</span>
+          <span className="w-2 h-2 rounded-full bg-emerald-400" />
+          <span className="text-sm font-semibold tracking-wider text-kin-text">KIN</span>
         </div>
 
-        <span className="text-[#30363d]">|</span>
+        <span className="text-kin-muted/40">|</span>
 
         {/* Project Selector */}
         <div className="flex items-center space-x-1.5">
-          <span className="text-kin-muted">Project:</span>
+          <span className="text-kin-muted text-[11px]">Project:</span>
           <select
             value={activeProjectId}
             onChange={(e) => setActiveProject(e.target.value)}
-            className="bg-[#161b22] border border-[#30363d] rounded px-2 py-0.5 text-xs text-kin-text font-medium focus:outline-none focus:border-blue-500 cursor-pointer"
+            className="bg-kin-card border border-kin-border rounded-md px-2 py-0.5 text-xs text-kin-text font-medium focus:outline-none focus:border-kin-primary cursor-pointer hover:bg-kin-cardHover transition"
           >
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
@@ -91,7 +89,7 @@ export const HeaderBar: React.FC = () => {
 
           <button
             onClick={() => setNewProjectModalOpen(true)}
-            className="flex items-center space-x-0.5 px-1.5 py-0.5 rounded bg-[#21262d] hover:bg-[#30363d] text-kin-text font-medium transition"
+            className="flex items-center space-x-1 px-2 py-0.5 rounded-md bg-kin-card hover:bg-kin-cardHover text-kin-text border border-kin-border font-medium text-xs transition"
             title="Create New Project Workspace"
           >
             <Plus className="w-3 h-3 text-emerald-400" />
@@ -105,7 +103,7 @@ export const HeaderBar: React.FC = () => {
                   deleteProject(activeProjectId);
                 }
               }}
-              className="p-1 rounded hover:bg-red-900/40 text-red-400 transition"
+              className="p-1 rounded hover:bg-red-900/30 text-kin-muted hover:text-red-400 transition"
               title="Delete Active Project"
             >
               <X className="w-3 h-3" />
@@ -114,12 +112,12 @@ export const HeaderBar: React.FC = () => {
         </div>
 
         {/* Directory Breadcrumb with Copy Button */}
-        <div className="flex items-center space-x-1 bg-[#161b22] border border-[#30363d] rounded px-2 py-0.5 text-[#8b949e] font-mono text-[11px] max-w-xs">
-          <Folder className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+        <div className="hidden md:flex items-center space-x-1 bg-kin-card/60 border border-kin-border rounded-md px-2 py-0.5 text-kin-muted font-mono text-[11px] max-w-[220px] lg:max-w-xs">
+          <Folder className="w-3.5 h-3.5 text-kin-primary shrink-0" />
           <span className="truncate">{activeProject?.repoPath || 'No repository selected'}</span>
           <button
             onClick={handleCopyPath}
-            className="hover:text-kin-text transition ml-1 shrink-0 text-[#8b949e] hover:text-emerald-400"
+            className="hover:text-kin-text transition ml-1 shrink-0 text-kin-muted hover:text-emerald-400 cursor-pointer"
             title="Copy Directory Path"
           >
             {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
@@ -129,7 +127,7 @@ export const HeaderBar: React.FC = () => {
         {/* Swarm Map Top Navigation Button */}
         <button
           onClick={() => setSwarmMapOpen(true)}
-          className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-[#161b22] hover:bg-[#21262d] text-purple-300 hover:text-purple-200 border border-purple-500/30 text-xs font-sans font-medium transition shadow-sm hover:shadow cursor-pointer"
+          className="flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/20 text-xs font-sans font-medium transition cursor-pointer"
           title="Open Swarm Map Hierarchy & Workforce Topology"
         >
           <Network className="w-3.5 h-3.5 text-purple-400 shrink-0" />
@@ -137,119 +135,101 @@ export const HeaderBar: React.FC = () => {
         </button>
       </div>
 
-      {/* Right: Path, Ollama Status, DB Status, Autonomy Mode, Settings */}
-      <div className="flex items-center space-x-3 text-[11px] font-mono">
-        {/* Ollama Status */}
-        <div className="flex items-center space-x-1.5">
-          <span
-            className={`w-2 h-2 rounded-full ${
-              ollamaStatus.online ? 'bg-emerald-400 shadow-[0_0_6px_#34d399]' : 'bg-red-400'
-            }`}
-          />
-          <span className={ollamaStatus.online ? 'text-emerald-400' : 'text-red-400'}>
-            Ollama: {ollamaStatus.online ? `Online (${ollamaStatus.models.length} models)` : 'Offline'}
-          </span>
-          {!ollamaStatus.online && (
-            <button
-              onClick={startOllama}
-              className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-blue-600/30 text-blue-300 hover:bg-blue-600/50 text-[10px] font-sans transition"
-            >
-              <Play className="w-2.5 h-2.5" />
-              <span>Start</span>
-            </button>
+      {/* Right: Consolidated System Status, Autonomy Mode, Canonical Inspector Toggle */}
+      <div className="flex items-center space-x-2 text-[11px] font-mono">
+        {/* Consolidated System Health Capsule (Ollama & SQLite WAL) */}
+        <div className="flex items-center space-x-2 px-2.5 py-0.5 rounded-md bg-kin-card/60 border border-kin-border text-kin-muted">
+          {/* Ollama Status */}
+          <div className="flex items-center space-x-1.5">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                ollamaStatus.online ? 'bg-emerald-400' : 'bg-amber-400'
+              }`}
+            />
+            <span className={ollamaStatus.online ? 'text-emerald-400' : 'text-amber-400'}>
+              Ollama: {ollamaStatus.online ? `${ollamaStatus.models.length}m` : 'Offline'}
+            </span>
+            {!ollamaStatus.online && (
+              <button
+                onClick={startOllama}
+                className="flex items-center space-x-1 px-1.5 py-0.2 rounded bg-blue-600/20 text-blue-300 hover:bg-blue-600/40 text-[10px] font-sans transition"
+                title="Start Local Ollama Server"
+              >
+                <Play className="w-2.5 h-2.5" />
+                <span>Start</span>
+              </button>
+            )}
+          </div>
+
+          <span className="text-kin-muted/30">|</span>
+
+          {/* Real DB Status */}
+          <div className="flex items-center space-x-1 text-emerald-400">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            <span>DB: {isConnected ? 'WAL' : 'Connecting...'}</span>
+          </div>
+
+          {/* Project Tasks Progress */}
+          {projectAnalytics && (
+            <>
+              <span className="text-kin-muted/30">|</span>
+              <div
+                className="hidden xl:flex items-center space-x-1 text-kin-muted"
+                title={`Tasks: ${projectAnalytics.completedTasks}/${projectAnalytics.totalTasks} completed (${projectAnalytics.taskCompletionRate}%)`}
+              >
+                <Activity className="w-3 h-3 text-kin-primary shrink-0" />
+                <span>{projectAnalytics.completedTasks}/{projectAnalytics.totalTasks}</span>
+              </div>
+            </>
           )}
         </div>
 
-        {/* Real DB Status with Live Database Size */}
-        <div className="flex items-center space-x-1 text-emerald-400">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_4px_#34d399]" />
-          <span>
-            DB:{' '}
-            {isConnected
-              ? projectAnalytics?.databaseSizeBytes
-                ? `WAL (${(projectAnalytics.databaseSizeBytes / 1024).toFixed(0)} KB)`
-                : 'WAL Connected'
-              : 'Reconnecting...'}
-          </span>
-        </div>
-
-        {/* Live Project Telemetry Pill */}
-        {projectAnalytics && (
-          <div
-            className="hidden lg:flex items-center space-x-1.5 px-2 py-0.5 rounded bg-[#161b22] border border-[#30363d] text-[#8b949e]"
-            title={`Live Project Analytics: ${projectAnalytics.totalMessages} total messages (${projectAnalytics.humanMessages} human, ${projectAnalytics.agentMessages} agent), ${projectAnalytics.completedTasks}/${projectAnalytics.totalTasks} tasks completed`}
-          >
-            <Activity className="w-3 h-3 text-blue-400 shrink-0" />
-            <span>Tasks: {projectAnalytics.completedTasks}/{projectAnalytics.totalTasks}</span>
-            <span className="text-[10px] text-blue-400 font-bold">({projectAnalytics.taskCompletionRate}%)</span>
-          </div>
-        )}
-
-        {/* Autonomy Mode Selector (Persisted to SQLite) */}
-        <div className="flex items-center space-x-1 bg-[#161b22] border border-[#30363d] rounded px-2 py-0.5">
+        {/* Autonomy Mode Selector */}
+        <div className="flex items-center space-x-1 bg-kin-card/60 border border-kin-border rounded-md px-2 py-0.5">
           <Shield className="w-3 h-3 text-amber-400 shrink-0" />
           <select
             value={autonomyMode}
             onChange={(e) => setAutonomyMode(e.target.value as any)}
             className="bg-transparent text-kin-text text-[11px] font-medium focus:outline-none cursor-pointer"
-            title="Autonomy Mode"
+            title="Autonomy Mode Governance"
           >
-            <option value="AUTO" className="bg-[#161b22] text-emerald-400">AUTO</option>
-            <option value="ALWAYS_ASK" className="bg-[#161b22] text-amber-400">ALWAYS_ASK</option>
-            <option value="FULL_ACCESS" className="bg-[#161b22] text-blue-400">FULL_ACCESS</option>
+            <option value="AUTO" className="bg-kin-surface text-emerald-400">AUTO</option>
+            <option value="ALWAYS_ASK" className="bg-kin-surface text-amber-400">ALWAYS_ASK</option>
+            <option value="FULL_ACCESS" className="bg-kin-surface text-blue-400">FULL_ACCESS</option>
           </select>
         </div>
 
-        {/* Toggle Inspector Panel */}
+        {/* Canonical Inspector Panel Toggle Button */}
         <button
           onClick={toggleInspector}
-          className={`flex items-center space-x-1 px-2 py-0.5 rounded border transition cursor-pointer ${
+          className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md border text-xs font-sans font-medium transition cursor-pointer ${
             isInspectorOpen
-              ? 'bg-blue-500/15 border-blue-500/30 text-blue-300 hover:bg-blue-500/25'
-              : 'bg-[#161b22] border-[#30363d] text-[#8b949e] hover:text-kin-text hover:bg-[#21262d]'
+              ? 'bg-blue-500/15 border-blue-500/30 text-blue-300'
+              : 'bg-kin-card border-kin-border text-kin-muted hover:text-kin-text hover:bg-kin-cardHover'
           }`}
-          title={isInspectorOpen ? 'Collapse Agent Inspector (Gain Full Width)' : 'Expand Agent Inspector'}
+          title={isInspectorOpen ? 'Collapse Inspector (Gain Full Workspace Width)' : 'Expand Inspector & Diagnostics'}
         >
           {isInspectorOpen ? (
-            <PanelRightClose className="w-3 h-3 text-blue-400 shrink-0" />
+            <PanelRightClose className="w-3.5 h-3.5 text-blue-400 shrink-0" />
           ) : (
-            <PanelRight className="w-3 h-3 text-[#8b949e] shrink-0" />
+            <PanelRight className="w-3.5 h-3.5 text-kin-muted shrink-0" />
           )}
-          <span className="text-[10px] font-sans">Inspector</span>
+          <span>Inspector</span>
         </button>
 
-        {/* Quick Dual-Theme Toggle */}
-        <button
-          onClick={toggleTheme}
-          className="flex items-center space-x-1 px-2 py-0.5 rounded bg-[#161b22] border border-[#30363d] text-kin-text hover:bg-[#21262d] transition cursor-pointer"
-          title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Theme`}
-        >
-          {theme === 'dark' ? (
-            <>
-              <Sun className="w-3 h-3 text-amber-400 shrink-0" />
-              <span className="text-[10px] font-sans text-amber-300">Light</span>
-            </>
-          ) : (
-            <>
-              <Moon className="w-3 h-3 text-blue-500 shrink-0" />
-              <span className="text-[10px] font-sans text-blue-600">Dark</span>
-            </>
-          )}
-        </button>
-
-        {/* Live Machine Control Glowing Indicator */}
+        {/* Machine Control Indicator */}
         {isMachineControlActive && (
           <div
-            className="flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-red-950/80 border border-red-500/80 text-red-200 text-[11px] font-sans font-bold shadow-[0_0_12px_rgba(239,68,68,0.5)] animate-pulse"
-            title="An autonomous agent is driving desktop or browser actions on this machine"
+            className="flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-red-950/70 border border-red-500/50 text-red-200 text-[11px] font-sans font-semibold animate-pulse"
+            title="An autonomous agent is driving desktop or browser actions"
           >
-            <span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_#ef4444] animate-ping shrink-0" />
-            <span>🔴 {activeMachineAgent || '@Agent'} Controlling Local Machine</span>
+            <span className="w-2 h-2 rounded-full bg-red-500 animate-ping shrink-0" />
+            <span>{activeMachineAgent || '@Agent'} Controlling Machine</span>
             <button
               onClick={() => setDesktopControlModalOpen(true)}
-              className="ml-1 px-1.5 py-0.5 rounded bg-red-800/80 hover:bg-red-700 text-white text-[10px] font-mono transition cursor-pointer"
+              className="ml-1 px-1.5 py-0.2 rounded bg-red-800/80 hover:bg-red-700 text-white text-[10px] font-mono transition cursor-pointer"
             >
-              [Inspect]
+              Inspect
             </button>
           </div>
         )}

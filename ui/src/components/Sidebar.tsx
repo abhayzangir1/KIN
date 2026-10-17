@@ -1,6 +1,6 @@
 import React from 'react';
 import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
-import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale, Trash2, Sun, Moon, Users, Bot, PanelRight } from 'lucide-react';
+import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale, Trash2, Users } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
   const {
@@ -24,7 +24,6 @@ export const Sidebar: React.FC = () => {
     updateTaskStatus,
     setNewGoalModalOpen,
     setNewTaskModalOpen,
-    setActiveRightTab,
     decisions,
     setDecisionsModalOpen,
     schedules,
@@ -33,10 +32,7 @@ export const Sidebar: React.FC = () => {
     setSettingsModalOpen,
     autonomyMode,
     activeMainView,
-    theme,
-    toggleTheme,
     setActiveMainView,
-    setInspectorOpen,
   } = useKinStore();
 
   const handleSelectDm = (agentId: string) => {
@@ -80,15 +76,15 @@ export const Sidebar: React.FC = () => {
   return (
     <aside
       style={{ width: `${sidebarWidth}px` }}
-      className="shrink-0 bg-[#090d16] border-r border-[#1e293b] flex flex-col h-full text-xs select-none"
+      className="shrink-0 bg-kin-surface border-r border-kin-border flex flex-col h-full text-xs select-none"
     >
       {/* Active Project Header */}
-      <div className="p-3 border-b border-[#1e293b] flex items-center justify-between text-kin-text font-semibold">
+      <div className="p-3 border-b border-kin-border flex items-center justify-between text-kin-text font-semibold">
         <div className="flex items-center space-x-2 truncate">
           <Folder className="w-4 h-4 text-emerald-400 shrink-0" />
           <span className="truncate">{activeProject?.name || 'KIN'}</span>
         </div>
-        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#1e293b] text-kin-muted">
+        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-kin-card text-kin-muted border border-kin-border">
           {availableAgents.length} {availableAgents.length === 1 ? 'agent' : 'agents'}
         </span>
       </div>
@@ -507,49 +503,19 @@ export const Sidebar: React.FC = () => {
       </div>
 
       {/* Bottom Settings & Preferences Bar */}
-      <div className="p-2 border-t border-[#1e293b] bg-[#070b12] space-y-1">
-        <div className="flex items-center space-x-1.5">
-          <button
-            onClick={() => setSettingsModalOpen(true)}
-            className="flex-1 flex items-center justify-between px-2.5 py-2 rounded-lg bg-[#131b2e] hover:bg-[#1c2742] text-kin-text border border-[#1e293b] hover:border-emerald-500/40 transition shadow-sm group cursor-pointer"
-            title="Open System Settings & Preferences"
-          >
-            <div className="flex items-center space-x-2 truncate">
-              <Settings className="w-4 h-4 text-emerald-400 group-hover:rotate-45 transition-transform duration-300 shrink-0" />
-              <span className="font-semibold text-xs truncate">Settings</span>
-            </div>
-            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
-              {autonomyMode}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className="p-2 rounded-lg bg-[#131b2e] hover:bg-[#1c2742] text-[#8b949e] hover:text-kin-text border border-[#1e293b] transition cursor-pointer shrink-0"
-            title={theme === 'light' ? 'Switch to Dark Theme' : 'Switch to Minimal Light Theme'}
-          >
-            {theme === 'light' ? (
-              <Moon className="w-4 h-4 text-amber-400" />
-            ) : (
-              <Sun className="w-4 h-4 text-amber-300" />
-            )}
-          </button>
-        </div>
-
+      <div className="p-2.5 border-t border-kin-border bg-kin-surface shrink-0">
         <button
-          onClick={() => {
-            setActiveRightTab('Agent');
-            setInspectorOpen(true);
-          }}
-          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[#94a3b8] hover:text-kin-text bg-[#0d121f] hover:bg-[#131b2e] border border-[#1e293b]/60 hover:border-blue-500/40 transition text-xs cursor-pointer group shadow-xs"
-          title="Open Agent Inspector & Telemetry Drawer"
+          onClick={() => setSettingsModalOpen(true)}
+          className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-kin-card hover:bg-kin-cardHover text-kin-text border border-kin-border transition group cursor-pointer"
+          title="Open System Settings & Preferences"
         >
-          <div className="flex items-center space-x-2">
-            <Bot className="w-3.5 h-3.5 text-blue-400 group-hover:scale-110 transition-transform" />
-            <span className="font-medium text-[11px]">Inspector &amp; Telemetry</span>
+          <div className="flex items-center space-x-2 truncate">
+            <Settings className="w-4 h-4 text-kin-muted group-hover:text-kin-text group-hover:rotate-45 transition-transform duration-300 shrink-0" />
+            <span className="font-semibold text-xs truncate">Settings</span>
           </div>
-          <PanelRight className="w-3 h-3 text-[#64748b] group-hover:text-blue-400 transition-colors" />
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0 font-medium">
+            {autonomyMode}
+          </span>
         </button>
       </div>
     </aside>
