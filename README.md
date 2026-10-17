@@ -51,7 +51,7 @@ The core workspace features a 4-pane responsive interface: organizational channe
 ![KIN Multi-Agent Workbench](docs/assets/screenshots/01_app_interface_workbench.png)
 
 ### 2. Autonomous Workforce Swarm Map
-Visualizes the live organizational hierarchy, parent-agent delegation trees, channel enrollments, and real-time model routing with instant model reassignment.
+Visualizes the 2-tier organizational hierarchy: Tier 1 Workforce Orchestrator (`@Boss`) leading down through a delegation and tool routing bus to Tier 2 Domain Specialists, paired with a collapsible Antigravity live telemetry and thought inspection drawer.
 
 ![Autonomous Workforce Swarm Map](docs/assets/screenshots/02_swarm_map_topology.png)
 

@@ -46,6 +46,11 @@ KIN is organized into three production workspaces:
 ### 6. Path-Jailed Git Worktrees
 - **Isolated Worktrees**: Branch creation, canonical path-jail validation, unified diff computation, and rollbacks.
 
+### 7. Modernized UI/UX & Swarm Map Hierarchy
+- **2-Tier Workforce Swarm Map**: Visual tree topology clearly separating Tier 1 (Workforce Orchestrator `@Boss`) from Tier 2 (Domain Specialists) with real distribution connectors and collapsible Antigravity execution telemetry drawer.
+- **Calm, High-End Dark Theme**: Harmonized neutral slate palette (`#0d1117`, `#161b22`, `#21262d`) with hairline borders (`rgba(255, 255, 255, 0.08)`) and zero sensory glare.
+- **Redundancy Elimination**: Theme toggle consolidated inside System Settings; side-panel expand/collapse unified into a single canonical toggle.
+
 ---
 
 ## 🧪 Verification & Test Results
@@ -53,7 +58,7 @@ KIN is organized into three production workspaces:
 ### Automated Test Suite
 - **Core Test Suite (`npm test --workspace=core`)**:
   - **32 Test Files**: All 32 passed.
-  - **478 Tests**: All 478 passed (0 failed, 0 skipped).
+  - **478 Tests**: All 478 passed (0 failed, 0 skipped, 100% green).
   - Test suites utilize isolated temporary directories in the system temp directory to prevent any dirty git working tree artifacts.
 
 ### Production Builds
@@ -65,3 +70,5 @@ KIN is organized into three production workspaces:
 - End-to-end model switching tested live via Puppeteer against the running Core Daemon (`http://127.0.0.1:54321`) and Vite dev server (`http://127.0.0.1:5173`).
 - Verified prompt execution with both local Ollama (`gemma4:e2b`, `qwen2.5-coder:3b`) and cloud OpenRouter free models (`liquid/lfm-2.5-2.6b:free`, `google/gemma-4-26b-a4b-it:free`).
 - Verified Quota Guard rate-limit interception and 1-click Ollama failover.
+- Verified live UI screenshots across all 8 workbench views and updated repository documentation assets.
+
