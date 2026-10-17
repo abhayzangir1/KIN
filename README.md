@@ -74,18 +74,27 @@ Application state is stored locally in SQLite and project files use the local fi
 
 ## Documentation
 
-- [Current implementation notes](docs/PROJECT_STATUS.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Core API overview](docs/API.md)
-- [Canonical v10.0 Specifications](specs/v10.0/00-AGENTS-AND-AUDIT.md)
-- [Skills guide](docs/SKILLS_GUIDE.md)
-- [Slash commands](docs/SLASH_COMMANDS.md)
-- [Operations](docs/OPERATIONS.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
-- [Product requirements](docs/PRD.md)
-- [Technical requirements](docs/TRD.md)
-- [Tutorial and example index](docs/TUTORIALS.md)
+### Core Specifications
+- [PRD.md — Product Vision, Personas, UX Architecture & Requirements](docs/PRD.md)
+- [TRD.md — System Architecture, Process Model, Crate Layout, IPC Protocol & NFRs](docs/TRD.md)
+- [DATA-MODEL.md — Authoritative Local Database Architecture & DDL Schemas](docs/DATA-MODEL.md)
+- [API-AND-CONTRACTS.md — Wire Protocol, Envelopes, Engine Commands & Events](docs/API-AND-CONTRACTS.md)
+- [BACKEND-SERVICES.md — Core Subsystems, Orchestration Harness, Memory & Task DAG](docs/BACKEND-SERVICES.md)
+- [FRONTEND-UX.md — 4-Zone Layout, UI/UX Interaction States & Keyboard Shortcuts](docs/FRONTEND-UX.md)
+- [SECURITY.md — Threat Model, Sandboxing, Secrets Vault & Sentinel Ledger](docs/SECURITY.md)
+- [TOOLS-AND-EXTENSIONS.md — 28 Builtin Tools, Browser Control, MCP & Extensions](docs/TOOLS-AND-EXTENSIONS.md)
+- [IMPLEMENTATION-PLAN.md — M0–M8 Milestones & Verification Criteria](docs/IMPLEMENTATION-PLAN.md)
+- [GLOSSARY-AND-DECISIONS.md — Canonical Vocabulary & Architecture Decision Records](docs/GLOSSARY-AND-DECISIONS.md)
+
+### Guides & Reference
+- [Architecture Guide](docs/ARCHITECTURE.md)
+- [Slash Commands Reference](docs/SLASH_COMMANDS.md)
+- [Skills Guide](docs/SKILLS_GUIDE.md)
+- [Core API Overview](docs/API.md)
+- [Operations & Runbooks](docs/OPERATIONS.md)
+- [Troubleshooting Guide](docs/TROUBLESHOOTING.md)
 - [Contributing](docs/CONTRIBUTING.md)
+- [Current Implementation Notes](docs/PROJECT_STATUS.md)
 
 Screenshots in `docs/assets/screenshots/` are interface snapshots. They do not verify the corresponding workflow or current runtime state.
 

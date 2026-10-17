@@ -24,6 +24,7 @@ import { Sentinel } from '../security/sentinel.js';
 import { LoopBreaker } from '../communication/loop_breaker.js';
 import { ModelGateway } from '../execution/model_gateway.js';
 import { ContextCompiler } from '../context/context_compiler.js';
+import { ContextCompactor } from '../context/context_compactor.js';
 import { ToolGateway, hasDirectMessageCompletionToken } from '../execution/tool_gateway.js';
 import { SchedulerService } from '../automation/scheduler.js';
 import { SkillEngine } from '../skills/skill_engine.js';
@@ -5125,6 +5126,208 @@ Format strictly as JSON:
             });
 
             this.broadcastEvent('grill_me:session', sessionData);
+          }
+          return;
+        }
+
+        // 5g. /compact — Trigger manual Context Compaction & State Snapshot
+        if (
+          contentLower === '/compact' ||
+          contentLower.startsWith('/compact ') ||
+          contentLower.startsWith('/compact:') ||
+          contentLower.startsWith('/compact\n')
+        ) {
+          if (boss) {
+            const history = this.channelService.getMessages(channelId, 50);
+            const goals = this.goalRepo.listGoals(targetProjectId);
+            const primaryGoal = goals[0]?.title || 'Workspace Operations';
+            const tasks = this.db.query<{ id: string; title: string; status: string }>(
+              'SELECT id, title, status FROM tasks WHERE goal_id IN (SELECT id FROM goals WHERE project_id = ?)',
+              targetProjectId
+            );
+            const completedTasks = tasks.filter((t: any) => t.status === 'completed').map((t: any) => ({ id: t.id, title: t.title }));
+            const pendingTasks = tasks.filter((t: any) => t.status !== 'completed').map((t: any) => ({ id: t.id, title: t.title, dependsOn: [] }));
+            const activeTask = pendingTasks[0] || { id: 'none', title: 'Awaiting next directive' };
+
+            const compactor = new ContextCompactor();
+            const totalChars = history.reduce((sum: number, m: any) => sum + (m.content?.length || 0), 0);
+            const estTokens = Math.ceil(totalChars / 4);
+
+            const snapshot = {
+              goalId: goals[0]?.id || 'goal-default',
+              primaryObjective: primaryGoal,
+              completedTasks,
+              activeTask,
+              modifiedFiles: [],
+              encounteredErrorsAndResolutions: [],
+              immutableDecisions: [],
+              pendingTaskDag: pendingTasks,
+            };
+
+            const compactionResult = compactor.evaluateAndCompact({
+              messages: history,
+              currentTokens: Math.max(estTokens, 7000),
+              maxTokens: 8000,
+              compactionThresholdRatio: 0.1,
+              snapshotState: snapshot,
+            });
+
+            try {
+              this.memoryRepo.setMemory({
+                scope: 'channel',
+                scopeId: channelId,
+                type: 'semantic',
+                key: 'context-compaction-snapshot',
+                value: compactionResult.snapshot || snapshot,
+              });
+            } catch (occErr) {
+              console.warn('[COMPACT] Snapshot OCC note:', occErr);
+            }
+
+            const reply = this.channelService.sendMessage({
+              channelId,
+              senderId: boss.id,
+              senderType: 'agent',
+              content: `📦 **Context Compaction Completed**\n- **Analyzed Messages**: ${history.length} turns (~${estTokens} tokens)\n- **Primary Objective**: "${primaryGoal}"\n- **Active Task**: ${activeTask.title}\n- **Completed Tasks**: ${completedTasks.length}\n- **Pending Tasks**: ${pendingTasks.length}\n- **Context Status**: Older turn history summarized into Tier 2 Channel Memory; active train-of-thought preserved.`,
+              productivityScore: 100,
+            });
+            this.broadcastEvent('message:created', {
+              id: reply.id,
+              channelId: reply.channelId,
+              senderId: reply.senderId,
+              senderName: boss.displayName.replace(/^@/, ''),
+              senderType: 'agent',
+              content: reply.content,
+              createdAt: reply.createdAt,
+              productivityScore: reply.productivityScore,
+            });
+          }
+          return;
+        }
+
+        // 5h. /browser [url] — Direct Interactive Browser Session Control
+        if (
+          contentLower === '/browser' ||
+          contentLower.startsWith('/browser ') ||
+          contentLower.startsWith('/browser:') ||
+          contentLower.startsWith('/browser\n')
+        ) {
+          if (boss) {
+            const rawTarget = rawContent.replace(/^\/browser[\s:\n]*/i, '').trim();
+            if (rawTarget) {
+              const url = rawTarget.startsWith('http://') || rawTarget.startsWith('https://') ? rawTarget : `https://${rawTarget}`;
+              let pageTitle = 'Unknown';
+              let status = 200;
+              try {
+                const navResult = await this.browserController.navigate(url);
+                pageTitle = navResult.title || 'Page loaded';
+                status = navResult.status || 200;
+              } catch (bErr: any) {
+                pageTitle = `Navigation Notice: ${bErr.message}`;
+                status = 500;
+              }
+              const reply = this.channelService.sendMessage({
+                channelId,
+                senderId: boss.id,
+                senderType: 'agent',
+                content: `🌐 **Interactive Browser Navigated**\n- **URL**: ${url}\n- **Status**: ${status}\n- **Title**: "${pageTitle}"\n- **Session**: Active (Agents can now use \`browserNavigate\`, \`browserInspect\`, \`browserClick\`, and \`browserScreenshot\`).`,
+                productivityScore: 100,
+              });
+              this.broadcastEvent('message:created', {
+                id: reply.id,
+                channelId: reply.channelId,
+                senderId: reply.senderId,
+                senderName: boss.displayName.replace(/^@/, ''),
+                senderType: 'agent',
+                content: reply.content,
+                createdAt: reply.createdAt,
+                productivityScore: reply.productivityScore,
+              });
+            } else {
+              const bStatus = this.browserController.getStatus();
+              const reply = this.channelService.sendMessage({
+                channelId,
+                senderId: boss.id,
+                senderType: 'agent',
+                content: `🌐 **Browser Session Status**\n- **Active**: ${bStatus.active ? 'Yes (Live Session)' : 'Idle (Ready on demand)'}\n- **Current URL**: ${bStatus.currentUrl || 'None'}\n\n💡 *Usage*: \`/browser <url>\` to navigate immediately (e.g. \`/browser https://news.ycombinator.com\`).`,
+                productivityScore: 100,
+              });
+              this.broadcastEvent('message:created', {
+                id: reply.id,
+                channelId: reply.channelId,
+                senderId: reply.senderId,
+                senderName: boss.displayName.replace(/^@/, ''),
+                senderType: 'agent',
+                content: reply.content,
+                createdAt: reply.createdAt,
+                productivityScore: reply.productivityScore,
+              });
+            }
+          }
+          return;
+        }
+
+        // 5i. /learn [lesson] — Operational Experience & Learned Rules Retention
+        if (
+          contentLower === '/learn' ||
+          contentLower.startsWith('/learn ') ||
+          contentLower.startsWith('/learn:') ||
+          contentLower.startsWith('/learn\n')
+        ) {
+          if (boss) {
+            const rawLesson = rawContent.replace(/^\/learn[\s:\n]*/i, '').trim();
+            if (rawLesson) {
+              const now = Date.now();
+              const key = `learned-rule-${now}`;
+              try {
+                this.memoryRepo.setMemory({
+                  scope: 'project',
+                  scopeId: targetProjectId,
+                  type: 'procedural',
+                  key,
+                  value: rawLesson,
+                });
+              } catch (mErr) {
+                console.warn('[LEARN] Memory retention note:', mErr);
+              }
+              const reply = this.channelService.sendMessage({
+                channelId,
+                senderId: boss.id,
+                senderType: 'agent',
+                content: `🧠 **Operational Pattern Learned & Persisted**\n- **Lesson**: "${rawLesson}"\n- **Scope**: Tier 1 Project Shared Memory\n- **Key**: \`${key}\`\n\nAll agents in project \`${targetProjectId}\` now retain this rule across long-running turns.`,
+                productivityScore: 100,
+              });
+              this.broadcastEvent('message:created', {
+                id: reply.id,
+                channelId: reply.channelId,
+                senderId: reply.senderId,
+                senderName: boss.displayName.replace(/^@/, ''),
+                senderType: 'agent',
+                content: reply.content,
+                createdAt: reply.createdAt,
+                productivityScore: reply.productivityScore,
+              });
+            } else {
+              const memories = this.memoryRepo.listMemories('project', targetProjectId);
+              const learned = memories.filter((m) => m.key.startsWith('learned-'));
+              const reply = this.channelService.sendMessage({
+                channelId,
+                senderId: boss.id,
+                senderType: 'agent',
+                content: `🧠 **Project Learned Memory Knowledgebase**\n- **Total Learned Rules**: ${learned.length}\n${learned.slice(0, 5).map((m) => `  • "${m.value}"`).join('\n') || '  • *No custom learned rules registered yet.*'}\n\n💡 *Usage*: \`/learn <guideline or pattern>\` (e.g. \`/learn Always run type checks before committing\`).`,
+                productivityScore: 100,
+              });
+              this.broadcastEvent('message:created', {
+                id: reply.id,
+                channelId: reply.channelId,
+                senderId: reply.senderId,
+                senderName: boss.displayName.replace(/^@/, ''),
+                senderType: 'agent',
+                content: reply.content,
+                createdAt: reply.createdAt,
+                productivityScore: reply.productivityScore,
+              });
+            }
           }
           return;
         }

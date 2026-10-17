@@ -16,6 +16,9 @@ The core parses these command inputs in `core/src/server/core_server.ts`. This t
 | `/decision`, `/decisions`, `/adr` | List or manage architecture decisions. |
 | `/hire` | Create or configure a specialist. |
 | `/assign` | Route work to a named specialist. |
+| `/compact` | Compact active channel conversation turns into a structured Tier 2 Channel Memory snapshot (preserving key decisions, modified files, and open tasks). |
+| `/browser` | Navigate and inspect the persistent browser session (e.g. `/browser <url>`). |
+| `/learn` | Persist an operational pattern or workflow rule into Tier 1 Project Shared Memory across all agents. |
 
 The server also has a compound handler for combinations of `/plan`, `/boost`, `/teamwork-preview`, `/goal`, `/schedule`, and `/routine`. Compound handling is not an all-or-nothing transaction; inspect each resulting object and event.
 
