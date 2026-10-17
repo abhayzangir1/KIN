@@ -596,94 +596,100 @@ export const CenterView: React.FC = () => {
         )}
       </div>
 
-      {/* Operator Inspection Mode Banner for Coworker DMs */}
-      {isAgentToAgentDm && (
-        <div className="mx-4 mt-2 px-3.5 py-2 rounded-xl bg-indigo-950/70 border border-indigo-500/50 text-indigo-200 text-xs flex items-center justify-between shadow-lg animate-fadeIn">
-          <div className="flex items-center space-x-2">
-            <Shield className="w-4 h-4 text-indigo-400 shrink-0" />
-            <span>
-              <strong>Operator Inspection Mode:</strong> Live confidential coworker direct message. Non-member agents cannot access this transcript.
-            </span>
-          </div>
-          <span className="font-mono text-[10px] uppercase bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/30">
-            Read-Only Audit Visibility
-          </span>
-        </div>
-      )}
-
-      {/* System Health Diagnostics Warning Banner */}
-      {systemHealth && systemHealth.status !== 'healthy' && !dismissHealthBanner && (
-        <div className="mx-4 mt-2 px-3.5 py-2 rounded-xl bg-amber-950/70 border border-amber-500/50 text-amber-200 text-xs flex items-center justify-between shadow-lg animate-fadeIn">
-          <div className="flex items-center space-x-2">
-            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-            <span>
-              <strong>System Diagnostics:</strong> Health status is <span className="font-mono uppercase font-bold text-amber-300">{systemHealth.status}</span>.
-              {systemHealth.activeAlerts && systemHealth.activeAlerts.length > 0 && ` Active Alerts: [${systemHealth.activeAlerts.join(', ')}]`}
-            </span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setActiveMainView('automations')}
-              className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-mono text-[10px] border border-amber-500/30 cursor-pointer"
-            >
-              Governor Telemetry
-            </button>
-            <button
-              onClick={() => setDismissHealthBanner(true)}
-              className="text-amber-400 hover:text-amber-200 p-0.5 cursor-pointer"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Dynamic Agent Routing Observability Banner */}
-      {latestRoutingByChannel[activeChannelId] && !dismissedRoutingChannels[activeChannelId] && (
-        <div className="mx-4 mt-2 px-3 py-1.5 rounded-lg bg-[#0e1628] border border-cyan-800/40 text-[11px] text-cyan-300 flex items-center justify-between shadow-sm">
-          <div className="flex items-center space-x-2 truncate">
-            <Compass className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-            <span className="font-semibold text-white">Agent Routing:</span>
-            <span className="truncate">
-              {latestRoutingByChannel[activeChannelId].routing.reason}
-              {latestRoutingByChannel[activeChannelId].routing.matchReason && (
-                <span className="ml-1.5 px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 font-mono text-[10px] border border-cyan-700/50">
-                  {latestRoutingByChannel[activeChannelId].routing.matchReason}
+      {/* Notifications and Diagnostics Banners */}
+      {(isAgentToAgentDm || (systemHealth && systemHealth.status !== 'healthy' && !dismissHealthBanner) || (latestRoutingByChannel[activeChannelId] && !dismissedRoutingChannels[activeChannelId])) && (
+        <div className="w-full max-w-4xl mx-auto px-6 space-y-2 mt-2">
+          {/* Operator Inspection Mode Banner for Coworker DMs */}
+          {isAgentToAgentDm && (
+            <div className="px-3.5 py-2 rounded-xl bg-indigo-950/70 border border-indigo-500/50 text-indigo-200 text-xs flex items-center justify-between shadow-lg animate-fadeIn">
+              <div className="flex items-center space-x-2">
+                <Shield className="w-4 h-4 text-indigo-400 shrink-0" />
+                <span>
+                  <strong>Operator Inspection Mode:</strong> Live confidential coworker direct message. Non-member agents cannot access this transcript.
                 </span>
-              )}
-            </span>
-            {latestRoutingByChannel[activeChannelId].routing.matchedKeywords &&
-              latestRoutingByChannel[activeChannelId].routing.matchedKeywords.length > 0 && (
-                <div className="flex items-center space-x-1 shrink-0 ml-1.5">
-                  {latestRoutingByChannel[activeChannelId].routing.matchedKeywords.map((kw, idx) => (
-                    <span
-                      key={idx}
-                      className="px-1.5 py-0.5 rounded bg-cyan-900/60 text-cyan-200 font-mono text-[9px] border border-cyan-600/40"
-                      title={`Matched keyword: ${kw}`}
-                    >
-                      #{kw}
+              </div>
+              <span className="font-mono text-[10px] uppercase bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/30">
+                Read-Only Audit Visibility
+              </span>
+            </div>
+          )}
+
+          {/* System Health Diagnostics Warning Banner */}
+          {systemHealth && systemHealth.status !== 'healthy' && !dismissHealthBanner && (
+            <div className="px-3.5 py-2 rounded-xl bg-amber-950/70 border border-amber-500/50 text-amber-200 text-xs flex items-center justify-between shadow-lg animate-fadeIn">
+              <div className="flex items-center space-x-2">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>
+                  <strong>System Diagnostics:</strong> Health status is <span className="font-mono uppercase font-bold text-amber-300">{systemHealth.status}</span>.
+                  {systemHealth.activeAlerts && systemHealth.activeAlerts.length > 0 && ` Active Alerts: [${systemHealth.activeAlerts.join(', ')}]`}
+                </span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setActiveMainView('automations')}
+                  className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-mono text-[10px] border border-amber-500/30 cursor-pointer"
+                >
+                  Governor Telemetry
+                </button>
+                <button
+                  onClick={() => setDismissHealthBanner(true)}
+                  className="text-amber-400 hover:text-amber-200 p-0.5 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Dynamic Agent Routing Observability Banner */}
+          {latestRoutingByChannel[activeChannelId] && !dismissedRoutingChannels[activeChannelId] && (
+            <div className="px-3 py-1.5 rounded-lg bg-[#0e1628] border border-cyan-800/40 text-[11px] text-cyan-300 flex items-center justify-between shadow-sm">
+              <div className="flex items-center space-x-2 truncate">
+                <Compass className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                <span className="font-semibold text-white">Agent Routing:</span>
+                <span className="truncate">
+                  {latestRoutingByChannel[activeChannelId].routing.reason}
+                  {latestRoutingByChannel[activeChannelId].routing.matchReason && (
+                    <span className="ml-1.5 px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 font-mono text-[10px] border border-cyan-700/50">
+                      {latestRoutingByChannel[activeChannelId].routing.matchReason}
                     </span>
-                  ))}
-                </div>
-              )}
-          </div>
-          <div className="flex items-center space-x-2 shrink-0 ml-2">
-            <span className="text-[#64748b] text-[10px] font-mono">
-              {latestRoutingByChannel[activeChannelId].routing.action}
-            </span>
-            <button
-              onClick={() => setDismissedRoutingChannels((prev) => ({ ...prev, [activeChannelId]: true }))}
-              className="text-[#64748b] hover:text-white p-0.5 cursor-pointer"
-              title="Dismiss routing info"
-            >
-              ✕
-            </button>
-          </div>
+                  )}
+                </span>
+                {latestRoutingByChannel[activeChannelId].routing.matchedKeywords &&
+                  latestRoutingByChannel[activeChannelId].routing.matchedKeywords.length > 0 && (
+                    <div className="flex items-center space-x-1 shrink-0 ml-1.5">
+                      {latestRoutingByChannel[activeChannelId].routing.matchedKeywords.map((kw, idx) => (
+                        <span
+                          key={idx}
+                          className="px-1.5 py-0.5 rounded bg-cyan-900/60 text-cyan-200 font-mono text-[9px] border border-cyan-600/40"
+                          title={`Matched keyword: ${kw}`}
+                        >
+                          #{kw}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+              </div>
+              <div className="flex items-center space-x-2 shrink-0 ml-2">
+                <span className="text-[#64748b] text-[10px] font-mono">
+                  {latestRoutingByChannel[activeChannelId].routing.action}
+                </span>
+                <button
+                  onClick={() => setDismissedRoutingChannels((prev) => ({ ...prev, [activeChannelId]: true }))}
+                  className="text-[#64748b] hover:text-white p-0.5 cursor-pointer"
+                  title="Dismiss routing info"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* Main Conversation Stream */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 font-sans text-xs">
+      <div className="flex-1 overflow-y-auto font-sans text-xs">
+        <div className="max-w-4xl mx-auto px-6 py-5 space-y-4">
         {channelMessages.map((msg) => {
           const isHuman = msg.senderType === 'human';
           const agent = agents.find((a) => a.id === msg.senderId);
@@ -900,10 +906,12 @@ export const CenterView: React.FC = () => {
         )}
 
         <div ref={messagesEndRef} />
+        </div>
       </div>
 
       {/* Bottom Message Input Box & Security Approvals */}
-      <div className="p-3 border-t border-kin-border bg-kin-surface space-y-2.5 relative">
+      <div className="border-t border-kin-border bg-kin-surface relative">
+        <div className="max-w-4xl mx-auto p-3.5 sm:px-6 space-y-2.5">
 
         {/* Antigravity In-App Scheduler & Timers Bar */}
         {activeSchedules.length > 0 && (
@@ -1662,7 +1670,8 @@ export const CenterView: React.FC = () => {
           </div>
         </div>
       </form>
-    </div>
+        </div>
+      </div>
   </main>
 );
 };

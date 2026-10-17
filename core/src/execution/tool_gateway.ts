@@ -282,6 +282,64 @@ export class ToolGateway {
     this.skillEngine = skillEngine;
   }
 
+  public resolveChannelId(rawChannel: string, projectId: string = 'proj-kin', channelTopic?: string): { id: string; name: string } {
+    const raw = String(rawChannel || '').trim();
+    if (!raw) return { id: 'chan-general', name: 'general' };
+    const clean = raw.replace(/^#/, '').trim();
+
+    if (this.db) {
+      // 1. Check exact id match
+      const exactRow = this.db.queryOne<{ id: string; name: string }>(
+        'SELECT id, name FROM channels WHERE id = ?',
+        raw
+      );
+      if (exactRow) return exactRow;
+
+      // 2. Check id or name match within project or global
+      const row = this.db.queryOne<{ id: string; name: string }>(
+        'SELECT id, name FROM channels WHERE (id = ? OR id = ? OR name = ? COLLATE NOCASE OR name = ? COLLATE NOCASE OR id = ?) AND (project_id = ? OR project_id IS NULL) LIMIT 1',
+        raw,
+        clean,
+        clean,
+        `#${clean}`,
+        `chan-${clean}`,
+        projectId
+      );
+      if (row) return row;
+
+      // 3. Fallback without project_id
+      const fallbackRow = this.db.queryOne<{ id: string; name: string }>(
+        'SELECT id, name FROM channels WHERE (id = ? OR id = ? OR name = ? COLLATE NOCASE OR name = ? COLLATE NOCASE OR id = ?) LIMIT 1',
+        raw,
+        clean,
+        clean,
+        `#${clean}`,
+        `chan-${clean}`
+      );
+      if (fallbackRow) return fallbackRow;
+
+      // 4. Channel does not exist: dynamically create it so foreign key constraint always succeeds
+      const newChanId = clean.startsWith('chan-') ? clean : `chan-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+      const now = Date.now();
+      try {
+        this.db.execute(
+          `INSERT OR IGNORE INTO channels (id, project_id, name, topic, is_private, channel_type, created_at)
+           VALUES (?, ?, ?, ?, 0, 'channel', ?)`,
+          newChanId,
+          projectId,
+          clean,
+          channelTopic || `Workforce channel for #${clean}`,
+          now
+        );
+      } catch (err) {
+        console.warn('[TOOL GATEWAY] Dynamic channel creation error:', err);
+      }
+      return { id: newChanId, name: clean };
+    }
+
+    return { id: clean.startsWith('chan-') ? clean : `chan-${clean}`, name: clean };
+  }
+
   public getSkillEngine(): SkillEngine | undefined {
     return this.skillEngine;
   }
@@ -2018,11 +2076,14 @@ export class ToolGateway {
             );
           }
           const targetProjectId = context.projectId || 'proj-kin';
-          const channelId = params.channelId || context.channelId || 'chan-general';
+          const rawTargetChan = params.channelId || context.channelId || 'chan-general';
+          const { id: channelId } = this.resolveChannelId(rawTargetChan, targetProjectId);
           let coworker: AgentIdentity | undefined;
           if (this.agentRepo) {
             coworker = this.agentRepo.getIdentityByProjectAndName(targetProjectId, String(target))
-              || this.agentRepo.getIdentity(String(target));
+              || this.agentRepo.getIdentityByProjectAndName(targetProjectId, String(target).replace(/^@/, ''))
+              || this.agentRepo.getIdentity(String(target))
+              || this.agentRepo.getIdentity(String(target).replace(/^@/, ''));
           }
           if (this.db && coworker) {
             this.db.execute(
@@ -2117,7 +2178,8 @@ export class ToolGateway {
           const cleanName = String(rawName).trim().replace(/\s+/g, '');
           const normalizedName = cleanName.startsWith('@') ? cleanName : `@${cleanName}`;
           const projectId = context.projectId || 'proj-kin';
-          const channelId = context.channelId || 'chan-general';
+          const rawChan = context.channelId || 'chan-general';
+          const { id: channelId } = this.resolveChannelId(rawChan, projectId);
           const now = Date.now();
           let callerModelId: string | undefined;
           if (context.agentId) {
@@ -2797,28 +2859,44 @@ export class ToolGateway {
         case 'assign_coworker':
         case 'inviteToChannel': {
           const rawCoworker = params.coworker || params.agentName || params.agentId;
-          const targetChannelId = params.channelId || context.channelId;
+          const targetChannelParam = params.channelId || params.channel || params.targetChannel || context.channelId;
           if (!rawCoworker) {
             throw new Error("assignCoworker requires 'coworker' parameter");
           }
-          if (!targetChannelId) {
+          if (!targetChannelParam) {
             throw new Error("assignCoworker requires 'channelId' parameter");
           }
           const targetProjectId = context.projectId || 'proj-kin';
+          const cleanCoworkerName = String(rawCoworker).trim();
           let coworker: AgentIdentity | undefined;
           if (this.agentRepo) {
-            coworker = this.agentRepo.getIdentityByProjectAndName(targetProjectId, String(rawCoworker))
-              || this.agentRepo.getIdentity(String(rawCoworker));
+            coworker = this.agentRepo.getIdentityByProjectAndName(targetProjectId, cleanCoworkerName)
+              || this.agentRepo.getIdentityByProjectAndName(targetProjectId, cleanCoworkerName.replace(/^@/, ''))
+              || this.agentRepo.getIdentity(cleanCoworkerName)
+              || this.agentRepo.getIdentity(cleanCoworkerName.replace(/^@/, ''));
           }
-          if (!coworker || coworker.projectId !== targetProjectId) {
+          if (!coworker && this.db) {
+            const raw = cleanCoworkerName.replace(/^@/, '');
+            const row = this.db.queryOne<{ id: string }>(
+              `SELECT id FROM agent_identities WHERE (id = ? OR display_name = ? COLLATE NOCASE OR display_name = ? COLLATE NOCASE) LIMIT 1`,
+              cleanCoworkerName,
+              cleanCoworkerName,
+              `@${raw}`
+            );
+            if (row && this.agentRepo) {
+              coworker = this.agentRepo.getIdentity(row.id);
+            }
+          }
+          if (!coworker || (coworker.projectId && coworker.projectId !== targetProjectId)) {
             throw new Error(`Coworker '${rawCoworker}' not found in project '${targetProjectId}'. Agents cannot cross project boundaries.`);
           }
 
+          const { id: finalChannelId, name: finalChannelName } = this.resolveChannelId(targetChannelParam, targetProjectId);
           const now = Date.now();
           if (this.db) {
             this.db.execute(
               `INSERT OR IGNORE INTO channel_members (channel_id, agent_id, joined_at) VALUES (?, ?, ?)`,
-              targetChannelId,
+              finalChannelId,
               coworker.id,
               now
             );
@@ -2826,7 +2904,7 @@ export class ToolGateway {
 
           if (this.assignCoworkerCallback) {
             try {
-              this.assignCoworkerCallback(coworker, targetChannelId);
+              this.assignCoworkerCallback(coworker, finalChannelId);
             } catch (cbErr) {
               console.warn('[TOOL GATEWAY] assignCoworkerCallback error:', cbErr);
             }
@@ -2838,8 +2916,9 @@ export class ToolGateway {
               assigned: true,
               agentId: coworker.id,
               displayName: coworker.displayName,
-              channelId: targetChannelId,
-              message: `Assigned coworker ${coworker.displayName} to channel #${targetChannelId}.`,
+              channelId: finalChannelId,
+              channelName: finalChannelName,
+              message: `Assigned coworker ${coworker.displayName} to channel #${finalChannelName}.`,
             } as T,
             riskLevel: risk,
           };

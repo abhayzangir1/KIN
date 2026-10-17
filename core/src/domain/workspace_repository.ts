@@ -142,7 +142,7 @@ export class WorkspaceRepository {
   }
 
   public getChannel(id: string): Channel | undefined {
-    const row = this.db.queryOne<{
+    let row = this.db.queryOne<{
       id: string;
       project_id: string;
       name: string;
@@ -151,6 +151,25 @@ export class WorkspaceRepository {
       channel_type?: string | null;
       created_at: number;
     }>('SELECT * FROM channels WHERE id = ?', id);
+
+    if (!row) {
+      const cleanName = id.replace(/^#/, '').trim();
+      row = this.db.queryOne<{
+        id: string;
+        project_id: string;
+        name: string;
+        topic: string | null;
+        is_private: number;
+        channel_type?: string | null;
+        created_at: number;
+      }>(
+        'SELECT * FROM channels WHERE (name = ? COLLATE NOCASE OR name = ? COLLATE NOCASE OR id = ? OR id = ?) LIMIT 1',
+        cleanName,
+        `#${cleanName}`,
+        cleanName,
+        `chan-${cleanName}`
+      );
+    }
 
     if (!row) return undefined;
 
@@ -221,10 +240,25 @@ export class WorkspaceRepository {
   }
 
   public addChannelMember(channelId: string, agentId: string): void {
+    let targetId = channelId;
+    const exists = this.db.queryOne<{ id: string }>('SELECT id FROM channels WHERE id = ?', channelId);
+    if (!exists) {
+      const cleanName = channelId.replace(/^#/, '').trim();
+      const byName = this.db.queryOne<{ id: string }>(
+        'SELECT id FROM channels WHERE (name = ? COLLATE NOCASE OR name = ? COLLATE NOCASE OR id = ? OR id = ?) LIMIT 1',
+        cleanName,
+        `#${cleanName}`,
+        cleanName,
+        `chan-${cleanName}`
+      );
+      if (byName) {
+        targetId = byName.id;
+      }
+    }
     this.db.execute(
       `INSERT OR IGNORE INTO channel_members (channel_id, agent_id, joined_at)
        VALUES (?, ?, ?)`,
-      channelId,
+      targetId,
       agentId,
       Date.now()
     );

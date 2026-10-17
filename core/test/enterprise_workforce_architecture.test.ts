@@ -572,6 +572,29 @@ describe('KIN Enterprise Multi-Agent Workforce Architecture', () => {
       expect(workspaceRepo.listChannelMemberIds('chan-infra')).toContain('agent-arch');
       expect(assignedCoworker).toBeDefined();
       expect(assignedCoworker.coworker.id).toBe('agent-arch');
+
+      // Test 1b: Assigning coworker using channel name prefixed with # (resolving channel name)
+      const resNameWithHash = await gateway.executeTool<any>(
+        'assignCoworker',
+        { coworker: 'Architect', channelId: '#infra-team' },
+        { agentId: boss.id, projectId: 'proj-org', channelId: 'chan-infra', allowedCapabilities: ['*'] }
+      );
+      expect(resNameWithHash.success).toBe(true);
+      expect(resNameWithHash.output?.assigned).toBe(true);
+      expect(resNameWithHash.output?.channelId).toBe('chan-infra');
+
+      // Test 1c: Assigning coworker to a brand-new dynamic channel '#workforce-test' (auto-creates channel without SQLite FK error)
+      const resDynamicChannel = await gateway.executeTool<any>(
+        'assignCoworker',
+        { coworker: '@Architect', channelId: '#workforce-test' },
+        { agentId: boss.id, projectId: 'proj-org', channelId: 'chan-infra', allowedCapabilities: ['*'] }
+      );
+      expect(resDynamicChannel.success).toBe(true);
+      expect(resDynamicChannel.output?.assigned).toBe(true);
+      expect(resDynamicChannel.output?.channelName).toBe('workforce-test');
+      const createdChan = workspaceRepo.getChannel('workforce-test');
+      expect(createdChan).toBeDefined();
+      expect(workspaceRepo.listChannelMemberIds(createdChan!.id)).toContain('agent-arch');
     });
 
     it('allows Boss to convene a meeting with agenda and invited participants', async () => {

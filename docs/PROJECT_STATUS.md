@@ -58,7 +58,7 @@ KIN is organized into three production workspaces:
 ### Automated Test Suite
 - **Core Test Suite (`npm test --workspace=core`)**:
   - **32 Test Files**: All 32 passed.
-  - **478 Tests**: All 478 passed (0 failed, 0 skipped, 100% green).
+  - **478 Tests**: All 478 passed (0 failed, 0 skipped, all green).
   - Test suites utilize isolated temporary directories in the system temp directory to prevent any dirty git working tree artifacts.
 
 ### Production Builds
