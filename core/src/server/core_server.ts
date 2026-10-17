@@ -6225,7 +6225,8 @@ Format strictly as JSON:
           title: string;
           description?: string;
           assignedAgentId?: string;
-          status?: TaskStatus;
+          status?: TaskStatus | 'pending';
+          dependsOnTaskIds?: string[];
           verificationSpec?: any;
         }>(req);
 
@@ -6235,21 +6236,31 @@ Format strictly as JSON:
 
         const id = `task-${Date.now()}`;
         const now = Date.now();
+        const hasDependencies = Array.isArray(body.dependsOnTaskIds) && body.dependsOnTaskIds.length > 0;
+        let initialStatus: TaskStatus = 'ready';
+        if (body.status === 'pending') {
+          initialStatus = 'backlog';
+        } else if (body.status) {
+          initialStatus = body.status as TaskStatus;
+        } else if (hasDependencies) {
+          initialStatus = 'backlog';
+        }
+
         const task: Task = {
           id,
           goalId,
           title: body.title.trim(),
           description: body.description?.trim() || '',
           assignedAgentId: body.assignedAgentId || undefined,
-          status: body.status || 'ready',
+          status: initialStatus,
           verificationSpec: body.verificationSpec || {},
           createdAt: now,
           updatedAt: now,
         };
 
-        this.taskRepo.createTask(task);
+        this.taskRepo.createTask(task, body.dependsOnTaskIds || []);
         this.broadcastEvent('task:created', task);
-        return this.sendJson(res, 201, { task });
+        return this.sendJson(res, 201, { task, dependsOnTaskIds: body.dependsOnTaskIds || [] });
       }
 
       // 18. PATCH /api/tasks/:taskId/status — Update task status
