@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useKinStore, isAgentAvailable, AvailableModelItem } from '../store/kinStore.js';
 import {
   Terminal,
   ShieldCheck,
@@ -40,7 +40,12 @@ import {
   Target,
   Award,
   PanelRightClose,
+  Eye,
+  Wrench,
+  Brain,
+  SlidersHorizontal,
 } from 'lucide-react';
+import { ProviderIcon, formatContextWindow } from './ModelSelectorModal.js';
 
 export const AgentInspector: React.FC = () => {
   const {
@@ -89,9 +94,9 @@ export const AgentInspector: React.FC = () => {
     fetchEvaluations,
     runAgentEvaluation,
     availableModels,
-    isLoadingModels,
-    discoverModels,
     addCustomModel,
+    openModelSelector,
+    updateAgentModel,
   } = useKinStore();
 
   const currentAgent = agents.find((a) => a.id === selectedAgentId) || agents[0];
@@ -104,23 +109,44 @@ export const AgentInspector: React.FC = () => {
   );
   const [isSaved, setIsSaved] = useState(false);
 
-  // Dynamic models & discovery state
+  // Dynamic models & assignment state
   const [customModelInput, setCustomModelInput] = useState('');
-  const [isDiscovering, setIsDiscovering] = useState(false);
-  const [discoveryProvider, setDiscoveryProvider] = useState('openrouter');
-  const [discoveryFeedback, setDiscoveryFeedback] = useState<string | null>(null);
-  const [inspectorModelTierFilter, setInspectorModelTierFilter] = useState<'all' | 'free' | 'paid'>('all');
-
-  const inspectorFilteredModels = availableModels.filter((m) => {
-    const isFree = Boolean(m.isFree || m.provider === 'ollama' || m.id.endsWith(':free'));
-    if (inspectorModelTierFilter === 'free') return isFree;
-    if (inspectorModelTierFilter === 'paid') return !isFree;
-    return true;
-  });
 
   const isCurrentAgentModelReady = currentAgent
     ? isAgentAvailable({ ...currentAgent, activeModelId }, ollamaStatus, credentials, availableModels)
     : false;
+
+  const activeModelItem = useMemo(() => {
+    const found = availableModels.find((m) => m.id === activeModelId);
+    if (found) return found;
+    return {
+      id: activeModelId,
+      name: activeModelId.split('/').pop() || activeModelId,
+      provider: activeModelId.includes('/') ? activeModelId.split('/')[0] : 'custom',
+      contextWindow: 128000,
+      supportsTools: true,
+      supportsVision: false,
+      supportsReasoning: false,
+    };
+  }, [availableModels, activeModelId]);
+
+  const quickModels = useMemo(() => {
+    const list: typeof availableModels = [];
+    const seen = new Set<string>();
+    if (activeModelItem && activeModelItem.id) {
+      list.push(activeModelItem);
+      seen.add(activeModelItem.id);
+    }
+    for (const m of availableModels) {
+      if (seen.has(m.id)) continue;
+      if (m.configured !== false || m.isInstalled || m.isFree) {
+        list.push(m);
+        seen.add(m.id);
+        if (list.length >= 8) break;
+      }
+    }
+    return list;
+  }, [availableModels, activeModelItem]);
 
 
   // Terminal state
@@ -1224,14 +1250,29 @@ export const AgentInspector: React.FC = () => {
                       <Copy className="w-3.5 h-3.5" />
                     </button>
 
-                    <a
-                      href={`/api/projects/${upl.projectId}/uploads/${upl.id}/download`}
-                      download={upl.originalName}
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(`/api/projects/${upl.projectId}/uploads/${upl.id}/download`);
+                          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                          const blob = await res.blob();
+                          const blobUrl = window.URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = blobUrl;
+                          a.download = upl.originalName;
+                          document.body.appendChild(a);
+                          a.click();
+                          window.URL.revokeObjectURL(blobUrl);
+                          a.remove();
+                        } catch (e: any) {
+                          alert(`Download failed: ${e.message}`);
+                        }
+                      }}
                       className="p-1 rounded bg-[#1e293b] hover:bg-[#253248] text-[#94a3b8] hover:text-emerald-400 transition"
                       title="Download file"
                     >
                       <Download className="w-3.5 h-3.5" />
-                    </a>
+                    </button>
 
                     <button
                       onClick={async () => {
@@ -1454,12 +1495,12 @@ export const AgentInspector: React.FC = () => {
                   />
                 </div>
 
-                {/* Dynamic LLM Model Selector with Live Discovery & Manual Assignment */}
-                <div className="space-y-2">
+                {/* Dynamic LLM Model Selector with Rich Card & Inline Quick Switch */}
+                <div className="space-y-2.5">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-1.5">
                       <label className="text-[10px] font-medium text-[#64748b] uppercase tracking-wider">
-                        Assigned Model (Tier 1)
+                        Active Model
                       </label>
                       {isSaved && (
                         <span className="text-[10px] text-emerald-400 font-mono flex items-center space-x-0.5 animate-fadeIn">
@@ -1468,152 +1509,162 @@ export const AgentInspector: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center space-x-1.5">
-                      <div className="flex items-center space-x-1 p-0.5 bg-[#0a0f1d] rounded border border-[#1e293b] text-[9px]">
-                        <button
-                          type="button"
-                          onClick={() => setInspectorModelTierFilter('all')}
-                          className={`px-1.5 py-0.5 rounded transition ${
-                            inspectorModelTierFilter === 'all' ? 'bg-blue-600 text-white font-medium' : 'text-[#64748b] hover:text-[#94a3b8]'
-                          }`}
-                        >
-                          All
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setInspectorModelTierFilter('free')}
-                          className={`px-1.5 py-0.5 rounded transition ${
-                            inspectorModelTierFilter === 'free' ? 'bg-emerald-600 text-white font-medium' : 'text-[#64748b] hover:text-[#94a3b8]'
-                          }`}
-                        >
-                          Free Tier
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setInspectorModelTierFilter('paid')}
-                          className={`px-1.5 py-0.5 rounded transition ${
-                            inspectorModelTierFilter === 'paid' ? 'bg-purple-600 text-white font-medium' : 'text-[#64748b] hover:text-[#94a3b8]'
-                          }`}
-                        >
-                          Paid
-                        </button>
+
+                    <span
+                      className={`text-[9px] font-mono px-2 py-0.5 rounded border flex items-center space-x-1 ${
+                        isCurrentAgentModelReady
+                          ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                          : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                      }`}
+                      title={isCurrentAgentModelReady ? 'Model engine and credentials are ready' : 'Model is offline or missing API key'}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${isCurrentAgentModelReady ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
+                      <span>{isCurrentAgentModelReady ? 'READY' : 'KEY / OFFLINE'}</span>
+                    </span>
+                  </div>
+
+                  {/* Rich Active Model Card */}
+                  <div className="p-3 rounded-lg bg-[#080d1a] border border-[#1e293b] hover:border-blue-500/40 transition flex flex-col space-y-2.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center space-x-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-lg bg-[#0e1726] border border-[#23314d] flex items-center justify-center shrink-0">
+                          <ProviderIcon provider={activeModelItem.provider || activeModelId} className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-semibold text-white text-xs truncate" title={activeModelItem.name || activeModelId}>
+                            {activeModelItem.name || activeModelId.split('/').pop() || activeModelId}
+                          </div>
+                          <div className="text-[10px] font-mono text-[#64748b] truncate" title={activeModelId}>
+                            {activeModelId}
+                          </div>
+                        </div>
                       </div>
-                      <span
-                        className={`text-[9px] font-mono px-1.5 py-0.5 rounded border flex items-center space-x-1 ${
-                          isCurrentAgentModelReady
-                            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                            : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
-                        }`}
-                        title={isCurrentAgentModelReady ? 'Model engine and credentials are ready' : 'Model is offline or missing API key in Settings'}
+
+                      <button
+                        type="button"
+                        onClick={() => openModelSelector(currentAgent?.id)}
+                        className="flex items-center space-x-1 px-2.5 py-1 rounded bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 border border-blue-500/30 text-[11px] font-medium transition cursor-pointer shrink-0"
+                        title="Open full Model Selector & Provider Manager"
                       >
-                        <span className={`w-1.5 h-1.5 rounded-full ${isCurrentAgentModelReady ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
-                        <span>{isCurrentAgentModelReady ? 'READY' : 'OFFLINE / KEY NEEDED'}</span>
+                        <SlidersHorizontal className="w-3 h-3 text-blue-400" />
+                        <span>Change</span>
+                      </button>
+                    </div>
+
+                    {/* Metadata & Capabilities Badges */}
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-[#131d30] text-[10px] font-mono">
+                      <span className="px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-300 border border-slate-700/60" title="Context Window Size">
+                        {formatContextWindow(activeModelItem.contextWindow)} ctx
                       </span>
+                      {activeModelItem.supportsTools && (
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center space-x-1" title="Supports Tool Calling">
+                          <Wrench className="w-2.5 h-2.5" />
+                          <span>Tools</span>
+                        </span>
+                      )}
+                      {activeModelItem.supportsVision && (
+                        <span className="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20 flex items-center space-x-1" title="Supports Multimodal Vision">
+                          <Eye className="w-2.5 h-2.5" />
+                          <span>Vision</span>
+                        </span>
+                      )}
+                      {activeModelItem.supportsReasoning && (
+                        <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center space-x-1" title="Supports Extended Reasoning / Thinking">
+                          <Brain className="w-2.5 h-2.5" />
+                          <span>Reasoning</span>
+                        </span>
+                      )}
                     </div>
                   </div>
 
-                  <select
-                    value={activeModelId}
-                    onChange={async (e) => {
-                      const newModelId = e.target.value;
-                      setActiveModelId(newModelId);
-                      if (currentAgent) {
-                        await updateAgentContract(currentAgent.id, roleTitle, newModelId, customInstructions);
-                        setIsSaved(true);
-                        setTimeout(() => setIsSaved(false), 2000);
-                      }
-                    }}
-                    className="w-full bg-[#0a0f1d] border border-[#1e293b] rounded px-2.5 py-1.5 text-kin-text text-xs focus:outline-none focus:border-emerald-500 font-mono cursor-pointer"
-                  >
-                    {/* 1. Local Ollama Models */}
-                    {inspectorFilteredModels.filter((m) => m.provider === 'ollama').length > 0 && (
-                      <optgroup label="Local Ollama Models">
-                        {inspectorFilteredModels
-                          .filter((m) => m.provider === 'ollama')
-                          .map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.name || m.id} (Local)
-                            </option>
-                          ))}
-                      </optgroup>
-                    )}
-
-                    {/* 2. Discovered External Providers */}
-                    {['anthropic', 'openai', 'gemini', 'deepseek', 'groq', 'openrouter'].map((prov) => {
-                      const provModels = inspectorFilteredModels.filter((m) => m.provider === prov && m.configured !== false);
-                      if (provModels.length === 0) return null;
-                      const provLabel =
-                        prov === 'anthropic' ? 'Anthropic Cloud Models' :
-                        prov === 'openai' ? 'OpenAI Cloud Models' :
-                        prov === 'gemini' ? 'Google Gemini Models' :
-                        prov === 'deepseek' ? 'DeepSeek Models' :
-                        prov === 'groq' ? 'Groq LPU Models' :
-                        prov === 'openrouter' ? 'OpenRouter Catalog' : `${prov.toUpperCase()} Models`;
-
-                      return (
-                        <optgroup key={prov} label={provLabel}>
-                          {provModels.map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.name || m.id} {m.isFree ? '(Provider lists as free)' : ''}
-                            </option>
-                          ))}
-                        </optgroup>
-                      );
-                    })}
-
-                    {/* 3. Custom Registered Models */}
-                    {inspectorFilteredModels.filter((m) => (m.provider === 'custom' || m.isCustom) && m.configured !== false).length > 0 && (
-                      <optgroup label="Custom User Models">
-                        {inspectorFilteredModels
-                          .filter((m) => (m.provider === 'custom' || m.isCustom) && m.configured !== false)
-                          .map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.name || m.id} (Custom)
-                            </option>
-                          ))}
-                      </optgroup>
-                    )}
-
-                    {/* 4. Active Model Fallback if not listed */}
-                    {activeModelId &&
-                      activeModelId !== 'inherit' &&
-                      !inspectorFilteredModels.some((m) => m.id === activeModelId) && (
-                        <optgroup label="Active Selected Model">
-                          <option value={activeModelId}>{activeModelId} (Active)</option>
-                        </optgroup>
-                      )}
-
-                    {/* 5. Fallback if no models available */}
-                    {inspectorFilteredModels.length === 0 && !activeModelId && (
-                      <option value="" disabled>
-                        No models match the filter (Configure Ollama or BYOK in Settings)
-                      </option>
-                    )}
-
-                    <option value="inherit">inherit (Project Default)</option>
-                  </select>
-
                   {!isCurrentAgentModelReady && (
-                    <div className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px]">
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
-                      <span>
-                        This model is currently offline or requires an API key. Configure it in <strong>Settings → BYOK &amp; Credentials</strong> or start Ollama.
-                      </span>
+                    <div className="flex items-center justify-between px-2.5 py-1.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px]">
+                      <div className="flex items-center space-x-1.5 truncate mr-2">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                        <span className="truncate">Model offline or missing API key</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => openModelSelector(currentAgent?.id)}
+                        className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-[9px] font-mono font-medium transition cursor-pointer shrink-0"
+                      >
+                        Fix
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Quick-Switch Model Pills */}
+                  {quickModels.length > 1 && (
+                    <div className="space-y-1.5 pt-1">
+                      <div className="flex items-center justify-between text-[10px] text-[#64748b]">
+                        <span>Quick Switch</span>
+                        <button
+                          type="button"
+                          onClick={() => openModelSelector(currentAgent?.id)}
+                          className="text-blue-400 hover:text-blue-300 transition cursor-pointer"
+                        >
+                          View all ({availableModels.length}) →
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {quickModels.map((m: AvailableModelItem) => {
+                          const isActive = m.id === activeModelId;
+                          return (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={async () => {
+                                setActiveModelId(m.id);
+                                if (currentAgent) {
+                                  await updateAgentModel(currentAgent.id, m.id);
+                                  setIsSaved(true);
+                                  setTimeout(() => setIsSaved(false), 2000);
+                                }
+                              }}
+                              className={`flex items-center space-x-1.5 px-2 py-1 rounded-md text-[10px] font-mono border transition cursor-pointer ${
+                                isActive
+                                  ? 'bg-blue-600/25 border-blue-400 text-blue-200 font-semibold shadow-sm'
+                                  : 'bg-[#0a0f1d] hover:bg-[#12192c] border-[#1e293b] text-[#94a3b8] hover:text-white'
+                              }`}
+                              title={m.id}
+                            >
+                              <ProviderIcon provider={m.provider || m.id} className="w-3 h-3" />
+                              <span className="truncate max-w-[120px]">{m.name || m.id.split('/').pop()}</span>
+                              {isActive && <Check className="w-2.5 h-2.5 text-blue-400" />}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
 
                   {/* Manual Model ID Assignment */}
                   <div className="pt-1 space-y-1">
                     <div className="flex items-center justify-between text-[10px] text-[#64748b]">
-                      <span>Assign Any Model ID</span>
+                      <span>Assign Direct Model ID</span>
                       <span className="text-[9px] font-mono text-[#475569] truncate max-w-[160px]">e.g. openai/gpt-4o</span>
                     </div>
                     <div className="flex items-center space-x-1.5">
                       <input
                         type="text"
-                        placeholder="e.g. openai/gpt-4.5-preview"
+                        placeholder="e.g. xai/grok-2 or openai/gpt-4.5-preview"
                         value={customModelInput}
                         onChange={(e) => setCustomModelInput(e.target.value)}
+                        onKeyDown={async (e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (!customModelInput.trim()) return;
+                            const modelId = customModelInput.trim();
+                            await addCustomModel(modelId);
+                            setActiveModelId(modelId);
+                            if (currentAgent) {
+                              await updateAgentModel(currentAgent.id, modelId);
+                              setIsSaved(true);
+                              setTimeout(() => setIsSaved(false), 2000);
+                            }
+                            setCustomModelInput('');
+                          }
+                        }}
                         className="flex-1 bg-[#070b14] border border-[#1e293b] rounded px-2 py-1 text-[11px] text-kin-text font-mono placeholder-[#475569] focus:outline-none focus:border-emerald-500"
                       />
                       <button
@@ -1624,7 +1675,7 @@ export const AgentInspector: React.FC = () => {
                           await addCustomModel(modelId);
                           setActiveModelId(modelId);
                           if (currentAgent) {
-                            await updateAgentContract(currentAgent.id, roleTitle, modelId, customInstructions);
+                            await updateAgentModel(currentAgent.id, modelId);
                             setIsSaved(true);
                             setTimeout(() => setIsSaved(false), 2000);
                           }
@@ -1636,51 +1687,6 @@ export const AgentInspector: React.FC = () => {
                       </button>
                     </div>
                   </div>
-
-                  {/* Live Provider Models Discovery */}
-                  <div className="pt-1 flex items-center justify-between text-[10px]">
-                    <div className="flex items-center space-x-1 text-[#64748b]">
-                      <span>Discover:</span>
-                      <select
-                        value={discoveryProvider}
-                        onChange={(e) => setDiscoveryProvider(e.target.value)}
-                        className="bg-[#070b14] border border-[#1e293b] rounded px-1.5 py-0.5 text-kin-text font-mono text-[10px] focus:outline-none"
-                      >
-                        <option value="openrouter">OpenRouter</option>
-                        <option value="openai">OpenAI</option>
-                        <option value="anthropic">Anthropic</option>
-                        <option value="gemini">Google Gemini</option>
-                        <option value="deepseek">DeepSeek</option>
-                        <option value="groq">Groq</option>
-                        <option value="ollama">Local Ollama</option>
-                      </select>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={isDiscovering || isLoadingModels}
-                      onClick={async () => {
-                        setIsDiscovering(true);
-                        setDiscoveryFeedback(null);
-                        const res = await discoverModels(discoveryProvider);
-                        setIsDiscovering(false);
-                        if (res.success) {
-                          setDiscoveryFeedback(`Discovered ${res.count || 0} models!`);
-                        } else {
-                          setDiscoveryFeedback(res.error || 'Discovery failed');
-                        }
-                        setTimeout(() => setDiscoveryFeedback(null), 3000);
-                      }}
-                      className="flex items-center space-x-1 px-2 py-0.5 rounded bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/40 font-mono transition cursor-pointer disabled:opacity-40"
-                    >
-                      <RefreshCw className={`w-3 h-3 ${isDiscovering ? 'animate-spin' : ''}`} />
-                      <span>{isDiscovering ? 'Querying...' : 'Fetch Models'}</span>
-                    </button>
-                  </div>
-                  {discoveryFeedback && (
-                    <div className="text-[10px] font-mono text-emerald-400 text-right">
-                      {discoveryFeedback}
-                    </div>
-                  )}
                 </div>
 
                 <div className="space-y-1">

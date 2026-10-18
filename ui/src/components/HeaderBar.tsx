@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useKinStore } from '../store/kinStore.js';
-import { Folder, Plus, X, Play, Copy, Check, Shield, Activity, Network, PanelRight, PanelRightClose } from 'lucide-react';
+import { Folder, Plus, X, Copy, Check, Activity, Network, PanelRight, PanelRightClose } from 'lucide-react';
 
 export const HeaderBar: React.FC = () => {
   const {
@@ -11,11 +11,7 @@ export const HeaderBar: React.FC = () => {
     deleteProject,
     setNewProjectModalOpen,
     setSwarmMapOpen,
-    ollamaStatus,
-    startOllama,
     isConnected,
-    autonomyMode,
-    setAutonomyMode,
     projectAnalytics,
     setDesktopControlModalOpen,
     browserStatus,
@@ -135,34 +131,10 @@ export const HeaderBar: React.FC = () => {
         </button>
       </div>
 
-      {/* Right: Consolidated System Status, Autonomy Mode, Canonical Inspector Toggle */}
+      {/* Right: Consolidated System Status & Canonical Inspector Toggle */}
       <div className="flex items-center space-x-2 text-[11px] font-mono">
-        {/* Consolidated System Health Capsule (Ollama & SQLite WAL) */}
+        {/* Consolidated System Health Capsule (SQLite WAL & Progress) */}
         <div className="flex items-center space-x-2 px-2.5 py-0.5 rounded-md bg-kin-card border border-kin-border text-kin-muted">
-          {/* Ollama Status */}
-          <div className="flex items-center space-x-1.5">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                ollamaStatus.online ? 'bg-emerald-400' : 'bg-amber-400'
-              }`}
-            />
-            <span className={ollamaStatus.online ? 'text-emerald-400' : 'text-amber-400'}>
-              Ollama: {ollamaStatus.online ? `${ollamaStatus.models.length}m` : 'Offline'}
-            </span>
-            {!ollamaStatus.online && (
-              <button
-                onClick={startOllama}
-                className="flex items-center space-x-1 px-1.5 py-0.2 rounded bg-blue-600/20 text-blue-300 hover:bg-blue-600/40 text-[10px] font-sans transition"
-                title="Start Local Ollama Server"
-              >
-                <Play className="w-2.5 h-2.5" />
-                <span>Start</span>
-              </button>
-            )}
-          </div>
-
-          <span className="text-kin-muted/30">|</span>
-
           {/* Real DB Status */}
           <div className="flex items-center space-x-1 text-emerald-400">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
@@ -182,21 +154,6 @@ export const HeaderBar: React.FC = () => {
               </div>
             </>
           )}
-        </div>
-
-        {/* Autonomy Mode Selector */}
-        <div className="flex items-center space-x-1 bg-kin-card border border-kin-border rounded-md px-2 py-0.5">
-          <Shield className="w-3 h-3 text-amber-400 shrink-0" />
-          <select
-            value={autonomyMode}
-            onChange={(e) => setAutonomyMode(e.target.value as any)}
-            className="bg-transparent text-kin-text text-[11px] font-medium focus:outline-none cursor-pointer"
-            title="Autonomy Mode Governance"
-          >
-            <option value="AUTO" className="bg-kin-surface text-emerald-400">AUTO</option>
-            <option value="ALWAYS_ASK" className="bg-kin-surface text-amber-400">ALWAYS_ASK</option>
-            <option value="FULL_ACCESS" className="bg-kin-surface text-blue-400">FULL_ACCESS</option>
-          </select>
         </div>
 
         {/* Canonical Inspector Panel Toggle Button */}

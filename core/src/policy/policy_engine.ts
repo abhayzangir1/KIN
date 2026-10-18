@@ -84,20 +84,30 @@ export class PolicyEngine {
     // If the parent's approved implementation plan explicitly pre-whitelisted this command or path,
     // execute without an interactive interruption
     if (request.parentRunId && request.subagentApprovedWhitelist && request.commandOrPath) {
-      const cmdOrPath = request.commandOrPath.toLowerCase();
+      const isPathTool = ['readFile', 'writeFile', 'listDirectory', 'deleteFile', 'editFile'].includes(request.toolName);
+      const isShellTool = ['executeShell', 'shell', 'execCommand'].includes(request.toolName);
 
-      const isWhitelistedCommand = request.subagentApprovedWhitelist.permittedCommands?.some((cmd) => {
-        const escaped = cmd.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`(?:^|\\s)${escaped}(?:\\s|$)`, 'i');
-        return regex.test(cmdOrPath.trim());
-      });
+      let isWhitelistedCommand = false;
+      if ((isShellTool || !isPathTool) && request.subagentApprovedWhitelist.permittedCommands) {
+        const cmdTrimmed = request.commandOrPath.trim();
+        isWhitelistedCommand = request.subagentApprovedWhitelist.permittedCommands.some((cmd) => {
+          const c = cmd.trim();
+          return cmdTrimmed === c || cmdTrimmed.startsWith(c + ' ');
+        });
+      }
 
-      const isWhitelistedPath = request.subagentApprovedWhitelist.permittedPaths?.some((p) => {
-        const resolvedTarget = path.resolve(cmdOrPath);
-        const resolvedAllowed = path.resolve(p.toLowerCase());
-        const relative = path.relative(resolvedAllowed, resolvedTarget);
-        return !relative.startsWith('..') && !path.isAbsolute(relative);
-      });
+      let isWhitelistedPath = false;
+      if ((isPathTool || !isShellTool) && request.subagentApprovedWhitelist.permittedPaths) {
+        if (!isShellTool) {
+          const targetPath = request.commandOrPath;
+          isWhitelistedPath = request.subagentApprovedWhitelist.permittedPaths.some((p) => {
+            const resolvedTarget = path.resolve(targetPath);
+            const resolvedAllowed = path.resolve(p);
+            const relative = path.relative(resolvedAllowed, resolvedTarget);
+            return !relative.startsWith('..') && !path.isAbsolute(relative);
+          });
+        }
+      }
 
       if (isWhitelistedCommand || isWhitelistedPath) {
         return {

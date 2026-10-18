@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useKinStore, AgentDisplay } from '../store/kinStore.js';
+import { useKinStore } from '../store/kinStore.js';
 import {
   Network,
   Bot,
@@ -40,9 +40,7 @@ export const SwarmMap: React.FC = () => {
     isLoadingExecutionDetails,
     fetchAgentExecutionDetails,
     setAddAgentModalOpen,
-    ollamaStatus,
-    availableModels,
-    updateAgentContract,
+    openModelSelector,
     decommissionAgent,
     addChannelMember,
     removeChannelMember,
@@ -162,67 +160,7 @@ export const SwarmMap: React.FC = () => {
     setExpandedJson((prev) => ({ ...prev, [itemId]: !prev[itemId] }));
   };
 
-  const handleModelChange = async (agent: AgentDisplay, newModel: string) => {
-    await updateAgentContract(agent.id, agent.role, newModel);
-    fetchAgentExecutionDetails(agent.id);
-  };
 
-  const renderModelOptions = (currentModelId: string) => {
-    const localOllama = availableModels.filter((m) => m.provider === 'ollama');
-    const freeCloud = availableModels.filter((m) => m.provider !== 'ollama' && m.isFree && m.configured !== false);
-    const paidCloud = availableModels.filter((m) => m.provider !== 'ollama' && !m.isFree && m.configured !== false);
-    const hasCurrent = availableModels.some((m) => m.id === currentModelId) || (ollamaStatus.models && ollamaStatus.models.some((m) => `ollama/${m}` === currentModelId));
-
-    return (
-      <>
-        {localOllama.length > 0 ? (
-          <optgroup label="Local Ollama">
-            {localOllama.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name || m.id} (Local)
-              </option>
-            ))}
-          </optgroup>
-        ) : ollamaStatus.models?.length > 0 ? (
-          <optgroup label="Local Ollama">
-            {ollamaStatus.models.map((m) => (
-              <option key={m} value={`ollama/${m}`}>
-                {m} (Local)
-              </option>
-            ))}
-          </optgroup>
-        ) : null}
-
-        {freeCloud.length > 0 && (
-          <optgroup label="Free Cloud (OpenRouter)">
-            {freeCloud.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name || m.id} (Free)
-              </option>
-            ))}
-          </optgroup>
-        )}
-
-        {paidCloud.length > 0 && (
-          <optgroup label="Cloud Models">
-            {paidCloud.slice(0, 30).map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name || m.id}
-              </option>
-            ))}
-          </optgroup>
-        )}
-
-        {currentModelId && !hasCurrent && (
-          <optgroup label="Active Selected">
-            <option value={currentModelId}>{currentModelId}</option>
-          </optgroup>
-        )}
-
-        <option value="inherit">inherit (Project Default)</option>
-      </>
-    );
-  };
 
   const orchestrator = displayedAgents.find((a) => a.isOrchestrator) || agents.find((a) => a.isOrchestrator);
   const specialists = displayedAgents.filter((a) => !a.isOrchestrator);
@@ -454,17 +392,18 @@ export const SwarmMap: React.FC = () => {
                       <Cpu className="w-3.5 h-3.5 text-amber-400" />
                       <span>Model:</span>
                     </span>
-                    <select
-                      value={orchestrator.activeModelId}
-                      onChange={(e) => {
+                    <button
+                      type="button"
+                      onClick={(e) => {
                         e.stopPropagation();
-                        handleModelChange(orchestrator, e.target.value);
+                        openModelSelector(orchestrator.id);
                       }}
-                      onClick={(e) => e.stopPropagation()}
-                      className="bg-[#090d16] text-amber-300 border border-amber-500/30 rounded-lg px-2 py-0.5 text-[11px] font-mono focus:outline-none cursor-pointer max-w-[210px] truncate"
+                      className="group/btn flex items-center space-x-1.5 px-2 py-0.5 rounded-md bg-[#090d16] hover:bg-amber-950/40 text-amber-300 hover:text-amber-200 border border-amber-500/30 hover:border-amber-500/60 text-[11px] font-mono transition cursor-pointer max-w-[210px]"
+                      title="Click to change model for Orchestrator"
                     >
-                      {renderModelOptions(orchestrator.activeModelId)}
-                    </select>
+                      <span className="truncate">{orchestrator.activeModelId}</span>
+                      <span className="text-[10px] text-amber-400/60 group-hover/btn:text-amber-300">✎</span>
+                    </button>
                   </div>
 
                   {/* Quick Activity Stats */}
@@ -757,17 +696,18 @@ export const SwarmMap: React.FC = () => {
                               <Cpu className="w-3.5 h-3.5 text-blue-400" />
                               <span>Model:</span>
                             </span>
-                            <select
-                              value={spec.activeModelId}
-                              onChange={(e) => {
+                            <button
+                              type="button"
+                              onClick={(e) => {
                                 e.stopPropagation();
-                                handleModelChange(spec, e.target.value);
+                                openModelSelector(spec.id);
                               }}
-                              onClick={(e) => e.stopPropagation()}
-                              className="bg-[#090d16] text-blue-300 border border-blue-500/30 rounded-lg px-2 py-0.5 text-[11px] font-mono focus:outline-none cursor-pointer max-w-[210px] truncate"
+                              className="group/btn flex items-center space-x-1.5 px-2 py-0.5 rounded-md bg-[#090d16] hover:bg-blue-950/40 text-blue-300 hover:text-blue-200 border border-blue-500/30 hover:border-blue-500/60 text-[11px] font-mono transition cursor-pointer max-w-[210px]"
+                              title={`Click to change model for ${spec.displayName}`}
                             >
-                              {renderModelOptions(spec.activeModelId)}
-                            </select>
+                              <span className="truncate">{spec.activeModelId}</span>
+                              <span className="text-[10px] text-blue-400/60 group-hover/btn:text-blue-300">✎</span>
+                            </button>
                           </div>
 
                           {/* Live Active Channel Badge */}
@@ -952,7 +892,16 @@ export const SwarmMap: React.FC = () => {
                         <span>{selectedAgent?.displayName}</span>
                         <span className="text-[10px] text-[#64748b] font-normal">({selectedAgent?.role})</span>
                       </div>
-                      <span className="text-[10px] text-blue-400 font-mono">{selectedAgent?.activeModelId}</span>
+                      <div className="flex items-center space-x-1.5 mt-0.5">
+                        <span className="text-[10px] text-blue-400 font-mono">{selectedAgent?.activeModelId}</span>
+                        <button
+                          type="button"
+                          onClick={() => selectedAgent && openModelSelector(selectedAgent.id)}
+                          className="px-1.5 py-0.2 rounded bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 text-[9px] font-mono border border-blue-500/30 transition cursor-pointer"
+                        >
+                          Change
+                        </button>
+                      </div>
                     </div>
                   </div>
 

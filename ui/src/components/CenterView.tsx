@@ -36,6 +36,7 @@ import {
 import { HumanTakeoverBanner } from './HumanTakeoverBanner.js';
 import { AutomationsView } from './AutomationsView.js';
 import { DecisionCard } from './DecisionCard.js';
+import { AgentModelQuickSwitch } from './AgentModelQuickSwitch.js';
 
 export const CenterView: React.FC = () => {
   const {
@@ -43,6 +44,9 @@ export const CenterView: React.FC = () => {
     activeChannelId,
     channelMembers,
     agents,
+    autonomyMode,
+    setAutonomyMode,
+    updateAgentModel,
     ollamaStatus,
     credentials,
     availableModels,
@@ -276,6 +280,8 @@ export const CenterView: React.FC = () => {
 
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const plusMenuRef = useRef<HTMLDivElement>(null);
+  const [showAutonomyMenu, setShowAutonomyMenu] = useState(false);
+  const autonomyMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchSkills();
@@ -286,12 +292,15 @@ export const CenterView: React.FC = () => {
       if (plusMenuRef.current && !plusMenuRef.current.contains(e.target as Node)) {
         setShowPlusMenu(false);
       }
+      if (autonomyMenuRef.current && !autonomyMenuRef.current.contains(e.target as Node)) {
+        setShowAutonomyMenu(false);
+      }
     };
-    if (showPlusMenu) {
+    if (showPlusMenu || showAutonomyMenu) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showPlusMenu]);
+  }, [showPlusMenu, showAutonomyMenu]);
 
   const baseSlashCommands = [
     { cmd: '/plan', desc: 'Generate multi-phase plan in DAG (e.g. /plan Core Architecture)' },
@@ -620,6 +629,18 @@ export const CenterView: React.FC = () => {
                 Private 1-on-1 Direct Message thread
               </span>
             </div>
+            {targetAgent && (
+              <div className="flex items-center space-x-2 shrink-0 ml-2">
+                <span className="text-[10px] text-kin-muted hidden sm:inline font-mono">Model:</span>
+                <AgentModelQuickSwitch
+                  agent={targetAgent}
+                  availableModels={availableModels}
+                  updateAgentModel={updateAgentModel}
+                  projectId={activeProjectId}
+                  channelId={activeChannelId}
+                />
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex items-center justify-between w-full min-w-0 overflow-hidden">
@@ -636,11 +657,11 @@ export const CenterView: React.FC = () => {
 
             {/* Channel Members Pill Bar & Action */}
             <div className="flex items-center space-x-2 min-w-0 overflow-hidden shrink">
-              <div className="flex items-center space-x-1 overflow-x-auto max-w-xs md:max-w-sm py-0.5 no-scrollbar shrink">
+              <div className="flex items-center space-x-1.5 overflow-x-auto max-w-xs md:max-w-md py-0.5 no-scrollbar shrink">
                 {channelMembers.map((member) => (
                   <span
                     key={member.id}
-                    className={`flex items-center space-x-1 px-2 py-0.5 rounded-full text-[11px] font-mono border shrink-0 ${
+                    className={`flex items-center space-x-1.5 px-2 py-0.5 rounded-full text-[11px] font-mono border shrink-0 ${
                       member.isOrchestrator
                         ? 'bg-amber-500/15 border-amber-500/30 text-amber-300'
                         : 'bg-blue-500/15 border-blue-500/30 text-blue-300'
@@ -653,6 +674,14 @@ export const CenterView: React.FC = () => {
                     >
                       {member.displayName}
                     </span>
+                    <AgentModelQuickSwitch
+                      agent={member}
+                      availableModels={availableModels}
+                      updateAgentModel={updateAgentModel}
+                      projectId={activeProjectId}
+                      channelId={activeChannelId}
+                      compact
+                    />
                     {member.isOrchestrator ? (
                       <span title="Default Orchestrator (Permanent)">
                         <Shield className="w-2.5 h-2.5 text-amber-400 ml-0.5" />
@@ -660,7 +689,7 @@ export const CenterView: React.FC = () => {
                     ) : (
                       <button
                         onClick={() => removeChannelMember(activeChannelId, member.id)}
-                        className="hover:text-red-400 transition ml-0.5"
+                        className="hover:text-red-400 transition ml-0.5 cursor-pointer"
                         title={`Remove ${member.displayName} from this channel`}
                       >
                         <X className="w-2.5 h-2.5" />
@@ -887,11 +916,16 @@ export const CenterView: React.FC = () => {
                     </span>
                   )}
 
-                  {/* Model Tag for Agents */}
-                  {!isHuman && agent?.activeModelId && (
-                    <span className="text-[9px] px-1 rounded bg-[#1e293b] text-[#94a3b8] font-mono">
-                      {agent.activeModelId.replace('ollama/', '')}
-                    </span>
+                  {/* Model Tag & Quick Switch for Agents */}
+                  {!isHuman && agent && (
+                    <AgentModelQuickSwitch
+                      agent={agent}
+                      availableModels={availableModels}
+                      updateAgentModel={updateAgentModel}
+                      projectId={activeProjectId}
+                      channelId={activeChannelId}
+                      compact
+                    />
                   )}
 
                   <span className="text-[10px] text-[#64748b]">
@@ -1775,6 +1809,92 @@ export const CenterView: React.FC = () => {
                     <Terminal className="w-3.5 h-3.5 text-emerald-500" />
                     <span>/plan</span>
                   </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Autonomy / Permissions Mode Selector */}
+          <div className="relative shrink-0 mr-2" ref={autonomyMenuRef}>
+            <button
+              type="button"
+              onClick={() => setShowAutonomyMenu(!showAutonomyMenu)}
+              className={`flex items-center space-x-1 px-2 py-1 rounded-lg border text-[11px] font-mono transition cursor-pointer ${
+                autonomyMode === 'FULL_ACCESS'
+                  ? 'bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20'
+                  : autonomyMode === 'ALWAYS_ASK'
+                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 hover:bg-amber-500/20'
+                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
+              }`}
+              title={`Permissions Mode: ${autonomyMode} (Click to change)`}
+            >
+              <Shield className="w-3.5 h-3.5 shrink-0" />
+              <span className="font-semibold">{autonomyMode}</span>
+              <ChevronDown className={`w-3 h-3 opacity-60 transition-transform duration-200 ${showAutonomyMenu ? 'rotate-180' : ''}`} />
+            </button>
+
+            {/* Autonomy Popover Menu */}
+            {showAutonomyMenu && (
+              <div className="absolute bottom-full mb-2 left-0 w-72 bg-kin-surface border border-kin-border rounded-xl shadow-2xl p-2.5 z-40 animate-fadeIn space-y-1.5 select-none text-xs">
+                <div className="flex items-center justify-between pb-1 border-b border-kin-border">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-kin-muted flex items-center space-x-1">
+                    <Shield className="w-3 h-3 text-emerald-400" />
+                    <span>Permissions / Autonomy Mode</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowAutonomyMenu(false)}
+                    className="p-0.5 rounded hover:bg-kin-card text-kin-muted hover:text-kin-text transition cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+
+                <div className="space-y-1">
+                  {[
+                    {
+                      mode: 'AUTO' as const,
+                      label: 'AUTO (Autonomous)',
+                      desc: 'Runs autonomously with safety guards; prompts only on destructive actions.',
+                      color: 'emerald',
+                    },
+                    {
+                      mode: 'ALWAYS_ASK' as const,
+                      label: 'ALWAYS_ASK (Supervised)',
+                      desc: 'Explicit user confirmation required for every single tool and file edit.',
+                      color: 'amber',
+                    },
+                    {
+                      mode: 'FULL_ACCESS' as const,
+                      label: 'FULL_ACCESS (Unrestricted)',
+                      desc: 'Zero approval barriers; continuous tool execution without interruptions.',
+                      color: 'red',
+                    },
+                  ].map((item) => (
+                    <button
+                      key={item.mode}
+                      type="button"
+                      onClick={() => {
+                        setAutonomyMode(item.mode);
+                        setShowAutonomyMenu(false);
+                      }}
+                      className={`w-full text-left p-2 rounded-lg border transition cursor-pointer ${
+                        autonomyMode === item.mode
+                          ? item.color === 'emerald'
+                            ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                            : item.color === 'amber'
+                            ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                            : 'bg-red-500/15 border-red-500/40 text-red-300'
+                          : 'bg-kin-card hover:bg-kin-surface border-kin-border text-kin-text'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className="font-bold text-xs font-mono">{item.label}</span>
+                        {autonomyMode === item.mode && <CheckCircle className="w-3.5 h-3.5" />}
+                      </div>
+                      <p className="text-[10px] text-kin-muted leading-tight">{item.desc}</p>
+                    </button>
+                  ))}
                 </div>
               </div>
             )}

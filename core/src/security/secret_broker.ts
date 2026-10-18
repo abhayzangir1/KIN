@@ -76,35 +76,73 @@ export class SecretBroker {
         }
       }
 
-      // 2. Otherwise query managed_credentials where key_alias = keyName
+      // 2. Otherwise query managed_credentials where key_alias = keyName, id = keyName, or provider = keyName
       let ciphertextToDecrypt = keyName;
       if (this.db) {
         try {
-          const row = this.db.queryOne<{ secret_hash: string; scoped_grants_json?: string }>(
-            `SELECT secret_hash, scoped_grants_json FROM managed_credentials WHERE key_alias = ? OR id = ? OR provider = ? LIMIT 1`,
+          const row = this.db.queryOne<{
+            secret_hash: string;
+            scoped_grants_json?: string;
+            max_spend_tokens?: number;
+            current_spend_tokens?: number;
+          }>(
+            `SELECT secret_hash, scoped_grants_json, max_spend_tokens, current_spend_tokens FROM managed_credentials 
+             WHERE (key_alias = ? OR id = ? OR provider = ?) AND is_active = 1 
+             ORDER BY CASE WHEN key_alias = ? THEN 1 WHEN id = ? THEN 2 ELSE 3 END, updated_at DESC LIMIT 1`,
+            keyName,
+            keyName,
             keyName,
             keyName,
             keyName
           );
           if (row?.secret_hash) {
-            if (callerAgentId && row.scoped_grants_json) {
+            // Check spend cap
+            if (
+              typeof row.max_spend_tokens === 'number' &&
+              row.max_spend_tokens > 0 &&
+              typeof row.current_spend_tokens === 'number' &&
+              row.current_spend_tokens >= row.max_spend_tokens
+            ) {
               try {
-                const grants: string[] = JSON.parse(row.scoped_grants_json);
-                if (Array.isArray(grants) && grants.length > 0 && !grants.includes(callerAgentId)) {
-                  try {
-                    EventLedger.getInstance().record({
-                      eventType: 'SECURITY_ALERT',
-                      entityType: 'agent',
-                      entityId: callerAgentId,
-                      payload: {
-                        reason: `Unauthorized secret placeholder access attempt for key '${keyName}'`,
-                        keyName,
-                      },
-                    });
-                  } catch {}
-                  return `[DENIED_UNAUTHORIZED_KEY_ACCESS:${keyName}]`;
-                }
+                EventLedger.getInstance().record({
+                  eventType: 'SECURITY_ALERT',
+                  entityType: 'credential',
+                  entityId: keyName,
+                  payload: {
+                    reason: `Spend cap exceeded for key '${keyName}' (${row.current_spend_tokens}/${row.max_spend_tokens})`,
+                    keyName,
+                    currentSpend: row.current_spend_tokens,
+                    maxSpend: row.max_spend_tokens,
+                  },
+                });
               } catch {}
+              return `[DENIED_SPEND_CAP_EXCEEDED:${keyName}]`;
+            }
+
+            if (callerAgentId) {
+              let isGranted = false;
+              if (row.scoped_grants_json) {
+                try {
+                  const grants: string[] = JSON.parse(row.scoped_grants_json);
+                  if (Array.isArray(grants) && (grants.includes(callerAgentId) || grants.includes('*'))) {
+                    isGranted = true;
+                  }
+                } catch {}
+              }
+              if (!isGranted) {
+                try {
+                  EventLedger.getInstance().record({
+                    eventType: 'SECURITY_ALERT',
+                    entityType: 'agent',
+                    entityId: callerAgentId,
+                    payload: {
+                      reason: `Unauthorized secret placeholder access attempt for key '${keyName}'`,
+                      keyName,
+                    },
+                  });
+                } catch {}
+                return `[DENIED_UNAUTHORIZED_KEY_ACCESS:${keyName}]`;
+              }
             }
             ciphertextToDecrypt = row.secret_hash;
           }
@@ -138,7 +176,11 @@ export class SecretBroker {
     // 2. Redact typical Bearer tokens and API key patterns
     sanitized = sanitized.replace(/(Bearer\s+)[a-zA-Z0-9_\-\.]{16,}/gi, '$1[REDACTED][REDACTED_TOKEN]');
     sanitized = sanitized.replace(/(sk-[a-zA-Z0-9_\-]{20,})/gi, '[REDACTED][REDACTED_KEY]');
-    sanitized = sanitized.replace(/(ghp_[a-zA-Z0-9]{20,})/gi, '[REDACTED][REDACTED_GITHUB_TOKEN]');
+    sanitized = sanitized.replace(/(gh[pousr]_[a-zA-Z0-9_]{20,})/gi, '[REDACTED][REDACTED_GITHUB_TOKEN]');
+    sanitized = sanitized.replace(/(AIza[0-9A-Za-z\-_]{35})/g, '[REDACTED][REDACTED_GOOGLE_KEY]');
+    sanitized = sanitized.replace(/(xox[baprs]-[0-9a-zA-Z\-]{10,})/gi, '[REDACTED][REDACTED_SLACK_TOKEN]');
+    sanitized = sanitized.replace(/(AKIA[0-9A-Z]{16})/g, '[REDACTED][REDACTED_AWS_KEY]');
+    sanitized = sanitized.replace(/(glpat-[0-9a-zA-Z\-_]{20,})/gi, '[REDACTED][REDACTED_GITLAB_TOKEN]');
 
     return sanitized;
   }

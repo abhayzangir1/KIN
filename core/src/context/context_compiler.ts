@@ -246,7 +246,19 @@ export class ContextCompiler {
 
     const formatMemoryList = (mems?: Array<{ key: string; type: string; value: unknown }>) => {
       if (!mems || mems.length === 0) return 'None recorded.';
-      return mems.map((m) => `- [${m.type}] ${m.key}: ${typeof m.value === 'object' ? JSON.stringify(m.value) : m.value}`).join('\n');
+      return mems.slice(0, 50).map((m) => {
+        const safeType = String(m.type || 'memory').slice(0, 32).replace(/[\r\n]/g, ' ');
+        const safeKey = String(m.key || '').slice(0, 256).replace(/[\r\n]/g, ' ');
+        let rawVal = typeof m.value === 'object' ? JSON.stringify(m.value) : String(m.value ?? '');
+        if (rawVal.length > 2000) {
+          rawVal = rawVal.slice(0, 2000) + '... [truncated]';
+        }
+        const safeVal = rawVal
+          .replace(/###\s+/g, '## ')
+          .replace(/<(tool_call|tool|function_call)>/gi, '&lt;$1&gt;')
+          .replace(/\[(SYSTEM|DEVELOPER|INSTRUCTION)\]/gi, '[$1-CONTEXT]');
+        return `- [${safeType}] ${safeKey}: ${safeVal}`;
+      }).join('\n');
     };
 
     const effectiveProjectMemories = (input.projectMemories && input.projectMemories.length > 0)

@@ -1,6 +1,7 @@
 import React from 'react';
 import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
 import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale, Trash2, Users } from 'lucide-react';
+import { AgentModelQuickSwitch } from './AgentModelQuickSwitch.js';
 
 export const Sidebar: React.FC = () => {
   const {
@@ -10,6 +11,7 @@ export const Sidebar: React.FC = () => {
     setActiveChannel,
     deleteChannel,
     agents,
+    updateAgentModel,
     ollamaStatus,
     credentials,
     availableModels,
@@ -182,39 +184,50 @@ export const Sidebar: React.FC = () => {
                 const isThinking = agent.status === 'thinking' || agent.status === 'working';
 
                 return (
-                  <button
+                  <div
                     key={agent.id}
-                    onClick={() => handleSelectDm(agent.id)}
-                    className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg transition cursor-pointer relative ${
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg transition relative group ${
                       isDmActive
-                        ? 'bg-blue-500/15 border border-blue-500/40 text-blue-500 font-semibold shadow-xs pl-4 before:absolute before:left-1.5 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-blue-500'
+                        ? 'bg-blue-500/15 border border-blue-500/40 text-blue-500 font-semibold shadow-xs pl-3.5 before:absolute before:left-1.5 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-blue-500'
                         : isSelected
                         ? 'bg-kin-card text-kin-text font-medium'
                         : 'text-kin-muted hover:bg-kin-card hover:text-kin-text'
                     }`}
-                    title={`Open 1-on-1 Direct Message with ${agent.displayName}`}
                   >
-                    <div className="flex items-center space-x-2 truncate">
+                    <button
+                      type="button"
+                      onClick={() => handleSelectDm(agent.id)}
+                      className="flex items-center space-x-2 truncate flex-1 min-w-0 text-left cursor-pointer mr-1"
+                      title={`Open 1-on-1 Direct Message with ${agent.displayName}`}
+                    >
                       <span
                         className={`w-2 h-2 rounded-full shrink-0 ${
-                          isThinking
-                            ? 'bg-amber-400 animate-pulse'
-                            : 'bg-emerald-500'
+                          isThinking ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'
                         }`}
                       />
-                      <span className="truncate">{agent.displayName}</span>
-                    </div>
+                      <span className="truncate text-xs font-medium">{agent.displayName}</span>
+                    </button>
 
-                    {agent.isOrchestrator ? (
-                      <span className="text-[9px] uppercase px-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono shrink-0">
-                        Boss
-                      </span>
-                    ) : (
-                      <span className="text-[9px] uppercase px-1 rounded bg-blue-500/20 text-blue-300 font-mono shrink-0">
-                        Spec
-                      </span>
-                    )}
-                  </button>
+                    <div className="flex items-center space-x-1 shrink-0">
+                      <AgentModelQuickSwitch
+                        agent={agent}
+                        availableModels={availableModels}
+                        updateAgentModel={updateAgentModel}
+                        projectId={activeProject?.id}
+                        channelId={activeChannelId}
+                        compact
+                      />
+                      {agent.isOrchestrator ? (
+                        <span className="text-[9px] uppercase px-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono shrink-0">
+                          Boss
+                        </span>
+                      ) : (
+                        <span className="text-[9px] uppercase px-1 rounded bg-blue-500/20 text-blue-300 font-mono shrink-0">
+                          Spec
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 );
               })
             ) : (

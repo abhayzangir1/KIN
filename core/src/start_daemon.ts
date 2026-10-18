@@ -32,8 +32,12 @@ const port = parseInt(process.env.KIN_PORT || '54321', 10);
 
 const server = new CoreServer({ port, dbPath });
 
-process.on('uncaughtException', (err) => {
+process.on('uncaughtException', async (err) => {
   console.error('[KIN CORE UNCAUGHT EXCEPTION]', err);
+  try {
+    await server.stop();
+  } catch {}
+  process.exit(1);
 });
 
 process.on('unhandledRejection', (reason) => {

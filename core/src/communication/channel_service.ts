@@ -26,13 +26,17 @@ export class ChannelService {
   }
 
   public sendMessage(params: SendMessageParams): Message {
+    if (!params.content || typeof params.content !== 'string' || params.content.length > 100000) {
+      throw new Error(`Message content must be a non-empty string and cannot exceed 100,000 characters.`);
+    }
+
     // Verify membership for private channels and direct messages
     const chan = this.db.queryOne<{ is_private: number; channel_type: string }>(
       'SELECT is_private, channel_type FROM channels WHERE id = ?',
       params.channelId
     );
     if (chan && (chan.is_private === 1 || chan.channel_type === 'dm' || chan.channel_type === 'direct_message' || params.channelId.startsWith('dm-'))) {
-      if (params.senderType === 'agent' && params.senderId !== 'system') {
+      if (params.senderType === 'agent') {
         const isMember = this.db.queryOne<{ agent_id: string }>(
           'SELECT agent_id FROM channel_members WHERE channel_id = ? AND agent_id = ?',
           params.channelId,
@@ -152,8 +156,16 @@ export class ChannelService {
   }
 
   public extractMentions(content: string): string[] {
+    if (!content || typeof content !== 'string') return [];
+    // Strip multi-line code blocks
+    let clean = content.replace(/```[\s\S]*?```/g, '');
+    // Strip inline code
+    clean = clean.replace(/`[^`]*`/g, '');
+    // Strip blockquotes
+    clean = clean.replace(/^\s*>.*$/gm, '');
+
     const mentionRegex = /@([a-zA-Z0-9_-]+)/g;
-    const matches = content.match(mentionRegex);
+    const matches = clean.match(mentionRegex);
     if (!matches) return [];
     return [...new Set(matches.map((m) => m.slice(1)))];
   }

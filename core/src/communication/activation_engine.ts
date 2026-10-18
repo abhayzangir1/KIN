@@ -105,11 +105,12 @@ export class ActivationEngine {
 
       // 4a. Explicit @mentions
       const cleanDisplayName = agent.displayName.replace(/^@/, '');
+      const isSenderAuthorizedForAll = event.message.senderType === 'human' || event.message.senderId === 'user-operator' || event.message.senderId === 'system';
       const isMentioned = event.message.mentions.some(
         (m) =>
           m.toLowerCase() === agent.id.toLowerCase() ||
           m.toLowerCase() === cleanDisplayName.toLowerCase() ||
-          m.toLowerCase() === 'all'
+          (m.toLowerCase() === 'all' && isSenderAuthorizedForAll)
       );
 
       if (isMentioned) {
@@ -237,7 +238,8 @@ export class ActivationEngine {
     // 2. Condition 2: Explicit @mentions
     if (message.mentions && message.mentions.length > 0) {
       const mentionedClean = message.mentions.map((m) => m.toLowerCase().replace(/^@/, ''));
-      const isAll = mentionedClean.includes('all');
+      const isSenderAuthorizedForAll = message.senderType === 'human' || message.senderId === 'user-operator' || message.senderId === 'system';
+      const isAll = mentionedClean.includes('all') && isSenderAuthorizedForAll;
 
       const candidatePool = isAll ? channelMembers : allProjectAgents;
       const matchedAgents = candidatePool.filter((agent) => {

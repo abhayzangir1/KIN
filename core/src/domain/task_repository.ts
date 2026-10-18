@@ -404,7 +404,7 @@ export class TaskRepository {
         }
         let isCommit = false;
         try {
-          const objType = child_process.execSync(`git cat-file -t ${commitSha}`, {
+          const objType = child_process.execFileSync('git', ['cat-file', '-t', commitSha], {
             cwd: repoPath,
             stdio: 'pipe',
             timeout: 5000,
@@ -414,7 +414,7 @@ export class TaskRepository {
           }
         } catch {
           try {
-            const objType = child_process.execSync(`git cat-file -t ${commitSha}`, {
+            const objType = child_process.execFileSync('git', ['cat-file', '-t', commitSha], {
               cwd: process.cwd(),
               stdio: 'pipe',
               timeout: 5000,
@@ -516,11 +516,11 @@ export class TaskRepository {
         }
         let isCommit = false;
         try {
-          const objType = child_process.execSync(`git cat-file -t ${commitSha}`, { cwd: repoPath, stdio: 'pipe' }).toString().trim();
+          const objType = child_process.execFileSync('git', ['cat-file', '-t', commitSha], { cwd: repoPath, stdio: 'pipe', timeout: 5000 }).toString().trim();
           if (objType === 'commit') isCommit = true;
         } catch {
           try {
-            const objType = child_process.execSync(`git cat-file -t ${commitSha}`, { cwd: process.cwd(), stdio: 'pipe' }).toString().trim();
+            const objType = child_process.execFileSync('git', ['cat-file', '-t', commitSha], { cwd: process.cwd(), stdio: 'pipe', timeout: 5000 }).toString().trim();
             if (objType === 'commit') isCommit = true;
           } catch {}
         }

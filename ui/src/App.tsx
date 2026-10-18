@@ -14,6 +14,9 @@ import { CreateTaskModal } from './components/CreateTaskModal.js';
 import { DecisionsModal } from './components/DecisionsModal.js';
 import { SettingsModal } from './components/SettingsModal.js';
 import { AutomationsModal } from './components/AutomationsModal.js';
+import { ModelSelectorModal } from './components/ModelSelectorModal.js';
+import { AddProviderModal } from './components/AddProviderModal.js';
+import { ModelUnavailablePromptModal } from './components/ModelUnavailablePromptModal.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { useKinStore } from './store/kinStore.js';
 
@@ -205,6 +208,9 @@ export const App: React.FC = () => {
           <DecisionsModal />
           <SettingsModal />
           <AutomationsModal />
+          <ModelSelectorModal />
+          <AddProviderModal />
+          <ModelUnavailablePromptModal />
         </ErrorBoundary>
       </div>
     </ErrorBoundary>

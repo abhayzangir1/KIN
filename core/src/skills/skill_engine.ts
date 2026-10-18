@@ -8,6 +8,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vm from 'node:vm';
+import { Worker } from 'node:worker_threads';
 import { KinDatabase } from '../storage/db.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -295,7 +296,16 @@ export class SkillEngine {
     abortSignal?: AbortSignal
   ): vm.Context {
     const sanitizeFunction = (fn: Function) => {
-      const wrapped = (...args: any[]) => fn(...args);
+      const wrapped = (...args: any[]) => {
+        try {
+          return fn(...args);
+        } catch (err: any) {
+          const sanitizedErr = new Error(err?.message || String(err));
+          Object.setPrototypeOf(sanitizedErr, null);
+          Object.defineProperty(sanitizedErr, 'constructor', { value: undefined, writable: false, configurable: false });
+          throw sanitizedErr;
+        }
+      };
       Object.setPrototypeOf(wrapped, null);
       Object.defineProperty(wrapped, 'constructor', { value: undefined, writable: false, configurable: false });
       return Object.freeze(wrapped);
@@ -453,11 +463,17 @@ export class SkillEngine {
     }
 
     const abortController = new AbortController();
-    const timeoutMs = typeof (params as any)?._timeoutMs === 'number' ? (params as any)._timeoutMs : 15000;
+    const timeoutMs = typeof (params as any)?._timeoutMs === 'number' && (params as any)._timeoutMs > 0
+      ? Math.min((params as any)._timeoutMs, 30000)
+      : 15000;
     let timer: NodeJS.Timeout | null = null;
-    let context: vm.Context | null = null;
+    let activeWorker: Worker | null = null;
 
     const terminateAsyncWorkers = () => {
+      if (activeWorker) {
+        try { activeWorker.terminate(); } catch {}
+        activeWorker = null;
+      }
       const terminateTarget = (target: any) => {
         if (!target) return;
         if (typeof target.terminate === 'function') {
@@ -475,43 +491,181 @@ export class SkillEngine {
       };
       terminateTarget(executionContext);
       terminateTarget(params);
-      try {
-        if (context) {
-          terminateTarget((context as any).activeWorker);
-          terminateTarget((context as any).activeChildProcess);
-        }
-      } catch {}
     };
 
+    const sanitizeForWorker = (val: any): any => {
+      if (val === null || val === undefined) return val;
+      try {
+        return JSON.parse(JSON.stringify(val, (k, v) => {
+          if (typeof v === 'function' || typeof v === 'symbol') return undefined;
+          return v;
+        }));
+      } catch {
+        return {};
+      }
+    };
+
+    const wrappedCode = `
+      (async () => {
+        ${skill.handlerCode}
+        if (typeof module !== 'undefined' && typeof module.exports === 'function') {
+          return await module.exports(params, executionContext);
+        }
+        if (typeof module !== 'undefined' && typeof module.exports?.run === 'function') {
+          return await module.exports.run(params, executionContext);
+        }
+        if (typeof run === 'function') {
+          return await run(params, executionContext);
+        }
+        if (typeof handler === 'function') {
+          return await handler(params, executionContext);
+        }
+        if (typeof execute === 'function') {
+          return await execute(params, executionContext);
+        }
+        return typeof result !== 'undefined' ? result : (typeof module !== 'undefined' && module.exports && Object.keys(module.exports).length > 0 ? module.exports : { executed: true });
+      })()
+    `;
+
+    const workerScript = `
+      const { parentPort, workerData } = require('node:worker_threads');
+      const vm = require('node:vm');
+
+      const sanitizeObjectForSandbox = (val, seen = new WeakSet()) => {
+        if (val === null || val === undefined) return val;
+        if (typeof val === 'function') return undefined;
+        if (typeof val !== 'object') return val;
+        if (seen.has(val)) return val;
+        seen.add(val);
+
+        if (Array.isArray(val)) {
+          const arr = val.map((item) => sanitizeObjectForSandbox(item, seen));
+          Object.setPrototypeOf(arr, null);
+          Object.defineProperty(arr, 'constructor', { value: undefined, writable: false, configurable: false });
+          return arr;
+        }
+
+        const clean = Object.create(null);
+        for (const [k, v] of Object.entries(val)) {
+          clean[k] = sanitizeObjectForSandbox(v, seen);
+        }
+        Object.defineProperty(clean, 'constructor', { value: undefined, writable: false, configurable: false });
+        return clean;
+      };
+
+      (async () => {
+        try {
+          const { wrappedCode, cleanParams, cleanContext } = workerData;
+          const sanitizedParams = sanitizeObjectForSandbox(cleanParams);
+          const sanitizedContext = sanitizeObjectForSandbox(cleanContext);
+
+          const safeBufferProto = Object.create(null);
+          for (const key of Object.getOwnPropertyNames(Buffer.prototype)) {
+            if (key === 'constructor') continue;
+            try {
+              const desc = Object.getOwnPropertyDescriptor(Buffer.prototype, key);
+              if (desc) Object.defineProperty(safeBufferProto, key, desc);
+            } catch {}
+          }
+          Object.defineProperty(safeBufferProto, 'constructor', { value: undefined, writable: false, configurable: false });
+          Object.freeze(safeBufferProto);
+
+          const safeBuffer = Object.create(null);
+          safeBuffer.from = (...args) => {
+            const b = Buffer.from(...args);
+            Object.setPrototypeOf(b, safeBufferProto);
+            return b;
+          };
+          safeBuffer.alloc = (...args) => {
+            const b = Buffer.alloc(...args);
+            Object.setPrototypeOf(b, safeBufferProto);
+            return b;
+          };
+          safeBuffer.isBuffer = (obj) => Buffer.isBuffer(obj);
+          safeBuffer.byteLength = (...args) => Buffer.byteLength(...args);
+          safeBuffer.concat = (...args) => {
+            const b = Buffer.concat(...args);
+            Object.setPrototypeOf(b, safeBufferProto);
+            return b;
+          };
+          Object.defineProperty(safeBuffer, 'constructor', { value: undefined, writable: false, configurable: false });
+          Object.freeze(safeBuffer);
+
+          const sandbox = Object.create(null);
+          sandbox.params = sanitizedParams;
+          sandbox.input = sanitizedParams;
+          sandbox.context = sanitizedContext;
+          sandbox.executionContext = sanitizedContext;
+          sandbox.module = Object.create(null);
+          sandbox.module.exports = Object.create(null);
+          sandbox.exports = Object.create(null);
+          sandbox.result = undefined;
+          sandbox.Buffer = safeBuffer;
+          sandbox.setTimeout = setTimeout;
+          sandbox.clearTimeout = clearTimeout;
+          sandbox.console = Object.freeze({ log: () => {}, warn: () => {}, error: () => {} });
+          Object.defineProperty(sandbox, 'constructor', { value: undefined, writable: false, configurable: false });
+
+          const context = vm.createContext(sandbox);
+          try {
+            vm.runInContext(
+              'try {' +
+              '  Object.freeze(Object.prototype);' +
+              '  Object.freeze(Function.prototype);' +
+              '  const AsyncFunction = (async function () {}).constructor;' +
+              '  if (AsyncFunction) Object.freeze(AsyncFunction.prototype);' +
+              '  const GeneratorFunction = (function* () {}).constructor;' +
+              '  if (GeneratorFunction) Object.freeze(GeneratorFunction.prototype);' +
+              '  Object.freeze(Array.prototype);' +
+              '  Object.freeze(Promise.prototype);' +
+              '  Object.freeze(Error.prototype);' +
+              '  Object.freeze(String.prototype);' +
+              '  Object.freeze(Number.prototype);' +
+              '  Object.freeze(Boolean.prototype);' +
+              '} catch (_) {}',
+              context
+            );
+          } catch (_) {}
+
+          const script = new vm.Script(wrappedCode);
+          const output = await script.runInContext(context);
+          parentPort.postMessage({ success: true, output });
+        } catch (err) {
+          parentPort.postMessage({ success: false, error: err?.message || String(err) });
+        }
+      })();
+    `;
+
     try {
-      context = this.createSandboxContext(params, executionContext, abortController.signal);
-      const wrappedCode = `
-        (async () => {
-          ${skill.handlerCode}
-          if (typeof module !== 'undefined' && typeof module.exports === 'function') {
-            return await module.exports(params, executionContext);
-          }
-          if (typeof module !== 'undefined' && typeof module.exports?.run === 'function') {
-            return await module.exports.run(params, executionContext);
-          }
-          if (typeof run === 'function') {
-            return await run(params, executionContext);
-          }
-          if (typeof handler === 'function') {
-            return await handler(params, executionContext);
-          }
-          if (typeof execute === 'function') {
-            return await execute(params, executionContext);
-          }
-          return typeof result !== 'undefined' ? result : (typeof module !== 'undefined' && module.exports && Object.keys(module.exports).length > 0 ? module.exports : { executed: true });
-        })()
-      `;
+      const safeParams = sanitizeForWorker(params);
+      const safeContext = sanitizeForWorker(executionContext);
 
-      const script = new vm.Script(wrappedCode);
-      const vmTimeout = Math.min(timeoutMs, 10000);
-      const executionPromise = script.runInContext(context, { timeout: vmTimeout, breakOnSigint: true });
+      activeWorker = new Worker(workerScript, {
+        eval: true,
+        workerData: {
+          wrappedCode,
+          cleanParams: safeParams,
+          cleanContext: safeContext,
+        },
+      });
 
-      const timeoutPromise = new Promise((_, reject) => {
+      const workerPromise = new Promise<any>((resolve, reject) => {
+        activeWorker!.on('message', (msg) => {
+          if (msg.success) {
+            resolve(msg.output);
+          } else {
+            reject(new Error(msg.error || 'Skill execution failed'));
+          }
+        });
+        activeWorker!.on('error', (err) => reject(err));
+        activeWorker!.on('exit', (code) => {
+          if (code !== 0) {
+            reject(new Error(`Worker stopped with exit code ${code}`));
+          }
+        });
+      });
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
           const timeoutErr = new Error(`Skill execution timed out after ${timeoutMs}ms`);
           abortController.abort(timeoutErr);
@@ -524,10 +678,14 @@ export class SkillEngine {
       });
 
       const output = await Promise.race([
-        executionPromise,
+        workerPromise,
         timeoutPromise,
       ]).finally(() => {
         if (timer) clearTimeout(timer);
+        if (activeWorker) {
+          try { activeWorker.terminate(); } catch {}
+          activeWorker = null;
+        }
       });
 
       return {
@@ -543,6 +701,10 @@ export class SkillEngine {
       };
     } finally {
       if (timer) clearTimeout(timer);
+      if (activeWorker) {
+        try { activeWorker.terminate(); } catch {}
+        activeWorker = null;
+      }
     }
   }
 

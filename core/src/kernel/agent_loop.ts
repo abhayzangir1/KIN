@@ -47,6 +47,8 @@ export interface AgentLoopOptions {
   onRenewLease?: (taskId: string) => Promise<boolean> | boolean;
   onToken?: (token: string) => void;
   onThinkingToken?: (token: string) => void;
+  onModelUnavailable?: (modelId: string, error: string) => Promise<void> | void;
+  modelGateway?: any;
   taskRepo?: any;
   decisionRepo?: any;
   checkTakeoverStatus?: () => 'continue' | 'pause' | 'abort';
@@ -78,6 +80,10 @@ export interface AgentLoopResult {
   quotaResetAt?: number;
   interruptedTurn?: number;
   checkpointSaved?: boolean;
+  isError?: boolean;
+  isModelUnavailable?: boolean;
+  modelId?: string;
+  error?: string;
   success?: boolean;
   interrupted?: boolean;
   reason?: string;
@@ -483,13 +489,16 @@ export class AgentLoopRunner {
             }))
           : undefined;
 
-        response = await this.modelGateway.invoke({
+        const effectiveGateway = options.modelGateway || this.modelGateway;
+        response = await effectiveGateway.invoke({
           modelId: currentModelId,
-          fallbackModelId: options.fallbackModelId,
+          fallbackModelId: undefined,
+          disableFallback: true,
           messages: conversationHistory,
           tools: formattedTools,
           onToken: options.onToken,
           onThinkingToken: options.onThinkingToken,
+          callerAgentId: options.agentId,
           signal: abortSignal,
         });
 
@@ -588,7 +597,20 @@ export class AgentLoopRunner {
             checkpointSaved: true,
           };
         }
-        throw err;
+        if (options.onModelUnavailable) {
+          try {
+            await options.onModelUnavailable(currentModelId, errMsg);
+          } catch {}
+        }
+        return {
+          finalContent: `⚠️ Execution halted: The selected model "${currentModelId}" is unavailable.\n\nError: ${errMsg}\n\nOperator Action Required: Automatic fallback is disabled to prevent silent model changes. Please update your provider credentials in Settings or choose an alternative model in the Model Selector.`,
+          turnCount: currentTurn,
+          actions,
+          isError: true,
+          isModelUnavailable: true,
+          modelId: currentModelId,
+          error: errMsg,
+        };
       } finally {
         if (watchdogTimer) {
           clearInterval(watchdogTimer);
@@ -629,6 +651,24 @@ export class AgentLoopRunner {
           quotaResetAt: resetAt,
           interruptedTurn: currentTurn,
           checkpointSaved: true,
+        };
+      }
+
+      if (response.isError) {
+        const errorDetail = response.content || `Selected model "${currentModelId}" returned an error.`;
+        if (options.onModelUnavailable) {
+          try {
+            await options.onModelUnavailable(currentModelId, errorDetail);
+          } catch {}
+        }
+        return {
+          finalContent: `⚠️ Execution halted: The selected model "${currentModelId}" is unavailable.\n\nError: ${errorDetail}\n\nOperator Action Required: Automatic fallback is disabled to prevent unexpected costs or degraded responses. Please configure your provider API key in Settings or choose an alternative model in the Model Selector.`,
+          turnCount: currentTurn,
+          actions,
+          isError: true,
+          isModelUnavailable: true,
+          modelId: currentModelId,
+          error: errorDetail,
         };
       }
 
@@ -1460,15 +1500,23 @@ To delegate or coordinate with another specialist:
       return null;
     };
 
+    const strippedContent = content
+      .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
+      .replace(/<thought>[\s\S]*?<\/thought>/gi, '');
+
+    // For prompt injection immunity: strip markdown blockquotes (lines starting with >)
+    // as they represent quoted/untrusted context and should never be extracted as tool invocations.
+    const nonQuotedContent = strippedContent.replace(/^[ \t]*>.*$/gm, '');
+
     // 1. Explicit tags: <tool_call> or <tool> or <function_call>
-    const tagMatch = content.match(/<(tool_call|tool|function_call)>([\s\S]*?)(?:<\/\1>|$)/i);
+    const tagMatch = nonQuotedContent.match(/<(tool_call|tool|function_call)>([\s\S]*?)(?:<\/\1>|$)/i);
     if (tagMatch) {
       const res = parseJsonPayload(tagMatch[2], false, validTools);
       if (res) return res;
     }
 
     // 2. Markdown code fences
-    const codeBlockMatches = content.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi);
+    const codeBlockMatches = nonQuotedContent.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi);
     for (const match of codeBlockMatches) {
       const block = match[1].trim();
       if (block.includes('"name"') || block.includes('"tool"') || block.includes("'name'") || block.includes("'tool'")) {
@@ -1478,7 +1526,7 @@ To delegate or coordinate with another specialist:
     }
 
     // 3. Balanced JSON blocks anywhere in content (handles raw JSON with any key ordering or surrounding text)
-    const blocks = extractBalancedJsonBlocks(content);
+    const blocks = extractBalancedJsonBlocks(nonQuotedContent);
     for (const block of blocks) {
       if (block.includes('"name"') || block.includes('"tool"') || block.includes("'name'") || block.includes("'tool'")) {
         const res = parseJsonPayload(block, true, validTools);

@@ -7,6 +7,7 @@
 import * as http from 'node:http';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
 import * as childProcess from 'node:child_process';
 import * as crypto from 'node:crypto';
 import { AgentDefinition, AgentIdentity, Channel, Goal, Task, TaskStatus, Decision, DecisionStatus, AgentEvaluation, ManagedCredential } from '../domain/types.js';
@@ -191,21 +192,32 @@ export class CoreServer {
       apiKeyResolver: (provider: string, callerAgentId?: string) => {
         try {
           const rows = this.db.query<any>(
-            'SELECT id, secret_hash, scoped_grants_json FROM managed_credentials WHERE provider = ? AND is_active = 1 ORDER BY updated_at DESC',
+            'SELECT id, secret_hash, scoped_grants_json, max_spend_tokens, current_spend_tokens FROM managed_credentials WHERE provider = ? AND is_active = 1 ORDER BY updated_at DESC',
             provider
           );
           for (const row of rows) {
             if (row && row.secret_hash) {
+              // Enforce spend cap
+              if (
+                typeof row.max_spend_tokens === 'number' &&
+                row.max_spend_tokens > 0 &&
+                typeof row.current_spend_tokens === 'number' &&
+                row.current_spend_tokens >= row.max_spend_tokens
+              ) {
+                continue;
+              }
               if (callerAgentId && row.scoped_grants_json) {
                 try {
                   const grants: string[] = JSON.parse(row.scoped_grants_json);
-                  if (Array.isArray(grants) && grants.length > 0 && !grants.includes(callerAgentId)) {
+                  if (Array.isArray(grants) && grants.length > 0 && !grants.includes(callerAgentId) && !grants.includes('*')) {
                     continue;
                   }
                 } catch {}
               }
               lastResolvedCredIdByProvider.set(provider, row.id);
-              return row.secret_hash;
+              const vault = SecretVault.getInstance();
+              const decrypted = vault.decrypt(row.secret_hash);
+              return decrypted || row.secret_hash;
             }
           }
         } catch {}
@@ -215,6 +227,8 @@ export class CoreServer {
         if (provider === 'deepseek') return process.env.DEEPSEEK_API_KEY;
         if (provider === 'gemini') return process.env.GEMINI_API_KEY;
         if (provider === 'groq') return process.env.GROQ_API_KEY;
+        if (provider === 'xai') return process.env.XAI_API_KEY;
+        if (provider === 'azure') return process.env.AZURE_OPENAI_API_KEY || process.env.AZURE_API_KEY;
         return undefined;
       },
       onUsage: (provider: string, tokensUsed: { totalTokens: number }) => {
@@ -767,17 +781,30 @@ export class CoreServer {
         for (const item of recovered) {
           try {
             // Unblock active in-memory execution and takeover gates
+            const abortCtrl = this.runAbortControllers.get(item.id);
+            if (abortCtrl) {
+              try { abortCtrl.abort(new Error(`Supervisor self-healing aborted stale run ${item.id}`)); } catch {}
+              this.runAbortControllers.delete(item.id);
+            }
             this.activeAgentExecutions.delete(item.agentId);
             this.takeoverStates.delete(item.id);
             this.broadcastEvent('agent:state', { agentId: item.agentId, status: 'idle' });
 
-            // Unblock any task associated with the crashed run
+            // Unblock any task associated with the crashed run, bound by retry cap
             if (item.taskId) {
               try {
                 const currentTask = this.taskRepo.getTask(item.taskId);
                 if (currentTask && (currentTask.status === 'running' || currentTask.status === 'ready')) {
-                  this.taskRepo.updateTaskStatus(item.taskId, 'ready');
-                  this.broadcastEvent('task:updated', { taskId: item.taskId, status: 'ready' });
+                  const retryCount = (currentTask.retryCount ?? 0) + 1;
+                  if (retryCount >= 5) {
+                    this.taskRepo.updateTaskStatus(item.taskId, 'review');
+                    this.db.execute('UPDATE tasks SET retry_count = ?, updated_at = ? WHERE id = ?', retryCount, Date.now(), item.taskId);
+                    this.broadcastEvent('task:updated', { taskId: item.taskId, status: 'review' });
+                  } else {
+                    this.taskRepo.updateTaskStatus(item.taskId, 'ready');
+                    this.db.execute('UPDATE tasks SET retry_count = ?, updated_at = ? WHERE id = ?', retryCount, Date.now(), item.taskId);
+                    this.broadcastEvent('task:updated', { taskId: item.taskId, status: 'ready' });
+                  }
                 }
               } catch {}
             }
@@ -1822,21 +1849,32 @@ export class CoreServer {
     res.end(JSON.stringify(data));
   }
 
-  private async parseJsonBody<T>(req: http.IncomingMessage, maxBytes = 50 * 1024 * 1024): Promise<T> {
+  private getEffectiveAutonomyMode(): any {
+    try {
+      const ws = this.workspaceRepo.getWorkspace('ws-default');
+      if (ws && ws.defaultAutonomyMode) {
+        return ws.defaultAutonomyMode;
+      }
+    } catch {}
+    return 'AUTO';
+  }
+
+  private async parseJsonBody<T>(req: http.IncomingMessage, maxBytes = 2 * 1024 * 1024): Promise<T> {
     return new Promise((resolve, reject) => {
-      let body = '';
+      const chunks: Buffer[] = [];
       let receivedBytes = 0;
-      req.on('data', (chunk) => {
+      req.on('data', (chunk: Buffer) => {
         receivedBytes += chunk.length;
         if (receivedBytes > maxBytes) {
           req.destroy(new Error('Payload too large'));
           return reject(new Error('Payload too large'));
         }
-        body += chunk;
+        chunks.push(chunk);
       });
       req.on('end', () => {
         try {
-          resolve(body ? JSON.parse(body) : ({} as T));
+          const bodyStr = Buffer.concat(chunks).toString('utf-8');
+          resolve(bodyStr ? JSON.parse(bodyStr) : ({} as T));
         } catch (e) {
           reject(new Error('Invalid JSON payload'));
         }
@@ -1866,7 +1904,16 @@ export class CoreServer {
       const bearerToken = typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
       const providedToken = bearerToken || xIpcToken || queryToken;
 
-      if (providedToken !== this.ipcAuthToken) {
+      let isAuthorized = false;
+      if (providedToken && typeof providedToken === 'string') {
+        const provBuf = Buffer.from(providedToken);
+        const authBuf = Buffer.from(this.ipcAuthToken);
+        if (provBuf.length === authBuf.length && crypto.timingSafeEqual(provBuf, authBuf)) {
+          isAuthorized = true;
+        }
+      }
+
+      if (!isAuthorized) {
         this.sendJson(res, 401, { error: 'Unauthorized: Valid IPC token required' }, req);
         return;
       }
@@ -1946,7 +1993,7 @@ export class CoreServer {
           }
         }
         
-        const providers = ['ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'custom'];
+        const providers = ['ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure', 'custom'];
         const providerReadiness: Record<string, any> = {};
         for (const p of providers) {
           if (p === 'ollama') {
@@ -1964,9 +2011,11 @@ export class CoreServer {
           }
         }
 
+        const standardProviders = new Set(['ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure']);
+
         // 2. Stored / discovered provider models
         for (const sm of storedModels) {
-          const isCustom = sm.provider_id === 'custom';
+          const isCustom = sm.provider_id === 'custom' || !standardProviders.has(sm.provider_id);
           const provReadiness = isCustom
             ? { configured: true, validated: true }
             : (providerReadiness[sm.provider_id] || { configured: false, validated: false });
@@ -1977,6 +2026,18 @@ export class CoreServer {
           if (omitUnconfigured && (!isConfigured || !isValidated)) {
             continue;
           }
+          const isReasoning = Boolean(
+            sm.supports_reasoning ??
+            (sm.id.includes('r1') ||
+             sm.id.includes('o1') ||
+             sm.id.includes('o3') ||
+             sm.id.includes('reason') ||
+             sm.id.includes('thinking') ||
+             sm.id.includes('claude-3-7') ||
+             sm.id.includes('grok-2') ||
+             sm.name?.toLowerCase().includes('reasoning') ||
+             sm.name?.toLowerCase().includes('r1'))
+          );
           modelMap.set(sm.id, {
             id: sm.id,
             name: sm.name,
@@ -1985,6 +2046,7 @@ export class CoreServer {
             maxOutputTokens: sm.max_output_tokens,
             supportsTools: Boolean(sm.supports_tools),
             supportsVision: Boolean(sm.supports_vision),
+            supportsReasoning: isReasoning,
             isFree: sm.id.includes(':free'),
             isCustom: isCustom,
             configured: isConfigured,
@@ -2005,7 +2067,21 @@ export class CoreServer {
             const providerModels = await this.modelGateway.fetchProviderModels(provName, undefined, { omitUnconfigured });
             for (const pm of providerModels) {
               if (!modelMap.has(pm.id)) {
-                modelMap.set(pm.id, pm);
+                modelMap.set(pm.id, {
+                  ...pm,
+                  supportsReasoning: Boolean(
+                    pm.supportsReasoning ??
+                    (pm.id.includes('r1') ||
+                     pm.id.includes('o1') ||
+                     pm.id.includes('o3') ||
+                     pm.id.includes('reason') ||
+                     pm.id.includes('thinking') ||
+                     pm.id.includes('claude-3-7') ||
+                     pm.id.includes('grok-2') ||
+                     pm.name?.toLowerCase().includes('reasoning') ||
+                     pm.name?.toLowerCase().includes('r1'))
+                  ),
+                });
               }
             }
           }
@@ -2028,6 +2104,17 @@ export class CoreServer {
               ...dm,
               configured: false,
               validated: false,
+              supportsReasoning: Boolean(
+                dm.supportsReasoning ??
+                (dm.id.includes('r1') ||
+                 dm.id.includes('o1') ||
+                 dm.id.includes('o3') ||
+                 dm.id.includes('reason') ||
+                 dm.id.includes('thinking') ||
+                 dm.id.includes('claude-3-7') ||
+                 dm.name?.toLowerCase().includes('reasoning') ||
+                 dm.name?.toLowerCase().includes('r1'))
+              ),
             });
           }
         }
@@ -2050,7 +2137,7 @@ export class CoreServer {
 
       // 2b. GET /api/models/readiness or /api/system/models/readiness — Provider Readiness States
       if (req.method === 'GET' && (pathname === '/api/models/readiness' || pathname === '/api/system/models/readiness')) {
-        const providers = ['ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'custom'];
+        const providers = ['ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure', 'custom'];
         const readiness: Record<string, any> = {};
         for (const p of providers) {
           readiness[p] = await this.modelGateway.checkProviderReadiness(p);
@@ -2060,12 +2147,30 @@ export class CoreServer {
 
       // 2c. POST /api/models/discover — Live discovery of provider models using API key
       if (req.method === 'POST' && pathname === '/api/models/discover') {
-        const body = await this.parseJsonBody<{ provider: string; apiKey?: string }>(req);
+        const body = await this.parseJsonBody<{ provider: string; apiKey?: string; baseUrl?: string }>(req);
         if (!body.provider) {
           return this.sendJson(res, 400, { error: 'provider is required' });
         }
+        if (body.baseUrl) {
+          this.modelGateway.registerCustomProvider(body.provider, body.baseUrl, body.apiKey);
+        }
         const discovered = await this.modelGateway.fetchProviderModels(body.provider, body.apiKey);
         const now = Date.now();
+        const validTypes = ['ollama', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'openrouter', 'custom'];
+        const pType = validTypes.includes(body.provider.toLowerCase()) ? body.provider.toLowerCase() : 'custom';
+        try {
+          this.db.execute(
+            `INSERT OR IGNORE INTO providers (id, name, provider_type, base_url, api_key_ref, is_active, created_at)
+             VALUES (?, ?, ?, ?, ?, 1, ?)`,
+            body.provider,
+            body.provider,
+            pType,
+            body.baseUrl || null,
+            body.apiKey || null,
+            now
+          );
+        } catch {}
+
         for (const m of discovered) {
           try {
             this.db.execute(
@@ -2084,6 +2189,50 @@ export class CoreServer {
         }
         this.broadcastEvent('models:updated', { provider: body.provider, count: discovered.length });
         return this.sendJson(res, 200, { success: true, count: discovered.length, models: discovered });
+      }
+
+      // 2e. POST /api/models/verify-key — Authoritative live verification of provider API key
+      if (req.method === 'POST' && pathname === '/api/models/verify-key') {
+        const body = await this.parseJsonBody<{ provider: string; apiKey?: string; baseUrl?: string }>(req);
+        if (!body.provider) {
+          return this.sendJson(res, 400, { error: 'provider is required' });
+        }
+        const verification = await this.modelGateway.verifyProviderConnection(body.provider, body.apiKey, body.baseUrl);
+        if (verification.working && verification.models.length > 0) {
+          const now = Date.now();
+          for (const m of verification.models) {
+            try {
+              this.db.execute(
+                `INSERT OR REPLACE INTO models (id, provider_id, name, context_window, max_output_tokens, supports_tools, supports_vision, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                m.id,
+                m.provider || body.provider,
+                m.name || m.id,
+                m.contextWindow || 128000,
+                m.maxOutputTokens || 4096,
+                m.supportsTools ? 1 : 0,
+                m.supportsVision ? 1 : 0,
+                now
+              );
+            } catch {}
+          }
+          this.broadcastEvent('models:updated', { provider: body.provider, count: verification.models.length });
+        } else if (!verification.working) {
+          try {
+            this.db.execute('DELETE FROM models WHERE provider_id = ?', body.provider);
+            this.modelGateway.invalidateProvider(body.provider);
+            this.broadcastEvent('models:updated', { provider: body.provider, count: 0 });
+          } catch {}
+        }
+        return this.sendJson(res, 200, {
+          success: verification.working,
+          working: verification.working,
+          valid: verification.valid,
+          provider: body.provider,
+          message: verification.message,
+          modelCount: verification.modelCount,
+          models: verification.models,
+        });
       }
 
       // 2d. POST /api/models/custom — User-defined custom model ID registration
@@ -2173,7 +2322,7 @@ export class CoreServer {
           toolName,
           params,
           riskLevel: 'LOW',
-          autonomyMode: 'FULL_ACCESS',
+          autonomyMode: this.getEffectiveAutonomyMode(),
           agentCapabilities: ['*'],
           authorizationToken: approvalToken,
         });
@@ -2231,12 +2380,15 @@ export class CoreServer {
 
         const approvalToken = (req.headers['x-kin-approval-token'] as string) || body.approvalToken;
         const sentinel = Sentinel.getInstance();
+        const effectiveAutonomy = this.getEffectiveAutonomyMode();
+        const destructive = sentinel.isDestructiveAction('executeShell', { command: body.command, cwd: workingDir });
+        const riskLevel = destructive.isDestructive ? 'HIGH' : (effectiveAutonomy === 'ALWAYS_ASK' ? 'HIGH' : 'LOW');
         const decision = sentinel.evaluate({
           agentId: 'operator',
           toolName: 'executeShell',
           params: { command: body.command, cwd: workingDir },
-          riskLevel: 'HIGH',
-          autonomyMode: 'FULL_ACCESS',
+          riskLevel,
+          autonomyMode: effectiveAutonomy,
           agentCapabilities: ['*'],
           authorizationToken: approvalToken,
         });
@@ -2297,6 +2449,15 @@ export class CoreServer {
           return this.sendJson(res, 400, { error: 'Project name is required' });
         }
 
+        const rawRepoPath = body.repoPath?.trim();
+        if (rawRepoPath) {
+          const trimmed = rawRepoPath.replace(/\\/g, '/');
+          if (trimmed === '/' || /^[a-zA-Z]:\/?$/.test(trimmed)) {
+            return this.sendJson(res, 400, { error: 'Repository path cannot be the root filesystem.' });
+          }
+        }
+        const repoPath = rawRepoPath ? rawRepoPath : path.resolve(process.cwd(), body.name.trim());
+
         const id = `proj-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
         const now = Date.now();
         const workspaceId = 'ws-default';
@@ -2304,7 +2465,7 @@ export class CoreServer {
           id,
           workspaceId,
           name: body.name.trim(),
-          repoPath: body.repoPath?.trim() || `D:\\${body.name.trim()}`,
+          repoPath,
           settings: { defaultBranch: 'main' },
           createdAt: now,
           updatedAt: now,
@@ -2708,8 +2869,10 @@ export class CoreServer {
           .filter(Boolean)
           .map((a) => {
             const def = this.agentRepo.getDefinition(a!.definitionId);
+            const chanModelOverride = this.memoryRepo.getMemory('channel', channelId, `agent_model:${a!.id}`)?.value as string | undefined;
+            const effectiveModel = chanModelOverride || a!.activeModelId;
             const { modelAvailable, modelStatus } = this.computeModelAvailability(
-              a!.activeModelId,
+              effectiveModel,
               ollamaInfo,
               configuredProviders,
               activeCreds.length
@@ -2720,7 +2883,7 @@ export class CoreServer {
               name: def?.name ?? a!.displayName,
               role: def?.role ?? (a!.isOrchestrator ? 'Workspace Orchestrator' : 'Specialist'),
               displayName: a!.displayName,
-              activeModelId: a!.activeModelId,
+              activeModelId: effectiveModel,
               fallbackModelId: a!.fallbackModelId,
               systemPrompt: def?.systemPrompt,
               status: 'idle',
@@ -3335,10 +3498,10 @@ export class CoreServer {
 
         // Persist message
         let senderType: 'human' | 'agent' | 'system' = 'human';
-        if (body.senderType === 'agent' || body.senderId?.startsWith('agent-')) {
+        if (body.senderType === 'system') {
+          return this.sendJson(res, 400, { error: "External requests cannot forge senderType 'system'" });
+        } else if (body.senderType === 'agent' || body.senderId?.startsWith('agent-')) {
           senderType = 'agent';
-        } else if (body.senderType === 'system') {
-          senderType = 'system';
         } else {
           senderType = 'human';
         }
@@ -3347,6 +3510,9 @@ export class CoreServer {
 
         // Resolve [📎 filename] attachments in .kin/uploads/
         let effectiveContent = body.content.trim();
+        if (effectiveContent.length > 65536) {
+          return this.sendJson(res, 400, { error: 'Message content exceeds maximum allowed length of 65536 characters' });
+        }
         const attachmentMatches = Array.from(effectiveContent.matchAll(/\[📎\s*([^\]]+)\]/g));
         if (attachmentMatches.length > 0) {
           const project = this.workspaceRepo.getProject(targetProjectId);
@@ -5772,17 +5938,134 @@ Format strictly as JSON:
       // 11. PATCH /api/agents/:agentId/model — Explicit per-agent model update
       const agentModelMatch = pathname.match(/^\/api\/agents\/([^/]+)\/model$/);
       if (req.method === 'PATCH' && agentModelMatch) {
-        const agentId = agentModelMatch[1];
-        const body = await this.parseJsonBody<{ activeModelId?: string; model?: string; fallbackModelId?: string }>(req);
+        const rawAgentId = decodeURIComponent(agentModelMatch[1]);
+        const body = await this.parseJsonBody<{ activeModelId?: string; model?: string; fallbackModelId?: string; projectId?: string; channelId?: string }>(req);
         const activeModelId = body.activeModelId || body.model;
 
         if (!activeModelId) {
           return this.sendJson(res, 400, { error: 'activeModelId or model is required' });
         }
 
-        this.agentRepo.updateAgentModelConfig(agentId, activeModelId, body.fallbackModelId);
-        this.broadcastEvent('agent:updated', { agentId, activeModelId });
-        return this.sendJson(res, 200, { success: true, agentId, activeModelId });
+        const urlObj = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
+        const targetProjId = body.projectId || urlObj.searchParams.get('projectId') || this.activeProjectId;
+        let identity = this.agentRepo.getIdentity(rawAgentId);
+        if (!identity || (targetProjId && identity.projectId && identity.projectId !== targetProjId)) {
+          const projAgents = this.agentRepo.listIdentitiesByProject(targetProjId);
+          const found = projAgents.find(
+            (a) => a.id === rawAgentId ||
+                   a.displayName.toLowerCase() === rawAgentId.toLowerCase() ||
+                   a.displayName.toLowerCase() === `@${rawAgentId.toLowerCase()}` ||
+                   (rawAgentId.toLowerCase().includes('boss') && a.isOrchestrator)
+          );
+          if (found) {
+            identity = found;
+          }
+        }
+
+        if (!identity) {
+          return this.sendJson(res, 404, { error: 'Agent not found' });
+        }
+
+        // Concurrency Guard: Block model switching if agent is actively running/thinking
+        if (this.activeAgentExecutions.has(identity.id)) {
+          return this.sendJson(res, 409, { error: `Model switching is blocked while agent @${identity.displayName} is actively working` });
+        }
+
+        this.agentRepo.updateAgentModelConfig(identity.id, activeModelId, body.fallbackModelId);
+
+        // If channel-specific override was provided, persist to channel memory
+        if (body.channelId && !body.channelId.startsWith('dm-')) {
+          this.memoryRepo.setMemory({
+            scope: 'channel',
+            scopeId: body.channelId,
+            key: `agent_model:${identity.id}`,
+            type: 'preference',
+            value: activeModelId,
+          });
+        }
+
+        this.broadcastEvent('agent:updated', { agentId: identity.id, activeModelId, projectId: identity.projectId, channelId: body.channelId });
+        return this.sendJson(res, 200, { success: true, agentId: identity.id, activeModelId, projectId: identity.projectId, channelId: body.channelId });
+      }
+
+      // 11b. PATCH /api/agents/:agentId — Direct per-agent model & contract update
+      const agentDirectMatch = pathname.match(/^\/api\/agents\/([^/]+)$/);
+      if (req.method === 'PATCH' && agentDirectMatch) {
+        const rawAgentId = decodeURIComponent(agentDirectMatch[1]);
+        const body = await this.parseJsonBody<{
+          activeModelId?: string;
+          model?: string;
+          fallbackModelId?: string;
+          roleTitle?: string;
+          role?: string;
+          systemPrompt?: string;
+          capabilities?: string[];
+          projectId?: string;
+          channelId?: string;
+        }>(req);
+
+        const urlObj = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
+        const targetProjId = body.projectId || urlObj.searchParams.get('projectId') || this.activeProjectId;
+        let identity = this.agentRepo.getIdentity(rawAgentId);
+        if (!identity || (targetProjId && identity.projectId && identity.projectId !== targetProjId)) {
+          const projAgents = this.agentRepo.listIdentitiesByProject(targetProjId);
+          const found = projAgents.find(
+            (a) => a.id === rawAgentId ||
+                   a.displayName.toLowerCase() === rawAgentId.toLowerCase() ||
+                   a.displayName.toLowerCase() === `@${rawAgentId.toLowerCase()}` ||
+                   (rawAgentId.toLowerCase().includes('boss') && a.isOrchestrator)
+          );
+          if (found) {
+            identity = found;
+          }
+        }
+
+        if (!identity) {
+          return this.sendJson(res, 404, { error: 'Agent not found' });
+        }
+
+        const activeModelId = body.activeModelId || body.model;
+        if (activeModelId) {
+          // Concurrency Guard: Block model switching if agent is actively running/thinking
+          if (this.activeAgentExecutions.has(identity.id)) {
+            return this.sendJson(res, 409, { error: `Model switching is blocked while agent @${identity.displayName} is actively working` });
+          }
+          this.agentRepo.updateAgentModelConfig(identity.id, activeModelId, body.fallbackModelId);
+
+          if (body.channelId && !body.channelId.startsWith('dm-')) {
+            this.memoryRepo.setMemory({
+              scope: 'channel',
+              scopeId: body.channelId,
+              key: `agent_model:${identity.id}`,
+              type: 'preference',
+              value: activeModelId,
+            });
+          }
+        }
+
+        const role = body.roleTitle || body.role;
+        if (role || body.systemPrompt) {
+          const def = this.agentRepo.getDefinition(identity.definitionId);
+          if (def) {
+            this.db.execute(
+              `UPDATE agent_definitions SET role = ?, system_prompt = ? WHERE id = ?`,
+              role || def.role,
+              body.systemPrompt || def.systemPrompt,
+              identity.definitionId
+            );
+          }
+        }
+
+        if (body.capabilities && Array.isArray(body.capabilities)) {
+          this.db.execute(
+            `UPDATE agent_definitions SET capabilities_json = ? WHERE id = ?`,
+            JSON.stringify(body.capabilities),
+            identity.definitionId
+          );
+        }
+
+        this.broadcastEvent('agent:updated', { agentId: identity.id, activeModelId: activeModelId || identity.activeModelId, projectId: identity.projectId, channelId: body.channelId, ...body });
+        return this.sendJson(res, 200, { success: true, agentId: identity.id, activeModelId: activeModelId || identity.activeModelId, projectId: identity.projectId, channelId: body.channelId });
       }
 
       // 12. PATCH /api/agents/:agentId/contract — Update agent role title and instructions
@@ -5826,9 +6109,10 @@ Format strictly as JSON:
 
       // 13. PATCH /api/workspace/autonomy — Update autonomy mode
       if ((req.method === 'PATCH' || req.method === 'POST') && pathname === '/api/workspace/autonomy') {
-        const body = await this.parseJsonBody<{ autonomyMode: 'AUTO' | 'ALWAYS_ASK' | 'FULL_ACCESS' }>(req);
-        if (!body.autonomyMode) {
-          return this.sendJson(res, 400, { error: 'autonomyMode is required' });
+        const body = await this.parseJsonBody<{ autonomyMode: string }>(req);
+        const validModes = ['AUTO', 'ALWAYS_ASK', 'FULL_ACCESS', 'READ_ONLY'];
+        if (!body.autonomyMode || !validModes.includes(body.autonomyMode)) {
+          return this.sendJson(res, 400, { error: `Invalid autonomyMode '${body?.autonomyMode}'. Allowed values: ${validModes.join(', ')}` });
         }
 
         this.db.execute(
@@ -5836,6 +6120,15 @@ Format strictly as JSON:
           body.autonomyMode,
           Date.now()
         );
+
+        try {
+          EventLedger.getInstance().record({
+            eventType: 'workspace.autonomy_updated',
+            entityType: 'workspace',
+            entityId: 'ws-default',
+            payload: { autonomyMode: body.autonomyMode },
+          });
+        } catch {}
 
         this.broadcastEvent('autonomy:updated', { autonomyMode: body.autonomyMode });
         return this.sendJson(res, 200, { success: true, autonomyMode: body.autonomyMode });
@@ -5879,6 +6172,28 @@ Format strictly as JSON:
         const approvalId = approvalMatch[1];
         const body = await this.parseJsonBody<{ approved?: boolean; status?: string; decision?: string }>(req);
 
+        const approvalRow = this.db.queryOne<{
+          run_id: string;
+          agent_id: string;
+          tool_name: string;
+          action_payload_json: string;
+          status: string;
+          expires_at?: number;
+        }>('SELECT run_id, agent_id, tool_name, action_payload_json, status, expires_at FROM approvals WHERE id = ?', approvalId);
+
+        if (!approvalRow) {
+          return this.sendJson(res, 404, { error: `Approval '${approvalId}' not found.` });
+        }
+
+        if (approvalRow.status !== 'pending') {
+          return this.sendJson(res, 400, { error: `Approval '${approvalId}' is not pending (current status: '${approvalRow.status}').` });
+        }
+
+        if (approvalRow.expires_at && approvalRow.expires_at < Date.now()) {
+          this.db.execute(`UPDATE approvals SET status = 'expired', decided_at = ? WHERE id = ?`, Date.now(), approvalId);
+          return this.sendJson(res, 400, { error: `Approval '${approvalId}' has expired.` });
+        }
+
         const isApproved = body.approved === true || body.status === 'approved' || body.decision === 'approve';
         const status = isApproved ? 'approved' : 'rejected';
         const now = Date.now();
@@ -5890,12 +6205,19 @@ Format strictly as JSON:
           approvalId
         );
 
-        const approvalRow = this.db.queryOne<{
-          run_id: string;
-          agent_id: string;
-          tool_name: string;
-          action_payload_json: string;
-        }>('SELECT run_id, agent_id, tool_name, action_payload_json FROM approvals WHERE id = ?', approvalId);
+        try {
+          EventLedger.getInstance().record({
+            eventType: isApproved ? 'approval.granted' : 'approval.rejected',
+            entityType: 'approval',
+            entityId: approvalId,
+            payload: {
+              runId: approvalRow.run_id,
+              agentId: approvalRow.agent_id,
+              toolName: approvalRow.tool_name,
+              status,
+            },
+          });
+        } catch {}
 
         let toolExecutionResult: any = null;
         if (approvalRow) {
@@ -5909,9 +6231,10 @@ Format strictly as JSON:
           const payload = JSON.parse(approvalRow.action_payload_json || '{}');
           const preserved = this.preservedWorktrees.get(approvalId) || this.preservedWorktrees.get(approvalRow.run_id);
           const targetWorktree = preserved?.worktreePath || payload._worktreePath || payload.worktreePath;
-          const worktreeRoot = (targetWorktree && fs.existsSync(targetWorktree))
-            ? targetWorktree
-            : (run?.worktreePath && fs.existsSync(run.worktreePath) ? run.worktreePath : projectRoot);
+          let worktreeRoot = targetWorktree || run?.worktreePath;
+          if (!worktreeRoot) {
+            worktreeRoot = projectRoot;
+          }
 
           const cleanPayload = { ...payload };
           delete cleanPayload._worktreePath;
@@ -5932,6 +6255,9 @@ Format strictly as JSON:
             let toolError: string | undefined;
 
             try {
+              if (targetWorktree && !fs.existsSync(targetWorktree)) {
+                throw new Error(`Worktree path '${targetWorktree}' no longer exists on disk.`);
+              }
               const approvalToken = this.toolGateway.generateApprovalToken(
                 approvalRow.tool_name,
                 approvalRow.run_id,
@@ -5970,6 +6296,9 @@ Format strictly as JSON:
               });
             } catch (execErr: any) {
               this.preservedWorktrees.delete(approvalRow.run_id);
+              try {
+                this.db.execute(`UPDATE approvals SET status = 'failed', decided_at = ? WHERE id = ?`, Date.now(), approvalId);
+              } catch {}
               toolSuccess = false;
               toolError = execErr.message || String(execErr);
               toolExecutionResult = { success: false, error: toolError };
@@ -6471,17 +6800,24 @@ Format strictly as JSON:
               let runId = currentTask.claimedByRunId;
               if (!runId) {
                 const runRow = this.db.queryOne<{ id: string }>(
-                  'SELECT id FROM agent_runs WHERE project_id = ? ORDER BY created_at DESC LIMIT 1',
-                  this.activeProjectId
-                ) || this.db.queryOne<{ id: string }>(
-                  'SELECT id FROM agent_runs ORDER BY created_at DESC LIMIT 1'
+                  'SELECT id FROM agent_runs WHERE task_id = ? ORDER BY created_at DESC LIMIT 1',
+                  taskId
                 );
                 if (runRow) {
                   runId = runRow.id;
                 } else {
-                  return this.sendJson(res, 400, {
-                    error: 'Cannot sign off task: no associated run execution record found.',
-                  });
+                  runId = `run-operator-${taskId}`;
+                  try {
+                    this.db.execute(
+                      `INSERT OR IGNORE INTO agent_runs (id, agent_id, project_id, task_id, state, heartbeat_at, created_at)
+                       VALUES (?, 'agent-boss', ?, ?, 'completed', ?, ?)`,
+                      runId,
+                      this.activeProjectId,
+                      taskId,
+                      Date.now(),
+                      Date.now()
+                    );
+                  } catch {}
                 }
               }
 
@@ -7114,7 +7450,7 @@ Format strictly as JSON:
           filename: string;
           contentBase64: string;
           mimeType?: string;
-        }>(req);
+        }>(req, 50 * 1024 * 1024);
 
         if (!body.filename || !body.contentBase64) {
           return this.sendJson(res, 400, { error: 'filename and contentBase64 are required' });
@@ -7220,9 +7556,10 @@ Format strictly as JSON:
         }
 
         this.handleCors(res);
+        const safeFilename = path.basename(record.originalName || 'download').replace(/["\r\n\x00-\x1f]/g, '_');
         res.writeHead(200, {
           'Content-Type': record.mimeType || 'application/octet-stream',
-          'Content-Disposition': `attachment; filename="${record.originalName}"`,
+          'Content-Disposition': `attachment; filename="${safeFilename}"`,
           'Content-Length': fs.statSync(diskPath).size,
         });
         fs.createReadStream(diskPath).pipe(res);
@@ -7240,8 +7577,25 @@ Format strictly as JSON:
       // 30. POST /api/projects/:id/schedules
       if (req.method === 'POST' && schedulesMatch) {
         const projectId = schedulesMatch[1];
+        const proj = this.workspaceRepo.getProject(projectId);
+        if (!proj) {
+          return this.sendJson(res, 404, { error: `Project '${projectId}' not found` });
+        }
         const body = await this.parseJsonBody<any>(req);
         const { type, cronExpression, durationSeconds, targetAgentId, channelId, prompt, timerCondition } = body;
+
+        const validTypes = ['cron', 'timer', 'one_shot', 'oneshot'];
+        if (type && !validTypes.includes(type)) {
+          return this.sendJson(res, 400, { error: `Invalid schedule type '${type}'. Allowed types: 'cron', 'timer'.` });
+        }
+
+        if (targetAgentId && !this.agentRepo.getIdentity(targetAgentId)) {
+          return this.sendJson(res, 404, { error: `Target agent '${targetAgentId}' not found` });
+        }
+        if (channelId && !this.workspaceRepo.getChannel(channelId)) {
+          return this.sendJson(res, 404, { error: `Channel '${channelId}' not found` });
+        }
+
         let schedule;
         try {
           if (type === 'cron') {
@@ -7254,12 +7608,16 @@ Format strictly as JSON:
               maxIterations: body.maxIterations,
             });
           } else {
+            const dur = Number(durationSeconds) || 5;
+            if (dur <= 0) {
+              return this.sendJson(res, 400, { error: 'durationSeconds must be greater than 0' });
+            }
             schedule = this.scheduler.createOneShotTimer({
               projectId,
               channelId: channelId || 'chan-general',
               targetAgentId,
               prompt: prompt || 'Scheduled wakeup check',
-              durationSeconds: Number(durationSeconds) || 5,
+              durationSeconds: dur,
               timerCondition: timerCondition || 'never',
             });
           }
@@ -7419,6 +7777,9 @@ Format strictly as JSON:
         if (!body?.key || body?.value === undefined) {
           return this.sendJson(res, 400, { error: 'key and value are required' });
         }
+        if (typeof body.key === 'string' && body.key.startsWith('upload:')) {
+          return this.sendJson(res, 400, { error: "Forbidden: 'upload:' is a reserved memory key prefix" });
+        }
         const scope = body.scope || 'project';
         const scopeId = body.scopeId || this.activeProjectId;
 
@@ -7473,6 +7834,11 @@ Format strictly as JSON:
               if (fs.existsSync(parentResolved)) {
                 targetDir = parentResolved;
               }
+            }
+            const normDir = path.resolve(targetDir);
+            const rootPattern = /^([a-zA-Z]:[/\\]?|\/|\\)$/;
+            if (rootPattern.test(normDir)) {
+              return this.sendJson(res, 403, { error: `Forbidden: Skill import directory cannot be the filesystem root.` });
             }
             const dirResult = this.skillEngine.importSkillDirectory(targetDir);
             this.broadcastEvent('skill:imported', dirResult);
@@ -7608,6 +7974,29 @@ Format strictly as JSON:
         if (!targetRoot) {
           targetRoot = this.workspaceRepo.getProject(this.activeProjectId)?.repoPath || process.cwd();
         }
+
+        const normTarget = path.resolve(targetRoot);
+        const rootPattern = /^([a-zA-Z]:[/\\]?|\/|\\)$/;
+        if (rootPattern.test(normTarget)) {
+          return this.sendJson(res, 403, { error: `Forbidden: projectRoot '${targetRoot}' cannot be the filesystem root.` });
+        }
+        if (!fs.existsSync(normTarget)) {
+          return this.sendJson(res, 404, { error: `projectRoot '${targetRoot}' does not exist.` });
+        }
+
+        const registeredProjects = this.workspaceRepo.listProjects('ws-default');
+        const isAllowed = registeredProjects.some((p) => {
+          const pNorm = path.resolve(p.repoPath);
+          return normTarget === pNorm || (!path.relative(pNorm, normTarget).startsWith('..') && !path.isAbsolute(path.relative(pNorm, normTarget)));
+        }) || [process.cwd(), path.resolve(process.cwd(), '..'), os.tmpdir()].some((p) => {
+          const pNorm = path.resolve(p);
+          return normTarget === pNorm || (!path.relative(pNorm, normTarget).startsWith('..') && !path.isAbsolute(path.relative(pNorm, normTarget)));
+        });
+
+        if (!isAllowed) {
+          return this.sendJson(res, 403, { error: `Forbidden: projectRoot '${targetRoot}' is not within an allowed workspace boundary.` });
+        }
+
         const tools = await this.mcpClient.reloadProject(targetRoot);
         return this.sendJson(res, 200, { success: true, projectRoot: targetRoot, toolsCount: tools.length, tools });
       }
@@ -7624,14 +8013,15 @@ Format strictly as JSON:
         const target = body.appNameOrPath || body.name;
         if (!target) return this.sendJson(res, 400, { error: 'appNameOrPath is required' });
         const approvalToken = (req.headers['x-kin-approval-token'] as string) || body.approvalToken;
+        const autonomyMode = this.getEffectiveAutonomyMode();
         const sentinel = Sentinel.getInstance();
         const decision = sentinel.evaluate({
           agentId: 'operator',
           toolName: 'desktopLaunchApp',
           params: { appNameOrPath: target, args: body.args || [] },
-          riskLevel: 'MEDIUM',
-          autonomyMode: 'FULL_ACCESS',
-          agentCapabilities: ['*'],
+          riskLevel: 'HIGH',
+          autonomyMode,
+          agentCapabilities: ['desktopLaunchApp', 'desktopControl', '*'],
           authorizationToken: approvalToken,
         });
         if (decision.requiresApproval) {
@@ -7673,7 +8063,7 @@ Format strictly as JSON:
           toolName: 'desktopFocusWindow',
           params: { titleOrPid: body.titleOrPid },
           riskLevel: 'LOW',
-          autonomyMode: 'FULL_ACCESS',
+          autonomyMode: this.getEffectiveAutonomyMode(),
           agentCapabilities: ['*'],
           authorizationToken: approvalToken,
         });
@@ -7696,7 +8086,7 @@ Format strictly as JSON:
           toolName: 'desktopCloseWindow',
           params: { titleOrPid: body.titleOrPid },
           riskLevel: 'MEDIUM',
-          autonomyMode: 'FULL_ACCESS',
+          autonomyMode: this.getEffectiveAutonomyMode(),
           agentCapabilities: ['*'],
           authorizationToken: approvalToken,
         });
@@ -7718,7 +8108,7 @@ Format strictly as JSON:
           toolName: 'desktopScreenshot',
           params: body || {},
           riskLevel: 'LOW',
-          autonomyMode: 'FULL_ACCESS',
+          autonomyMode: this.getEffectiveAutonomyMode(),
           agentCapabilities: ['*'],
           authorizationToken: approvalToken,
         });
@@ -7767,7 +8157,7 @@ Format strictly as JSON:
           toolName,
           params,
           riskLevel,
-          autonomyMode: 'FULL_ACCESS',
+          autonomyMode: this.getEffectiveAutonomyMode(),
           agentCapabilities: ['*'],
           authorizationToken: approvalToken,
         });
@@ -7809,7 +8199,7 @@ Format strictly as JSON:
           toolName,
           params,
           riskLevel: 'LOW',
-          autonomyMode: 'FULL_ACCESS',
+          autonomyMode: this.getEffectiveAutonomyMode(),
           agentCapabilities: ['*'],
           authorizationToken: approvalToken,
         });
@@ -7850,7 +8240,7 @@ Format strictly as JSON:
           toolName,
           params,
           riskLevel: 'LOW',
-          autonomyMode: 'FULL_ACCESS',
+          autonomyMode: this.getEffectiveAutonomyMode(),
           agentCapabilities: ['*'],
           authorizationToken: approvalToken,
         });
@@ -7884,7 +8274,7 @@ Format strictly as JSON:
           toolName,
           params,
           riskLevel: 'LOW',
-          autonomyMode: 'FULL_ACCESS',
+          autonomyMode: this.getEffectiveAutonomyMode(),
           agentCapabilities: ['*'],
           authorizationToken: approvalToken,
         });
@@ -7911,7 +8301,7 @@ Format strictly as JSON:
           toolName,
           params,
           riskLevel: 'LOW',
-          autonomyMode: 'FULL_ACCESS',
+          autonomyMode: this.getEffectiveAutonomyMode(),
           agentCapabilities: ['*'],
           authorizationToken: approvalToken,
         });
@@ -7938,7 +8328,7 @@ Format strictly as JSON:
           toolName,
           params,
           riskLevel: 'LOW',
-          autonomyMode: 'FULL_ACCESS',
+          autonomyMode: this.getEffectiveAutonomyMode(),
           agentCapabilities: ['*'],
           authorizationToken: approvalToken,
         });
@@ -8209,6 +8599,24 @@ Format strictly as JSON:
         const body = await this.parseJsonBody<any>(req);
         const { type, cronExpression, durationSeconds, targetAgentId, channelId, prompt, timerCondition } = body;
         const targetProjId = body.projectId || this.workspaceRepo.listProjects('ws-default')[0]?.id || 'proj-kin';
+
+        const proj = this.workspaceRepo.getProject(targetProjId);
+        if (!proj) {
+          return this.sendJson(res, 404, { error: `Project '${targetProjId}' not found` });
+        }
+
+        const validTypes = ['cron', 'timer', 'one_shot', 'oneshot'];
+        if (type && !validTypes.includes(type)) {
+          return this.sendJson(res, 400, { error: `Invalid schedule type '${type}'. Allowed types: 'cron', 'timer'.` });
+        }
+
+        if (targetAgentId && !this.agentRepo.getIdentity(targetAgentId)) {
+          return this.sendJson(res, 404, { error: `Target agent '${targetAgentId}' not found` });
+        }
+        if (channelId && !this.workspaceRepo.getChannel(channelId)) {
+          return this.sendJson(res, 404, { error: `Channel '${channelId}' not found` });
+        }
+
         let schedule;
         try {
           if (type === 'cron') {
@@ -8221,12 +8629,16 @@ Format strictly as JSON:
               maxIterations: body.maxIterations,
             });
           } else {
+            const dur = Number(durationSeconds) || 5;
+            if (dur <= 0) {
+              return this.sendJson(res, 400, { error: 'durationSeconds must be greater than 0' });
+            }
             schedule = this.scheduler.createOneShotTimer({
               projectId: targetProjId,
               channelId: channelId || 'chan-general',
               targetAgentId,
               prompt: prompt || 'Scheduled wakeup check',
-              durationSeconds: Number(durationSeconds) || 5,
+              durationSeconds: dur,
               timerCondition: timerCondition || 'never',
             });
           }
@@ -8423,9 +8835,11 @@ Format strictly as JSON:
         }
         const now = Date.now();
         const credId = `cred-${now}-${Math.random().toString(36).slice(2, 6)}`;
-        const masked = apiKey.length > 8
+        const masked = apiKey.length >= 16
           ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}`
-          : '****...****';
+          : apiKey.length >= 8
+            ? `${apiKey.slice(0, 2)}...${apiKey.slice(-2)}`
+            : '****...****';
 
         const encryptedKey = SecretVault.getInstance().encrypt(apiKey);
 
@@ -8590,7 +9004,19 @@ Format strictly as JSON:
       const credDeleteMatch = pathname.match(/^\/api\/settings\/credentials\/([^/]+)$/);
       if (req.method === 'DELETE' && credDeleteMatch) {
         const credId = credDeleteMatch[1];
+        const existingCred = this.db.queryOne<any>('SELECT provider FROM managed_credentials WHERE id = ?', credId);
         this.db.execute('DELETE FROM managed_credentials WHERE id = ?', credId);
+        if (existingCred?.provider) {
+          const remaining = this.db.queryOne<any>(
+            'SELECT COUNT(*) as count FROM managed_credentials WHERE provider = ? AND is_active = 1',
+            existingCred.provider
+          );
+          if (!remaining || remaining.count === 0) {
+            this.db.execute('DELETE FROM models WHERE provider_id = ?', existingCred.provider);
+            this.modelGateway.invalidateProvider(existingCred.provider);
+            this.broadcastEvent('models:updated', { provider: existingCred.provider, count: 0 });
+          }
+        }
         this.broadcastEvent('credential:deleted', { id: credId });
         return this.sendJson(res, 200, { success: true, id: credId });
       }
@@ -9764,12 +10190,17 @@ Format strictly as JSON:
       const ws = proj ? this.workspaceRepo.getWorkspace(proj.workspaceId) : null;
       const autonomyMode = ws?.defaultAutonomyMode ?? 'AUTO';
 
+      const channelModelOverride = (channelId && !channelId.startsWith('dm-'))
+        ? (this.memoryRepo.getMemory('channel', channelId, `agent_model:${freshIdentity.id}`)?.value as string | undefined)
+        : undefined;
+      const effectiveModelId = modelOverride || channelModelOverride || freshIdentity.activeModelId;
+
       const loopResult = await runnerAdapter.execute({
         runId: run.id,
         taskId: run.taskId,
         agentId: freshIdentity.id,
-        modelId: modelOverride || freshIdentity.activeModelId,
-        fallbackModelId: freshIdentity.fallbackModelId,
+        modelId: effectiveModelId,
+        fallbackModelId: undefined,
         projectId: targetProjectId,
         channelId,
         userPrompt: triggerMsg?.content || '',
@@ -9780,6 +10211,17 @@ Format strictly as JSON:
         allowedCapabilities: freshIdentity.isOrchestrator ? ['*'] : defCapabilities,
         taskRepo: this.taskRepo,
         decisionRepo: this.taskRepo,
+        modelGateway: this.modelGateway,
+        onModelUnavailable: (modelId: string, error: string) => {
+          this.broadcastEvent('agent:model_unavailable', {
+            runId: run.id,
+            agentId: freshIdentity.id,
+            agentName: agent.displayName,
+            channelId,
+            modelId,
+            error,
+          });
+        },
         onToken: (token: string) => {
           this.broadcastEvent('agent:token', {
             runId: run.id,
@@ -9880,7 +10322,12 @@ Format strictly as JSON:
         onModelSwitched: (newModelId: string) => {
           freshIdentity.activeModelId = newModelId;
         },
-        getModelId: () => (this.agentRepo.getIdentity(freshIdentity.id)?.activeModelId || freshIdentity.activeModelId),
+        getModelId: () => {
+          const chanOverride = (channelId && !channelId.startsWith('dm-'))
+            ? (this.memoryRepo.getMemory('channel', channelId, `agent_model:${freshIdentity.id}`)?.value as string | undefined)
+            : undefined;
+          return chanOverride || this.agentRepo.getIdentity(freshIdentity.id)?.activeModelId || freshIdentity.activeModelId;
+        },
         getSteerDirectives: () => {
           const matchingSteers = this.pendingSteers.filter((s) => {
             if (s.channelId !== channelId) return false;
@@ -10027,6 +10474,36 @@ Format strictly as JSON:
           senderType: 'agent',
           content: pauseNotice.content,
           createdAt: pauseNotice.createdAt,
+        });
+        return;
+      }
+
+      if (loopResult.isModelUnavailable || (loopResult.isError && loopResult.modelId)) {
+        this.activeAgentExecutions.delete(agent.id);
+        this.broadcastEvent('agent:state', { agentId: agent.id, channelId, status: 'idle' });
+        this.broadcastEvent('agent:model_unavailable', {
+          runId: run.id,
+          agentId: freshIdentity.id,
+          agentName: agent.displayName,
+          channelId,
+          modelId: loopResult.modelId || freshIdentity.activeModelId,
+          error: loopResult.error || loopResult.finalContent,
+        });
+        const errorNotice = this.channelService.sendMessage({
+          channelId,
+          senderId: agent.id,
+          senderType: 'agent',
+          content: `⚠️ **Model Unavailable**: Selected model \`${loopResult.modelId || freshIdentity.activeModelId}\` cannot be reached.\n\n**Details:** ${loopResult.error || 'Connection or authorization error'}\n\n*Automatic fallback is disabled to ensure you maintain full control over which models are executed. Please configure provider credentials in Settings or choose an alternative model in the Model Selector.*`,
+          productivityScore: 0,
+        });
+        this.broadcastEvent('message:created', {
+          id: errorNotice.id,
+          channelId: errorNotice.channelId,
+          senderId: errorNotice.senderId,
+          senderName: agent.displayName,
+          senderType: 'agent',
+          content: errorNotice.content,
+          createdAt: errorNotice.createdAt,
         });
         return;
       }
@@ -10325,12 +10802,56 @@ Format strictly as JSON:
 
               // 1. If verificationSpec contains a verification command, execute it to prove acceptance
               if (currentTask.verificationSpec?.command) {
+                const verifyCmd = currentTask.verificationSpec.command;
                 try {
-                  const cmdOutput = childProcess.execSync(currentTask.verificationSpec.command, {
-                    cwd: repoRoot,
-                    timeout: 30000,
-                    encoding: 'utf-8',
-                    stdio: ['ignore', 'pipe', 'pipe'],
+                  const sentinel = Sentinel.getInstance();
+                  const decision = sentinel.evaluate({
+                    agentId: currentTask.assignedAgentId || 'task-verifier',
+                    toolName: 'execute_command',
+                    params: { command: verifyCmd, cwd: repoRoot },
+                    riskLevel: 'HIGH',
+                    autonomyMode: this.getEffectiveAutonomyMode(),
+                    agentCapabilities: ['*'],
+                  });
+                  if (!decision.allowed) {
+                    throw new Error(`Verification command blocked by Sentinel: ${decision.reason}`);
+                  }
+
+                  const cleanEnv: Record<string, string> = {};
+                  for (const [k, v] of Object.entries(process.env)) {
+                    if (v === undefined) continue;
+                    const upper = k.toUpperCase();
+                    if (
+                      upper.includes('KEY') ||
+                      upper.includes('SECRET') ||
+                      upper.includes('TOKEN') ||
+                      upper.includes('PASS') ||
+                      upper.includes('VAULT') ||
+                      upper === 'KIN_VAULT_KEY'
+                    ) {
+                      continue;
+                    }
+                    cleanEnv[k] = v;
+                  }
+
+                  const cmdOutput = await new Promise<string>((resolve, reject) => {
+                    childProcess.exec(
+                      verifyCmd,
+                      {
+                        cwd: repoRoot,
+                        timeout: 30000,
+                        encoding: 'utf-8',
+                        env: cleanEnv,
+                      },
+                      (error: childProcess.ExecException | null, stdout: string, stderr: string) => {
+                        const expectedExitCode = currentTask.verificationSpec?.expectedExitCode ?? 0;
+                        if (error && (error as any).code !== expectedExitCode) {
+                          reject(error);
+                        } else {
+                          resolve(stdout || stderr || '');
+                        }
+                      }
+                    );
                   });
                   const expectedExitCode = currentTask.verificationSpec.expectedExitCode ?? 0;
                   if (expectedExitCode === 0) {

@@ -14,6 +14,7 @@ export interface ModelMessage {
 export interface ModelInvocationParams {
   modelId: string;
   fallbackModelId?: string;
+  disableFallback?: boolean;
   messages: ModelMessage[];
   temperature?: number;
   maxTokens?: number;
@@ -126,6 +127,7 @@ export interface DiscoveredModel {
   maxOutputTokens?: number;
   supportsTools?: boolean;
   supportsVision?: boolean;
+  supportsReasoning?: boolean;
   isFree?: boolean;
   description?: string;
   isCustom?: boolean;
@@ -150,6 +152,7 @@ export interface ModelGatewayOptions {
   deepseekApiKey?: string;
   geminiApiKey?: string;
   groqApiKey?: string;
+  xaiApiKey?: string;
   ollamaHost?: string;
 }
 
@@ -161,6 +164,7 @@ export class ModelGateway {
   private deepseekApiKey?: string;
   private geminiApiKey?: string;
   private groqApiKey?: string;
+  private xaiApiKey?: string;
   private apiKeyResolver?: (provider: string, callerAgentId?: string) => string | undefined;
   private onUsage?: (provider: string, tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }) => void;
   private customEndpoints: Map<string, { baseUrl: string; apiKey?: string }> = new Map();
@@ -177,6 +181,7 @@ export class ModelGateway {
     this.deepseekApiKey = options?.deepseekApiKey || process.env.DEEPSEEK_API_KEY;
     this.geminiApiKey = options?.geminiApiKey || process.env.GEMINI_API_KEY;
     this.groqApiKey = options?.groqApiKey || process.env.GROQ_API_KEY;
+    this.xaiApiKey = options?.xaiApiKey || process.env.XAI_API_KEY;
     this.apiKeyResolver = options?.apiKeyResolver;
     this.onUsage = options?.onUsage;
   }
@@ -206,6 +211,7 @@ export class ModelGateway {
       else if (provider === 'deepseek') rawKey = this.deepseekApiKey || process.env.DEEPSEEK_API_KEY;
       else if (provider === 'gemini') rawKey = this.geminiApiKey || process.env.GEMINI_API_KEY;
       else if (provider === 'groq') rawKey = this.groqApiKey || process.env.GROQ_API_KEY;
+      else if (provider === 'xai') rawKey = this.xaiApiKey || process.env.XAI_API_KEY;
       else {
         const custom = this.customEndpoints.get(provider.toLowerCase());
         if (custom && custom.apiKey) {
@@ -344,18 +350,15 @@ export class ModelGateway {
     }
 
     try {
-      const models = await this.fetchProviderModels(norm, apiKey, { omitUnconfigured: true });
-      const reachable = models.length > 0 && models.some((m) => m.validated);
-      this.validatedProviders.set(norm, reachable);
-      this.providerModelCounts.set(norm, reachable ? models.length : 0);
+      const verification = await this.verifyProviderConnection(norm, apiKey);
+      this.validatedProviders.set(norm, verification.working);
+      this.providerModelCounts.set(norm, verification.working ? verification.modelCount : 0);
       return {
         provider: norm,
         configured: true,
-        validated: reachable,
-        modelCount: reachable ? models.length : 0,
-        message: reachable
-          ? `Validated and reachable (${models.length} model(s) discovered)`
-          : `API key configured, but reachable model verification returned empty catalog`,
+        validated: verification.working,
+        modelCount: verification.working ? verification.modelCount : 0,
+        message: verification.message,
       };
     } catch (e: any) {
       this.validatedProviders.set(norm, false);
@@ -368,6 +371,569 @@ export class ModelGateway {
         message: `Connection validation failed: ${e.message}`,
       };
     }
+  }
+
+  public invalidateProvider(provider: string): void {
+    const norm = provider.toLowerCase().trim();
+    this.validatedProviders.delete(norm);
+    this.providerModelCounts.delete(norm);
+  }
+
+  /**
+   * Performs an authoritative, real network verification of a provider's API key.
+   * Confirms whether the API credentials are valid and functional, returning true models or error details.
+   */
+  public async verifyProviderConnection(
+    provider: string,
+    explicitApiKey?: string,
+    customBaseUrl?: string
+  ): Promise<{ valid: boolean; working: boolean; message: string; modelCount: number; models: DiscoveredModel[] }> {
+    const norm = provider.toLowerCase().trim();
+    const apiKey = explicitApiKey || this.resolveApiKey(norm);
+
+    if (norm === 'ollama') {
+      try {
+        const res = await fetch(`${this.ollamaHost}/api/tags`, { signal: AbortSignal.timeout(4000) }).catch(() => null);
+        if (res && res.ok) {
+          const data: any = await res.json().catch(() => ({}));
+          const rawModels: any[] = data.models || [];
+          const models: DiscoveredModel[] = rawModels
+            .filter((m: any) => !m.name.toLowerCase().includes('embed'))
+            .map((m: any) => ({
+              id: `ollama/${m.name}`,
+              name: `Ollama ${m.name}`,
+              provider: 'ollama',
+              contextWindow: 32768,
+              maxOutputTokens: 8192,
+              supportsTools: true,
+              supportsVision: m.name.includes('vision') || m.name.includes('llava'),
+              isFree: true,
+              description: `Local Ollama model (${m.size ? (m.size / (1024 * 1024 * 1024)).toFixed(1) : 0} GB)`,
+              configured: true,
+              validated: true,
+            }));
+          this.isOllamaOnlineCached = true;
+          this.ollamaModelCountCached = models.length;
+          this.validatedProviders.set('ollama', true);
+          this.providerModelCounts.set('ollama', models.length);
+          return {
+            valid: true,
+            working: true,
+            message: `Local Ollama is online and working (${models.length} model(s) available)`,
+            modelCount: models.length,
+            models,
+          };
+        }
+      } catch (err: any) {
+        return {
+          valid: false,
+          working: false,
+          message: `Local Ollama unreachable on port 11434 (${err.message})`,
+          modelCount: 0,
+          models: [],
+        };
+      }
+      return {
+        valid: false,
+        working: false,
+        message: 'Local Ollama service is offline',
+        modelCount: 0,
+        models: [],
+      };
+    }
+
+    if (!apiKey && norm !== 'custom' && norm !== 'openai_compatible' && !this.customEndpoints.has(norm)) {
+      return {
+        valid: false,
+        working: false,
+        message: `No API key configured for ${norm}`,
+        modelCount: 0,
+        models: [],
+      };
+    }
+
+    try {
+      if (norm === 'openai') {
+        const res = await fetch('https://api.openai.com/v1/models', {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(8000),
+        }).catch((err) => { throw new Error(`Network failure connecting to OpenAI: ${err.message}`); });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData.error?.message || `HTTP ${res.status}: ${res.statusText}`;
+          return {
+            valid: false,
+            working: false,
+            message: `OpenAI API Key invalid or rejected: ${errMsg}`,
+            modelCount: 0,
+            models: [],
+          };
+        }
+
+        const data: any = await res.json().catch(() => ({}));
+        const list: any[] = data.data || [];
+        const chatRegex = /^(gpt-|o1|o3|chatgpt-)/;
+        const filtered = list.filter((m: any) =>
+          chatRegex.test(m.id) &&
+          !m.id.includes('whisper') &&
+          !m.id.includes('embedding') &&
+          !m.id.includes('tts') &&
+          !m.id.includes('dall-e') &&
+          !m.id.includes('moderation') &&
+          !m.id.includes('realtime') &&
+          !m.id.includes('audio')
+        );
+        filtered.sort((a: any, b: any) => (b.created || 0) - (a.created || 0));
+
+        const models: DiscoveredModel[] = filtered.map((m: any) => ({
+          id: `openai/${m.id}`,
+          name: `OpenAI ${m.id}`,
+          provider: 'openai',
+          contextWindow: m.id.includes('o1') || m.id.includes('o3') ? 200000 : 128000,
+          maxOutputTokens: 16384,
+          supportsTools: true,
+          supportsVision: m.id.includes('4o') || m.id.includes('4.5'),
+          supportsReasoning: m.id.includes('o1') || m.id.includes('o3'),
+          configured: true,
+          validated: true,
+        }));
+
+        this.validatedProviders.set('openai', true);
+        this.providerModelCounts.set('openai', models.length);
+        return {
+          valid: true,
+          working: true,
+          message: `OpenAI API key verified successfully (${models.length} chat & reasoning model(s) available)`,
+          modelCount: models.length,
+          models,
+        };
+      }
+
+      if (norm === 'anthropic') {
+        const res = await fetch('https://api.anthropic.com/v1/models', {
+          headers: {
+            'x-api-key': apiKey!,
+            'anthropic-version': '2023-06-01',
+          },
+          signal: AbortSignal.timeout(8000),
+        }).catch((err) => { throw new Error(`Network failure connecting to Anthropic: ${err.message}`); });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData.error?.message || `HTTP ${res.status}: ${res.statusText}`;
+          return {
+            valid: false,
+            working: false,
+            message: `Anthropic API Key invalid or rejected: ${errMsg}`,
+            modelCount: 0,
+            models: [],
+          };
+        }
+
+        const data: any = await res.json().catch(() => ({}));
+        const list: any[] = data.data || [];
+        const models: DiscoveredModel[] = list.map((m: any) => ({
+          id: `anthropic/${m.id}`,
+          name: m.display_name || `Anthropic ${m.id}`,
+          provider: 'anthropic',
+          contextWindow: 200000,
+          supportsTools: true,
+          supportsVision: true,
+          supportsReasoning: m.id.includes('3-7') || m.id.includes('reasoning'),
+          configured: true,
+          validated: true,
+        }));
+
+        this.validatedProviders.set('anthropic', true);
+        this.providerModelCounts.set('anthropic', models.length);
+        return {
+          valid: true,
+          working: true,
+          message: `Anthropic API key verified successfully (${models.length} Claude model(s) available)`,
+          modelCount: models.length,
+          models,
+        };
+      }
+
+      if (norm === 'gemini') {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey!)}`, {
+          signal: AbortSignal.timeout(8000),
+        }).catch((err) => { throw new Error(`Network failure connecting to Google Gemini: ${err.message}`); });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData.error?.message || `HTTP ${res.status}: ${res.statusText}`;
+          return {
+            valid: false,
+            working: false,
+            message: `Google Gemini API Key invalid or rejected: ${errMsg}`,
+            modelCount: 0,
+            models: [],
+          };
+        }
+
+        const data: any = await res.json().catch(() => ({}));
+        const list: any[] = data.models || [];
+        const filtered = list.filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'));
+        const models: DiscoveredModel[] = filtered.map((m: any) => {
+          const cleanId = m.name.replace(/^models\//, '');
+          return {
+            id: `gemini/${cleanId}`,
+            name: m.displayName || `Gemini ${cleanId}`,
+            provider: 'gemini',
+            contextWindow: m.inputTokenLimit || 1048576,
+            maxOutputTokens: m.outputTokenLimit || 8192,
+            supportsTools: true,
+            supportsVision: true,
+            supportsReasoning: cleanId.includes('2.5') || cleanId.includes('thinking'),
+            description: m.description,
+            configured: true,
+            validated: true,
+          };
+        });
+
+        this.validatedProviders.set('gemini', true);
+        this.providerModelCounts.set('gemini', models.length);
+        return {
+          valid: true,
+          working: true,
+          message: `Google Gemini API key verified successfully (${models.length} Gemini model(s) available)`,
+          modelCount: models.length,
+          models,
+        };
+      }
+
+      if (norm === 'deepseek') {
+        const res = await fetch('https://api.deepseek.com/models', {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(8000),
+        }).catch((err) => { throw new Error(`Network failure connecting to DeepSeek: ${err.message}`); });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData.error?.message || `HTTP ${res.status}: ${res.statusText}`;
+          return {
+            valid: false,
+            working: false,
+            message: `DeepSeek API Key invalid or rejected: ${errMsg}`,
+            modelCount: 0,
+            models: [],
+          };
+        }
+
+        const data: any = await res.json().catch(() => ({}));
+        const list: any[] = data.data || [];
+        const models: DiscoveredModel[] = list.map((m: any) => ({
+          id: `deepseek/${m.id}`,
+          name: `DeepSeek ${m.id}`,
+          provider: 'deepseek',
+          contextWindow: 64000,
+          supportsTools: true,
+          supportsReasoning: m.id.includes('reasoner') || m.id.includes('r1'),
+          configured: true,
+          validated: true,
+        }));
+
+        this.validatedProviders.set('deepseek', true);
+        this.providerModelCounts.set('deepseek', models.length);
+        return {
+          valid: true,
+          working: true,
+          message: `DeepSeek API key verified successfully (${models.length} model(s) available)`,
+          modelCount: models.length,
+          models,
+        };
+      }
+
+      if (norm === 'groq') {
+        const res = await fetch('https://api.groq.com/openai/v1/models', {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(8000),
+        }).catch((err) => { throw new Error(`Network failure connecting to Groq: ${err.message}`); });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData.error?.message || `HTTP ${res.status}: ${res.statusText}`;
+          return {
+            valid: false,
+            working: false,
+            message: `Groq API Key invalid or rejected: ${errMsg}`,
+            modelCount: 0,
+            models: [],
+          };
+        }
+
+        const data: any = await res.json().catch(() => ({}));
+        const list: any[] = data.data || [];
+        const filtered = list.filter((m: any) => !m.id.includes('whisper'));
+        const models: DiscoveredModel[] = filtered.map((m: any) => ({
+          id: `groq/${m.id}`,
+          name: `Groq ${m.id}`,
+          provider: 'groq',
+          contextWindow: m.context_window || 128000,
+          supportsTools: true,
+          supportsReasoning: m.id.includes('r1') || m.id.includes('reason'),
+          configured: true,
+          validated: true,
+        }));
+
+        this.validatedProviders.set('groq', true);
+        this.providerModelCounts.set('groq', models.length);
+        return {
+          valid: true,
+          working: true,
+          message: `Groq API key verified successfully (${models.length} high-speed model(s) available)`,
+          modelCount: models.length,
+          models,
+        };
+      }
+
+      if (norm === 'xai') {
+        const res = await fetch('https://api.x.ai/v1/models', {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(8000),
+        }).catch((err) => { throw new Error(`Network failure connecting to xAI: ${err.message}`); });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData.error?.message || `HTTP ${res.status}: ${res.statusText}`;
+          return {
+            valid: false,
+            working: false,
+            message: `xAI API Key invalid or rejected: ${errMsg}`,
+            modelCount: 0,
+            models: [],
+          };
+        }
+
+        const data: any = await res.json().catch(() => ({}));
+        const list: any[] = data.data || [];
+        const models: DiscoveredModel[] = list.map((m: any) => ({
+          id: `xai/${m.id}`,
+          name: `xAI ${m.id}`,
+          provider: 'xai',
+          contextWindow: 131072,
+          supportsTools: true,
+          supportsVision: m.id.includes('vision'),
+          supportsReasoning: true,
+          configured: true,
+          validated: true,
+        }));
+
+        this.validatedProviders.set('xai', true);
+        this.providerModelCounts.set('xai', models.length);
+        return {
+          valid: true,
+          working: true,
+          message: `xAI API key verified successfully (${models.length} Grok model(s) available)`,
+          modelCount: models.length,
+          models,
+        };
+      }
+
+      if (norm === 'openrouter') {
+        const headers: Record<string, string> = {
+          'HTTP-Referer': 'https://github.com/abhayzangir1/KIN',
+          'X-Title': 'KIN Workforce Platform',
+        };
+        if (apiKey) {
+          headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+        const res = await fetch('https://openrouter.ai/api/v1/models', {
+          headers,
+          signal: AbortSignal.timeout(10000),
+        }).catch((err) => { throw new Error(`Network failure connecting to OpenRouter: ${err.message}`); });
+
+        if (!res.ok) {
+          return {
+            valid: false,
+            working: false,
+            message: `OpenRouter API connection failed: HTTP ${res.status}`,
+            modelCount: 0,
+            models: [],
+          };
+        }
+
+        const data: any = await res.json().catch(() => ({}));
+        const rawList: any[] = data.data || [];
+        const models: DiscoveredModel[] = rawList.map((m: any) => {
+          const isZeroCost = m.id.endsWith(':free') ||
+            (m.pricing && parseFloat(m.pricing.prompt) === 0 && parseFloat(m.pricing.completion) === 0);
+          return {
+            id: `openrouter/${m.id}`,
+            name: m.name || m.id,
+            provider: 'openrouter',
+            contextWindow: m.context_length || 128000,
+            maxOutputTokens: m.top_provider?.max_completion_tokens || 4096,
+            supportsTools: true,
+            supportsVision: m.architecture?.modality?.includes('image') || false,
+            supportsReasoning: Boolean(m.id.includes('r1') || m.id.includes('reason') || m.id.includes('thinking')),
+            isFree: isZeroCost,
+            description: m.description,
+            configured: Boolean(apiKey),
+            validated: true,
+          };
+        });
+
+        this.validatedProviders.set('openrouter', true);
+        this.providerModelCounts.set('openrouter', models.length);
+        return {
+          valid: true,
+          working: true,
+          message: `OpenRouter connection verified (${models.length} model(s) accessible)`,
+          modelCount: models.length,
+          models,
+        };
+      }
+
+      if (norm === 'azure') {
+        const endpoint = customBaseUrl || process.env.AZURE_OPENAI_ENDPOINT;
+        if (!endpoint) {
+          return {
+            valid: false,
+            working: false,
+            message: 'Azure OpenAI requires an endpoint URL (e.g. https://YOUR_RESOURCE.openai.azure.com)',
+            modelCount: 0,
+            models: [],
+          };
+        }
+        if (!apiKey) {
+          return {
+            valid: false,
+            working: false,
+            message: 'Azure API key is required',
+            modelCount: 0,
+            models: [],
+          };
+        }
+        const cleanBase = endpoint.replace(/\/+$/, '');
+        const testUrl = `${cleanBase}/openai/models?api-version=2024-06-01`;
+        const res = await fetch(testUrl, {
+          headers: { 'api-key': apiKey },
+          signal: AbortSignal.timeout(8000),
+        }).catch((err) => { throw new Error(`Network failure connecting to Azure OpenAI: ${err.message}`); });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData.error?.message || `HTTP ${res.status}: ${res.statusText}`;
+          return {
+            valid: false,
+            working: false,
+            message: `Azure OpenAI verification failed: ${errMsg}`,
+            modelCount: 0,
+            models: [],
+          };
+        }
+
+        const data: any = await res.json().catch(() => ({}));
+        const list: any[] = data.data || [];
+        const models: DiscoveredModel[] = list.map((m: any) => ({
+          id: `azure/${m.id}`,
+          name: `Azure ${m.id}`,
+          provider: 'azure',
+          contextWindow: 128000,
+          supportsTools: true,
+          supportsVision: m.id.includes('vision') || m.id.includes('4o'),
+          configured: true,
+          validated: true,
+        }));
+
+        this.validatedProviders.set('azure', true);
+        this.providerModelCounts.set('azure', models.length);
+        return {
+          valid: true,
+          working: true,
+          message: `Azure OpenAI verified successfully (${models.length} model(s) available)`,
+          modelCount: models.length,
+          models,
+        };
+      }
+
+      if (norm === 'custom' || norm === 'openai_compatible' || this.customEndpoints.has(norm)) {
+        const endpoint = this.customEndpoints.get(norm) || (customBaseUrl ? { baseUrl: customBaseUrl, apiKey } : null);
+        if (!endpoint) {
+          return {
+            valid: false,
+            working: false,
+            message: 'No endpoint URL configured for custom provider',
+            modelCount: 0,
+            models: [],
+          };
+        }
+        const headers: Record<string, string> = {};
+        if (apiKey || endpoint.apiKey) {
+          headers['Authorization'] = `Bearer ${apiKey || endpoint.apiKey}`;
+        }
+        const modelsUrl = endpoint.baseUrl.replace(/\/+$/, '') + (endpoint.baseUrl.includes('/models') ? '' : '/models');
+        let res: Response | null = null;
+        try {
+          res = await fetch(modelsUrl, { headers, signal: AbortSignal.timeout(5000) });
+        } catch (fetchErr: any) {
+          return {
+            valid: false,
+            working: false,
+            message: `Custom endpoint unreachable at ${endpoint.baseUrl}: ${fetchErr.message}`,
+            modelCount: 0,
+            models: [],
+          };
+        }
+
+        if (!res.ok) {
+          return {
+            valid: false,
+            working: false,
+            message: `Custom endpoint returned HTTP ${res.status}: ${res.statusText}`,
+            modelCount: 0,
+            models: [],
+          };
+        }
+
+        const data: any = await res.json().catch(() => ({}));
+        const list: any[] = data.data || data.models || [];
+        const models: DiscoveredModel[] = list.map((m: any) => ({
+          id: `custom/${m.id || m.name}`,
+          name: m.name || m.id,
+          provider: 'custom',
+          contextWindow: 128000,
+          supportsTools: true,
+          configured: true,
+          validated: true,
+        }));
+        const finalModels = models.length > 0 ? models : [{
+          id: `custom/${norm}`,
+          name: `Custom ${norm}`,
+          provider: 'custom',
+          contextWindow: 128000,
+          supportsTools: true,
+          configured: true,
+          validated: true,
+        }];
+        return {
+          valid: true,
+          working: true,
+          message: `Custom endpoint verified (${finalModels.length} model(s) accessible)`,
+          modelCount: finalModels.length,
+          models: finalModels,
+        };
+      }
+    } catch (err: any) {
+      return {
+        valid: false,
+        working: false,
+        message: `Validation error for ${norm}: ${err.message}`,
+        modelCount: 0,
+        models: [],
+      };
+    }
+
+    return {
+      valid: false,
+      working: false,
+      message: `Unknown provider ${provider}`,
+      modelCount: 0,
+      models: [],
+    };
   }
 
   /**
@@ -592,7 +1158,10 @@ export class ModelGateway {
         ];
         if (!apiKey) return shouldOmit ? [] : standardGemini;
 
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`, {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models`, {
+          headers: {
+            'x-goog-api-key': apiKey,
+          },
           signal: AbortSignal.timeout(10000),
         }).catch(() => null);
 
@@ -696,6 +1265,57 @@ export class ModelGateway {
         if (shouldOmit) return [];
         return standardGroq;
       }
+
+      if (normProvider === 'xai') {
+        const standardXAi: DiscoveredModel[] = [
+          { id: 'xai/grok-2', name: 'Grok 2', provider: 'xai', contextWindow: 131072, supportsTools: true, supportsVision: true, supportsReasoning: true, configured: false, validated: false, description: 'xAI flagship multimodal reasoning model' },
+          { id: 'xai/grok-2-mini', name: 'Grok 2 Mini', provider: 'xai', contextWindow: 131072, supportsTools: true, supportsVision: false, supportsReasoning: true, configured: false, validated: false, description: 'xAI fast compact reasoning model' },
+          { id: 'xai/grok-beta', name: 'Grok Beta', provider: 'xai', contextWindow: 131072, supportsTools: true, supportsVision: false, supportsReasoning: true, configured: false, validated: false, description: 'xAI Grok Beta' },
+        ];
+        if (!apiKey) return shouldOmit ? [] : standardXAi;
+
+        try {
+          const res = await fetch('https://api.x.ai/v1/models', {
+            headers: { Authorization: `Bearer ${apiKey}` },
+            signal: AbortSignal.timeout(10000),
+          }).catch(() => null);
+
+          if (res && res.ok) {
+            const data: any = await res.json().catch(() => ({}));
+            const list: any[] = data.data || [];
+            if (list.length > 0) {
+              this.validatedProviders.set('xai', true);
+              this.providerModelCounts.set('xai', list.length);
+              return list.map((m: any) => ({
+                id: `xai/${m.id}`,
+                name: `xAI ${m.id}`,
+                provider: 'xai',
+                contextWindow: 131072,
+                supportsTools: true,
+                supportsVision: m.id.includes('vision'),
+                supportsReasoning: true,
+                configured: true,
+                validated: true,
+              }));
+            }
+          }
+        } catch {}
+        this.validatedProviders.set('xai', false);
+        if (shouldOmit) return [];
+        return standardXAi;
+      }
+
+      if (normProvider === 'azure') {
+        const standardAzure: DiscoveredModel[] = [
+          { id: 'azure/gpt-4o', name: 'Azure OpenAI GPT-4o', provider: 'azure', contextWindow: 128000, supportsTools: true, supportsVision: true, supportsReasoning: false, configured: Boolean(apiKey), validated: Boolean(apiKey), description: 'Azure OpenAI enterprise deployment' },
+          { id: 'azure/gpt-4o-mini', name: 'Azure OpenAI GPT-4o Mini', provider: 'azure', contextWindow: 128000, supportsTools: true, supportsVision: true, supportsReasoning: false, configured: Boolean(apiKey), validated: Boolean(apiKey), description: 'Azure OpenAI fast compact deployment' },
+          { id: 'azure/o3-mini', name: 'Azure OpenAI o3-mini', provider: 'azure', contextWindow: 200000, supportsTools: true, supportsVision: false, supportsReasoning: true, configured: Boolean(apiKey), validated: Boolean(apiKey), description: 'Azure OpenAI reasoning deployment' },
+        ];
+        if (!apiKey) return shouldOmit ? [] : standardAzure;
+        this.validatedProviders.set('azure', true);
+        this.providerModelCounts.set('azure', standardAzure.length);
+        return standardAzure;
+      }
     } catch (err) {
       console.warn(`[KIN MODEL GATEWAY] Error discovering models for ${provider}:`, err);
     }
@@ -761,6 +1381,28 @@ export class ModelGateway {
           startTime,
           'groq'
         );
+      } else if (provider === 'xai') {
+        const apiKey = this.resolveApiKey('xai', params.callerAgentId);
+        return await this.invokeOpenAiCompatible(
+          'https://api.x.ai/v1/chat/completions',
+          apiKey,
+          modelName,
+          params,
+          startTime,
+          'xai'
+        );
+      } else if (provider === 'azure') {
+        const apiKey = this.resolveApiKey('azure', params.callerAgentId);
+        const custom = this.customEndpoints.get('azure');
+        const url = custom?.baseUrl || 'https://YOUR_RESOURCE.openai.azure.com/openai/deployments';
+        return await this.invokeOpenAiCompatible(
+          url,
+          apiKey,
+          modelName,
+          params,
+          startTime,
+          'azure'
+        );
       } else if (this.customEndpoints.has(provider) || (provider === 'custom' && this.customEndpoints.has(modelName)) || (provider === 'custom' && this.customEndpoints.size === 1)) {
         const custom = this.customEndpoints.get(provider)
           || this.customEndpoints.get(modelName)
@@ -784,8 +1426,8 @@ export class ModelGateway {
           return await this.invokeOpenRouter(params.modelId, params, startTime);
         }
 
-        // Automated fallback failover if configured
-        if (params.fallbackModelId && params.fallbackModelId !== params.modelId) {
+        // Automated fallback failover only if explicitly configured and fallback not disabled
+        if (!params.disableFallback && params.fallbackModelId && params.fallbackModelId !== params.modelId) {
           const fallbackRes = await this.invoke({
             ...params,
             modelId: params.fallbackModelId,
@@ -813,7 +1455,7 @@ export class ModelGateway {
       if (err?.name === 'AbortError' || params.signal?.aborted) {
         throw err;
       }
-      if (params.fallbackModelId && params.fallbackModelId !== params.modelId) {
+      if (!params.disableFallback && params.fallbackModelId && params.fallbackModelId !== params.modelId) {
         try {
           const fallbackRes = await this.invoke({
             ...params,
@@ -853,7 +1495,7 @@ export class ModelGateway {
     const colonIdx = modelId.indexOf(':');
     if (colonIdx !== -1) {
       const prefix = modelId.substring(0, colonIdx).toLowerCase();
-      if (['ollama', 'openai', 'anthropic', 'gemini', 'groq', 'deepseek', 'custom', 'openrouter'].includes(prefix)) {
+      if (['ollama', 'openai', 'anthropic', 'gemini', 'groq', 'deepseek', 'xai', 'custom', 'openrouter'].includes(prefix)) {
         return [prefix, modelId.substring(colonIdx + 1)];
       }
     }
@@ -1212,17 +1854,22 @@ export class ModelGateway {
     startTime: number,
     provider: string
   ): Promise<ModelInvocationResult> {
-    if (!apiKey) {
+    const isCustomEndpoint = provider === 'custom' || this.customEndpoints.has(provider);
+    if (!apiKey && !isCustomEndpoint) {
       throw new Error(`API key for ${provider.toUpperCase()} is not set in environment or managed credentials.`);
     }
 
     const stream = !!params.onToken;
+    const reqHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (apiKey) {
+      reqHeaders['Authorization'] = `Bearer ${apiKey}`;
+    }
+
     const res = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
+      headers: reqHeaders,
       signal: resolveEffectiveSignal(params.signal),
       body: JSON.stringify({
         model: modelName,

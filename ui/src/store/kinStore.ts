@@ -29,6 +29,13 @@ export async function getIpcToken(): Promise<string | null> {
       const urlToken = searchParams.get('token');
       if (urlToken) {
         cachedIpcToken = urlToken.trim();
+        try {
+          window.sessionStorage.setItem('kin_ipc_token', cachedIpcToken);
+          searchParams.delete('token');
+          const cleanQuery = searchParams.toString();
+          const cleanUrl = window.location.pathname + (cleanQuery ? `?${cleanQuery}` : '') + window.location.hash;
+          window.history.replaceState(null, '', cleanUrl);
+        } catch {}
         return cachedIpcToken;
       }
       const stored = window.localStorage.getItem('kin_ipc_token') || window.sessionStorage.getItem('kin_ipc_token') || window.localStorage.getItem('ipc_token');
@@ -58,8 +65,13 @@ if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
       url = `http://127.0.0.1:54321${url}`;
     }
 
+    const isLocalApi = url.startsWith('/api/') ||
+      url.startsWith('http://127.0.0.1:54321') ||
+      url.startsWith('http://localhost:54321') ||
+      (typeof window !== 'undefined' && window.location && url.startsWith(window.location.origin + '/api/'));
+
     const headers = new Headers(init?.headers || (typeof input === 'object' && 'headers' in input ? (input as Request).headers : {}));
-    if (!headers.has('Authorization')) {
+    if (isLocalApi && !headers.has('Authorization')) {
       const token = await getIpcToken();
       if (token) {
         headers.set('Authorization', `Bearer ${token}`);
@@ -216,6 +228,7 @@ export interface AvailableModelItem {
   maxOutputTokens?: number;
   supportsTools?: boolean;
   supportsVision?: boolean;
+  supportsReasoning?: boolean;
   isFree?: boolean;
   isCustom?: boolean;
   isInstalled?: boolean;
@@ -651,8 +664,10 @@ interface KinState {
   // Local LLM & System State
   ollamaStatus: OllamaStatus;
   availableModels: AvailableModelItem[];
+  providerReadiness: Record<string, any>;
   isLoadingModels: boolean;
-  fetchAvailableModels: () => Promise<void>;
+  fetchAvailableModels: (options?: { omitUnconfigured?: boolean; provider?: string }) => Promise<void>;
+  verifyProviderKey: (provider: string, apiKey?: string, baseUrl?: string) => Promise<{ success: boolean; working: boolean; message: string; modelCount: number; models?: AvailableModelItem[] }>;
   discoverModels: (provider: string, apiKey?: string) => Promise<{ success: boolean; count?: number; error?: string }>;
   addCustomModel: (
     modelId: string,
@@ -776,6 +791,25 @@ interface KinState {
   isAddAgentModalOpen: boolean;
   isSettingsModalOpen: boolean;
   setSettingsModalOpen: (open: boolean) => void;
+
+  // Model Selector & Provider Manager State
+  isModelSelectorOpen: boolean;
+  modelSelectorTargetAgentId: string | null;
+  openModelSelector: (agentId?: string | null) => void;
+  closeModelSelector: () => void;
+  isAddProviderModalOpen: boolean;
+  addProviderPreselected: string | null;
+  openAddProviderModal: (provider?: string | null) => void;
+  closeAddProviderModal: () => void;
+  modelUnavailableNotice: {
+    agentId: string;
+    agentName: string;
+    modelId: string;
+    error: string;
+    channelId?: string;
+  } | null;
+  dismissModelUnavailableNotice: () => void;
+  updateAgentModel: (agentId: string, activeModelId: string, projectId?: string, channelId?: string) => Promise<boolean>;
 
   // Resizable Workspace Layout State
   sidebarWidth: number;
@@ -999,6 +1033,58 @@ export const useKinStore = create<KinState>((set, get) => ({
   isSettingsModalOpen: false,
   setSettingsModalOpen: (open: boolean) => set({ isSettingsModalOpen: open }),
 
+  // Model Selector & Provider Manager State
+  isModelSelectorOpen: false,
+  modelSelectorTargetAgentId: null,
+  openModelSelector: (agentId?: string | null) => set({ isModelSelectorOpen: true, modelSelectorTargetAgentId: agentId || null }),
+  closeModelSelector: () => set({ isModelSelectorOpen: false, modelSelectorTargetAgentId: null }),
+  isAddProviderModalOpen: false,
+  addProviderPreselected: null,
+  openAddProviderModal: (provider?: string | null) => set({ isAddProviderModalOpen: true, addProviderPreselected: provider || null }),
+  closeAddProviderModal: () => set({ isAddProviderModalOpen: false, addProviderPreselected: null }),
+  modelUnavailableNotice: null,
+  dismissModelUnavailableNotice: () => set({ modelUnavailableNotice: null }),
+  updateAgentModel: async (agentId: string, activeModelId: string, projectId?: string, channelId?: string) => {
+    const targetProjId = projectId || get().activeProjectId;
+    const targetChanId = channelId || get().activeChannelId;
+
+    // Optimistic state update across all agent structures
+    set((state) => ({
+      agents: state.agents.map((a) => (a.id === agentId ? { ...a, activeModelId } : a)),
+      channelMembers: state.channelMembers.map((a) => (a.id === agentId ? { ...a, activeModelId } : a)),
+    }));
+    try {
+      const res = await fetch(`/api/agents/${encodeURIComponent(agentId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeModelId, projectId: targetProjId, channelId: targetChanId }),
+      });
+      if (res.status === 409) {
+        const conflictData = await res.json().catch(() => ({}));
+        console.warn('[KIN UI] Model update blocked: agent is active/working', conflictData.error);
+        await get().fetchState(targetProjId);
+        return false;
+      }
+      if (!res.ok) {
+        const fallbackRes = await fetch(`/api/agents/${encodeURIComponent(agentId)}/model`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ activeModelId, projectId: targetProjId, channelId: targetChanId }),
+        });
+        if (!fallbackRes.ok) {
+          await get().fetchState(targetProjId);
+          return false;
+        }
+      }
+      await get().fetchState(targetProjId);
+      return true;
+    } catch (err) {
+      console.error('[KIN UI] Failed to update agent model:', err);
+      get().fetchState(targetProjId);
+      return false;
+    }
+  },
+
   // Theme State
   theme: (() => {
     try {
@@ -1100,6 +1186,7 @@ export const useKinStore = create<KinState>((set, get) => ({
 
   // Models State
   availableModels: [],
+  providerReadiness: {},
   isLoadingModels: false,
 
   fetchState: async (projectId?: string) => {
@@ -1508,6 +1595,37 @@ export const useKinStore = create<KinState>((set, get) => ({
             selectedSwarmAgentId: state.selectedSwarmAgentId === agentId ? 'agent-boss' : state.selectedSwarmAgentId,
           }));
         } catch {}
+      });
+
+      sse.addEventListener('agent:model_unavailable', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          set({
+            modelUnavailableNotice: {
+              agentId: data.agentId,
+              agentName: data.agentName || 'Agent',
+              modelId: data.modelId,
+              error: data.error,
+              channelId: data.channelId,
+            },
+          });
+        } catch {}
+      });
+
+      sse.addEventListener('agent:updated', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.agentId && data.activeModelId) {
+            set((state) => ({
+              agents: state.agents.map((a) => (a.id === data.agentId ? { ...a, activeModelId: data.activeModelId } : a)),
+              channelMembers: state.channelMembers.map((a) => (a.id === data.agentId ? { ...a, activeModelId: data.activeModelId } : a)),
+            }));
+          }
+        } catch {}
+      });
+
+      sse.addEventListener('models:updated', () => {
+        get().fetchAvailableModels();
       });
 
       sse.addEventListener('autonomy:updated', (e) => {
@@ -3868,20 +3986,59 @@ export const useKinStore = create<KinState>((set, get) => ({
     }
   },
 
-  fetchAvailableModels: async () => {
+  fetchAvailableModels: async (options?: { omitUnconfigured?: boolean; provider?: string }) => {
     set({ isLoadingModels: true });
     try {
-      const res = await fetch('/api/models');
+      const params = new URLSearchParams();
+      const shouldOmit = options?.omitUnconfigured !== false;
+      if (shouldOmit) params.set('omitUnconfigured', 'true');
+      if (options?.provider) params.set('provider', options.provider);
+      const queryString = params.toString() ? `?${params.toString()}` : '';
+
+      const res = await fetch(`/api/models${queryString}`);
       if (res.ok) {
         const data = await res.json();
         const list: AvailableModelItem[] = data.models || [];
-        set({ availableModels: list, isLoadingModels: false });
+        set({
+          availableModels: list,
+          providerReadiness: data.providerReadiness || get().providerReadiness,
+          isLoadingModels: false,
+        });
       } else {
         set({ isLoadingModels: false });
       }
     } catch (err) {
       console.warn('[KIN UI] Failed to fetch available models:', err);
       set({ isLoadingModels: false });
+    }
+  },
+
+  verifyProviderKey: async (provider: string, apiKey?: string, baseUrl?: string) => {
+    try {
+      const res = await fetch('/api/models/verify-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, apiKey, baseUrl }),
+      });
+      const data = await res.json();
+      if (data.models && Array.isArray(data.models)) {
+        await get().fetchAvailableModels();
+      }
+      return {
+        success: Boolean(data.success && data.working),
+        working: Boolean(data.working),
+        message: data.message || (data.working ? 'API connection verified successfully' : 'Verification failed'),
+        modelCount: data.modelCount || (data.models?.length ?? 0),
+        models: data.models || [],
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        working: false,
+        message: err?.message || 'Network error verifying provider key',
+        modelCount: 0,
+        models: [],
+      };
     }
   },
 

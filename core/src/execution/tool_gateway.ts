@@ -1937,8 +1937,38 @@ export class ToolGateway {
           if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
             throw new Error(`Unsupported protocol '${parsed.protocol}'. Only http: and https: are allowed.`);
           }
+
+          // SSRF Protection: Prevent accessing loopback and private intranet addresses
+          const hostname = parsed.hostname.toLowerCase();
+          const isMetadataService =
+            hostname === '169.254.169.254' ||
+            hostname === 'metadata.google.internal' ||
+            /^169\.254\./.test(hostname);
+
+          const isTestEnv = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
+          const isPrivateIp = !isTestEnv && (
+            hostname === 'localhost' ||
+            hostname === '127.0.0.1' ||
+            hostname === '0.0.0.0' ||
+            hostname === '::1' ||
+            hostname === '[::1]' ||
+            /^10\./.test(hostname) ||
+            /^192\.168\./.test(hostname) ||
+            /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname) ||
+            hostname.endsWith('.internal') ||
+            hostname.endsWith('.local')
+          );
+
+          if ((isMetadataService || isPrivateIp) && !params.allowPrivateNetwork) {
+            return {
+              success: false,
+              error: `SSRF_BLOCKED: Outbound request to private/loopback network address '${hostname}' is prohibited.`,
+              riskLevel: risk,
+            };
+          }
+
           const method = (params.method || 'GET').toUpperCase();
-          const maxBytes = typeof params.maxBytes === 'number' ? params.maxBytes : 100000;
+          const maxBytes = Math.min(Math.max(1024, typeof params.maxBytes === 'number' ? params.maxBytes : 100000), 5 * 1024 * 1024);
 
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 15000);
@@ -3112,6 +3142,23 @@ export class ToolGateway {
       toolName === 'sendDirectMessage' ||
       toolName === 'send_direct_message' ||
       toolName === 'directMessage' ||
+      toolName === 'webSearch' ||
+      toolName === 'web_search' ||
+      ((toolName === 'fetchUrl' || toolName === 'fetch_url') && (!safeParams.method || safeParams.method.toUpperCase() === 'GET'))
+    ) {
+      return 'LOW';
+    }
+
+    // 2. Safe reversible operations & Agent Management
+    if (
+      toolName === 'writeFile' ||
+      toolName === 'create_skill' ||
+      toolName === 'createSkill' ||
+      toolName === 'import_skill' ||
+      toolName === 'importSkill' ||
+      toolName === 'hireSpecialist' ||
+      toolName === 'hire_specialist' ||
+      toolName === 'hireAgent' ||
       toolName === 'assignCoworker' ||
       toolName === 'assign_coworker' ||
       toolName === 'inviteToChannel' ||
@@ -3124,24 +3171,7 @@ export class ToolGateway {
       toolName === 'coordinate_with_agent' ||
       toolName === 'delegateTask' ||
       toolName === 'delegate' ||
-      toolName === 'hireSpecialist' ||
-      toolName === 'hire_specialist' ||
-      toolName === 'hireAgent' ||
-      toolName === 'fetchUrl' ||
-      toolName === 'fetch_url' ||
-      toolName === 'webSearch' ||
-      toolName === 'web_search'
-    ) {
-      return 'LOW';
-    }
-
-    // 2. Safe reversible operations
-    if (
-      toolName === 'writeFile' ||
-      toolName === 'create_skill' ||
-      toolName === 'createSkill' ||
-      toolName === 'import_skill' ||
-      toolName === 'importSkill' ||
+      ((toolName === 'fetchUrl' || toolName === 'fetch_url') && safeParams.method && safeParams.method.toUpperCase() !== 'GET') ||
       toolName === 'desktopMouseMove' ||
       toolName === 'desktopMouseClick' ||
       toolName === 'desktopFocusWindow' ||
@@ -3309,6 +3339,11 @@ export class ToolGateway {
         const relFromParent = path.posix.relative(parentRepo, sanitizedTarget);
         sanitizedTarget = relFromParent || '.';
       }
+    }
+
+    const targetBase = path.basename(sanitizedTarget).toLowerCase();
+    if (targetBase === 'ipc_auth.token' || targetBase === 'vault.key') {
+      throw new Error(`SECURITY JAIL VIOLATION: Access to internal security tokens or vault keys is prohibited: '${targetPath}'`);
     }
 
     const resolved = path.resolve(canonicalRoot, sanitizedTarget);
@@ -3607,6 +3642,10 @@ export class ToolGateway {
     if (!command || typeof command !== 'string' || !command.trim()) {
       return Promise.reject(new Error('Shell command must be a non-empty string.'));
     }
+    const lowerCmd = command.toLowerCase();
+    if (lowerCmd.includes('ipc_auth.token') || lowerCmd.includes('vault.key')) {
+      return Promise.reject(new Error("SECURITY DENIAL: Shell access to internal security token or vault key is prohibited."));
+    }
     if (abortSignal?.aborted) {
       return Promise.reject(new Error('Shell execution cancelled: AbortSignal is already triggered.'));
     }
@@ -3621,7 +3660,25 @@ export class ToolGateway {
         candidateRoots.push(projectRoot);
       }
 
-      const env: Record<string, string> = { ...(process.env as Record<string, string>) };
+      // Strip sensitive tokens, credentials, and vault keys from shell execution
+      const sensitiveKeys = new Set([
+        'KIN_VAULT_KEY',
+        'KIN_IPC_AUTH_TOKEN',
+        'KIN_AUTH_TOKEN',
+        'OPENAI_API_KEY',
+        'ANTHROPIC_API_KEY',
+        'DEEPSEEK_API_KEY',
+        'GEMINI_API_KEY',
+        'GROQ_API_KEY',
+        'OPENROUTER_API_KEY',
+      ]);
+      const rawEnv = (process.env as Record<string, string>);
+      const env: Record<string, string> = {};
+      for (const [k, v] of Object.entries(rawEnv)) {
+        if (!sensitiveKeys.has(k) && !/^(KIN_VAULT|KIN_IPC|.*_API_KEY|.*_SECRET_KEY)/i.test(k)) {
+          if (v !== undefined) env[k] = v;
+        }
+      }
       for (const root of candidateRoots) {
         const venvBinPath = path.join(root, '.venv', venvBinDir);
         if (fs.existsSync(venvBinPath)) {

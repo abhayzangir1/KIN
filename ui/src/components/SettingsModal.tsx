@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useKinStore } from '../store/kinStore.js';
+import { ProviderIcon } from './ModelSelectorModal.js';
 import {
   X,
   Settings,
@@ -28,6 +29,8 @@ import {
   EyeOff,
   Lock,
   AlertCircle,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 
 export const SettingsModal: React.FC = () => {
@@ -56,6 +59,8 @@ export const SettingsModal: React.FC = () => {
     availableModels,
     fetchAvailableModels,
     isLoadingModels,
+    providerReadiness,
+    verifyProviderKey,
     addCustomModel,
     setSkillsModalOpen,
     setSwarmMapOpen,
@@ -66,10 +71,32 @@ export const SettingsModal: React.FC = () => {
   } = useKinStore();
 
   const [activeTab, setActiveTab] = useState<'general' | 'models' | 'credentials' | 'skills' | 'desktop' | 'evaluations' | 'database' | 'layout' | 'about'>('general');
-  const [modelTierFilter, setModelTierFilter] = useState<'all' | 'free' | 'paid'>('all');
   const [isQueryingModels, setIsQueryingModels] = useState(false);
   const [vacuumStatus, setVacuumStatus] = useState<string | null>(null);
   const [isOptimizing, setIsOptimizing] = useState(false);
+
+  // Provider testing & inspection states
+  const [testingProvider, setTestingProvider] = useState<string | null>(null);
+  const [providerTestResults, setProviderTestResults] = useState<Record<string, { success: boolean; message: string; modelCount: number }>>({});
+  const [expandedProviders, setExpandedProviders] = useState<Record<string, boolean>>({});
+
+  const handleTestProvider = async (providerId: string) => {
+    setTestingProvider(providerId);
+    try {
+      const res = await verifyProviderKey(providerId);
+      setProviderTestResults((prev) => ({
+        ...prev,
+        [providerId]: {
+          success: res.working,
+          message: res.message,
+          modelCount: res.modelCount,
+        },
+      }));
+      await fetchAvailableModels();
+    } finally {
+      setTestingProvider(null);
+    }
+  };
 
   // Custom Model Registration State
   const [customModelId, setCustomModelId] = useState('');
@@ -168,6 +195,15 @@ export const SettingsModal: React.FC = () => {
     setCredSaving(true);
     setCredError(null);
     try {
+      if (credApiKey.trim()) {
+        const verifyRes = await verifyProviderKey(credProvider, credApiKey.trim());
+        if (!verifyRes.working) {
+          setCredError(`Key verification failed: ${verifyRes.message || 'Invalid API key or unreachable provider'}`);
+          setCredSaving(false);
+          return;
+        }
+      }
+
       if (editingCredId) {
         const res = await updateCredential(editingCredId, {
           provider: credProvider,
@@ -195,7 +231,7 @@ export const SettingsModal: React.FC = () => {
       setEditingCredId(null);
       setCredApiKey('');
       setCredKeyName('');
-      fetchAvailableModels();
+      await fetchAvailableModels();
     } catch (err: any) {
       setCredError(err.message || 'Error saving credential');
     } finally {
@@ -685,110 +721,224 @@ export const SettingsModal: React.FC = () => {
                   </div>
                 </div>
 
-                {/* OpenRouter Model Catalog */}
-                <div className="space-y-2">
+                {/* Cloud & API Providers Live Status & Verification */}
+                <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-[#8b949e] flex items-center space-x-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                      <span>OpenRouter Model Catalog</span>
-                    </h4>
-                    <div className="flex items-center space-x-2">
-                      <div className="flex items-center bg-[#161b22] border border-[#30363d] rounded p-0.5 text-[10px]">
-                        {(['all', 'free', 'paid'] as const).map((tier) => (
-                          <button
-                            key={tier}
-                            type="button"
-                            onClick={() => setModelTierFilter(tier)}
-                            className={`px-2 py-0.5 rounded capitalize transition-colors ${
-                              modelTierFilter === tier
-                                ? 'bg-purple-600 text-white font-medium'
-                                : 'text-[#8b949e] hover:text-kin-text'
-                            }`}
-                          >
-                            {tier}
-                          </button>
-                        ))}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleRefreshModels}
-                        disabled={isLoadingModels || isQueryingModels}
-                        className="p-1 rounded bg-[#161b22] border border-[#30363d] text-[#8b949e] hover:text-kin-text disabled:opacity-50 transition-colors"
-                        title="Refresh model catalog"
-                      >
-                        <RefreshCw className={`w-3 h-3 ${isLoadingModels || isQueryingModels ? 'animate-spin' : ''}`} />
-                      </button>
+                    <div>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-[#8b949e] flex items-center space-x-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                        <span>Cloud &amp; API Providers (Live Verified)</span>
+                      </h4>
+                      <p className="text-[11px] text-[#64748b] mt-0.5">
+                        Only verified, working models with valid credentials are displayed. No mock data.
+                      </p>
                     </div>
+                    <button
+                      type="button"
+                      onClick={handleRefreshModels}
+                      disabled={isLoadingModels || isQueryingModels}
+                      className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-[#8b949e] hover:text-kin-text text-xs transition cursor-pointer disabled:opacity-50"
+                      title="Refresh all model catalogs and readiness"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isLoadingModels || isQueryingModels ? 'animate-spin' : ''}`} />
+                      <span>Refresh Models</span>
+                    </button>
                   </div>
 
-                  {(() => {
-                    const openRouterModels = availableModels.filter(
-                      (m) => m.provider === 'openrouter' || m.id.startsWith('openrouter/')
-                    );
-                    const filteredModels = openRouterModels.filter((m) => {
-                      const isFree = Boolean(m.isFree || m.id.includes(':free'));
-                      if (modelTierFilter === 'free') return isFree;
-                      if (modelTierFilter === 'paid') return !isFree;
-                      return true;
-                    });
-
-                    if (isLoadingModels || isQueryingModels) {
-                      return (
-                        <div className="p-3 text-center text-xs text-[#8b949e] italic bg-[#161b22] rounded-lg border border-[#30363d]">
-                          Querying available models...
-                        </div>
+                  <div className="space-y-2">
+                    {[
+                      { id: 'openai', name: 'OpenAI', desc: 'GPT-4.5, GPT-4o, o3-mini, o1 reasoning models' },
+                      { id: 'anthropic', name: 'Anthropic', desc: 'Claude 3.7 Sonnet (Hybrid Thinking), Claude 3.5' },
+                      { id: 'gemini', name: 'Google Gemini', desc: 'Gemini 2.5 Flash, 2.5 Pro, 2.0 Flash' },
+                      { id: 'deepseek', name: 'DeepSeek', desc: 'DeepSeek-V3, DeepSeek-R1 Full-scale reasoning' },
+                      { id: 'groq', name: 'Groq', desc: 'Ultra low latency LPU (Llama 3.3 70B, Mixtral)' },
+                      { id: 'xai', name: 'xAI (Grok)', desc: 'Grok 2, Grok 2 Vision' },
+                      { id: 'openrouter', name: 'OpenRouter', desc: 'Unified gateway across 200+ frontier models' },
+                      { id: 'azure', name: 'Azure OpenAI', desc: 'Enterprise private Azure deployment models' },
+                    ].map((p) => {
+                      const hasCred = credentials.some(
+                        (c) => c.provider.toLowerCase() === p.id && c.status !== 'revoked'
                       );
-                    }
-
-                    if (filteredModels.length === 0) {
-                      return (
-                        <div className="p-3 text-center text-xs text-[#8b949e] italic bg-[#161b22] rounded-lg border border-[#30363d]">
-                          No OpenRouter models found for filter &quot;{modelTierFilter}&quot;. Click refresh to query the gateway.
-                        </div>
+                      const readiness = providerReadiness[p.id];
+                      const testRes = providerTestResults[p.id];
+                      const pModels = availableModels.filter(
+                        (m) => m.provider.toLowerCase() === p.id && m.configured !== false
                       );
-                    }
+                      const isExpanded = !!expandedProviders[p.id];
+                      const isTesting = testingProvider === p.id;
 
-                    return (
-                      <div className="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto pr-1">
-                        {filteredModels.map((m) => {
-                          const isFree = Boolean(m.isFree || m.id.includes(':free'));
-                          return (
-                            <div
-                              key={m.id}
-                              className="p-2.5 rounded-lg bg-[#161b22] border border-[#30363d] flex items-center justify-between text-xs"
+                      // Determine live status
+                      let statusBadge = (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-400 border border-slate-700">
+                          Not Configured
+                        </span>
+                      );
+
+                      if (testRes) {
+                        if (testRes.success) {
+                          statusBadge = (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold">
+                              ✓ Working ({testRes.modelCount} models verified)
+                            </span>
+                          );
+                        } else {
+                          statusBadge = (
+                            <span
+                              className="px-2 py-0.5 rounded text-[10px] font-mono bg-red-500/15 text-red-400 border border-red-500/30 font-semibold"
+                              title={testRes.message}
                             >
-                              <div>
-                                <div className="font-bold text-kin-text font-mono flex items-center space-x-2">
-                                  <span>{m.name || m.id}</span>
-                                  <span
-                                    className={`text-[9px] px-1.5 py-0.2 rounded font-sans ${
-                                      isFree
-                                        ? 'bg-emerald-500/20 text-emerald-400'
-                                        : 'bg-purple-500/20 text-purple-300'
-                                    }`}
-                                  >
-                                    {isFree ? 'Free' : 'Paid'}
-                                  </span>
-                                  {m.validated && (
-                                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-400 font-sans">
-                                      Validated
-                                    </span>
-                                  )}
-                                </div>
-                                {m.description && <p className="text-[11px] text-[#8b949e] mt-0.5">{m.description}</p>}
-                                <div className="text-[10px] font-mono text-purple-300 mt-0.5">{m.id}</div>
+                              ✕ API Key Invalid: {testRes.message.slice(0, 32)}
+                            </span>
+                          );
+                        }
+                      } else if (hasCred) {
+                        if (readiness?.ready && pModels.length > 0) {
+                          statusBadge = (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold">
+                              ✓ Working ({pModels.length} models)
+                            </span>
+                          );
+                        } else if (readiness && readiness.ready === false) {
+                          statusBadge = (
+                            <span
+                              className="px-2 py-0.5 rounded text-[10px] font-mono bg-red-500/15 text-red-400 border border-red-500/30 font-semibold"
+                              title={readiness.message || readiness.error}
+                            >
+                              ✕ API Key Error ({readiness.message || readiness.error || 'Invalid'})
+                            </span>
+                          );
+                        } else {
+                          statusBadge = (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                              Configured ({pModels.length} models)
+                            </span>
+                          );
+                        }
+                      }
+
+                      return (
+                        <div
+                          key={p.id}
+                          className="rounded-lg bg-[#161b22] border border-[#30363d] overflow-hidden transition"
+                        >
+                          <div className="p-3 flex items-center justify-between">
+                            <div className="flex items-center space-x-3 min-w-0">
+                              <div className="p-1.5 rounded-lg bg-[#0d1117] border border-[#30363d]">
+                                <ProviderIcon provider={p.id} className="w-4 h-4" />
                               </div>
-                              {m.contextWindow && (
-                                <div className="text-[10px] font-mono text-[#8b949e]">
-                                  {(m.contextWindow / 1000).toFixed(0)}k ctx
+                              <div className="min-w-0">
+                                <div className="flex items-center space-x-2">
+                                  <span className="font-semibold text-xs text-kin-text">{p.name}</span>
+                                  {statusBadge}
+                                </div>
+                                <p className="text-[11px] text-[#8b949e] truncate mt-0.5">{p.desc}</p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center space-x-2 shrink-0">
+                              {hasCred ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleTestProvider(p.id)}
+                                  disabled={isTesting}
+                                  className="flex items-center space-x-1 px-2.5 py-1 rounded bg-[#21262d] hover:bg-[#30363d] text-kin-text text-xs border border-[#30363d] transition cursor-pointer disabled:opacity-50"
+                                  title="Test API key connection and fetch live models"
+                                >
+                                  {isTesting ? (
+                                    <>
+                                      <RefreshCw className="w-3 h-3 animate-spin text-purple-400" />
+                                      <span>Testing...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Play className="w-3 h-3 text-purple-400" />
+                                      <span>Test Connection</span>
+                                    </>
+                                  )}
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCredProvider(p.id);
+                                    setCredKeyName(`${p.name} Key`);
+                                    setCredApiKey('');
+                                    setShowCredForm(true);
+                                    setActiveTab('credentials');
+                                  }}
+                                  className="flex items-center space-x-1 px-2.5 py-1 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs transition cursor-pointer"
+                                  title="Add API Key for provider"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  <span>Add Key</span>
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExpandedProviders((prev) => ({ ...prev, [p.id]: !prev[p.id] }))
+                                }
+                                className="p-1 rounded hover:bg-[#21262d] text-[#8b949e] hover:text-kin-text transition cursor-pointer"
+                                title={isExpanded ? 'Collapse models list' : 'Expand models list'}
+                              >
+                                {isExpanded ? (
+                                  <ChevronDown className="w-4 h-4" />
+                                ) : (
+                                  <ChevronRight className="w-4 h-4" />
+                                )}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Expanded Live Models List */}
+                          {isExpanded && (
+                            <div className="px-3 pb-3 pt-1 border-t border-[#21262d] bg-[#0d1117]/60">
+                              {pModels.length > 0 ? (
+                                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                                  {pModels.map((m) => (
+                                    <div
+                                      key={m.id}
+                                      className="px-2.5 py-1.5 rounded bg-[#161b22] border border-[#30363d] flex items-center justify-between text-xs font-mono"
+                                    >
+                                      <div className="flex items-center space-x-2 truncate mr-2">
+                                        <Sparkles className="w-3 h-3 text-emerald-400 shrink-0" />
+                                        <span className="text-kin-text truncate">{m.name || m.id}</span>
+                                        <span className="text-[10px] text-[#64748b] truncate">{m.id}</span>
+                                      </div>
+                                      <div className="flex items-center space-x-1.5 shrink-0">
+                                        {m.contextWindow && (
+                                          <span className="text-[9px] text-[#8b949e]">
+                                            {(m.contextWindow / 1000).toFixed(0)}k ctx
+                                          </span>
+                                        )}
+                                        {m.supportsTools && (
+                                          <span className="px-1 py-0.2 rounded text-[8px] bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                                            Tools
+                                          </span>
+                                        )}
+                                        {m.supportsVision && (
+                                          <span className="px-1 py-0.2 rounded text-[8px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                                            Vision
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="py-2.5 text-center text-xs text-[#8b949e] italic">
+                                  {hasCred
+                                    ? "No live models returned. Click 'Test Connection' to verify API key."
+                                    : 'No models available. Add a verified API key in the BYOK vault to discover models.'}
                                 </div>
                               )}
                             </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Custom Model Registration Card */}

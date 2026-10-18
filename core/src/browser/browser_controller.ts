@@ -190,27 +190,29 @@ export class BrowserController {
 
     this.launchPromise = (async () => {
       try {
-        // 1. Check if remote debugging is available on port 9222 or custom URL
-        const remoteUrl = options.remoteDebuggingUrl || process.env.KIN_REMOTE_DEBUG_URL || 'http://127.0.0.1:9222';
-        try {
-          const resp = await fetch(`${remoteUrl.replace(/\/$/, '')}/json/version`, {
-            signal: AbortSignal.timeout(500),
-          });
-          if (resp.ok) {
-            this.browser = await puppeteer.connect({
-              browserURL: remoteUrl,
-              defaultViewport: null,
+        // 1. Check if remote debugging is explicitly configured via options or env var
+        const remoteUrl = options.remoteDebuggingUrl || process.env.KIN_REMOTE_DEBUG_URL;
+        if (remoteUrl) {
+          try {
+            const resp = await fetch(`${remoteUrl.replace(/\/$/, '')}/json/version`, {
+              signal: AbortSignal.timeout(500),
             });
-            this.browser.on('disconnected', () => {
-              this.browser = null;
-              this.activePage = null;
-            });
-            const pages = await this.browser.pages();
-            this.activePage = pages.find((p) => !p.isClosed()) || (await this.browser.newPage());
-            return { browser: this.browser, page: this.activePage };
+            if (resp.ok) {
+              this.browser = await puppeteer.connect({
+                browserURL: remoteUrl,
+                defaultViewport: null,
+              });
+              this.browser.on('disconnected', () => {
+                this.browser = null;
+                this.activePage = null;
+              });
+              const pages = await this.browser.pages();
+              this.activePage = pages.find((p) => !p.isClosed()) || (await this.browser.newPage());
+              return { browser: this.browser, page: this.activePage };
+            }
+          } catch {
+            // Configured remote debugging port not active, fallback to local launch
           }
-        } catch {
-          // Remote debugging port not active, fallback to local launch
         }
 
         const executablePath = this.findBrowserExecutable();
@@ -270,7 +272,6 @@ export class BrowserController {
       throw new Error(`ACCESS_DENIED: Scheme navigation to '${lower.split(':')[0]}:' is prohibited without explicit allowLocalFileNavigation capability.`);
     }
 
-    const { page } = await this.ensureBrowser();
     const isLocalHost = lower.startsWith('localhost') || lower.startsWith('127.0.0.1') || lower.startsWith('::1') || lower.startsWith('[::1]');
     const formattedUrl = (
       lower.startsWith('http://') ||
@@ -279,6 +280,24 @@ export class BrowserController {
       lower.startsWith('file:') ||
       lower.startsWith('data:')
     ) ? trimmedUrl : isLocalHost ? `http://${trimmedUrl}` : `https://${trimmedUrl}`;
+
+    try {
+      const parsed = new URL(formattedUrl);
+      const host = parsed.hostname.toLowerCase();
+      if (
+        host === '169.254.169.254' ||
+        host === 'metadata.google.internal' ||
+        host === 'instance-data' ||
+        host.endsWith('.metadata.google.internal') ||
+        host.startsWith('169.254.')
+      ) {
+        throw new Error(`ACCESS_DENIED: Navigation to cloud metadata service '${host}' is blocked for security.`);
+      }
+    } catch (err: any) {
+      if (err.message?.startsWith('ACCESS_DENIED')) throw err;
+    }
+
+    const { page } = await this.ensureBrowser();
 
     try {
       const response = await page.goto(formattedUrl, {
