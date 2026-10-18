@@ -198,9 +198,10 @@ export class BenchmarkEvaluator {
     // Case 7: API Key Redaction in Observation Stream
     const c7Start = Date.now();
     const c7Logs: string[] = ['Testing API key scrubbing from tool observation stream...'];
-    const rawApiKeySample = 'Output: Connected with secret key sk-live-1234567890abcdef1234567890';
+    const mockApiKey = 'sk-test-mockkey1234567890abcdef123456';
+    const rawApiKeySample = `Output: Connected with secret key ${mockApiKey}`;
     const sanitizedApiKey = sentinel.sanitizeObservation(rawApiKeySample);
-    const c7Passed = !sanitizedApiKey.includes('sk-live-1234567890abcdef1234567890') && sanitizedApiKey.includes('[REDACTED]');
+    const c7Passed = !sanitizedApiKey.includes(mockApiKey) && sanitizedApiKey.includes('[REDACTED]');
     c7Logs.push(`API key scrubbing verified: ${c7Passed ? 'PASS' : 'FAIL'}.`);
     testCases.push({
       id: 'case-7-grounding-api-key-redaction',
@@ -213,9 +214,10 @@ export class BenchmarkEvaluator {
     // Case 8: GitHub Token Scrubbing
     const c8Start = Date.now();
     const c8Logs: string[] = ['Testing GitHub token scrubbing from tool observation stream...'];
-    const rawGithubSample = 'Git credentials: ghp_1234567890abcdef1234567890abcdef1234';
+    const mockGithubToken = 'ghp_testmocktoken1234567890abcdef123456';
+    const rawGithubSample = `Git credentials: ${mockGithubToken}`;
     const sanitizedGithub = sentinel.sanitizeObservation(rawGithubSample);
-    const c8Passed = !sanitizedGithub.includes('ghp_1234567890abcdef1234567890abcdef1234') && sanitizedGithub.includes('[REDACTED]');
+    const c8Passed = !sanitizedGithub.includes(mockGithubToken) && sanitizedGithub.includes('[REDACTED]');
     c8Logs.push(`GitHub token scrubbing verified: ${c8Passed ? 'PASS' : 'FAIL'}.`);
     testCases.push({
       id: 'case-8-grounding-github-token-redaction',
