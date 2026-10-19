@@ -112,22 +112,26 @@ export const Sidebar: React.FC = () => {
             {standardChannels.map((chan) => {
               const isActive = chan.id === activeChannelId;
               return (
-                <button
+                <div
                   key={chan.id}
-                  onClick={() => {
-                    setActiveChannel(chan.id);
-                    setActiveMainView('chat');
-                  }}
-                  className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg transition group relative cursor-pointer ${
+                  className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg transition group relative ${
                     isActive
                       ? 'bg-emerald-500/15 text-emerald-500 font-semibold border border-emerald-500/30 shadow-xs pl-4 before:absolute before:left-1.5 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-emerald-500'
                       : 'text-kin-muted hover:bg-kin-card hover:text-kin-text'
                   }`}
                 >
-                  <div className="flex items-center space-x-2 truncate">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveChannel(chan.id);
+                      setActiveMainView('chat');
+                    }}
+                    className="flex items-center space-x-2 truncate flex-1 min-w-0 text-left cursor-pointer mr-1"
+                    title={`Open channel #${chan.name}`}
+                  >
                     <span className="text-emerald-500 font-mono font-bold">#</span>
                     <span className="truncate">{chan.name}</span>
-                  </div>
+                  </button>
                   <div className="flex items-center space-x-1.5 shrink-0">
                     {chan.unreadCount > 0 && !isActive && (
                       <span className="px-1.5 py-0.2 rounded-full bg-emerald-500 text-white font-bold text-[9px] shadow-xs">
@@ -141,6 +145,7 @@ export const Sidebar: React.FC = () => {
                     )}
                     {chan.id !== 'chan-general' && (
                       <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           if (window.confirm(`Delete channel #${chan.name}?`)) {
@@ -154,7 +159,7 @@ export const Sidebar: React.FC = () => {
                       </button>
                     )}
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
@@ -381,7 +386,7 @@ export const Sidebar: React.FC = () => {
                   <div className="space-y-1">
                     {goalTasks.map((task) => {
                       const nextStatus: Record<string, 'ready' | 'running' | 'completed'> = {
-                        ready: 'running',
+                        ready: 'completed',
                         running: 'completed',
                         completed: 'ready',
                         failed: 'ready',

@@ -7,6 +7,7 @@
 import { create } from 'zustand';
 
 let cachedIpcToken: string | null = null;
+const nativeFetch = typeof window !== 'undefined' && typeof window.fetch === 'function' ? window.fetch.bind(window) : undefined;
 
 export async function getIpcToken(): Promise<string | null> {
   if (cachedIpcToken) return cachedIpcToken;
@@ -44,6 +45,24 @@ export async function getIpcToken(): Promise<string | null> {
         return cachedIpcToken;
       }
     } catch {}
+
+    // In web dev mode or loopback browser session, fetch token via authorized Vite proxy
+    if (nativeFetch) {
+      try {
+        const authRes = await nativeFetch('/api/auth/token');
+        if (authRes.ok) {
+          const authData = await authRes.json();
+          if (authData && typeof authData.token === 'string' && authData.token.trim()) {
+            const freshToken = authData.token.trim();
+            cachedIpcToken = freshToken;
+            try {
+              window.sessionStorage.setItem('kin_ipc_token', freshToken);
+            } catch {}
+            return freshToken;
+          }
+        }
+      } catch {}
+    }
   }
   return null;
 }
@@ -55,9 +74,28 @@ export function getApiBaseUrl(): string {
   return '';
 }
 
+export async function computeTaskSignature(token: string, taskId: string): Promise<string> {
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    try {
+      const enc = new TextEncoder();
+      const keyData = enc.encode(token);
+      const msgData = enc.encode(`${taskId}:completed`);
+      const cryptoKey = await crypto.subtle.importKey(
+        'raw',
+        keyData,
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+      );
+      const sig = await crypto.subtle.sign('HMAC', cryptoKey, msgData);
+      return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, '0')).join('');
+    } catch {}
+  }
+  return '';
+}
+
 // Global browser fetch interceptor for desktop Tauri support and IPC authentication injection
-if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
-  const nativeFetch = window.fetch.bind(window);
+if (typeof window !== 'undefined' && typeof window.fetch === 'function' && nativeFetch) {
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     let url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
     const isTauri = '__TAURI__' in window;
@@ -71,7 +109,7 @@ if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
       (typeof window !== 'undefined' && window.location && url.startsWith(window.location.origin + '/api/'));
 
     const headers = new Headers(init?.headers || (typeof input === 'object' && 'headers' in input ? (input as Request).headers : {}));
-    if (isLocalApi && !headers.has('Authorization')) {
+    if (isLocalApi && !headers.has('Authorization') && !url.includes('/api/auth/token')) {
       const token = await getIpcToken();
       if (token) {
         headers.set('Authorization', `Bearer ${token}`);
@@ -3144,10 +3182,26 @@ export const useKinStore = create<KinState>((set, get) => ({
     }));
 
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const body: Record<string, any> = { status };
+      if (status === 'completed') {
+        const token = await getIpcToken();
+        if (token) {
+          const sig = await computeTaskSignature(token, taskId);
+          if (sig) {
+            headers['x-kin-operator-signature'] = sig;
+            body.operatorSignoff = {
+              operatorId: 'operator-human',
+              signature: sig,
+              justification: 'Human operator signoff via UI',
+            };
+          }
+        }
+      }
       await fetch(`/api/tasks/${taskId}/status`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
+        headers,
+        body: JSON.stringify(body),
       });
     } catch (err) {
       console.error(`[KIN UI] Failed to update task ${taskId} status:`, err);

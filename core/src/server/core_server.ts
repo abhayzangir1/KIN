@@ -1964,6 +1964,13 @@ export class CoreServer {
         });
       }
 
+      // 1c. GET /api/auth/token — Retrieve active loopback IPC token for authenticated session
+      if (req.method === 'GET' && pathname === '/api/auth/token') {
+        return this.sendJson(res, 200, {
+          token: this.ipcAuthToken,
+        });
+      }
+
       // 2. GET /api/system/models or GET /api/models — Dynamic Model Catalog
       if (req.method === 'GET' && (pathname === '/api/system/models' || pathname === '/api/models')) {
         const urlObj = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
