@@ -1202,7 +1202,7 @@ export const SettingsModal: React.FC = () => {
                           value={credQuota}
                           onChange={(e) => setCredQuota(Math.max(10000, Number(e.target.value)))}
                           step={500000}
-                          min={10000}
+                          min={0}
                           className="flex-1 bg-[#0d1117] border border-[#30363d] rounded px-2.5 py-1 text-xs text-kin-text font-mono focus:outline-none focus:border-emerald-500"
                         />
                         <div className="flex items-center space-x-1">
