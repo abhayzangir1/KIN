@@ -105,6 +105,12 @@ export const SkillsModal: React.FC = () => {
     }
   }, [isSkillsModalOpen]);
 
+  useEffect(() => {
+    if (isSkillsModalOpen && activeTab === 'mcp') {
+      fetchMcpData();
+    }
+  }, [activeTab, isSkillsModalOpen]);
+
   if (!isSkillsModalOpen) return null;
 
   const isBuiltIn = (skill: SkillItem) => {

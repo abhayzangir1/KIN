@@ -7,6 +7,7 @@
 import { spawn, exec, ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 export interface McpServerConfig {
   name: string;
@@ -32,6 +33,8 @@ export interface McpToolCallResult {
 export interface ActiveMcpServerEntry {
   process?: ChildProcess;
   url?: string;
+  postUrl?: string;
+  sseController?: AbortController;
   transport: 'stdio' | 'http';
   tools: McpToolDefinition[];
 }
@@ -71,12 +74,15 @@ export class McpClientManager {
       'HOME', 'USERPROFILE',
       'TEMP', 'TMP',
       'SYSTEMROOT', 'SystemRoot',
+      'SystemDrive', 'windir',
+      'USER', 'LOGNAME',
       'COMSPEC', 'SHELL',
       'TERM', 'LANG', 'LC_ALL',
       'APPDATA', 'LOCALAPPDATA',
       'HOMEDRIVE', 'HOMEPATH',
       'ProgramData', 'ALLUSERSPROFILE',
-      'NODE_PATH'
+      'NODE_PATH',
+      'XDG_DATA_HOME', 'XDG_CONFIG_HOME'
     ];
     const safeEnv: Record<string, string> = {};
     for (const key of safeSystemKeys) {
@@ -93,6 +99,22 @@ export class McpClientManager {
       }
     }
     return cleanEnv;
+  }
+
+  /**
+   * Resolves an active MCP server entry by exact name or normalized (case-insensitive, hyphens/underscores).
+   */
+  public getServerEntry(name: string): { entry: ActiveMcpServerEntry; actualName: string } | undefined {
+    if (this.activeServers.has(name)) {
+      return { entry: this.activeServers.get(name)!, actualName: name };
+    }
+    const normalized = name.toLowerCase().replace(/[-_\s]/g, '');
+    for (const [k, v] of this.activeServers.entries()) {
+      if (k.toLowerCase().replace(/[-_\s]/g, '') === normalized) {
+        return { entry: v, actualName: k };
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -193,6 +215,189 @@ export class McpClientManager {
   /**
    * Spawns an MCP server, handles supervision lifecycle, and queries tools/list.
    */
+  private async queryAllTools(serverName: string): Promise<McpToolDefinition[]> {
+    const tools: McpToolDefinition[] = [];
+    let nextCursor: string | undefined = undefined;
+    do {
+      const params = nextCursor ? { cursor: nextCursor } : {};
+      const listRes = await this.sendRequest(serverName, 'tools/list', params, 30000);
+      const rawTools = listRes?.tools || [];
+      for (const t of rawTools) {
+        tools.push({
+          name: t.name,
+          description: t.description,
+          inputSchema: t.inputSchema || { type: 'object', properties: {} },
+          serverName,
+        });
+      }
+      nextCursor = listRes?.nextCursor;
+    } while (nextCursor);
+    return tools;
+  }
+
+  private sendJsonRpcResponse(serverName: string, id: string | number, result: any): void {
+    const found = this.getServerEntry(serverName);
+    if (!found) return;
+    const { entry, actualName } = found;
+    const payload = JSON.stringify({ jsonrpc: '2.0', id, result });
+    if (entry.transport === 'http' && (entry.postUrl || entry.url)) {
+      fetch(entry.postUrl || entry.url!, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+      }).catch((err) => {
+        console.warn(`[KIN MCP] Failed to send JSON-RPC response to '${actualName}':`, err);
+      });
+      return;
+    }
+    if (entry.process?.stdin) {
+      try {
+        entry.process.stdin.write(payload + '\n');
+      } catch (err) {
+        console.warn(`[KIN MCP] Failed to send JSON-RPC response to '${actualName}':`, err);
+      }
+    }
+  }
+
+  private handleIncomingJsonRpcMessage(serverName: string, rawJson: string): void {
+    try {
+      const json = JSON.parse(rawJson);
+      // 1. Server-initiated request (ping, roots/list)
+      if (json.method) {
+        if (json.method === 'ping' && json.id !== undefined && json.id !== null) {
+          this.sendJsonRpcResponse(serverName, json.id, {});
+        } else if (json.method === 'roots/list' && json.id !== undefined && json.id !== null) {
+          const rootUri = pathToFileURL(this.projectRoot).toString();
+          this.sendJsonRpcResponse(serverName, json.id, {
+            roots: [{ uri: rootUri, name: path.basename(this.projectRoot) }],
+          });
+        }
+      }
+
+      // 2. Response to pending client request
+      if (json.id !== undefined && json.id !== null) {
+        const req = this.pendingRequests.get(json.id) ??
+          this.pendingRequests.get(Number(json.id)) ??
+          this.pendingRequests.get(String(json.id));
+        if (req) {
+          clearTimeout(req.timeout);
+          this.pendingRequests.delete(json.id);
+          this.pendingRequests.delete(Number(json.id));
+          this.pendingRequests.delete(String(json.id));
+          if (json.error) {
+            req.reject(new Error(json.error.message || 'JSON-RPC Error'));
+          } else {
+            req.resolve(json.result);
+          }
+        }
+      }
+    } catch {}
+  }
+
+  private async connectSseIfSupported(serverName: string, url: string): Promise<boolean> {
+    const entry = this.activeServers.get(serverName);
+    if (!entry) return false;
+
+    const sseController = new AbortController();
+    const probeTimeout = AbortSignal.timeout(1500);
+    const probeSignal = (AbortSignal as any).any ? (AbortSignal as any).any([sseController.signal, probeTimeout]) : sseController.signal;
+    try {
+      const sseProbe = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Accept': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+        },
+        signal: probeSignal,
+      });
+
+      const contentType = sseProbe.headers.get('content-type') || '';
+      if (!sseProbe.ok || !contentType.includes('text/event-stream') || !sseProbe.body) {
+        sseController.abort();
+        return false;
+      }
+
+      entry.sseController = sseController;
+      const reader = sseProbe.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let sseBuffer = '';
+      let isEndpointDispatched = false;
+      let resolveEndpoint: (postUrl: string) => void = () => {};
+      const endpointPromise = new Promise<string>((resolve) => {
+        resolveEndpoint = resolve;
+      });
+
+      (async () => {
+        let currentEventType = 'message';
+        let currentData = '';
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            sseBuffer += decoder.decode(value, { stream: true });
+            const lines = sseBuffer.split('\n');
+            sseBuffer = lines.pop() || '';
+
+            for (const rawLine of lines) {
+              const line = rawLine.trim();
+              if (!line) {
+                if (currentEventType === 'endpoint' && currentData) {
+                  try {
+                    const resolvedPostUrl = new URL(currentData.trim(), url).toString();
+                    entry.postUrl = resolvedPostUrl;
+                    if (!isEndpointDispatched) {
+                      isEndpointDispatched = true;
+                      resolveEndpoint(resolvedPostUrl);
+                    }
+                  } catch {
+                    entry.postUrl = currentData.trim();
+                  }
+                } else if (currentEventType === 'message' && currentData) {
+                  this.handleIncomingJsonRpcMessage(serverName, currentData);
+                }
+                currentEventType = 'message';
+                currentData = '';
+                continue;
+              }
+
+              if (line.startsWith(':')) {
+                // Keep-alive heartbeat comment
+                continue;
+              }
+
+              if (line.startsWith('event:')) {
+                currentEventType = line.slice(6).trim();
+              } else if (line.startsWith('data:')) {
+                const chunk = line.slice(5).trim();
+                currentData = currentData ? currentData + '\n' + chunk : chunk;
+              }
+            }
+          }
+        } catch {
+          // Stream completed or aborted
+        } finally {
+          if (!isEndpointDispatched) {
+            isEndpointDispatched = true;
+            resolveEndpoint(url);
+          }
+        }
+      })();
+
+      const postUrl = await Promise.race([
+        endpointPromise,
+        new Promise<string>((resolve) => setTimeout(() => resolve(url), 3000)),
+      ]);
+      entry.postUrl = postUrl;
+      return true;
+    } catch {
+      sseController.abort();
+      return false;
+    }
+  }
+
+  /**
+   * Spawns an MCP server, handles supervision lifecycle, and queries tools/list.
+   */
   public async startServer(config: McpServerConfig): Promise<McpToolDefinition[]> {
     if (this.inFlightHandshakes.has(config.name)) {
       return await this.inFlightHandshakes.get(config.name)!;
@@ -218,10 +423,14 @@ export class McpClientManager {
     const serverUrl = config.url!;
     const entry: ActiveMcpServerEntry = {
       url: serverUrl,
+      postUrl: serverUrl,
       transport: 'http',
       tools: [],
     };
     this.activeServers.set(config.name, entry);
+
+    // Try connecting via SSE first
+    await this.connectSseIfSupported(config.name, serverUrl);
 
     try {
       // 1. Initialize
@@ -234,21 +443,16 @@ export class McpClientManager {
       // Complete initialization notification
       this.sendNotification(config.name, 'notifications/initialized');
 
-      // 2. Query tools/list
-      const listRes = await this.sendRequest(config.name, 'tools/list', {}, 30000);
-      const rawTools = listRes?.tools || [];
-      const tools: McpToolDefinition[] = rawTools.map((t: any) => ({
-        name: t.name,
-        description: t.description,
-        inputSchema: t.inputSchema || {},
-        serverName: config.name,
-      }));
-
+      // 2. Query tools/list with pagination
+      const tools = await this.queryAllTools(config.name);
       entry.tools = tools;
       this.activeServers.set(config.name, entry);
       return tools;
     } catch (err) {
       console.warn(`[KIN MCP] HTTP Handshake with '${config.name}' failed:`, err);
+      if (entry.sseController) {
+        entry.sseController.abort();
+      }
       this.activeServers.delete(config.name);
       return [];
     }
@@ -280,6 +484,7 @@ export class McpClientManager {
       env: cleanEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: isShellNeeded,
+      detached: !isWindows,
     });
 
     let buffer = '';
@@ -299,7 +504,7 @@ export class McpClientManager {
             if (json.method === 'ping' && json.id !== undefined && json.id !== null) {
               proc.stdin?.write(JSON.stringify({ jsonrpc: '2.0', id: json.id, result: {} }) + '\n');
             } else if (json.method === 'roots/list' && json.id !== undefined && json.id !== null) {
-              const rootUri = `file://${this.projectRoot.replace(/\\/g, '/')}`;
+              const rootUri = pathToFileURL(this.projectRoot).toString();
               proc.stdin?.write(JSON.stringify({
                 jsonrpc: '2.0',
                 id: json.id,
@@ -381,15 +586,8 @@ export class McpClientManager {
       // Complete protocol initialization with initialized notification
       this.sendNotification(config.name, 'notifications/initialized');
 
-      // 2. Query tools/list
-      const listRes = await this.sendRequest(config.name, 'tools/list', {}, 30000);
-      const rawTools = listRes?.tools || [];
-      const tools: McpToolDefinition[] = rawTools.map((t: any) => ({
-        name: t.name,
-        description: t.description,
-        inputSchema: t.inputSchema || {},
-        serverName: config.name,
-      }));
+      // 2. Query tools/list with pagination
+      const tools = await this.queryAllTools(config.name);
 
       this.activeServers.set(config.name, { process: proc, transport: 'stdio', tools });
       return tools;
@@ -398,6 +596,12 @@ export class McpClientManager {
       try {
         if (process.platform === 'win32' && proc.pid) {
           exec(`taskkill /pid ${proc.pid} /T /F`, () => {});
+        } else if (proc.pid) {
+          try {
+            process.kill(-proc.pid, 'SIGKILL');
+          } catch {
+            proc.kill('SIGKILL');
+          }
         }
         proc.kill();
       } catch {}
@@ -410,14 +614,28 @@ export class McpClientManager {
    * Invokes an MCP tool on the given server.
    */
   public async callTool(serverName: string, toolName: string, args: Record<string, any>, signal?: AbortSignal): Promise<McpToolCallResult> {
+    const found = this.getServerEntry(serverName);
+    if (!found) {
+      throw new Error(`MCP server '${serverName}' is not running.`);
+    }
+    const { entry, actualName } = found;
+
+    // Normalize tool name within the server's discovered tools
+    let actualToolName = toolName;
+    const norm = toolName.toLowerCase().replace(/[-_]/g, '');
+    const matched = entry.tools.find((t) => t.name === toolName || t.name.toLowerCase().replace(/[-_]/g, '') === norm);
+    if (matched) {
+      actualToolName = matched.name;
+    }
+
     const timeoutMs = typeof (args as any)?._timeoutMs === 'number' && (args as any)._timeoutMs > 0
       ? (args as any)._timeoutMs
       : 60000;
     const cleanArgs = { ...args };
     delete cleanArgs._timeoutMs;
 
-    const res = await this.sendRequest(serverName, 'tools/call', {
-      name: toolName,
+    const res = await this.sendRequest(actualName, 'tools/call', {
+      name: actualToolName,
       arguments: cleanArgs,
     }, timeoutMs, signal);
     return res as McpToolCallResult;
@@ -427,8 +645,9 @@ export class McpClientManager {
    * Sends a JSON-RPC notification (without expecting a response) over stdio or HTTP.
    */
   public sendNotification(serverName: string, method: string, params?: Record<string, any>): void {
-    const entry = this.activeServers.get(serverName);
-    if (!entry) return;
+    const found = this.getServerEntry(serverName);
+    if (!found) return;
+    const { entry, actualName } = found;
     const payload: Record<string, any> = {
       jsonrpc: '2.0',
       method,
@@ -437,13 +656,13 @@ export class McpClientManager {
       payload.params = params;
     }
 
-    if (entry.transport === 'http' && entry.url) {
-      fetch(entry.url, {
+    if (entry.transport === 'http' && (entry.postUrl || entry.url)) {
+      fetch(entry.postUrl || entry.url!, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       }).catch((err) => {
-        console.warn(`[KIN MCP] Failed to send HTTP notification '${method}' to '${serverName}':`, err);
+        console.warn(`[KIN MCP] Failed to send HTTP notification '${method}' to '${actualName}':`, err);
       });
       return;
     }
@@ -452,7 +671,7 @@ export class McpClientManager {
       try {
         entry.process.stdin.write(JSON.stringify(payload) + '\n');
       } catch (err) {
-        console.warn(`[KIN MCP] Failed to send notification '${method}' to '${serverName}':`, err);
+        console.warn(`[KIN MCP] Failed to send notification '${method}' to '${actualName}':`, err);
       }
     }
   }
@@ -467,18 +686,20 @@ export class McpClientManager {
     timeoutMs: number = 60000,
     signal?: AbortSignal
   ): Promise<any> {
-    const entry = this.activeServers.get(serverName);
-    if (!entry) {
+    const found = this.getServerEntry(serverName);
+    if (!found) {
       return Promise.reject(new Error(`MCP server '${serverName}' is not running.`));
     }
+    const { entry, actualName } = found;
 
     if (signal?.aborted) {
-      return Promise.reject(new Error(`MCP request '${method}' to '${serverName}' aborted: ${signal.reason}`));
+      return Promise.reject(new Error(`MCP request '${method}' to '${actualName}' aborted: ${signal.reason}`));
     }
 
     const id = this.requestIdCounter++;
 
-    if (entry.transport === 'http' && entry.url) {
+    if (entry.transport === 'http' && (entry.postUrl || entry.url)) {
+      const targetUrl = entry.postUrl || entry.url!;
       const payload = JSON.stringify({
         jsonrpc: '2.0',
         id,
@@ -489,30 +710,87 @@ export class McpClientManager {
       const timeoutSignal = AbortSignal.timeout(timeoutMs);
       const combinedSignal = signal ? (AbortSignal as any).any([timeoutSignal, signal]) : timeoutSignal;
 
-      return fetch(entry.url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: payload,
-        signal: combinedSignal,
-      })
-        .then(async (res) => {
-          if (!res.ok) {
-            const errText = await res.text().catch(() => res.statusText);
-            throw new Error(`HTTP MCP request '${method}' to '${serverName}' failed (${res.status}): ${errText}`);
+      return new Promise((resolve, reject) => {
+        let onAbort: (() => void) | undefined;
+        const cleanup = () => {
+          clearTimeout(timeout);
+          this.pendingRequests.delete(id);
+          if (signal && onAbort) {
+            signal.removeEventListener('abort', onAbort);
           }
-          const json: any = await res.json();
-          if (json.error) {
-            throw new Error(json.error.message || `JSON-RPC Error on '${method}'`);
-          }
-          return json.result;
+        };
+
+        const timeout = setTimeout(() => {
+          cleanup();
+          reject(new Error(`MCP request '${method}' to '${actualName}' timed out (${Math.round(timeoutMs / 1000)}s).`));
+        }, timeoutMs);
+
+        if (signal) {
+          onAbort = () => {
+            cleanup();
+            reject(new Error(`MCP request '${method}' to '${actualName}' aborted: ${signal.reason}`));
+          };
+          signal.addEventListener('abort', onAbort, { once: true });
+        }
+
+        // Keep pending request registered for SSE response delivery
+        this.pendingRequests.set(id, {
+          serverName: actualName,
+          timeout,
+          resolve: (val) => {
+            cleanup();
+            resolve(val);
+          },
+          reject: (err) => {
+            cleanup();
+            reject(err);
+          },
         });
+
+        fetch(targetUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json, text/plain, */*',
+          },
+          body: payload,
+          signal: combinedSignal,
+        })
+          .then(async (res) => {
+            if (!res.ok) {
+              const errText = await res.text().catch(() => res.statusText);
+              throw new Error(`HTTP MCP request '${method}' to '${actualName}' failed (${res.status}): ${errText}`);
+            }
+            if (res.status === 202) {
+              // Standard SSE asynchronous processing — response arrives via SSE stream
+              return;
+            }
+            const text = await res.text();
+            if (!text || !text.trim()) {
+              // Empty body — response delivered via SSE message event
+              return;
+            }
+            try {
+              const json = JSON.parse(text);
+              cleanup();
+              if (json.error) {
+                reject(new Error(json.error.message || `JSON-RPC Error on '${method}'`));
+              } else {
+                resolve(json.result);
+              }
+            } catch {
+              // Non-JSON response body, will be caught by SSE handler if connected
+            }
+          })
+          .catch((err) => {
+            cleanup();
+            reject(err);
+          });
+      });
     }
 
     if (!entry.process || !entry.process.stdin) {
-      return Promise.reject(new Error(`MCP server '${serverName}' stdio transport is unavailable.`));
+      return Promise.reject(new Error(`MCP server '${actualName}' stdio transport is unavailable.`));
     }
 
     const payload = JSON.stringify({
@@ -534,19 +812,19 @@ export class McpClientManager {
 
       const timeout = setTimeout(() => {
         cleanup();
-        reject(new Error(`MCP request '${method}' to '${serverName}' timed out (${Math.round(timeoutMs / 1000)}s).`));
+        reject(new Error(`MCP request '${method}' to '${actualName}' timed out (${Math.round(timeoutMs / 1000)}s).`));
       }, timeoutMs);
 
       if (signal) {
         onAbort = () => {
           cleanup();
-          reject(new Error(`MCP request '${method}' to '${serverName}' aborted: ${signal.reason}`));
+          reject(new Error(`MCP request '${method}' to '${actualName}' aborted: ${signal.reason}`));
         };
         signal.addEventListener('abort', onAbort, { once: true });
       }
 
       this.pendingRequests.set(id, {
-        serverName,
+        serverName: actualName,
         timeout,
         resolve: (val) => {
           cleanup();
@@ -581,13 +859,14 @@ export class McpClientManager {
   /**
    * Returns active server statuses and tool summaries.
    */
-  public getAllServers(): Array<{ name: string; transport: 'stdio' | 'http'; url?: string; toolsCount: number; tools: string[] }> {
-    const list: Array<{ name: string; transport: 'stdio' | 'http'; url?: string; toolsCount: number; tools: string[] }> = [];
+  public getAllServers(): Array<{ name: string; transport: 'stdio' | 'http'; url?: string; postUrl?: string; toolsCount: number; tools: string[] }> {
+    const list: Array<{ name: string; transport: 'stdio' | 'http'; url?: string; postUrl?: string; toolsCount: number; tools: string[] }> = [];
     for (const [name, entry] of this.activeServers.entries()) {
       list.push({
         name,
         transport: entry.transport,
         url: entry.url,
+        postUrl: entry.postUrl,
         toolsCount: entry.tools.length,
         tools: entry.tools.map((t) => t.name),
       });
@@ -599,22 +878,34 @@ export class McpClientManager {
    * Stops a specific MCP server process and cleans up registrations and pending requests.
    */
   public stopServer(name: string): void {
-    const entry = this.activeServers.get(name);
-    if (entry) {
+    const found = this.getServerEntry(name);
+    if (found) {
+      const { entry, actualName } = found;
+      if (entry.sseController) {
+        try {
+          entry.sseController.abort();
+        } catch {}
+      }
       if (entry.process) {
         try {
           if (process.platform === 'win32' && entry.process.pid) {
             exec(`taskkill /pid ${entry.process.pid} /T /F`, () => {});
+          } else if (entry.process.pid) {
+            try {
+              process.kill(-entry.process.pid, 'SIGKILL');
+            } catch {
+              entry.process.kill('SIGKILL');
+            }
           }
           entry.process.kill();
         } catch {}
       }
-      this.activeServers.delete(name);
+      this.activeServers.delete(actualName);
       for (const [id, req] of Array.from(this.pendingRequests.entries())) {
-        if (req.serverName === name) {
+        if (req.serverName === actualName) {
           clearTimeout(req.timeout);
           this.pendingRequests.delete(id);
-          req.reject(new Error(`MCP server '${name}' stopped`));
+          req.reject(new Error(`MCP server '${actualName}' stopped`));
         }
       }
     }

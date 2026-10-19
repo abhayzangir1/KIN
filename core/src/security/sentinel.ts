@@ -156,7 +156,17 @@ export class Sentinel {
   }
 
   public getRequiredCapability(toolName: string): { primary: string; aliases: string[] } {
-    if (toolName.startsWith('mcp__') || toolName === 'mcp:call' || toolName === 'mcp_call' || toolName === 'mcpCall') {
+    if (toolName.startsWith('mcp__')) {
+      const parts = toolName.split('__');
+      const serverName = parts[1];
+      const aliases = ['mcp:call', 'mcp', toolName, '*'];
+      if (serverName) {
+        aliases.push(`mcp:${serverName}`, `mcp__${serverName}`);
+      }
+      return { primary: 'mcp:call', aliases };
+    }
+
+    if (toolName === 'mcp:call' || toolName === 'mcp_call' || toolName === 'mcpCall') {
       return { primary: 'mcp:call', aliases: ['mcp:call', 'mcp', toolName, '*'] };
     }
 

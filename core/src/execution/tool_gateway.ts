@@ -953,12 +953,32 @@ export class ToolGateway {
 
     const mcp = this.mcpClient;
     if (mcp) {
+      schemas.push({
+        name: 'mcp_call',
+        description: 'Execute an external tool on a registered MCP (Model Context Protocol) server.',
+        parameters: {
+          type: 'object',
+          properties: {
+            server: { type: 'string', description: 'Name of the target MCP server' },
+            tool: { type: 'string', description: 'Name of the tool to execute on the MCP server' },
+            arguments: { type: 'object', description: 'Arguments object to pass to the MCP tool' },
+          },
+          required: ['server', 'tool'],
+        },
+      });
+
       const mcpTools = mcp.getAllTools();
       for (const t of mcpTools) {
+        const safeServer = t.serverName.replace(/[^a-zA-Z0-9_]/g, '_');
+        const safeName = t.name.replace(/[^a-zA-Z0-9_]/g, '_');
         schemas.push({
-          name: `mcp__${t.serverName}__${t.name}`,
+          name: `mcp__${safeServer}__${safeName}`,
           description: `[MCP Server: ${t.serverName}] ${t.description || t.name}`,
-          parameters: t.inputSchema || { type: 'object', properties: {} },
+          parameters: {
+            type: 'object',
+            properties: {},
+            ...(t.inputSchema || {}),
+          },
         });
       }
     }
@@ -970,7 +990,17 @@ export class ToolGateway {
    * Maps every tool to its discrete capability tag and recognized aliases.
    */
   public getRequiredCapability(toolName: string): { primary: string; aliases: string[] } {
-    if (toolName.startsWith('mcp__') || toolName === 'mcp:call' || toolName === 'mcp_call' || toolName === 'mcpCall') {
+    if (toolName.startsWith('mcp__')) {
+      const parts = toolName.split('__');
+      const serverName = parts[1];
+      const aliases = ['mcp:call', 'mcp', toolName, '*'];
+      if (serverName) {
+        aliases.push(`mcp:${serverName}`, `mcp__${serverName}`);
+      }
+      return { primary: 'mcp:call', aliases };
+    }
+
+    if (toolName === 'mcp:call' || toolName === 'mcp_call' || toolName === 'mcpCall') {
       return { primary: 'mcp:call', aliases: ['mcp:call', 'mcp', toolName, '*'] };
     }
 
@@ -1291,12 +1321,15 @@ export class ToolGateway {
       const parts = toolName.split('__');
       const serverName = parts[1];
       const mcpTool = parts.slice(2).join('__');
-      const callRes = await this.mcpClient.callTool(serverName, mcpTool, params);
+      const callRes = await this.mcpClient.callTool(serverName, mcpTool, params, context.abortSignal);
+      const errText = callRes.isError
+        ? (callRes.content?.map((c) => c.text).filter(Boolean).join('\n') || 'MCP tool execution error')
+        : undefined;
       return {
         success: !callRes.isError,
         output: callRes.content as T,
         riskLevel: risk,
-        error: callRes.isError ? (callRes.content?.[0]?.text || 'MCP tool execution error') : undefined,
+        error: errText,
       };
     }
 
@@ -1307,16 +1340,24 @@ export class ToolGateway {
       }
       const serverName = params.serverName || params.server;
       const mcpTool = params.toolName || params.tool;
-      const toolArgs = params.arguments || params.params || params.args || {};
+      let toolArgs = params.arguments || params.params || params.args || {};
+      if (typeof toolArgs === 'string') {
+        try {
+          toolArgs = JSON.parse(toolArgs);
+        } catch {}
+      }
       if (!serverName || !mcpTool) {
         throw new Error(`'${toolName}' requires 'server' (or 'serverName') and 'tool' (or 'toolName') parameters.`);
       }
-      const callRes = await this.mcpClient.callTool(serverName, mcpTool, toolArgs);
+      const callRes = await this.mcpClient.callTool(serverName, mcpTool, toolArgs, context.abortSignal);
+      const errText = callRes.isError
+        ? (callRes.content?.map((c) => c.text).filter(Boolean).join('\n') || 'MCP tool execution error')
+        : undefined;
       return {
         success: !callRes.isError,
         output: callRes.content as T,
         riskLevel: risk,
-        error: callRes.isError ? (callRes.content?.[0]?.text || 'MCP tool execution error') : undefined,
+        error: errText,
       };
     }
 

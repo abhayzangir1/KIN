@@ -8174,8 +8174,9 @@ Format strictly as JSON:
           return this.sendJson(res, 403, { error: `Forbidden: projectRoot '${targetRoot}' is not within an allowed workspace boundary.` });
         }
 
-        const tools = await this.mcpClient.reloadProject(targetRoot);
-        return this.sendJson(res, 200, { success: true, projectRoot: targetRoot, toolsCount: tools.length, tools });
+        const tools = await this.mcpClient.reloadProject(targetRoot, true);
+        const servers = this.mcpClient.getAllServers();
+        return this.sendJson(res, 200, { success: true, projectRoot: targetRoot, toolsCount: tools.length, tools, servers });
       }
 
       // 36. GET /api/system/apps — Discover installed desktop applications

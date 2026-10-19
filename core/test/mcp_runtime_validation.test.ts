@@ -533,4 +533,437 @@ describe('MCP Runtime End-to-End Validation', () => {
       await server.stop();
     }
   });
+
+  it('True MCP SSE transport: connects to /sse, negotiates endpoint, processes asynchronous responses, keep-alives, and bidirectional ping', async () => {
+    let sseResponseStream: http.ServerResponse | null = null;
+    let ssePingAcknowledged = false;
+
+    const sseServer = http.createServer((req, res) => {
+      const parsedUrl = new URL(req.url || '/', 'http://127.0.0.1');
+
+      if (req.method === 'GET' && parsedUrl.pathname === '/sse') {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        });
+        sseResponseStream = res;
+        // 1. Initial endpoint discovery event
+        res.write(`event: endpoint\ndata: /messages?sessionId=test-sess-1\n\n`);
+        // 2. Keep-alive heartbeat comment
+        res.write(`: keepalive heartbeat\n\n`);
+        return;
+      }
+
+      if (req.method === 'POST' && parsedUrl.pathname === '/messages') {
+        let body = '';
+        req.on('data', (c) => { body += c; });
+        req.on('end', () => {
+          try {
+            const json = JSON.parse(body);
+
+            // Handle client responding to server-initiated ping
+            if (json.id === 'server-sse-ping-1') {
+              ssePingAcknowledged = true;
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true }));
+              return;
+            }
+
+            // Standard MCP SSE asynchronous pattern: acknowledge with 202 Accepted and stream result via SSE
+            res.writeHead(202);
+            res.end();
+
+            if (json.method === 'initialize') {
+              sseResponseStream?.write(
+                `event: message\ndata: ${JSON.stringify({
+                  jsonrpc: '2.0',
+                  id: json.id,
+                  result: { protocolVersion: '2024-11-05', capabilities: {} },
+                })}\n\n`
+              );
+              // Send server-to-client ping over SSE stream
+              sseResponseStream?.write(
+                `event: message\ndata: ${JSON.stringify({
+                  jsonrpc: '2.0',
+                  id: 'server-sse-ping-1',
+                  method: 'ping',
+                })}\n\n`
+              );
+            } else if (json.method === 'tools/list') {
+              sseResponseStream?.write(
+                `event: message\ndata: ${JSON.stringify({
+                  jsonrpc: '2.0',
+                  id: json.id,
+                  result: {
+                    tools: [
+                      {
+                        name: 'sse_action',
+                        description: 'Action executed via SSE',
+                        inputSchema: { type: 'object', properties: { val: { type: 'string' } } },
+                      },
+                    ],
+                  },
+                })}\n\n`
+              );
+            } else if (json.method === 'tools/call') {
+              sseResponseStream?.write(
+                `event: message\ndata: ${JSON.stringify({
+                  jsonrpc: '2.0',
+                  id: json.id,
+                  result: {
+                    content: [{ type: 'text', text: `received:${json.params?.arguments?.val}` }],
+                  },
+                })}\n\n`
+              );
+            }
+          } catch {
+            res.writeHead(400);
+            res.end();
+          }
+        });
+        return;
+      }
+
+      res.writeHead(404);
+      res.end();
+    });
+
+    await new Promise<void>((resolve) => sseServer.listen(0, '127.0.0.1', () => resolve()));
+    const address = sseServer.address() as any;
+    const ssePort = address.port;
+
+    try {
+      const kinDir = path.join(tempDir, '.kin');
+      fs.mkdirSync(kinDir, { recursive: true });
+
+      fs.writeFileSync(
+        path.join(kinDir, 'mcp.json'),
+        JSON.stringify({
+          mcpServers: {
+            sseServer: {
+              url: `http://127.0.0.1:${ssePort}/sse`,
+            },
+          },
+        })
+      );
+
+      const client = new McpClientManager(tempDir);
+      const tools = await client.loadConfiguredServers();
+
+      expect(tools.length).toBe(1);
+      expect(tools[0].name).toBe('sse_action');
+      expect(tools[0].serverName).toBe('sseServer');
+
+      const gateway = new ToolGateway({ mcpClient: client });
+      const res = await gateway.executeTool('mcp__sseServer__sse_action', { val: 'alpha-test' }, {
+        runId: 'r-sse',
+        agentId: 'ag1',
+        projectId: 'p1',
+        channelId: 'c1',
+        worktreeRoot: tempDir,
+        autonomyMode: 'AUTO',
+        allowedCapabilities: ['*'],
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.output).toEqual([{ type: 'text', text: 'received:alpha-test' }]);
+      expect(ssePingAcknowledged).toBe(true);
+
+      client.shutdown();
+    } finally {
+      if (sseResponseStream) {
+        try { (sseResponseStream as any).end(); } catch {}
+      }
+      await new Promise<void>((resolve) => sseServer.close(() => resolve()));
+    }
+  });
+
+  it('MCP tools/list pagination: gathers tools across multiple pages using nextCursor', async () => {
+    const pagedServer = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => { body += c; });
+      req.on('end', () => {
+        const json = JSON.parse(body || '{}');
+        if (json.method === 'initialize') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ jsonrpc: '2.0', id: json.id, result: { protocolVersion: '2024-11-05', capabilities: {} } }));
+        } else if (json.method === 'notifications/initialized') {
+          res.writeHead(204);
+          res.end();
+        } else if (json.method === 'tools/list') {
+          if (!json.params?.cursor) {
+            // First page returns tool1 and cursor for page2
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              jsonrpc: '2.0',
+              id: json.id,
+              result: {
+                tools: [{ name: 'tool_page_1', description: 'Page 1 Tool', inputSchema: {} }],
+                nextCursor: 'cursor_page_2',
+              },
+            }));
+          } else if (json.params.cursor === 'cursor_page_2') {
+            // Second page returns tool2 and no nextCursor
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              jsonrpc: '2.0',
+              id: json.id,
+              result: {
+                tools: [{ name: 'tool_page_2', description: 'Page 2 Tool', inputSchema: {} }],
+              },
+            }));
+          }
+        } else {
+          res.writeHead(404);
+          res.end();
+        }
+      });
+    });
+
+    await new Promise<void>((resolve) => pagedServer.listen(0, '127.0.0.1', () => resolve()));
+    const pagedPort = (pagedServer.address() as any).port;
+
+    try {
+      const client = new McpClientManager(tempDir);
+      const tools = await client.startServer({
+        name: 'pagedServer',
+        url: `http://127.0.0.1:${pagedPort}/mcp`,
+      });
+
+      expect(tools.length).toBe(2);
+      expect(tools.map((t) => t.name)).toEqual(['tool_page_1', 'tool_page_2']);
+      client.shutdown();
+    } finally {
+      await new Promise<void>((resolve) => pagedServer.close(() => resolve()));
+    }
+  });
+
+  it('Server and tool name normalization in ToolGateway and McpClientManager', async () => {
+    const normServer = http.createServer((req, res) => {
+      if (req.method !== 'POST') {
+        res.writeHead(404);
+        res.end();
+        return;
+      }
+      let body = '';
+      req.on('data', (c) => { body += c; });
+      req.on('end', () => {
+        const json = JSON.parse(body || '{}');
+        if (json.method === 'initialize') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ jsonrpc: '2.0', id: json.id, result: { protocolVersion: '2024-11-05', capabilities: {} } }));
+        } else if (json.method === 'notifications/initialized') {
+          res.writeHead(204);
+          res.end();
+        } else if (json.method === 'tools/list') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            jsonrpc: '2.0',
+            id: json.id,
+            result: {
+              tools: [{ name: 'database-query', description: 'Runs DB query', inputSchema: {} }],
+            },
+          }));
+        } else if (json.method === 'tools/call') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            jsonrpc: '2.0',
+            id: json.id,
+            result: { content: [{ type: 'text', text: `executed:${json.params.name}` }] },
+          }));
+        }
+      });
+    });
+
+    await new Promise<void>((resolve) => normServer.listen(0, '127.0.0.1', () => resolve()));
+    const normPort = (normServer.address() as any).port;
+
+    try {
+      const client = new McpClientManager(tempDir);
+      // Server registered with hyphenated name
+      await client.startServer({
+        name: 'cloud-db',
+        url: `http://127.0.0.1:${normPort}/mcp`,
+      });
+
+      const gateway = new ToolGateway({ mcpClient: client });
+
+      // 1. Invocation using underscored server name: cloud_db
+      const res1 = await gateway.executeTool('mcp__cloud_db__database_query', {}, {
+        runId: 'r-norm-1',
+        agentId: 'ag1',
+        projectId: 'p1',
+        channelId: 'c1',
+        worktreeRoot: tempDir,
+        autonomyMode: 'AUTO',
+        allowedCapabilities: ['*'],
+      });
+      expect(res1.success).toBe(true);
+      expect(res1.output).toEqual([{ type: 'text', text: 'executed:database-query' }]);
+
+      // 2. Invocation using mcp:call with normalized names and stringified arguments
+      const res2 = await gateway.executeTool('mcp:call', {
+        server: 'cloud_db',
+        tool: 'database_query',
+        arguments: '{"limit": 10}',
+      }, {
+        runId: 'r-norm-2',
+        agentId: 'ag1',
+        projectId: 'p1',
+        channelId: 'c1',
+        worktreeRoot: tempDir,
+        autonomyMode: 'AUTO',
+        allowedCapabilities: ['*'],
+      });
+      expect(res2.success).toBe(true);
+      expect(res2.output).toEqual([{ type: 'text', text: 'executed:database-query' }]);
+
+      client.shutdown();
+    } finally {
+      await new Promise<void>((resolve) => normServer.close(() => resolve()));
+    }
+  });
+
+  it('In-flight tool execution abort via AbortSignal cancels immediately without hanging', async () => {
+    let callReceived = false;
+    const hangServer = http.createServer((req, res) => {
+      if (req.method !== 'POST') {
+        res.writeHead(404);
+        res.end();
+        return;
+      }
+      let body = '';
+      req.on('data', (c) => { body += c; });
+      req.on('end', () => {
+        const json = JSON.parse(body || '{}');
+        if (json.method === 'initialize') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ jsonrpc: '2.0', id: json.id, result: { protocolVersion: '2024-11-05', capabilities: {} } }));
+        } else if (json.method === 'notifications/initialized') {
+          res.writeHead(204);
+          res.end();
+        } else if (json.method === 'tools/list') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            jsonrpc: '2.0',
+            id: json.id,
+            result: { tools: [{ name: 'long_task', description: 'Hangs', inputSchema: {} }] },
+          }));
+        } else if (json.method === 'tools/call') {
+          callReceived = true;
+          // Purposely do not respond immediately to simulate long-running process
+          setTimeout(() => {
+            try {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ jsonrpc: '2.0', id: json.id, result: { content: [] } }));
+            } catch {}
+          }, 5000);
+        }
+      });
+    });
+
+    await new Promise<void>((resolve) => hangServer.listen(0, '127.0.0.1', () => resolve()));
+    const hangPort = (hangServer.address() as any).port;
+
+    try {
+      const client = new McpClientManager(tempDir);
+      await client.startServer({
+        name: 'hangSrv',
+        url: `http://127.0.0.1:${hangPort}/mcp`,
+      });
+
+      const gateway = new ToolGateway({ mcpClient: client });
+      const abortCtrl = new AbortController();
+
+      const callPromise = gateway.executeTool('mcp__hangSrv__long_task', {}, {
+        runId: 'r-abort',
+        agentId: 'ag1',
+        projectId: 'p1',
+        channelId: 'c1',
+        worktreeRoot: tempDir,
+        autonomyMode: 'AUTO',
+        allowedCapabilities: ['*'],
+        abortSignal: abortCtrl.signal,
+      });
+
+      // Abort after 50ms
+      setTimeout(() => {
+        abortCtrl.abort('User clicked cancel');
+      }, 50);
+
+      const res = await callPromise;
+      expect(res.success).toBe(false);
+      expect(res.error).toContain('aborted');
+
+      client.shutdown();
+    } finally {
+      await new Promise<void>((resolve) => hangServer.close(() => resolve()));
+    }
+  });
+
+  it('POST /api/mcp/reload forces reload of config file changes within the same project root', async () => {
+    const kinDir = path.join(tempDir, '.kin');
+    fs.mkdirSync(kinDir, { recursive: true });
+
+    const mcpConfigFile = path.join(kinDir, 'mcp.json');
+    // Start with empty mcpServers
+    fs.writeFileSync(mcpConfigFile, JSON.stringify({ mcpServers: {} }));
+
+    const dbPath = path.join(tempDir, 'reload_test.db');
+    const server = new CoreServer({ port: 0, dbPath, requireIpcAuth: false });
+    const actualPort = await server.start();
+
+    try {
+      // 1. Initial reload returns 0 tools
+      const res1 = await fetch(`http://127.0.0.1:${actualPort}/api/mcp/reload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectRoot: tempDir }),
+      });
+      const data1 = await res1.json();
+      expect(data1.toolsCount).toBe(0);
+
+      // 2. Now write a new server into .kin/mcp.json without changing projectRoot
+      const srvScript = path.join(tempDir, 'new_tool_srv.js');
+      fs.writeFileSync(srvScript, `
+        process.stdin.on('data', (d) => {
+          const lines = d.toString().split('\\n');
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            const msg = JSON.parse(line.trim());
+            if (msg.method === 'initialize') {
+              process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '2024-11-05', capabilities: {} } }) + '\\n');
+            } else if (msg.method === 'tools/list') {
+              process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { tools: [{ name: 'brand_new_tool', inputSchema: {} }] } }) + '\\n');
+            }
+          }
+        });
+      `);
+
+      fs.writeFileSync(mcpConfigFile, JSON.stringify({
+        mcpServers: {
+          hotReloadedServer: {
+            command: process.execPath,
+            args: [srvScript],
+          },
+        },
+      }));
+
+      // 3. POST /api/mcp/reload must force reload and pick up the new tool even though projectRoot is identical
+      const res2 = await fetch(`http://127.0.0.1:${actualPort}/api/mcp/reload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectRoot: tempDir }),
+      });
+      const data2 = await res2.json();
+      expect(data2.success).toBe(true);
+      expect(data2.toolsCount).toBe(1);
+      expect(data2.tools[0].name).toBe('brand_new_tool');
+      expect(data2.servers.length).toBe(1);
+      expect(data2.servers[0].name).toBe('hotReloadedServer');
+    } finally {
+      await server.stop();
+    }
+  });
 });

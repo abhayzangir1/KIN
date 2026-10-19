@@ -1218,13 +1218,15 @@ export class AgentLoopRunner {
     const mcpSchemas = this.toolGateway?.getToolSchemas().filter((t) => t.name.startsWith('mcp__')) || [];
     let mcpToolsText = '';
     if (mcpSchemas.length > 0) {
+      const sampleServer = mcpSchemas[0].name.split('__')[1] || 'server';
+      const sampleTool = mcpSchemas[0].name.split('__').slice(2).join('__') || 'tool';
       mcpToolsText = `\n\nCONNECTED MCP EXTENSION TOOLS (Active & Ready to Call):\n` +
         mcpSchemas.map((t, idx) => {
           const propNames = Object.keys((t.parameters as any)?.properties || {});
           const argList = propNames.length > 0 ? propNames.join(', ') : '';
           return `${32 + idx}. ${t.name}(${argList}) — ${t.description}`;
         }).join('\n') +
-        `\n\nTo invoke a connected MCP tool, use its exact name in <tool_call>:\n<tool_call>\n{"name": "${mcpSchemas[0].name}", "parameters": { ... }}\n</tool_call>`;
+        `\n\nTo invoke a connected MCP tool, use its exact name in <tool_call>:\n<tool_call>\n{"name": "${mcpSchemas[0].name}", "parameters": { ... }}\n</tool_call>\nOr use the generic mcp_call dispatcher:\n<tool_call>\n{"name": "mcp_call", "parameters": {"server": "${sampleServer}", "tool": "${sampleTool}", "arguments": { ... }}}\n</tool_call>`;
     }
 
     const alreadyHasTools = basePrompt.includes('AVAILABLE TOOLS SPECIFICATION') || basePrompt.includes('TOOL INSTRUCTIONS:');
@@ -1460,7 +1462,14 @@ To delegate or coordinate with another specialist:
           }
 
           if (validToolsSet && validToolsSet.size > 0) {
-            if (!validToolsSet.has(toolName) && !toolName.startsWith('mcp__')) {
+            const isMcpOrSkill =
+              toolName.startsWith('mcp__') ||
+              toolName.startsWith('skill__') ||
+              toolName.startsWith('skill_') ||
+              toolName.startsWith('mcp:') ||
+              toolName === 'mcp_call' ||
+              toolName === 'mcpCall';
+            if (!validToolsSet.has(toolName) && !isMcpOrSkill) {
               return null;
             }
           }
@@ -1477,7 +1486,14 @@ To delegate or coordinate with another specialist:
           if (nameMatch) {
             const name = nameMatch[1];
             if (validToolsSet && validToolsSet.size > 0) {
-              if (!validToolsSet.has(name) && !name.startsWith('mcp__')) {
+              const isMcpOrSkill =
+                name.startsWith('mcp__') ||
+                name.startsWith('skill__') ||
+                name.startsWith('skill_') ||
+                name.startsWith('mcp:') ||
+                name === 'mcp_call' ||
+                name === 'mcpCall';
+              if (!validToolsSet.has(name) && !isMcpOrSkill) {
                 return null;
               }
             }
