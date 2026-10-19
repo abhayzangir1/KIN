@@ -69,12 +69,33 @@ export const SwarmMap: React.FC = () => {
   );
   const [searchQuery, setSearchQuery] = useState('');
   const [hoveredAgentId, setHoveredAgentId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'flow' | 'hierarchy' | 'matrix'>('flow');
+  const [viewMode, setViewMode] = useState<'flow' | 'hierarchy' | 'matrix'>(() => {
+    try {
+      const saved = localStorage.getItem(`kin_swarm_viewmode_${activeProjectId || 'default'}`);
+      return (saved as any) || 'flow';
+    } catch {
+      return 'flow';
+    }
+  });
   const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null);
 
-  // Free-Form Pan & Zoom Canvas State
-  const [zoom, setZoom] = useState<number>(1.0);
-  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  // Free-Form Pan & Zoom Canvas State (Persisted per project)
+  const [zoom, setZoom] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(`kin_swarm_zoom_${activeProjectId || 'default'}`);
+      return saved ? parseFloat(saved) : 1.0;
+    } catch {
+      return 1.0;
+    }
+  });
+  const [pan, setPan] = useState<{ x: number; y: number }>(() => {
+    try {
+      const saved = localStorage.getItem(`kin_swarm_pan_${activeProjectId || 'default'}`);
+      return saved ? JSON.parse(saved) : { x: 0, y: 0 };
+    } catch {
+      return { x: 0, y: 0 };
+    }
+  });
   const [isPanning, setIsPanning] = useState(false);
   const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const canvasContainerRef = useRef<HTMLDivElement>(null);
@@ -89,15 +110,38 @@ export const SwarmMap: React.FC = () => {
     }
   });
 
-  // Re-synchronize user positions when active project changes
+  // Re-synchronize user positions, viewMode, pan, and zoom when active project changes
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(`kin_swarm_positions_${activeProjectId || 'default'}`);
-      setUserPositions(saved ? JSON.parse(saved) : {});
+      const savedPos = localStorage.getItem(`kin_swarm_positions_${activeProjectId || 'default'}`);
+      setUserPositions(savedPos ? JSON.parse(savedPos) : {});
+
+      const savedView = localStorage.getItem(`kin_swarm_viewmode_${activeProjectId || 'default'}`);
+      if (savedView) setViewMode(savedView as any);
+
+      const savedZoom = localStorage.getItem(`kin_swarm_zoom_${activeProjectId || 'default'}`);
+      if (savedZoom) setZoom(parseFloat(savedZoom));
+
+      const savedPan = localStorage.getItem(`kin_swarm_pan_${activeProjectId || 'default'}`);
+      if (savedPan) setPan(JSON.parse(savedPan));
     } catch {
       setUserPositions({});
     }
   }, [activeProjectId]);
+
+  // Persist viewMode changes per project
+  useEffect(() => {
+    try {
+      localStorage.setItem(`kin_swarm_viewmode_${activeProjectId || 'default'}`, viewMode);
+    } catch {}
+  }, [viewMode, activeProjectId]);
+
+  // Persist zoom changes per project
+  useEffect(() => {
+    try {
+      localStorage.setItem(`kin_swarm_zoom_${activeProjectId || 'default'}`, String(zoom));
+    } catch {}
+  }, [zoom, activeProjectId]);
 
   const [draggingAgentId, setDraggingAgentId] = useState<string | null>(null);
   const dragOffsetRef = useRef<{
@@ -428,6 +472,12 @@ export const SwarmMap: React.FC = () => {
 
     const handleWindowMouseUp = () => {
       setIsPanning(false);
+      setPan((currentPan) => {
+        try {
+          localStorage.setItem(`kin_swarm_pan_${activeProjectId || 'default'}`, JSON.stringify(currentPan));
+        } catch {}
+        return currentPan;
+      });
     };
 
     window.addEventListener('mousemove', handleWindowMouseMove);
@@ -495,6 +545,8 @@ export const SwarmMap: React.FC = () => {
     setUserPositions({});
     try {
       localStorage.removeItem(`kin_swarm_positions_${activeProjectId || 'default'}`);
+      localStorage.removeItem(`kin_swarm_pan_${activeProjectId || 'default'}`);
+      localStorage.removeItem(`kin_swarm_zoom_${activeProjectId || 'default'}`);
     } catch {}
     const containerW = canvasContainerRef.current?.clientWidth || 1000;
     const containerH = canvasContainerRef.current?.clientHeight || 700;

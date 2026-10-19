@@ -1231,7 +1231,15 @@ export const useKinStore = create<KinState>((set, get) => ({
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       const data = await res.json();
 
-      const currentActive = get().activeChannelId;
+      const rememberedChannelId = (() => {
+        try {
+          return targetProj ? localStorage.getItem(`kin_last_channel_${targetProj}`) : null;
+        } catch {
+          return null;
+        }
+      })();
+
+      const currentActive = get().activeChannelId || rememberedChannelId || '';
       const isDm = currentActive.startsWith('dm-');
       const dmTargetAgentId = isDm ? currentActive.replace(/^dm-/, '') : '';
       const agentBelongsToProject = isDm && data.agents?.some((a: any) => a.id === dmTargetAgentId);
@@ -1239,6 +1247,12 @@ export const useKinStore = create<KinState>((set, get) => ({
       const chosenChannelId = (channelExists || agentBelongsToProject)
         ? currentActive
         : (data.activeChannelId || (data.channels?.[0]?.id ?? 'chan-general'));
+
+      if (targetProj && chosenChannelId) {
+        try {
+          localStorage.setItem(`kin_last_channel_${targetProj}`, chosenChannelId);
+        } catch {}
+      }
 
       const isViewingStateChannel = !chosenChannelId || chosenChannelId === (data.activeChannelId || 'chan-general');
       const nextCache: Record<string, MessageItem[]> = {
@@ -2673,6 +2687,12 @@ export const useKinStore = create<KinState>((set, get) => ({
   },
 
   setActiveChannel: async (channelId: string) => {
+    const projId = get().activeProjectId;
+    if (projId && channelId) {
+      try {
+        localStorage.setItem(`kin_last_channel_${projId}`, channelId);
+      } catch {}
+    }
     set((state) => {
       const channelTakeover = Object.values(state.activeTakeovers || {}).find((t) => t.channelId === channelId) || null;
       const cached = state.channelMessagesCache[channelId];
@@ -2709,9 +2729,27 @@ export const useKinStore = create<KinState>((set, get) => ({
   },
 
   setActiveProject: async (projectId: string) => {
+    // 1. Remember the active channel of the project being left
+    const currentProj = get().activeProjectId;
+    const currentChan = get().activeChannelId;
+    if (currentProj && currentChan) {
+      try {
+        localStorage.setItem(`kin_last_channel_${currentProj}`, currentChan);
+      } catch {}
+    }
+
+    // 2. Check if the target project already has a remembered active channel
+    const rememberedChannelId = (() => {
+      try {
+        return localStorage.getItem(`kin_last_channel_${projectId}`);
+      } catch {
+        return null;
+      }
+    })();
+
     set({
       activeProjectId: projectId,
-      activeChannelId: '',
+      activeChannelId: rememberedChannelId || '',
       channelMembers: [],
       activeGitDiff: null,
       selectedArtifact: null,

@@ -143,7 +143,28 @@ export const CenterView: React.FC = () => {
     ));
   const channelQueuedMessages = queuedMessages.filter((q) => q.channelId === activeChannelId);
 
-  const [inputText, setInputText] = useState('');
+  const [inputText, setInputText] = useState(() => {
+    try {
+      return activeChannelId ? (localStorage.getItem(`kin_draft_${activeChannelId}`) || '') : '';
+    } catch {
+      return '';
+    }
+  });
+
+  // Restore unsent message draft whenever activeChannelId changes
+  useEffect(() => {
+    if (!activeChannelId) {
+      setInputText('');
+      return;
+    }
+    try {
+      const saved = localStorage.getItem(`kin_draft_${activeChannelId}`);
+      setInputText(saved || '');
+    } catch {
+      setInputText('');
+    }
+  }, [activeChannelId]);
+
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [showSlashMenu, setShowSlashMenu] = useState(false);
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
@@ -260,6 +281,11 @@ export const CenterView: React.FC = () => {
     if (!inputText.trim()) return;
     queueMessage(activeChannelId, inputText.trim());
     setInputText('');
+    if (activeChannelId) {
+      try {
+        localStorage.removeItem(`kin_draft_${activeChannelId}`);
+      } catch {}
+    }
     setShowMentionMenu(false);
     setShowSlashMenu(false);
   };
@@ -356,6 +382,15 @@ export const CenterView: React.FC = () => {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setInputText(val);
+    if (activeChannelId) {
+      try {
+        if (val.trim()) {
+          localStorage.setItem(`kin_draft_${activeChannelId}`, val);
+        } else {
+          localStorage.removeItem(`kin_draft_${activeChannelId}`);
+        }
+      } catch {}
+    }
 
     // Mention trigger check
     const lastWord = val.split(/\s/).pop() || '';
@@ -587,6 +622,11 @@ export const CenterView: React.FC = () => {
       setSendError(res.error || 'Failed to deliver message');
     } else {
       setInputText('');
+      if (activeChannelId) {
+        try {
+          localStorage.removeItem(`kin_draft_${activeChannelId}`);
+        } catch {}
+      }
       setSendError(null);
       setShowMentionMenu(false);
       setShowSlashMenu(false);
@@ -2021,6 +2061,11 @@ export const CenterView: React.FC = () => {
                       setSendError(res.error || 'Failed to deliver steer directive');
                     } else {
                       setInputText('');
+                      if (activeChannelId) {
+                        try {
+                          localStorage.removeItem(`kin_draft_${activeChannelId}`);
+                        } catch {}
+                      }
                       setSendError(null);
                     }
                   } finally {
