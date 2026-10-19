@@ -282,12 +282,24 @@ export class SkillEngine {
       return undefined;
     }
     const row = this.db.queryOne<any>(
-      'SELECT * FROM skills WHERE id = ? OR name = ?',
+      'SELECT * FROM skills WHERE id = ? OR name = ? COLLATE NOCASE',
       idOrName,
       idOrName
     );
 
-    return row ? this.mapRowToSkill(row) : undefined;
+    if (row) {
+      return this.mapRowToSkill(row);
+    }
+
+    // Try hyphen/underscore normalization
+    const alt = idOrName.includes('_') ? idOrName.replace(/_/g, '-') : idOrName.replace(/-/g, '_');
+    const altRow = this.db.queryOne<any>(
+      'SELECT * FROM skills WHERE id = ? OR name = ? COLLATE NOCASE',
+      alt,
+      alt
+    );
+
+    return altRow ? this.mapRowToSkill(altRow) : undefined;
   }
 
   public createSandboxContext(

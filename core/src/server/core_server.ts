@@ -5087,6 +5087,167 @@ export class CoreServer {
           }
         }
 
+        // 5c2. /mcp — Model Context Protocol Connector & Tools Supervisor
+        if (
+          contentLower === '/mcp' ||
+          contentLower.startsWith('/mcp ') ||
+          contentLower.startsWith('/mcp:') ||
+          contentLower.startsWith('/mcp\n')
+        ) {
+          if (boss) {
+            const rawSub = rawContent.replace(/^\/mcp[\s:\n]*/i, '').trim();
+
+            if (rawSub.startsWith('reload') || rawSub === 'refresh') {
+              const targetRepo = this.workspaceRepo.getProject(this.activeProjectId)?.repoPath || process.cwd();
+              try {
+                const tools = await this.mcpClient.reloadProject(targetRepo, true);
+                const servers = this.mcpClient.getAllServers();
+                let reloadMsg = `🔄 **MCP Servers Reloaded Successfully**\n\n`;
+                reloadMsg += `- **Project Root**: \`${targetRepo}\`\n`;
+                reloadMsg += `- **Active Servers**: ${servers.length}\n`;
+                reloadMsg += `- **Total Discovered Tools**: ${tools.length}\n\n`;
+                if (servers.length > 0) {
+                  reloadMsg += `**Active MCP Servers**:\n`;
+                  for (const s of servers) {
+                    reloadMsg += `- **${s.name}** (\`${s.transport}\`${s.url ? ` • ${s.url}` : ''}): ${s.toolsCount} tool(s) registered\n`;
+                  }
+                } else {
+                  reloadMsg += `_No MCP servers found in \`.kin/mcp.json\` or \`mcp.json\`._\n`;
+                }
+
+                const reply = this.channelService.sendMessage({
+                  channelId,
+                  senderId: boss.id,
+                  senderType: 'agent',
+                  content: reloadMsg,
+                  productivityScore: 100,
+                });
+                this.broadcastEvent('message:created', {
+                  id: reply.id,
+                  channelId: reply.channelId,
+                  senderId: reply.senderId,
+                  senderName: boss.displayName.replace(/^@/, ''),
+                  senderType: 'agent',
+                  content: reply.content,
+                  createdAt: reply.createdAt,
+                  productivityScore: reply.productivityScore,
+                });
+                return;
+              } catch (reloadErr: any) {
+                const errMsg = this.channelService.sendMessage({
+                  channelId,
+                  senderId: boss.id,
+                  senderType: 'agent',
+                  content: `⚠️ **MCP Reload Error**: ${reloadErr?.message || String(reloadErr)}`,
+                  productivityScore: 100,
+                });
+                this.broadcastEvent('message:created', {
+                  id: errMsg.id,
+                  channelId: errMsg.channelId,
+                  senderId: errMsg.senderId,
+                  senderName: boss.displayName.replace(/^@/, ''),
+                  senderType: 'agent',
+                  content: errMsg.content,
+                  createdAt: errMsg.createdAt,
+                  productivityScore: errMsg.productivityScore,
+                });
+                return;
+              }
+            }
+
+            if (rawSub.startsWith('inspect ') || rawSub.startsWith('tool ')) {
+              const toolNameQuery = rawSub.replace(/^(inspect|tool)\s*/i, '').trim();
+              const allTools = this.mcpClient.getAllTools();
+              const found = allTools.find((t) => t.name.toLowerCase() === toolNameQuery.toLowerCase() || `mcp__${t.serverName}__${t.name}`.toLowerCase() === toolNameQuery.toLowerCase());
+              if (!found) {
+                const notFoundMsg = this.channelService.sendMessage({
+                  channelId,
+                  senderId: boss.id,
+                  senderType: 'agent',
+                  content: `❌ MCP Tool \`${toolNameQuery}\` not found across active servers.`,
+                  productivityScore: 100,
+                });
+                this.broadcastEvent('message:created', {
+                  id: notFoundMsg.id,
+                  channelId: notFoundMsg.channelId,
+                  senderId: notFoundMsg.senderId,
+                  senderName: boss.displayName.replace(/^@/, ''),
+                  senderType: 'agent',
+                  content: notFoundMsg.content,
+                  createdAt: notFoundMsg.createdAt,
+                  productivityScore: notFoundMsg.productivityScore,
+                });
+                return;
+              }
+
+              const detail = `🔧 **MCP Tool Schema**: \`mcp__${found.serverName}__${found.name}\`\n- **Server**: \`${found.serverName}\`\n- **Description**: ${found.description || 'No description'}\n\n\`\`\`json\n${JSON.stringify(found.inputSchema, null, 2)}\n\`\`\``;
+              const reply = this.channelService.sendMessage({
+                channelId,
+                senderId: boss.id,
+                senderType: 'agent',
+                content: detail,
+                productivityScore: 100,
+              });
+              this.broadcastEvent('message:created', {
+                id: reply.id,
+                channelId: reply.channelId,
+                senderId: reply.senderId,
+                senderName: boss.displayName.replace(/^@/, ''),
+                senderType: 'agent',
+                content: reply.content,
+                createdAt: reply.createdAt,
+                productivityScore: reply.productivityScore,
+              });
+              return;
+            }
+
+            // Default: list all active servers and registered tools
+            const servers = this.mcpClient.getAllServers();
+            const tools = this.mcpClient.getAllTools();
+            let mcpText = `🔌 **Active MCP Connectors & Tools (${tools.length} Tools, ${servers.length} Servers)**\n\n`;
+            if (servers.length === 0) {
+              mcpText += `_No external MCP servers currently active._\n\n`;
+              mcpText += `To configure MCP servers, create \`.kin/mcp.json\` in your project root:\n`;
+              mcpText += `\`\`\`json\n{\n  "mcpServers": {\n    "my-server": {\n      "command": "node",\n      "args": ["server.js"]\n    }\n  }\n}\n\`\`\`\n`;
+              mcpText += `Or for remote/HTTP MCP:\n`;
+              mcpText += `\`\`\`json\n{\n  "mcpServers": {\n    "remote": {\n      "url": "http://127.0.0.1:8000/sse"\n    }\n  }\n}\n\`\`\`\n`;
+            } else {
+              for (const s of servers) {
+                mcpText += `📦 **Server: ${s.name}** (\`${s.transport}\`${s.url ? ` • ${s.url}` : ''})\n`;
+                const serverTools = tools.filter((t) => t.serverName === s.name);
+                if (serverTools.length === 0) {
+                  mcpText += `  _No tools exposed._\n`;
+                } else {
+                  for (const st of serverTools) {
+                    mcpText += `  - \`mcp__${s.name}__${st.name}\`: ${st.description || st.name}\n`;
+                  }
+                }
+                mcpText += `\n`;
+              }
+            }
+            mcpText += `💡 *Commands*: \`/mcp reload\` • \`/mcp inspect <toolName>\``;
+
+            const reply = this.channelService.sendMessage({
+              channelId,
+              senderId: boss.id,
+              senderType: 'agent',
+              content: mcpText,
+              productivityScore: 100,
+            });
+            this.broadcastEvent('message:created', {
+              id: reply.id,
+              channelId: reply.channelId,
+              senderId: reply.senderId,
+              senderName: boss.displayName.replace(/^@/, ''),
+              senderType: 'agent',
+              content: reply.content,
+              createdAt: reply.createdAt,
+              productivityScore: reply.productivityScore,
+            });
+            return;
+          }
+        }
+
         // 5d. /decisions or /decision or /adr — Architecture Decision Records (ADR)
         if (
           contentLower === '/decisions' ||
@@ -7972,6 +8133,12 @@ Format strictly as JSON:
       if (req.method === 'GET' && pathname === '/api/mcp/tools') {
         const tools = this.mcpClient.getAllTools();
         return this.sendJson(res, 200, { tools });
+      }
+
+      // 35-c. GET /api/mcp/servers
+      if (req.method === 'GET' && pathname === '/api/mcp/servers') {
+        const servers = this.mcpClient.getAllServers();
+        return this.sendJson(res, 200, { success: true, count: servers.length, servers });
       }
 
       // 35b. POST /api/mcp/reload — Explicitly reload MCP servers from project configuration

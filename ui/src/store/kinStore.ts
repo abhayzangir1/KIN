@@ -700,6 +700,21 @@ export interface SkillVersionItem {
   createdAt: number;
 }
 
+export interface McpToolItem {
+  name: string;
+  description?: string;
+  inputSchema: Record<string, any>;
+  serverName: string;
+}
+
+export interface McpServerItem {
+  name: string;
+  transport: 'stdio' | 'http';
+  url?: string;
+  toolsCount: number;
+  tools: string[];
+}
+
 export interface LearningMetricsData {
   totalExperiences: number;
   totalSkills: number;
@@ -803,6 +818,11 @@ interface KinState {
   learningMetrics: LearningMetricsData | null;
   isSkillsModalOpen: boolean;
   isLoadingSkills: boolean;
+
+  // MCP Connectors State
+  mcpServers: McpServerItem[];
+  mcpTools: McpToolItem[];
+  isLoadingMcp: boolean;
 
   // Desktop & Browser Control State
   discoveredApps: DiscoveredApp[];
@@ -1102,6 +1122,10 @@ interface KinState {
   fetchSkillVersions: (skillId: string) => Promise<SkillVersionItem[]>;
   rollbackSkill: (skillId: string, versionId: string) => Promise<{ success: boolean; skill?: SkillItem; error?: string }>;
 
+  // MCP Connector Actions
+  fetchMcpData: () => Promise<void>;
+  reloadMcpServers: () => Promise<{ success: boolean; toolsCount?: number; error?: string }>;
+
   // Desktop & Browser Actions
   fetchDiscoveredApps: () => Promise<void>;
   launchApp: (appNameOrPath: string, args?: string[]) => Promise<{ success: boolean; error?: string }>;
@@ -1347,6 +1371,11 @@ export const useKinStore = create<KinState>((set, get) => ({
   learningMetrics: null,
   isSkillsModalOpen: false,
   isLoadingSkills: false,
+
+  // MCP Connectors State
+  mcpServers: [],
+  mcpTools: [],
+  isLoadingMcp: false,
 
   // Desktop & Browser Control State
   discoveredApps: [],
@@ -3968,6 +3997,48 @@ export const useKinStore = create<KinState>((set, get) => ({
     } catch (err: any) {
       console.error('[KIN UI] Failed to rollback skill:', err);
       return { success: false, error: err?.message || 'Network error' };
+    }
+  },
+
+  // MCP Connectors Actions
+  fetchMcpData: async () => {
+    set({ isLoadingMcp: true });
+    try {
+      const [toolsRes, serversRes] = await Promise.all([
+        fetch('/api/mcp/tools').catch(() => null),
+        fetch('/api/mcp/servers').catch(() => null),
+      ]);
+      const toolsData = toolsRes && toolsRes.ok ? await toolsRes.json() : { tools: [] };
+      const serversData = serversRes && serversRes.ok ? await serversRes.json() : { servers: [] };
+      set({
+        mcpTools: toolsData.tools || [],
+        mcpServers: serversData.servers || [],
+        isLoadingMcp: false,
+      });
+    } catch (err) {
+      console.warn('[KIN UI] Failed to fetch MCP data:', err);
+      set({ isLoadingMcp: false });
+    }
+  },
+
+  reloadMcpServers: async () => {
+    set({ isLoadingMcp: true });
+    try {
+      const res = await fetch('/api/mcp/reload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        await get().fetchMcpData();
+        return { success: true, toolsCount: data.toolsCount || 0 };
+      }
+      set({ isLoadingMcp: false });
+      return { success: false, error: data.error || 'Failed to reload MCP servers' };
+    } catch (err: any) {
+      set({ isLoadingMcp: false });
+      return { success: false, error: err?.message || 'Network error reloading MCP' };
     }
   },
 

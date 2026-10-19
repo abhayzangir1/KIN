@@ -942,7 +942,7 @@ export class ToolGateway {
         for (const s of activeSkills) {
           if (s.skillType === 'tool_extension' && s.parameters) {
             schemas.push({
-              name: `skill_${s.name.replace(/[^a-zA-Z0-9_]/g, '_')}`,
+              name: `skill__${s.name.replace(/[^a-zA-Z0-9_]/g, '_')}`,
               description: s.description || s.instructions.slice(0, 200),
               parameters: typeof s.parameters === 'object' ? (s.parameters as any) : { type: 'object' },
             });
@@ -972,6 +972,19 @@ export class ToolGateway {
   public getRequiredCapability(toolName: string): { primary: string; aliases: string[] } {
     if (toolName.startsWith('mcp__') || toolName === 'mcp:call' || toolName === 'mcp_call' || toolName === 'mcpCall') {
       return { primary: 'mcp:call', aliases: ['mcp:call', 'mcp', toolName, '*'] };
+    }
+
+    if (
+      toolName.startsWith('skill__') ||
+      toolName.startsWith('skill_') ||
+      toolName === 'create_skill' ||
+      toolName === 'createSkill' ||
+      toolName === 'import_skill' ||
+      toolName === 'importSkill' ||
+      toolName === 'execute_skill' ||
+      toolName === 'executeSkill'
+    ) {
+      return { primary: 'skills:manage', aliases: ['skills:manage', 'skills', 'skill', 'agent:coordinate', 'create_skill', 'createSkill', 'import_skill', 'importSkill', 'execute_skill', 'executeSkill', toolName, '*'] };
     }
 
     switch (toolName) {
@@ -1307,13 +1320,13 @@ export class ToolGateway {
       };
     }
 
-    // Dynamic Executable Skill Tool Invocation (skill__<name>)
-    if (toolName.startsWith('skill__')) {
+    // Dynamic Executable Skill Tool Invocation (skill__<name> or skill_<name>)
+    if (toolName.startsWith('skill__') || toolName.startsWith('skill_')) {
       if (!this.skillEngine) {
         throw new Error('SkillEngine is not configured in ToolGateway.');
       }
-      const skillName = toolName.slice(7);
-      const sRes = await this.skillEngine.executeSkill(skillName, params);
+      const rawSkillName = toolName.startsWith('skill__') ? toolName.slice(7) : toolName.slice(6);
+      const sRes = await this.skillEngine.executeSkill(rawSkillName, params);
       return {
         success: sRes.success,
         output: sRes.output as T,

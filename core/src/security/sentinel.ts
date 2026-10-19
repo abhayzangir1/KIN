@@ -160,8 +160,8 @@ export class Sentinel {
       return { primary: 'mcp:call', aliases: ['mcp:call', 'mcp', toolName, '*'] };
     }
 
-    if (toolName.startsWith('skill__')) {
-      return { primary: 'skills:manage', aliases: ['skills:manage', 'skills', 'skill', toolName, '*'] };
+    if (toolName.startsWith('skill__') || toolName.startsWith('skill_')) {
+      return { primary: 'skills:manage', aliases: ['skills:manage', 'skills', 'skill', 'agent:coordinate', 'create_skill', 'createSkill', 'import_skill', 'importSkill', 'execute_skill', 'executeSkill', toolName, '*'] };
     }
 
     switch (toolName) {
