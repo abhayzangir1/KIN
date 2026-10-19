@@ -1263,6 +1263,34 @@ export const useKinStore = create<KinState>((set, get) => ({
         ? (data.messages || [])
         : (nextCache[chosenChannelId] || get().messages);
 
+      const rememberedAgentId = (() => {
+        try {
+          return targetProj ? localStorage.getItem(`kin_selected_agent_${targetProj}`) : null;
+        } catch {
+          return null;
+        }
+      })();
+
+      const chosenAgentId = (rememberedAgentId && data.agents?.some((a: any) => a.id === rememberedAgentId))
+        ? rememberedAgentId
+        : (data.agents?.some((a: any) => a.id === get().selectedAgentId)
+          ? get().selectedAgentId
+          : (data.agents?.find((a: any) => a.isOrchestrator)?.id || data.agents?.[0]?.id || ''));
+
+      if (targetProj && chosenAgentId) {
+        try {
+          localStorage.setItem(`kin_selected_agent_${targetProj}`, chosenAgentId);
+        } catch {}
+      }
+
+      const rememberedView = (() => {
+        try {
+          return targetProj ? (localStorage.getItem(`kin_main_view_${targetProj}`) as 'chat' | 'automations' | null) : null;
+        } catch {
+          return null;
+        }
+      })();
+
       set({
         projects: data.projects || [],
         activeProject: data.activeProject,
@@ -1278,9 +1306,8 @@ export const useKinStore = create<KinState>((set, get) => ({
             };
           }),
         agents: data.agents || [],
-        selectedAgentId: data.agents?.some((a: any) => a.id === get().selectedAgentId)
-          ? get().selectedAgentId
-          : (data.agents?.find((a: any) => a.isOrchestrator)?.id || data.agents?.[0]?.id || ''),
+        selectedAgentId: chosenAgentId,
+        ...(rememberedView ? { activeMainView: rememberedView } : {}),
         messages: activeMessages,
         channelMessagesCache: nextCache,
         pendingApprovals: data.pendingApprovals || [],
@@ -1317,7 +1344,15 @@ export const useKinStore = create<KinState>((set, get) => ({
     }
   },
 
-  setActiveMainView: (view: 'chat' | 'automations') => set({ activeMainView: view }),
+  setActiveMainView: (view: 'chat' | 'automations') => {
+    const projId = get().activeProjectId;
+    if (projId) {
+      try {
+        localStorage.setItem(`kin_main_view_${projId}`, view);
+      } catch {}
+    }
+    set({ activeMainView: view });
+  },
 
   fetchSystemHealth: async () => {
     try {
@@ -2085,6 +2120,17 @@ export const useKinStore = create<KinState>((set, get) => ({
         get().fetchState();
       });
 
+      sse.addEventListener('project:activated', (e) => {
+        try {
+          const { projectId } = JSON.parse(e.data);
+          if (projectId && projectId !== get().activeProjectId) {
+            get().setActiveProject(projectId);
+          }
+        } catch (err) {
+          console.error('[KIN UI] Failed to handle project:activated event', err);
+        }
+      });
+
       sse.addEventListener('goal:created', (e) => {
         try {
           const goal = JSON.parse(e.data);
@@ -2738,7 +2784,7 @@ export const useKinStore = create<KinState>((set, get) => ({
       } catch {}
     }
 
-    // 2. Check if the target project already has a remembered active channel
+    // 2. Check if the target project already has a remembered active channel, agent, and view
     const rememberedChannelId = (() => {
       try {
         return localStorage.getItem(`kin_last_channel_${projectId}`);
@@ -2747,9 +2793,27 @@ export const useKinStore = create<KinState>((set, get) => ({
       }
     })();
 
+    const rememberedAgentId = (() => {
+      try {
+        return localStorage.getItem(`kin_selected_agent_${projectId}`);
+      } catch {
+        return null;
+      }
+    })();
+
+    const rememberedView = (() => {
+      try {
+        return localStorage.getItem(`kin_main_view_${projectId}`) as 'chat' | 'automations' | null;
+      } catch {
+        return null;
+      }
+    })();
+
     set({
       activeProjectId: projectId,
       activeChannelId: rememberedChannelId || '',
+      selectedAgentId: rememberedAgentId || '',
+      ...(rememberedView ? { activeMainView: rememberedView } : {}),
       channelMembers: [],
       activeGitDiff: null,
       selectedArtifact: null,
@@ -3158,7 +3222,15 @@ export const useKinStore = create<KinState>((set, get) => ({
   setNewGoalModalOpen: (open) => set({ isNewGoalModalOpen: open }),
   setNewTaskModalOpen: (open) => set({ isNewTaskModalOpen: open }),
   setActiveInspectorTab: (tab) => set({ activeInspectorTab: tab }),
-  setSelectedAgentId: (agentId) => set({ selectedAgentId: agentId }),
+  setSelectedAgentId: (agentId) => {
+    const projId = get().activeProjectId;
+    if (projId && agentId) {
+      try {
+        localStorage.setItem(`kin_selected_agent_${projId}`, agentId);
+      } catch {}
+    }
+    set({ selectedAgentId: agentId });
+  },
   setNewProjectModalOpen: (open) => set({ isNewProjectModalOpen: open }),
   setCreateChannelModalOpen: (open) => set({ isCreateChannelModalOpen: open }),
   setAddAgentModalOpen: (open) => set({ isAddAgentModalOpen: open }),
