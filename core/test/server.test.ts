@@ -897,6 +897,12 @@ describe('KIN Phase 1/2: Core IPC Server Integration & Authoritative State', () 
     const { project } = (await projRes.json()) as any;
 
     const db = (server as any).db;
+    // Mark prior background runs from earlier test triggers as completed to prevent exceeding concurrent active run quota
+    db.execute(
+      "UPDATE agent_runs SET state = 'completed', completed_at = ? WHERE state IN ('running', 'waiting_for_tool', 'waiting_for_agent', 'waiting_for_model', 'queued')",
+      Date.now()
+    );
+
     const now = Date.now();
     const agentAId = `agent-peer-x-${now}`;
     const agentBId = `agent-peer-y-${now}`;
