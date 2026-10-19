@@ -10,6 +10,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as http from 'node:http';
+import * as nodeCrypto from 'node:crypto';
 
 describe('KIN Hardening: Security, Approval Tokens, and Runtime Enforcement', () => {
   let tempDir: string;
@@ -264,6 +265,138 @@ describe('KIN Hardening: Security, Approval Tokens, and Runtime Enforcement', ()
       });
 
       expect(res.statusCode).toBe(200);
+    });
+
+    it('returns full CORS preflight headers allowing operator signature and custom headers', async () => {
+      const res = await new Promise<{ statusCode: number; headers: http.IncomingHttpHeaders }>((resolve, reject) => {
+        const req = http.request(
+          `http://127.0.0.1:${serverPort}/api/tasks/task-test/status`,
+          {
+            method: 'OPTIONS',
+            headers: {
+              Origin: 'http://localhost:5173',
+              'Access-Control-Request-Method': 'PATCH',
+              'Access-Control-Request-Headers': 'Content-Type, Authorization, X-Kin-Operator-Signature, X-Kin-Approval-Token',
+            },
+          },
+          (response) => {
+            resolve({ statusCode: response.statusCode || 0, headers: response.headers });
+          }
+        );
+        req.on('error', reject);
+        req.end();
+      });
+
+      expect(res.statusCode).toBe(204);
+      expect(res.headers['access-control-allow-origin']).toBe('http://localhost:5173');
+      expect(res.headers['access-control-allow-headers']).toContain('X-Kin-Operator-Signature');
+      expect(res.headers['access-control-allow-headers']).toContain('X-Kin-Approval-Token');
+      expect(res.headers['access-control-allow-headers']).toContain('Authorization');
+    });
+
+    it('authenticates task signoff via HMAC signature and rejects invalid signatures', async () => {
+      const token = server.getIpcAuthToken();
+      expect(token).toBeDefined();
+
+      const db = new KinDatabase({ dbPath: path.join(tempDir, 'server_test.sqlite') });
+      const taskId = 'task-test-sig-1';
+      db.execute(
+        `INSERT OR IGNORE INTO workspaces (id, name, root_path, default_autonomy_mode, created_at, updated_at)
+         VALUES ('ws-test-sig', 'Test WS', '.', 'AUTO', ?, ?)`,
+        Date.now(),
+        Date.now()
+      );
+      db.execute(
+        `INSERT OR IGNORE INTO projects (id, workspace_id, name, repo_path, created_at, updated_at)
+         VALUES ('proj-kin', 'ws-test-sig', 'Default Project', '.', ?, ?)`,
+        Date.now(),
+        Date.now()
+      );
+      db.execute(
+        `INSERT OR IGNORE INTO goals (id, project_id, title, description, acceptance_criteria_json, status, created_at, updated_at)
+         VALUES ('goal-test-sig', 'proj-kin', 'Test Goal', 'desc', '[]', 'active', ?, ?)`,
+        Date.now(),
+        Date.now()
+      );
+      db.execute(
+        `INSERT INTO tasks (id, goal_id, title, description, status, retry_count, created_at, updated_at)
+         VALUES (?, 'goal-test-sig', 'Test Signature Task', 'desc', 'ready', 0, ?, ?)`,
+        taskId,
+        Date.now(),
+        Date.now()
+      );
+      db.close();
+
+      // 1. Invalid signature should place task in review and return 403
+      const badSigRes = await new Promise<{ statusCode: number; body: any }>((resolve, reject) => {
+        const req = http.request(
+          `http://127.0.0.1:${serverPort}/api/tasks/${taskId}/status`,
+          {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+              'x-kin-operator-signature': 'deadbeef00112233',
+            },
+          },
+          (response) => {
+            let data = '';
+            response.on('data', (c) => (data += c));
+            response.on('end', () => resolve({ statusCode: response.statusCode || 0, body: JSON.parse(data) }));
+          }
+        );
+        req.on('error', reject);
+        req.write(
+          JSON.stringify({
+            status: 'completed',
+            operatorSignoff: {
+              operatorId: 'operator-human',
+              signature: 'deadbeef00112233',
+              justification: 'Automated test signoff',
+            },
+          })
+        );
+        req.end();
+      });
+
+      expect(badSigRes.statusCode).toBe(403);
+      expect(badSigRes.body.status).toBe('review');
+
+      // 2. Valid HMAC compact signature should succeed with 200
+      const validSig = nodeCrypto.createHmac('sha256', token!).update(`${taskId}:completed`).digest('hex');
+      const goodSigRes = await new Promise<{ statusCode: number; body: any }>((resolve, reject) => {
+        const req = http.request(
+          `http://127.0.0.1:${serverPort}/api/tasks/${taskId}/status`,
+          {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+              'x-kin-operator-signature': validSig,
+            },
+          },
+          (response) => {
+            let data = '';
+            response.on('data', (c) => (data += c));
+            response.on('end', () => resolve({ statusCode: response.statusCode || 0, body: JSON.parse(data) }));
+          }
+        );
+        req.on('error', reject);
+        req.write(
+          JSON.stringify({
+            status: 'completed',
+            operatorSignoff: {
+              operatorId: 'operator-human',
+              signature: validSig,
+              justification: 'Automated test signoff',
+            },
+          })
+        );
+        req.end();
+      });
+
+      expect(goodSigRes.statusCode).toBe(200);
+      expect(goodSigRes.body.status).toBe('completed');
     });
 
     it('encrypts credentials on POST and decrypts them for masking on GET', async () => {

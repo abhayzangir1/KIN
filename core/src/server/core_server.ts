@@ -1839,7 +1839,10 @@ export class CoreServer {
       res.setHeader('Access-Control-Allow-Origin', origin || '*');
     }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-IPC-Token');
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Content-Type, Authorization, X-IPC-Token, X-Kin-Auth, X-Kin-Auth-Token, X-Kin-Operator-Signature, X-Kin-Operator-Id, X-Kin-Approval-Token, X-Caller-Agent-Id, X-Agent-Id'
+    );
   }
 
   private sendJson(res: http.ServerResponse, statusCode: number, data: any, req?: http.IncomingMessage): void {

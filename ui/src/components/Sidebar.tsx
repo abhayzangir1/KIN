@@ -1,6 +1,6 @@
 import React from 'react';
 import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
-import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale, Trash2, Users } from 'lucide-react';
+import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale, Trash2, Users, ShieldAlert } from 'lucide-react';
 import { AgentModelQuickSwitch } from './AgentModelQuickSwitch.js';
 
 export const Sidebar: React.FC = () => {
@@ -36,6 +36,9 @@ export const Sidebar: React.FC = () => {
     activeMainView,
     setActiveMainView,
   } = useKinStore();
+
+  const [confirmDeleteChannelId, setConfirmDeleteChannelId] = React.useState<string | null>(null);
+  const [confirmDeleteGoalId, setConfirmDeleteGoalId] = React.useState<string | null>(null);
 
   const handleSelectDm = (agentId: string) => {
     setSelectedAgentId(agentId);
@@ -148,14 +151,24 @@ export const Sidebar: React.FC = () => {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (window.confirm(`Delete channel #${chan.name}?`)) {
+                          if (confirmDeleteChannelId === chan.id) {
                             deleteChannel(chan.id);
+                            setConfirmDeleteChannelId(null);
+                          } else {
+                            setConfirmDeleteChannelId(chan.id);
+                            setTimeout(() => {
+                              setConfirmDeleteChannelId((cur) => (cur === chan.id ? null : cur));
+                            }, 3500);
                           }
                         }}
-                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-500/20 text-kin-muted hover:text-red-500 transition cursor-pointer"
-                        title="Delete Channel"
+                        className={`p-0.5 rounded transition cursor-pointer ${
+                          confirmDeleteChannelId === chan.id
+                            ? 'bg-red-500 text-white opacity-100 px-1 text-[9px] font-bold shadow-xs'
+                            : 'opacity-0 group-hover:opacity-100 hover:bg-red-500/20 text-kin-muted hover:text-red-500'
+                        }`}
+                        title={confirmDeleteChannelId === chan.id ? `Click again to confirm deleting #${chan.name}` : `Delete channel #${chan.name}`}
                       >
-                        <Trash2 className="w-3 h-3" />
+                        {confirmDeleteChannelId === chan.id ? 'Delete?' : <Trash2 className="w-3 h-3" />}
                       </button>
                     )}
                   </div>
@@ -360,15 +373,27 @@ export const Sidebar: React.FC = () => {
                         {completedCount}/{goalTasks.length}
                       </span>
                       <button
-                        onClick={() => {
-                          if (window.confirm(`Delete goal "${goal.title}" and its tasks?`)) {
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirmDeleteGoalId === goal.id) {
                             deleteGoal(goal.id);
+                            setConfirmDeleteGoalId(null);
+                          } else {
+                            setConfirmDeleteGoalId(goal.id);
+                            setTimeout(() => {
+                              setConfirmDeleteGoalId((cur) => (cur === goal.id ? null : cur));
+                            }, 3500);
                           }
                         }}
-                        className="opacity-0 group-hover/goal:opacity-100 p-0.5 rounded hover:bg-red-500/10 text-kin-muted hover:text-red-500 transition cursor-pointer"
-                        title="Delete Goal"
+                        className={`p-0.5 rounded transition cursor-pointer ${
+                          confirmDeleteGoalId === goal.id
+                            ? 'bg-red-500 text-white opacity-100 px-1 text-[9px] font-bold shadow-xs'
+                            : 'opacity-0 group-hover/goal:opacity-100 hover:bg-red-500/10 text-kin-muted hover:text-red-500'
+                        }`}
+                        title={confirmDeleteGoalId === goal.id ? `Click again to confirm deleting "${goal.title}"` : 'Delete Goal'}
                       >
-                        <Trash2 className="w-3 h-3" />
+                        {confirmDeleteGoalId === goal.id ? 'Delete?' : <Trash2 className="w-3 h-3" />}
                       </button>
                     </div>
                   </div>
@@ -388,8 +413,12 @@ export const Sidebar: React.FC = () => {
                       const nextStatus: Record<string, 'ready' | 'running' | 'completed'> = {
                         ready: 'completed',
                         running: 'completed',
+                        review: 'completed',
+                        blocked: 'ready',
+                        backlog: 'ready',
                         completed: 'ready',
                         failed: 'ready',
+                        cancelled: 'ready',
                       };
 
                       return (
@@ -401,12 +430,14 @@ export const Sidebar: React.FC = () => {
                             <button
                               onClick={() => updateTaskStatus(task.id, nextStatus[task.status] || 'ready')}
                               className="shrink-0 hover:scale-110 transition cursor-pointer"
-                              title={`Status: ${task.status} (Click to advance)`}
+                              title={`Status: ${task.status}${task.status === 'review' ? ' (Awaiting operator sign-off - Click to approve)' : ' (Click to advance)'}`}
                             >
                               {task.status === 'completed' ? (
                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
                               ) : task.status === 'running' ? (
                                 <PlayCircle className="w-3.5 h-3.5 text-blue-500 animate-pulse" />
+                              ) : task.status === 'review' ? (
+                                <ShieldAlert className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
                               ) : task.status === 'failed' ? (
                                 <AlertCircle className="w-3.5 h-3.5 text-red-500" />
                               ) : (
@@ -419,6 +450,8 @@ export const Sidebar: React.FC = () => {
                                   ? 'line-through text-kin-muted'
                                   : task.status === 'running'
                                   ? 'text-blue-500 font-medium'
+                                  : task.status === 'review'
+                                  ? 'text-purple-400 font-medium'
                                   : 'text-kin-text'
                               }`}
                               title={task.title}
@@ -434,6 +467,8 @@ export const Sidebar: React.FC = () => {
                                   ? 'bg-emerald-500/10 text-emerald-500'
                                   : task.status === 'running'
                                   ? 'bg-blue-500/10 text-blue-500'
+                                  : task.status === 'review'
+                                  ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30'
                                   : 'bg-kin-card text-kin-muted border border-kin-border/50'
                               }`}
                             >
