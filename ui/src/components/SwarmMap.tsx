@@ -59,6 +59,7 @@ export const SwarmMap: React.FC = () => {
     activeAgentChannels,
     coordinationLinks,
     availableModels,
+    fetchAvailableModels,
     updateAgentModel,
   } = useKinStore();
 
@@ -87,6 +88,16 @@ export const SwarmMap: React.FC = () => {
       return {};
     }
   });
+
+  // Re-synchronize user positions when active project changes
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`kin_swarm_positions_${activeProjectId || 'default'}`);
+      setUserPositions(saved ? JSON.parse(saved) : {});
+    } catch {
+      setUserPositions({});
+    }
+  }, [activeProjectId]);
 
   const [draggingAgentId, setDraggingAgentId] = useState<string | null>(null);
   const dragOffsetRef = useRef<{
@@ -368,10 +379,13 @@ export const SwarmMap: React.FC = () => {
   const execDetails = selectedAgent ? agentExecutionDetails[selectedAgent.id] : null;
 
   useEffect(() => {
-    if (isSwarmMapOpen && selectedAgent) {
-      fetchAgentExecutionDetails(selectedAgent.id);
+    if (isSwarmMapOpen) {
+      fetchAvailableModels();
+      if (selectedAgent) {
+        fetchAgentExecutionDetails(selectedAgent.id);
+      }
     }
-  }, [isSwarmMapOpen, selectedAgent?.id]);
+  }, [isSwarmMapOpen, selectedAgent?.id, fetchAvailableModels, fetchAgentExecutionDetails]);
 
   // Smooth Mouse Wheel Zoom (Clamped 0.35x to 2.5x)
   useEffect(() => {
@@ -390,7 +404,7 @@ export const SwarmMap: React.FC = () => {
     };
   }, []);
 
-  // Free-Form Backdrop Panning Handlers
+  // Free-Form Backdrop Panning Handlers (Attached to Window during pan to prevent stuck state)
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('.agent-node-card, button, select, input, a')) {
       return;
@@ -402,19 +416,29 @@ export const SwarmMap: React.FC = () => {
     };
   };
 
-  const handleCanvasMouseMove = (e: React.MouseEvent) => {
+  useEffect(() => {
     if (!isPanning) return;
-    setPan({
-      x: e.clientX - panStartRef.current.x,
-      y: e.clientY - panStartRef.current.y,
-    });
-  };
 
-  const handleCanvasMouseUp = () => {
-    setIsPanning(false);
-  };
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      setPan({
+        x: e.clientX - panStartRef.current.x,
+        y: e.clientY - panStartRef.current.y,
+      });
+    };
 
-  // Draggable Node Event Handlers (Attached to Window during drag)
+    const handleWindowMouseUp = () => {
+      setIsPanning(false);
+    };
+
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    window.addEventListener('mouseup', handleWindowMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+    };
+  }, [isPanning]);
+
+  // Draggable Node Event Handlers (Attached to Window during drag, with localStorage persistence strictly on mouseUp)
   const handleAgentMouseDown = (e: React.MouseEvent, agentId: string) => {
     if ((e.target as HTMLElement).closest('button, select, input, option, a')) {
       return;
@@ -439,17 +463,24 @@ export const SwarmMap: React.FC = () => {
       const newX = Math.round(dragOffsetRef.current.initialNodeX + deltaX);
       const newY = Math.round(dragOffsetRef.current.initialNodeY + deltaY);
 
-      setUserPositions((prev) => {
-        const next = { ...prev, [draggingAgentId]: { x: newX, y: newY } };
-        try {
-          localStorage.setItem(`kin_swarm_positions_${activeProjectId || 'default'}`, JSON.stringify(next));
-        } catch {}
-        return next;
-      });
+      setUserPositions((prev) => ({
+        ...prev,
+        [draggingAgentId]: { x: newX, y: newY },
+      }));
     };
 
     const handleMouseUp = () => {
-      setDraggingAgentId(null);
+      setDraggingAgentId((currId) => {
+        if (currId) {
+          setUserPositions((latestPositions) => {
+            try {
+              localStorage.setItem(`kin_swarm_positions_${activeProjectId || 'default'}`, JSON.stringify(latestPositions));
+            } catch {}
+            return latestPositions;
+          });
+        }
+        return null;
+      });
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -465,7 +496,11 @@ export const SwarmMap: React.FC = () => {
     try {
       localStorage.removeItem(`kin_swarm_positions_${activeProjectId || 'default'}`);
     } catch {}
-    setPan({ x: 0, y: 0 });
+    const containerW = canvasContainerRef.current?.clientWidth || 1000;
+    const containerH = canvasContainerRef.current?.clientHeight || 700;
+    const targetPanX = Math.round(containerW / 2 - 700);
+    const targetPanY = Math.round(Math.max(20, containerH / 2 - 320));
+    setPan({ x: targetPanX, y: targetPanY });
     setZoom(1.0);
   };
 
@@ -662,8 +697,6 @@ export const SwarmMap: React.FC = () => {
             <div
               ref={canvasContainerRef}
               onMouseDown={handleCanvasMouseDown}
-              onMouseMove={handleCanvasMouseMove}
-              onMouseUp={handleCanvasMouseUp}
               className={`flex-1 relative overflow-hidden bg-slate-100 dark:bg-[#070b14] select-none ${
                 isPanning ? 'cursor-grabbing' : 'cursor-grab'
               }`}
@@ -766,27 +799,32 @@ export const SwarmMap: React.FC = () => {
                     let x2 = toPos.x;
                     let y2 = toPos.y;
 
+                    let pathD = '';
                     if (Math.abs(dy) >= Math.abs(dx)) {
-                      if (dy > 0) {
+                      // Primarily vertical flow (Top/Bottom ports)
+                      if (dy >= 0) {
                         y1 = fromPos.y + 85;
                         y2 = toPos.y - 85;
                       } else {
                         y1 = fromPos.y - 85;
                         y2 = toPos.y + 85;
                       }
+                      const cY1 = y1 + (y2 - y1) * 0.45;
+                      const cY2 = y2 - (y2 - y1) * 0.45;
+                      pathD = `M ${x1} ${y1} C ${x1} ${cY1}, ${x2} ${cY2}, ${x2} ${y2}`;
                     } else {
-                      if (dx > 0) {
+                      // Primarily horizontal flow (Left/Right ports)
+                      if (dx >= 0) {
                         x1 = fromPos.x + 145;
                         x2 = toPos.x - 145;
                       } else {
                         x1 = fromPos.x - 145;
                         x2 = toPos.x + 145;
                       }
+                      const cX1 = x1 + (x2 - x1) * 0.45;
+                      const cX2 = x2 - (x2 - x1) * 0.45;
+                      pathD = `M ${x1} ${y1} C ${cX1} ${y1}, ${cX2} ${y2}, ${x2} ${y2}`;
                     }
-
-                    const cY1 = y1 + (y2 - y1) * 0.45;
-                    const cY2 = y2 - (y2 - y1) * 0.45;
-                    const pathD = `M ${x1} ${y1} C ${x1} ${cY1}, ${x2} ${cY2}, ${x2} ${y2}`;
 
                     const isLinkActive =
                       link.isLive ||
@@ -899,22 +937,24 @@ export const SwarmMap: React.FC = () => {
                   const isCoordinating = coordinatingPeerIds.has(agent.id);
 
                   // Antigravity Live Activity Details
-                  const liveThought = agentThinkingDrafts[agent.id];
+                  const liveThought = agent.status === 'thinking' ? agentThinkingDrafts[agent.id] : null;
                   const liveTool = agentLiveTools[agent.id];
                   const currentToolName = liveTool?.toolName || agent.currentTool;
                   const toolParams = liveTool?.params || {};
+                  const commandStr = toolParams.command || toolParams.CommandLine || '';
+                  const filePathStr = toolParams.filePath || toolParams.TargetFile || toolParams.path || '';
 
                   const isWritingFile =
                     Boolean(currentToolName && /write|replace|file/i.test(currentToolName)) ||
-                    Boolean(toolParams.TargetFile || toolParams.filePath);
+                    Boolean(filePathStr);
 
                   const isCommand =
-                    Boolean(currentToolName && /command|terminal|run_command/i.test(currentToolName)) ||
-                    Boolean(toolParams.CommandLine || toolParams.command);
+                    Boolean(currentToolName && /command|terminal|run_command|executeShell|shell/i.test(currentToolName)) ||
+                    Boolean(commandStr);
 
                   const isBuild =
-                    (toolParams.CommandLine && /build|compile|cargo|tsc/i.test(toolParams.CommandLine)) ||
-                    (currentToolName && /build/i.test(currentToolName));
+                    Boolean(commandStr && /build|compile|cargo|tsc|make|gradle|mvn/i.test(commandStr)) ||
+                    Boolean(currentToolName && /build/i.test(currentToolName));
 
                   return (
                     <div
@@ -1002,6 +1042,14 @@ export const SwarmMap: React.FC = () => {
                               onClick={async (e) => {
                                 e.stopPropagation();
                                 if (window.confirm(`Decommission ${agent.displayName} from workforce?`)) {
+                                  setUserPositions((prev) => {
+                                    const next = { ...prev };
+                                    delete next[agent.id];
+                                    try {
+                                      localStorage.setItem(`kin_swarm_positions_${activeProjectId || 'default'}`, JSON.stringify(next));
+                                    } catch {}
+                                    return next;
+                                  });
                                   await decommissionAgent(agent.id);
                                 }
                               }}
@@ -1061,6 +1109,11 @@ export const SwarmMap: React.FC = () => {
                                 : `Active Model: ${agent.activeModelId} (Click to switch)`
                             }
                           >
+                            {!availableModels.some((m) => m.id === agent.activeModelId) && (
+                              <option value={agent.activeModelId}>
+                                {agent.activeModelId}
+                              </option>
+                            )}
                             {availableModels.map((m) => (
                               <option key={m.id} value={m.id}>
                                 {m.provider ? `[${m.provider}] ` : ''}{m.name || m.id}
@@ -1088,21 +1141,21 @@ export const SwarmMap: React.FC = () => {
                         <div className="mt-2 px-2.5 py-1.5 rounded-xl bg-blue-500/15 border border-blue-500/40 text-blue-600 dark:text-blue-300 text-[10px] font-mono flex items-center space-x-1.5 animate-pulse shadow-sm">
                           <Hammer className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400 shrink-0" />
                           <span className="truncate font-semibold">
-                            🔨 Building: {toolParams.CommandLine?.slice(0, 30) || 'Build Task'}
+                            🔨 Building: {commandStr.slice(0, 30) || 'Build Task'}
                           </span>
                         </div>
                       ) : isWritingFile ? (
                         <div className="mt-2 px-2.5 py-1.5 rounded-xl bg-cyan-500/15 border border-cyan-500/40 text-cyan-700 dark:text-cyan-300 text-[10px] font-mono flex items-center space-x-1.5 animate-pulse shadow-sm">
                           <FileCode className="w-3.5 h-3.5 text-cyan-500 dark:text-cyan-400 shrink-0" />
                           <span className="truncate font-semibold">
-                            📝 Writing: {(toolParams.TargetFile || toolParams.filePath || 'file').split(/[/\\]/).pop()}
+                            📝 Writing: {filePathStr.split(/[/\\]/).pop() || 'file'}
                           </span>
                         </div>
                       ) : isCommand ? (
                         <div className="mt-2 px-2.5 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-700 dark:text-emerald-300 text-[10px] font-mono flex items-center space-x-1.5 animate-pulse shadow-sm">
                           <Terminal className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400 shrink-0" />
                           <span className="truncate font-semibold">
-                            💻 Command: {(toolParams.CommandLine || toolParams.command || '').slice(0, 28) || 'Executing'}
+                            💻 Command: {commandStr.slice(0, 28) || 'Executing'}
                           </span>
                         </div>
                       ) : currentToolName ? (
@@ -1231,6 +1284,7 @@ export const SwarmMap: React.FC = () => {
                       </span>
                       <select
                         value={orchestrator.activeModelId}
+                        disabled={orchestrator.status === 'working' || orchestrator.status === 'thinking'}
                         onChange={async (e) => {
                           e.stopPropagation();
                           if (e.target.value === '__open_modal__') {
@@ -1239,8 +1293,17 @@ export const SwarmMap: React.FC = () => {
                             await updateAgentModel(orchestrator.id, e.target.value, activeProjectId, activeChannelId);
                           }
                         }}
-                        className="bg-slate-100 dark:bg-[#090d16] text-amber-600 dark:text-amber-300 border border-amber-500/40 rounded px-2 py-0.5 text-[11px] font-mono cursor-pointer"
+                        className={`bg-slate-100 dark:bg-[#090d16] text-amber-600 dark:text-amber-300 border border-amber-500/40 rounded px-2 py-0.5 text-[11px] font-mono ${
+                          orchestrator.status === 'working' || orchestrator.status === 'thinking'
+                            ? 'cursor-not-allowed opacity-60'
+                            : 'cursor-pointer'
+                        }`}
                       >
+                        {!availableModels.some((m) => m.id === orchestrator.activeModelId) && (
+                          <option value={orchestrator.activeModelId}>
+                            {orchestrator.activeModelId}
+                          </option>
+                        )}
                         {availableModels.map((m) => (
                           <option key={m.id} value={m.id}>
                             {m.provider ? `[${m.provider}] ` : ''}{m.name || m.id}
@@ -1365,14 +1428,22 @@ export const SwarmMap: React.FC = () => {
                             disabled={isBusy}
                             onChange={async (e) => {
                               e.stopPropagation();
-                              if (e.target.value === '__open_modal__') {
+                              const newModel = e.target.value;
+                              if (newModel === '__open_modal__') {
                                 openModelSelector(spec.id);
-                              } else {
-                                await updateAgentModel(spec.id, e.target.value, activeProjectId, activeChannelId);
+                                return;
+                              }
+                              if (newModel && newModel !== spec.activeModelId) {
+                                await updateAgentModel(spec.id, newModel, activeProjectId, activeChannelId);
                               }
                             }}
                             className="bg-slate-100 dark:bg-[#090d16] text-blue-600 dark:text-blue-300 border border-blue-500/30 rounded px-2 py-0.5 text-[11px] font-mono cursor-pointer max-w-[190px] truncate"
                           >
+                            {!availableModels.some((m) => m.id === spec.activeModelId) && (
+                              <option value={spec.activeModelId}>
+                                {spec.activeModelId}
+                              </option>
+                            )}
                             {availableModels.map((m) => (
                               <option key={m.id} value={m.id}>
                                 {m.provider ? `[${m.provider}] ` : ''}{m.name || m.id}
@@ -1518,14 +1589,16 @@ export const SwarmMap: React.FC = () => {
                         </div>
                       )}
 
-                      {execDetails?.phases?.find((p) => p.id === 'phase-reasoning')?.items?.map((item: any, idx: number) => (
-                        <div key={item.id || idx} className="p-2.5 rounded-lg bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-[#1e293b] font-mono text-[10px] whitespace-pre-wrap">
-                          {item.summary}
-                          {item.details?.reasoning && (
-                            <div className="mt-1 text-slate-500 dark:text-[#94a3b8]">{item.details.reasoning}</div>
-                          )}
-                        </div>
-                      )) || (
+                      {execDetails?.phases?.find((p) => p.id === 'phase-reasoning')?.items?.length ? (
+                        execDetails.phases.find((p) => p.id === 'phase-reasoning')!.items.map((item: any, idx: number) => (
+                          <div key={item.id || idx} className="p-2.5 rounded-lg bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-[#1e293b] font-mono text-[10px] whitespace-pre-wrap">
+                            {item.summary}
+                            {item.details?.reasoning && (
+                              <div className="mt-1 text-slate-500 dark:text-[#94a3b8]">{item.details.reasoning}</div>
+                            )}
+                          </div>
+                        ))
+                      ) : (
                         <p className="font-mono text-slate-500 dark:text-[#94a3b8]">
                           Agent is ready in workspace. No past reasoning trace recorded.
                         </p>
@@ -1568,7 +1641,53 @@ export const SwarmMap: React.FC = () => {
                   )}
                 </div>
 
-                {/* 3. Tools & Actions */}
+                {/* 3. Commands & Shell Execution */}
+                <div className="border border-slate-200 dark:border-[#1e293b] rounded-xl overflow-hidden bg-slate-50 dark:bg-[#0c1222]">
+                  <button
+                    onClick={() => toggleAccordion('commands')}
+                    className="w-full px-3 py-2 bg-slate-100 dark:bg-[#0e1628] flex items-center justify-between font-semibold text-slate-900 dark:text-white text-xs hover:bg-slate-200 dark:hover:bg-[#131d35] transition cursor-pointer"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <Terminal className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>Commands & Shell ({execDetails?.phases?.find((p) => p.id === 'phase-tools')?.items?.filter((i: any) => i.type === 'command')?.length || execDetails?.metrics?.commandsCount || 0})</span>
+                    </div>
+                    {openAccordion.commands ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                  </button>
+
+                  {openAccordion.commands && (
+                    <div className="p-2.5 space-y-2 bg-white dark:bg-[#070b12]">
+                      {execDetails?.phases?.find((p) => p.id === 'phase-tools')?.items?.filter((i: any) => i.type === 'command')?.length ? (
+                        execDetails.phases
+                          .find((p) => p.id === 'phase-tools')!
+                          .items.filter((i: any) => i.type === 'command')
+                          .map((item: any, idx: number) => {
+                            const itemKey = item.id || `cmd-${idx}`;
+                            return (
+                              <div key={itemKey} className="rounded-lg border border-slate-200 dark:border-[#1e293b] p-2 bg-slate-50 dark:bg-[#0c1222] space-y-1.5 font-mono">
+                                <div className="flex items-center justify-between text-[11px]">
+                                  <span className="font-bold text-emerald-600 dark:text-emerald-400">{item.summary}</span>
+                                  <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold ${item.details?.exitCode === 0 ? 'bg-emerald-500/20 text-emerald-600' : 'bg-red-500/20 text-red-500'}`}>
+                                    exit {item.details?.exitCode ?? 0}
+                                  </span>
+                                </div>
+                                {item.details?.command && (
+                                  <div className="text-[10px] text-slate-700 dark:text-[#cbd5e1] bg-slate-100 dark:bg-black/40 p-1.5 rounded">
+                                    $ {item.details.command}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })
+                      ) : (
+                        <div className="text-[11px] font-mono text-slate-500 dark:text-[#64748b] text-center py-2">
+                          No shell commands executed in this session
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* 4. Tools & Actions */}
                 <div className="border border-slate-200 dark:border-[#1e293b] rounded-xl overflow-hidden bg-slate-50 dark:bg-[#0c1222]">
                   <button
                     onClick={() => toggleAccordion('tools')}

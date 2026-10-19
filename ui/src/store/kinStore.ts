@@ -994,7 +994,7 @@ export const useKinStore = create<KinState>((set, get) => ({
   channelMembers: [],
   schedules: [],
   agents: [],
-  selectedAgentId: 'agent-boss',
+  selectedAgentId: '',
   messages: [],
   channelMessagesCache: {},
   pendingApprovals: [],
@@ -1266,7 +1266,7 @@ export const useKinStore = create<KinState>((set, get) => ({
         agents: data.agents || [],
         selectedAgentId: data.agents?.some((a: any) => a.id === get().selectedAgentId)
           ? get().selectedAgentId
-          : (data.agents?.[0]?.id || 'agent-boss'),
+          : (data.agents?.find((a: any) => a.isOrchestrator)?.id || data.agents?.[0]?.id || ''),
         messages: activeMessages,
         channelMessagesCache: nextCache,
         pendingApprovals: data.pendingApprovals || [],
@@ -1587,12 +1587,28 @@ export const useKinStore = create<KinState>((set, get) => ({
       if (!res.ok) {
         return { success: false, error: data.error || 'Failed to decommission agent' };
       }
-      set((state) => ({
-        agents: state.agents.filter((a) => a.id !== agentId),
-        channelMembers: state.channelMembers.filter((a) => a.id !== agentId),
-        selectedAgentId: state.selectedAgentId === agentId ? 'agent-boss' : state.selectedAgentId,
-        selectedSwarmAgentId: state.selectedSwarmAgentId === agentId ? 'agent-boss' : state.selectedSwarmAgentId,
-      }));
+      set((state) => {
+        const remainingAgents = state.agents.filter((a) => a.id !== agentId);
+        const fallbackAgentId = remainingAgents.find((a) => a.isOrchestrator)?.id || remainingAgents[0]?.id || '';
+        const nextActive = { ...state.activeAgentChannels };
+        delete nextActive[agentId];
+        const nextThinking = { ...state.agentThinkingDrafts };
+        delete nextThinking[agentId];
+        const nextTools = { ...state.agentLiveTools };
+        delete nextTools[agentId];
+        return {
+          agents: remainingAgents,
+          channelMembers: state.channelMembers.filter((a) => a.id !== agentId),
+          selectedAgentId: state.selectedAgentId === agentId ? fallbackAgentId : state.selectedAgentId,
+          selectedSwarmAgentId: state.selectedSwarmAgentId === agentId ? fallbackAgentId : state.selectedSwarmAgentId,
+          activeAgentChannels: nextActive,
+          agentThinkingDrafts: nextThinking,
+          agentLiveTools: nextTools,
+          coordinationLinks: state.coordinationLinks.filter(
+            (l) => l.fromAgentId !== agentId && l.targetAgentId !== agentId
+          ),
+        };
+      });
       await get().fetchState();
       return { success: true };
     } catch (err: any) {
@@ -1622,12 +1638,28 @@ export const useKinStore = create<KinState>((set, get) => ({
       sse.addEventListener('agent:deleted', (e) => {
         try {
           const { agentId } = JSON.parse(e.data);
-          set((state) => ({
-            agents: state.agents.filter((a) => a.id !== agentId),
-            channelMembers: state.channelMembers.filter((a) => a.id !== agentId),
-            selectedAgentId: state.selectedAgentId === agentId ? 'agent-boss' : state.selectedAgentId,
-            selectedSwarmAgentId: state.selectedSwarmAgentId === agentId ? 'agent-boss' : state.selectedSwarmAgentId,
-          }));
+          set((state) => {
+            const remainingAgents = state.agents.filter((a) => a.id !== agentId);
+            const fallbackAgentId = remainingAgents.find((a) => a.isOrchestrator)?.id || remainingAgents[0]?.id || '';
+            const nextActive = { ...state.activeAgentChannels };
+            delete nextActive[agentId];
+            const nextThinking = { ...state.agentThinkingDrafts };
+            delete nextThinking[agentId];
+            const nextTools = { ...state.agentLiveTools };
+            delete nextTools[agentId];
+            return {
+              agents: remainingAgents,
+              channelMembers: state.channelMembers.filter((a) => a.id !== agentId),
+              selectedAgentId: state.selectedAgentId === agentId ? fallbackAgentId : state.selectedAgentId,
+              selectedSwarmAgentId: state.selectedSwarmAgentId === agentId ? fallbackAgentId : state.selectedSwarmAgentId,
+              activeAgentChannels: nextActive,
+              agentThinkingDrafts: nextThinking,
+              agentLiveTools: nextTools,
+              coordinationLinks: state.coordinationLinks.filter(
+                (l) => l.fromAgentId !== agentId && l.targetAgentId !== agentId
+              ),
+            };
+          });
         } catch {}
       });
 
@@ -1827,19 +1859,37 @@ export const useKinStore = create<KinState>((set, get) => ({
             const nextActive = { ...state.activeAgentChannels };
             const nextDrafts = { ...state.streamingDrafts };
             const nextThinking = { ...state.thinkingDrafts };
+            const nextAgentThinking = { ...state.agentThinkingDrafts };
+            const nextLiveTools = { ...state.agentLiveTools };
+
             if (status === 'thinking' || status === 'working') {
               if (channelId) nextActive[agentId] = channelId;
             } else {
               delete nextActive[agentId];
+              delete nextAgentThinking[agentId];
+              delete nextLiveTools[agentId];
               if (channelId) {
                 delete nextDrafts[channelId];
                 delete nextThinking[channelId];
               }
             }
+
+            // Transition active coordination links involving this agent to 'completed' when agent goes idle
+            const nextCoordinationLinks = status === 'idle'
+              ? state.coordinationLinks.map((l) =>
+                  (l.targetAgentId === agentId || l.fromAgentId === agentId) && l.status === 'active'
+                    ? { ...l, status: 'completed' as const }
+                    : l
+                )
+              : state.coordinationLinks;
+
             return {
               activeAgentChannels: nextActive,
               streamingDrafts: nextDrafts,
               thinkingDrafts: nextThinking,
+              agentThinkingDrafts: nextAgentThinking,
+              agentLiveTools: nextLiveTools,
+              coordinationLinks: nextCoordinationLinks,
               agents: state.agents.map((a) => (a.id === agentId ? { ...a, status } : a)),
               channelMembers: state.channelMembers.map((a) => (a.id === agentId ? { ...a, status } : a)),
             };
@@ -2667,6 +2717,11 @@ export const useKinStore = create<KinState>((set, get) => ({
       selectedArtifact: null,
       channelMessagesCache: {},
       pendingApprovals: [],
+      coordinationLinks: [],
+      agentThinkingDrafts: {},
+      agentLiveTools: {},
+      latestDelegation: null,
+      selectedSwarmAgentId: '',
     });
     try {
       await fetch(`/api/projects/${encodeURIComponent(projectId)}/activate`, { method: 'POST' });

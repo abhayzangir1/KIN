@@ -64,4 +64,5 @@ temp-*
 specs/
 docs_master/
 example.txt
+artifacts/
 
