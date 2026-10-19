@@ -336,6 +336,19 @@ export interface GoalItem {
   updatedAt: number;
 }
 
+export interface ActiveCoordinationLink {
+  id: string;
+  fromAgentId: string;
+  fromAgentName?: string;
+  targetAgentId: string;
+  targetAgentName?: string;
+  directive: string;
+  channelId: string;
+  type: 'direct_delegation' | 'channel_coordination' | 'mention_request';
+  status: 'active' | 'completed';
+  timestamp: number;
+}
+
 export interface QueuedMessage {
   id: string;
   channelId: string;
@@ -778,6 +791,10 @@ interface KinState {
     channelId: string;
     reason: string;
   } | null;
+  // Dynamic Swarm Coordination Links (A -> B -> C)
+  coordinationLinks: ActiveCoordinationLink[];
+  addCoordinationLink: (link: Omit<ActiveCoordinationLink, 'id' | 'timestamp'>) => void;
+  clearCoordinationLinks: () => void;
   // Channel execution tracking (agentId -> channelId)
   activeAgentChannels: Record<string, string>;
   // Swarm Map & Execution Trajectory
@@ -1021,9 +1038,26 @@ export const useKinStore = create<KinState>((set, get) => ({
   agentLiveTools: {},
   latestDelegation: null,
   latestAntiLoopEvent: null,
+  coordinationLinks: [],
+  addCoordinationLink: (link) => {
+    const newLink: ActiveCoordinationLink = {
+      ...link,
+      id: `link-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: Date.now(),
+    };
+    set((state) => ({
+      coordinationLinks: [
+        newLink,
+        ...state.coordinationLinks.filter(
+          (l) => !(l.fromAgentId === link.fromAgentId && l.targetAgentId === link.targetAgentId)
+        ),
+      ].slice(0, 30),
+    }));
+  },
+  clearCoordinationLinks: () => set({ coordinationLinks: [] }),
   activeAgentChannels: {},
   isSwarmMapOpen: false,
-  selectedSwarmAgentId: 'agent-boss',
+  selectedSwarmAgentId: '',
   agentExecutionDetails: {},
   isLoadingExecutionDetails: false,
   steerNotification: null,
@@ -1640,6 +1674,39 @@ export const useKinStore = create<KinState>((set, get) => ({
       sse.addEventListener('message:created', (e) => {
         try {
           const msg: MessageItem = JSON.parse(e.data);
+          if (msg.senderType === 'agent' && msg.senderId && msg.content) {
+            const allAgents = get().agents;
+            const fromAgent = allAgents.find((a) => a.id === msg.senderId);
+            const mentionMatches = msg.content.matchAll(/@([a-zA-Z0-9_-]+)/g);
+            for (const match of mentionMatches) {
+              const handle = match[1].toLowerCase();
+              const mentionedAgent = allAgents.find(
+                (a) => a.displayName.replace(/^@/, '').toLowerCase() === handle || a.id.toLowerCase() === handle
+              );
+              if (mentionedAgent && mentionedAgent.id !== msg.senderId) {
+                const newLink: ActiveCoordinationLink = {
+                  id: `mention-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                  fromAgentId: msg.senderId,
+                  fromAgentName: fromAgent?.displayName || msg.senderId,
+                  targetAgentId: mentionedAgent.id,
+                  targetAgentName: mentionedAgent.displayName,
+                  directive: msg.content.slice(0, 100),
+                  channelId: msg.channelId,
+                  type: 'mention_request',
+                  status: 'active',
+                  timestamp: Date.now(),
+                };
+                set((state) => ({
+                  coordinationLinks: [
+                    newLink,
+                    ...state.coordinationLinks.filter(
+                      (l) => !(l.fromAgentId === newLink.fromAgentId && l.targetAgentId === newLink.targetAgentId)
+                    ),
+                  ].slice(0, 30),
+                }));
+              }
+            }
+          }
           set((state) => {
             const nextCache = { ...state.channelMessagesCache };
             const chanMsgs = nextCache[msg.channelId] || [];
@@ -2240,8 +2307,29 @@ export const useKinStore = create<KinState>((set, get) => ({
         try {
           const data = JSON.parse(e.data);
           if (data.targetAgentId && data.channelId) {
+            const allAgents = get().agents;
+            const fromAg = allAgents.find((a) => a.id === data.fromAgentId);
+            const toAg = allAgents.find((a) => a.id === data.targetAgentId);
+            const newLink: ActiveCoordinationLink = {
+              id: `del-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              fromAgentId: data.fromAgentId,
+              fromAgentName: fromAg?.displayName || data.fromAgentId,
+              targetAgentId: data.targetAgentId,
+              targetAgentName: toAg?.displayName || data.targetAgentName || data.targetAgentId,
+              directive: data.directive || 'Active Task Delegation',
+              channelId: data.channelId,
+              type: 'direct_delegation',
+              status: 'active',
+              timestamp: Date.now(),
+            };
             set((state) => ({
               latestDelegation: data,
+              coordinationLinks: [
+                newLink,
+                ...state.coordinationLinks.filter(
+                  (l) => !(l.fromAgentId === newLink.fromAgentId && l.targetAgentId === newLink.targetAgentId)
+                ),
+              ].slice(0, 30),
               activeAgentChannels: {
                 ...state.activeAgentChannels,
                 [data.targetAgentId]: data.channelId,
