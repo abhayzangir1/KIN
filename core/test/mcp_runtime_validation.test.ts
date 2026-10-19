@@ -966,4 +966,72 @@ describe('MCP Runtime End-to-End Validation', () => {
       await server.stop();
     }
   });
+
+  it('loads global user connectors from ~/.kin/mcp.json and allows project-level overrides and disabled flags', async () => {
+    const origUserProfile = process.env.USERPROFILE;
+    const origHome = process.env.HOME;
+    const globalHome = path.join(tempDir, 'global_home');
+    const projectDir = path.join(tempDir, 'project_dir');
+    const globalKinDir = path.join(globalHome, '.kin');
+    const projectKinDir = path.join(projectDir, '.kin');
+    fs.mkdirSync(globalKinDir, { recursive: true });
+    fs.mkdirSync(projectKinDir, { recursive: true });
+
+    process.env.USERPROFILE = globalHome;
+    process.env.HOME = globalHome;
+
+    try {
+      // 1. Script for global server
+      const globalScript = path.join(tempDir, 'global_srv.js');
+      fs.writeFileSync(globalScript, `
+        process.stdin.on('data', (d) => {
+          const lines = d.toString().split('\\n');
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            const msg = JSON.parse(line.trim());
+            if (msg.method === 'initialize') {
+              process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '2024-11-05', capabilities: {} } }) + '\\n');
+            } else if (msg.method === 'tools/list') {
+              process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { tools: [{ name: 'global_tool', inputSchema: {} }] } }) + '\\n');
+            }
+          }
+        });
+      `);
+
+      // Write global config
+      fs.writeFileSync(path.join(globalKinDir, 'mcp.json'), JSON.stringify({
+        mcpServers: {
+          globalService: {
+            command: process.execPath,
+            args: [globalScript],
+          },
+        },
+      }));
+
+      // Project initially has no config -> global servers are discovered
+      const client = new McpClientManager(projectDir);
+      const tools1 = await client.loadConfiguredServers();
+      expect(tools1.length).toBe(1);
+      expect(tools1[0].name).toBe('global_tool');
+      expect(tools1[0].serverName).toBe('globalService');
+      client.shutdown();
+
+      // Now project config disables the global service
+      fs.writeFileSync(path.join(projectKinDir, 'mcp.json'), JSON.stringify({
+        mcpServers: {
+          globalService: {
+            disabled: true,
+          },
+        },
+      }));
+
+      const client2 = new McpClientManager(projectDir);
+      const tools2 = await client2.loadConfiguredServers();
+      expect(tools2.length).toBe(0);
+      client2.shutdown();
+    } finally {
+      process.env.USERPROFILE = origUserProfile;
+      process.env.HOME = origHome;
+    }
+  });
 });

@@ -10,6 +10,7 @@ import * as path from 'node:path';
 import * as vm from 'node:vm';
 import { Worker } from 'node:worker_threads';
 import { KinDatabase } from '../storage/db.js';
+import { MigrationRunner } from '../storage/migration_runner.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface Skill {
@@ -91,8 +92,13 @@ export class SkillEngine {
   private db: KinDatabase;
   private skillsDir: string;
 
-  constructor(db: KinDatabase, options?: { skillsDir?: string; repoRoot?: string }) {
-    this.db = db;
+  constructor(db?: KinDatabase, options?: { skillsDir?: string; repoRoot?: string }) {
+    if (!db) {
+      this.db = new KinDatabase(':memory:');
+      new MigrationRunner(this.db).runMigrations();
+    } else {
+      this.db = db;
+    }
     const baseDir = options?.repoRoot || (options?.skillsDir ? undefined : (process.env.KIN_PROJECT_ROOT || process.cwd()));
     this.skillsDir = options?.skillsDir || path.resolve(baseDir || process.cwd(), '.kin', 'skills');
     this.seedDefaultSkills();
@@ -252,7 +258,7 @@ export class SkillEngine {
    * Defaults to 'active'.
    */
   public listSkills(statusFilter: 'candidate' | 'active' | 'deprecated' | 'disabled' | 'all' = 'active'): Skill[] {
-    if ((this.db as any).closed) {
+    if (!this.db || (this.db as any).closed) {
       return [];
     }
     let sql = 'SELECT * FROM skills';
@@ -278,7 +284,7 @@ export class SkillEngine {
    * Retrieves a skill by ID or name.
    */
   public getSkill(idOrName: string): Skill | undefined {
-    if ((this.db as any).closed) {
+    if (!this.db || (this.db as any).closed) {
       return undefined;
     }
     const row = this.db.queryOne<any>(

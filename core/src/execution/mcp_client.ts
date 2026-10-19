@@ -7,6 +7,7 @@
 import { spawn, exec, ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
 import { pathToFileURL } from 'node:url';
 
 export interface McpServerConfig {
@@ -16,6 +17,7 @@ export interface McpServerConfig {
   env?: Record<string, string>;
   url?: string;
   transport?: 'stdio' | 'http';
+  disabled?: boolean;
 }
 
 export interface McpToolDefinition {
@@ -118,15 +120,26 @@ export class McpClientManager {
   }
 
   /**
-   * Loads configured MCP servers from .kin/mcp.json, .kin/mcp_servers.json, or mcp.json.
+   * Loads configured MCP servers from user-level global and project-level configs.
+   * Global connectors (~/.kin/mcp.json) persist across all projects.
+   * Project-level configs (.kin/mcp.json) can add project-specific connectors or override globals.
    */
   public async loadConfiguredServers(): Promise<McpToolDefinition[]> {
-    const candidatePaths = [
-      path.join(this.projectRoot, '.kin', 'mcp.json'),
-      path.join(this.projectRoot, '.kin', 'mcp_servers.json'),
+    const userHome = process.env.USERPROFILE || process.env.HOME || os.homedir();
+    // Candidate paths listed in priority order from lowest to highest:
+    // Global user configs are loaded first; project-level configs override later.
+    const rawCandidatePaths = [
+      // 1. Global user-level MCP configuration (persists across all projects, like Claude Code & Cursor)
+      path.join(userHome, '.kin', 'mcp_servers.json'),
+      path.join(userHome, '.kin', 'mcp.json'),
+      // 2. Project-level MCP configuration
       path.join(this.projectRoot, 'mcp.json'),
+      path.join(this.projectRoot, '.kin', 'mcp_servers.json'),
+      path.join(this.projectRoot, '.kin', 'mcp.json'),
     ];
 
+    // Deduplicate paths in case projectRoot is the user home directory
+    const candidatePaths = Array.from(new Set(rawCandidatePaths.map(p => path.resolve(p))));
     const serverMap = new Map<string, McpServerConfig>();
 
     for (const configPath of candidatePaths) {
@@ -139,7 +152,11 @@ export class McpClientManager {
 
         if (Array.isArray(parsed)) {
           for (const s of parsed) {
-            if (s.name && (s.command || s.url) && !serverMap.has(s.name)) {
+            if (s.disabled === true || s.enabled === false) {
+              if (s.name) serverMap.delete(s.name);
+              continue;
+            }
+            if (s.name && (s.command || s.url)) {
               serverMap.set(s.name, {
                 name: s.name,
                 command: s.command,
@@ -153,7 +170,11 @@ export class McpClientManager {
         } else if (typeof serverSources === 'object' && serverSources !== null) {
           for (const [name, conf] of Object.entries(serverSources)) {
             const serverConfig = conf as any;
-            if ((serverConfig?.command || serverConfig?.url) && !serverMap.has(name)) {
+            if (serverConfig?.disabled === true || serverConfig?.enabled === false) {
+              serverMap.delete(name);
+              continue;
+            }
+            if (serverConfig?.command || serverConfig?.url) {
               serverMap.set(name, {
                 name,
                 command: serverConfig.command,
