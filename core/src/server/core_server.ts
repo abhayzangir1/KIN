@@ -233,19 +233,24 @@ export class CoreServer {
         if (provider === 'groq') return process.env.GROQ_API_KEY;
         if (provider === 'xai') return process.env.XAI_API_KEY;
         if (provider === 'azure') return process.env.AZURE_OPENAI_API_KEY || process.env.AZURE_API_KEY;
+        if (provider === 'together') return process.env.TOGETHER_API_KEY;
+        if (provider === 'deepinfra') return process.env.DEEPINFRA_API_KEY;
+        if (provider === 'fireworks') return process.env.FIREWORKS_API_KEY;
+        if (provider === 'perplexity') return process.env.PERPLEXITY_API_KEY;
+        if (provider === 'cerebras') return process.env.CEREBRAS_API_KEY;
         return undefined;
       },
       allKeysResolver: (provider: string, callerAgentId?: string) => {
         try {
           const rows = this.db.query<any>(
-            `SELECT id, provider, key_alias, secret_hash, scoped_grants_json, max_spend_tokens, current_spend_tokens 
+            `SELECT id, provider, key_alias, secret_hash, base_url, scoped_grants_json, max_spend_tokens, current_spend_tokens 
              FROM managed_credentials 
              WHERE (provider = ? OR key_alias = ? OR id = ? OR LOWER(key_alias) = LOWER(?)) AND is_active = 1 
              ORDER BY CASE WHEN id = ? THEN 1 WHEN key_alias = ? OR LOWER(key_alias) = LOWER(?) THEN 2 ELSE 3 END, updated_at DESC`,
             provider, provider, provider, provider, provider, provider, provider
           );
           const vault = SecretVault.getInstance();
-          const result: Array<{ id: string; key: string; keyAlias?: string }> = [];
+          const result: Array<{ id: string; key: string; keyAlias?: string; baseUrl?: string }> = [];
           for (const r of rows) {
             if (!r.secret_hash) continue;
             if (
@@ -265,7 +270,7 @@ export class CoreServer {
               } catch {}
             }
             const decrypted = vault.decrypt(r.secret_hash) || r.secret_hash;
-            result.push({ id: r.id, key: decrypted, keyAlias: r.key_alias });
+            result.push({ id: r.id, key: decrypted, keyAlias: r.key_alias, baseUrl: r.base_url || undefined });
           }
           return result;
         } catch {
@@ -295,34 +300,8 @@ export class CoreServer {
       },
     });
 
-    // Reconcile custom providers from SQLite providers table on startup (Fix 17)
-    try {
-      const customProviders = this.db.query<{ id: string; name: string; base_url: string; api_key_ref?: string }>(
-        `SELECT id, name, base_url, api_key_ref FROM providers WHERE is_active = 1 AND base_url IS NOT NULL`
-      );
-      for (const prov of customProviders) {
-        if (prov.base_url) {
-          this.modelGateway.registerCustomProvider(prov.id, prov.base_url, prov.api_key_ref);
-          if (prov.name && prov.name !== prov.id) {
-            this.modelGateway.registerCustomProvider(prov.name, prov.base_url, prov.api_key_ref);
-          }
-        }
-      }
-      // Reconcile managed_credentials with base_url
-      const credsWithBaseUrl = this.db.query<{ id: string; provider: string; key_alias: string; base_url: string; secret_hash: string }>(
-        `SELECT id, provider, key_alias, base_url, secret_hash FROM managed_credentials WHERE is_active = 1 AND base_url IS NOT NULL AND base_url != ''`
-      );
-      for (const c of credsWithBaseUrl) {
-        const decrypted = SecretVault.getInstance().decrypt(c.secret_hash);
-        this.modelGateway.registerCustomProvider(c.provider, c.base_url, decrypted);
-        if (c.key_alias) {
-          this.modelGateway.registerCustomProvider(c.key_alias, c.base_url, decrypted);
-        }
-        this.modelGateway.registerCustomProvider(c.id, c.base_url, decrypted);
-      }
-    } catch (provErr) {
-      console.warn('[KIN CORE] Notice reconciling custom providers from SQLite:', provErr);
-    }
+    // Reconcile custom providers from SQLite providers and managed_credentials tables on startup
+    this.syncModelGatewayProviders();
 
     // Auto-seed active OpenRouter credential from browser/environment if not yet registered
     try {
@@ -1218,7 +1197,7 @@ export class CoreServer {
       return { online: false, models: [] };
     }
     try {
-      const res = await fetch('http://127.0.0.1:11434/api/tags', { signal: AbortSignal.timeout(5000) });
+      const res = await fetch('http://127.0.0.1:11434/api/tags', { signal: AbortSignal.timeout(1500) });
       if (!res.ok) return { online: false, models: [] };
       const data: any = await res.json();
       const models = Array.isArray(data?.models) ? data.models.map((m: any) => m.name) : [];
@@ -1756,6 +1735,39 @@ export class CoreServer {
     return this.mcpClient;
   }
 
+  public syncModelGatewayProviders(): void {
+    try {
+      this.modelGateway.clearCustomEndpoints();
+      // 1. Reconcile providers table
+      const providers = this.db.query<{ id: string; name: string; base_url: string; api_key_ref?: string }>(
+        `SELECT id, name, base_url, api_key_ref FROM providers WHERE is_active = 1 AND base_url IS NOT NULL AND base_url != ''`
+      );
+      for (const prov of providers) {
+        if (prov.base_url) {
+          this.modelGateway.registerCustomProvider(prov.id, prov.base_url, prov.api_key_ref);
+          if (prov.name && prov.name.toLowerCase() !== prov.id.toLowerCase()) {
+            this.modelGateway.registerCustomProvider(prov.name, prov.base_url, prov.api_key_ref);
+          }
+        }
+      }
+      // 2. Reconcile managed_credentials table
+      const credsWithBaseUrl = this.db.query<{ id: string; provider: string; key_alias: string; base_url: string; secret_hash: string }>(
+        `SELECT id, provider, key_alias, base_url, secret_hash FROM managed_credentials WHERE is_active = 1 AND base_url IS NOT NULL AND base_url != '' ORDER BY updated_at ASC`
+      );
+      for (const c of credsWithBaseUrl) {
+        const decrypted = SecretVault.getInstance().decrypt(c.secret_hash) || c.secret_hash;
+        if (c.provider) {
+          this.modelGateway.registerCustomProvider(c.provider, c.base_url, decrypted);
+        }
+        if (c.key_alias && c.key_alias.toLowerCase() !== c.provider.toLowerCase()) {
+          this.modelGateway.registerCustomProvider(c.key_alias, c.base_url, decrypted);
+        }
+      }
+    } catch (err) {
+      console.warn('[KIN CORE] Notice reconciling model gateway custom providers:', err);
+    }
+  }
+
   public getTakeoverStatus(runId: string): 'continue' | 'pause' | 'abort' {
     const s = this.takeoverStates.get(runId);
     if (s?.isAborted) return 'abort';
@@ -2083,32 +2095,42 @@ export class CoreServer {
           }
         }
         
-        const standardProvidersList = ['ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure', 'custom'];
+        const standardProvidersList = [
+          'ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure',
+          'together', 'deepinfra', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'vllm',
+          'openai_compatible', 'custom'
+        ];
         const activeCreds = this.db.query<any>('SELECT DISTINCT provider FROM managed_credentials WHERE is_active = 1');
-        const customEndpoints = this.modelGateway.getCustomEndpointNames();
+        const customEndpoints = this.modelGateway.getCustomEndpointNames().filter((name) => !name.startsWith('cred-'));
         const allProvidersToCheck = Array.from(new Set([
           ...standardProvidersList,
           ...activeCreds.map((c: any) => c.provider),
           ...customEndpoints,
         ]));
         const providerReadiness: Record<string, any> = {};
-        for (const p of allProvidersToCheck) {
-          if (p === 'ollama') {
-            providerReadiness['ollama'] = {
-              provider: 'ollama',
-              configured: true,
-              validated: Boolean(ollamaInfo.online),
-              modelCount: (ollamaInfo.models || []).length,
-              message: ollamaInfo.online
-                ? `Local Ollama online (${ollamaInfo.models.length} model(s) available)`
-                : 'Local Ollama runtime unreachable (offline)',
-            };
-          } else {
-            providerReadiness[p] = await this.modelGateway.checkProviderReadiness(p);
-          }
-        }
+        await Promise.all(
+          allProvidersToCheck.map(async (p) => {
+            if (p === 'ollama') {
+              providerReadiness['ollama'] = {
+                provider: 'ollama',
+                configured: true,
+                validated: Boolean(ollamaInfo.online),
+                modelCount: (ollamaInfo.models || []).length,
+                message: ollamaInfo.online
+                  ? `Local Ollama online (${ollamaInfo.models.length} model(s) available)`
+                  : 'Local Ollama runtime unreachable (offline)',
+              };
+            } else {
+              providerReadiness[p] = await this.modelGateway.checkProviderReadiness(p);
+            }
+          })
+        );
 
-        const standardProviderSet = new Set(['ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure']);
+        const standardProviderSet = new Set([
+          'ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure',
+          'together', 'deepinfra', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'vllm',
+          'openai_compatible', 'custom'
+        ]);
 
         // 2. Stored / discovered provider models
         for (const sm of storedModels) {
@@ -2232,18 +2254,24 @@ export class CoreServer {
 
       // 2b. GET /api/models/readiness or /api/system/models/readiness — Provider Readiness States
       if (req.method === 'GET' && (pathname === '/api/models/readiness' || pathname === '/api/system/models/readiness')) {
-        const standardProviders = ['ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure', 'custom'];
+        const standardProviders = [
+          'ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure',
+          'together', 'deepinfra', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'vllm',
+          'openai_compatible', 'custom'
+        ];
         const activeCreds = this.db.query<any>('SELECT DISTINCT provider FROM managed_credentials WHERE is_active = 1');
-        const customEndpoints = this.modelGateway.getCustomEndpointNames();
+        const customEndpoints = this.modelGateway.getCustomEndpointNames().filter((name) => !name.startsWith('cred-'));
         const allProviders = Array.from(new Set([
           ...standardProviders,
           ...activeCreds.map((c: any) => c.provider),
           ...customEndpoints,
         ]));
         const readiness: Record<string, any> = {};
-        for (const p of allProviders) {
-          readiness[p] = await this.modelGateway.checkProviderReadiness(p);
-        }
+        await Promise.all(
+          allProviders.map(async (p) => {
+            readiness[p] = await this.modelGateway.checkProviderReadiness(p);
+          })
+        );
         return this.sendJson(res, 200, { success: true, providerReadiness: readiness });
       }
 
@@ -2261,7 +2289,11 @@ export class CoreServer {
         }
         const discovered = await this.modelGateway.fetchProviderModels(body.provider, body.apiKey, body.baseUrl ? { baseUrl: body.baseUrl } : undefined);
         const now = Date.now();
-        const validTypes = ['ollama', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'openrouter', 'openai_compatible', 'custom'];
+        const validTypes = [
+          'ollama', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure', 'openrouter',
+          'together', 'deepinfra', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'vllm',
+          'openai_compatible', 'custom'
+        ];
         const pType = validTypes.includes(body.provider.toLowerCase()) ? body.provider.toLowerCase() : (body.baseUrl ? 'openai_compatible' : 'custom');
         try {
           this.db.execute(
@@ -9302,10 +9334,16 @@ Format strictly as JSON:
         const body = await this.parseJsonBody<any>(req);
         const provider = body.provider;
         const keyName = body.keyName || body.keyAlias || body.key;
-        const apiKey = body.apiKey || body.secret || body.value;
+        let apiKey = body.apiKey || body.secret || body.value;
         const baseUrl = (body.baseUrl || body.endpointUrl || body.base_url || '').trim() || null;
         const monthlyQuotaTokens = body.monthlyQuotaTokens || body.maxSpendTokens || 5000000;
         const scopedAgentIds = body.scopedAgentIds || body.scopedGrants || [];
+
+        // Support zero-auth local endpoints (e.g. LM Studio, local vLLM) when apiKey is omitted
+        const isLocalZeroAuth = (!apiKey || String(apiKey).trim() === '') && Boolean(baseUrl);
+        if (isLocalZeroAuth) {
+          apiKey = 'local-no-key';
+        }
 
         if (!provider || !keyName || !apiKey) {
           return this.sendJson(res, 400, { error: 'Provider, keyName (or keyAlias/key), and apiKey (or secret/value) are required' });
@@ -9313,13 +9351,15 @@ Format strictly as JSON:
 
         // Prevent duplicate keys via deterministic SHA-256 fingerprint check
         const cleanApiKey = String(apiKey).trim();
-        const fingerprint = crypto.createHash('sha256').update(cleanApiKey).digest('hex');
+        const fingerprint = cleanApiKey === 'local-no-key'
+          ? crypto.createHash('sha256').update(`local:${baseUrl || 'default'}:${provider}:${keyName}`).digest('hex')
+          : crypto.createHash('sha256').update(cleanApiKey).digest('hex');
         let existingDuplicate = this.db.queryOne<any>(
           'SELECT id, provider, key_alias, masked_key FROM managed_credentials WHERE key_fingerprint = ? AND is_active = 1',
           fingerprint
         );
 
-        if (!existingDuplicate) {
+        if (!existingDuplicate && cleanApiKey !== 'local-no-key') {
           const allActive = this.db.query<any>('SELECT id, provider, key_alias, secret_hash, masked_key FROM managed_credentials WHERE is_active = 1');
           const vault = SecretVault.getInstance();
           for (const ac of allActive) {
@@ -9348,11 +9388,13 @@ Format strictly as JSON:
 
         const now = Date.now();
         const credId = `cred-${now}-${Math.random().toString(36).slice(2, 6)}`;
-        const masked = cleanApiKey.length >= 16
-          ? `${cleanApiKey.slice(0, 4)}...${cleanApiKey.slice(-4)}`
-          : cleanApiKey.length >= 8
-            ? `${cleanApiKey.slice(0, 2)}...${cleanApiKey.slice(-2)}`
-            : '****...****';
+        const masked = cleanApiKey === 'local-no-key'
+          ? 'No Key (Local)'
+          : cleanApiKey.length >= 16
+            ? `${cleanApiKey.slice(0, 4)}...${cleanApiKey.slice(-4)}`
+            : cleanApiKey.length >= 8
+              ? `${cleanApiKey.slice(0, 2)}...${cleanApiKey.slice(-2)}`
+              : '****...****';
 
         const encryptedKey = SecretVault.getInstance().encrypt(cleanApiKey);
 
@@ -9375,9 +9417,6 @@ Format strictly as JSON:
         );
 
         if (baseUrl) {
-          this.modelGateway.registerCustomProvider(provider, baseUrl, apiKey);
-          if (keyName) this.modelGateway.registerCustomProvider(keyName, baseUrl, apiKey);
-          this.modelGateway.registerCustomProvider(credId, baseUrl, apiKey);
           try {
             this.db.execute(
               `INSERT OR REPLACE INTO providers (id, name, provider_type, base_url, api_key_ref, is_active, created_at)
@@ -9391,6 +9430,7 @@ Format strictly as JSON:
             );
           } catch {}
         }
+        this.syncModelGatewayProviders();
 
         const credential = {
           id: credId,
@@ -9481,13 +9521,15 @@ Format strictly as JSON:
         let keyFingerprint = existing.key_fingerprint;
         const apiKey = (body.apiKey || body.secret || body.value || '').trim();
         if (apiKey && apiKey !== '****...****' && !apiKey.includes('...')) {
-          const fingerprint = crypto.createHash('sha256').update(apiKey).digest('hex');
+          const fingerprint = apiKey === 'local-no-key'
+            ? crypto.createHash('sha256').update(`local:${baseUrl || existing.base_url || 'default'}:${provider}:${keyName}`).digest('hex')
+            : crypto.createHash('sha256').update(apiKey).digest('hex');
           let duplicateOther = this.db.queryOne<any>(
             'SELECT id, provider, key_alias FROM managed_credentials WHERE key_fingerprint = ? AND id != ? AND is_active = 1',
             fingerprint,
             credId
           );
-          if (!duplicateOther) {
+          if (!duplicateOther && apiKey !== 'local-no-key') {
             const allOthers = this.db.query<any>('SELECT id, provider, key_alias, secret_hash FROM managed_credentials WHERE id != ? AND is_active = 1', credId);
             const vault = SecretVault.getInstance();
             for (const ac of allOthers) {
@@ -9511,11 +9553,13 @@ Format strictly as JSON:
           }
           keyFingerprint = fingerprint;
           encryptedKey = SecretVault.getInstance().encrypt(apiKey);
-          maskedKey = apiKey.length >= 16
-            ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}`
-            : apiKey.length >= 8
-              ? `${apiKey.slice(0, 2)}...${apiKey.slice(-2)}`
-              : '****...****';
+          maskedKey = apiKey === 'local-no-key'
+            ? 'No Key (Local)'
+            : apiKey.length >= 16
+              ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}`
+              : apiKey.length >= 8
+                ? `${apiKey.slice(0, 2)}...${apiKey.slice(-2)}`
+                : '****...****';
         }
 
         this.db.execute(
@@ -9535,12 +9579,6 @@ Format strictly as JSON:
         );
 
         if (baseUrl) {
-          const effectiveKey = (apiKey && apiKey !== '****...****' && !apiKey.includes('...'))
-            ? apiKey
-            : SecretVault.getInstance().decrypt(existing.secret_hash);
-          this.modelGateway.registerCustomProvider(provider, baseUrl, effectiveKey);
-          if (keyName) this.modelGateway.registerCustomProvider(keyName, baseUrl, effectiveKey);
-          this.modelGateway.registerCustomProvider(credId, baseUrl, effectiveKey);
           try {
             this.db.execute(
               `INSERT OR REPLACE INTO providers (id, name, provider_type, base_url, api_key_ref, is_active, created_at)
@@ -9554,6 +9592,7 @@ Format strictly as JSON:
             );
           } catch {}
         }
+        this.syncModelGatewayProviders();
 
         const updatedCred = {
           id: credId,
@@ -9636,6 +9675,7 @@ Format strictly as JSON:
           );
           if (!remaining || remaining.count === 0) {
             this.db.execute('DELETE FROM models WHERE provider_id = ?', existingCred.provider);
+            this.db.execute('DELETE FROM providers WHERE id = ?', existingCred.provider);
             this.modelGateway.invalidateProvider(existingCred.provider);
             this.broadcastEvent('models:updated', { provider: existingCred.provider, count: 0 });
           }
@@ -9646,6 +9686,7 @@ Format strictly as JSON:
         }
         this.modelGateway.invalidateProvider(credId);
         this.modelGateway.unregisterCustomProvider(credId);
+        this.syncModelGatewayProviders();
         this.broadcastEvent('credential:deleted', { id: credId });
         return this.sendJson(res, 200, { success: true, id: credId });
       }

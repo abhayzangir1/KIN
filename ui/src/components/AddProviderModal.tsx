@@ -190,22 +190,23 @@ export const AddProviderModal: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      // 1. Verify provider key with live upstream endpoint
-      if (apiKey.trim()) {
-        const verifyRes = await verifyProviderKey(provider, apiKey.trim(), endpointUrl.trim());
-        if (!verifyRes.working) {
+      // 1. Verify provider key with live upstream endpoint (if key provided or endpointUrl provided)
+      if (apiKey.trim() || (endpointUrl.trim() && !config.requiresKey)) {
+        const verifyRes = await verifyProviderKey(provider, apiKey.trim() || undefined, endpointUrl.trim() || undefined);
+        if (!verifyRes.working && config.requiresKey) {
           setErrorMsg(`Key Verification Failed: ${verifyRes.message || 'Invalid API key or network error.'}`);
           setIsSubmitting(false);
           return;
         }
       }
 
-      // 2. If valid or no key required, save credential
-      if (apiKey.trim()) {
+      // 2. Save credential (even for keyless local endpoints by saving with 'local-no-key')
+      const effectiveKey = apiKey.trim() || (endpointUrl.trim() ? 'local-no-key' : '');
+      if (effectiveKey) {
         const credRes = await addCredential({
           provider,
-          keyAlias: keyAlias.trim() || `${config.name} Key`,
-          apiKey: apiKey.trim(),
+          keyAlias: keyAlias.trim() || `${config.name} Endpoint`,
+          apiKey: effectiveKey,
           baseUrl: endpointUrl.trim() || undefined,
         });
         if (!credRes.success) {

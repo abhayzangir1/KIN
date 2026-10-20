@@ -196,7 +196,8 @@ export const SettingsModal: React.FC = () => {
       setCredError('Key alias or name is required');
       return;
     }
-    if (!editingCredId && !credApiKey.trim()) {
+    const isZeroAuthAllowed = ['lmstudio', 'vllm', 'custom', 'openai_compatible', 'ollama'].includes(credProvider.toLowerCase());
+    if (!editingCredId && !credApiKey.trim() && !isZeroAuthAllowed) {
       setCredError('API Key is required');
       return;
     }
@@ -212,11 +213,13 @@ export const SettingsModal: React.FC = () => {
         }
       }
 
+      const effectiveKey = credApiKey.trim() || (isZeroAuthAllowed ? 'local-no-key' : '');
+
       if (editingCredId) {
         const res = await updateCredential(editingCredId, {
           provider: credProvider,
           keyName: credKeyName.trim(),
-          apiKey: credApiKey.trim() || undefined,
+          apiKey: credApiKey.trim() ? credApiKey.trim() : (isZeroAuthAllowed && !credApiKey ? 'local-no-key' : undefined),
           baseUrl: credBaseUrl.trim() || undefined,
           monthlyQuotaTokens: credQuota,
         });
@@ -228,7 +231,7 @@ export const SettingsModal: React.FC = () => {
         const res = await addCredential({
           provider: credProvider,
           keyName: credKeyName.trim(),
-          apiKey: credApiKey.trim(),
+          apiKey: effectiveKey,
           baseUrl: credBaseUrl.trim() || undefined,
           monthlyQuotaTokens: credQuota,
         });
@@ -1172,12 +1175,16 @@ export const SettingsModal: React.FC = () => {
                           <option value="gemini">Google Gemini (Gemini 2.0 Flash, 1.5 Pro)</option>
                           <option value="groq">Groq (Llama 3.3 70B, Ultra-fast LPU)</option>
                           <option value="deepseek">DeepSeek (DeepSeek V3, DeepSeek R1)</option>
+                          <option value="xai">xAI (Grok)</option>
                           <option value="together">Together AI</option>
                           <option value="deepinfra">DeepInfra</option>
                           <option value="fireworks">Fireworks AI</option>
                           <option value="perplexity">Perplexity AI</option>
                           <option value="cerebras">Cerebras</option>
                           <option value="azure">Azure OpenAI</option>
+                          <option value="lmstudio">LM Studio (Local)</option>
+                          <option value="vllm">vLLM (Local / Remote)</option>
+                          <option value="ollama">Ollama (Local)</option>
                           <option value="openai_compatible">OpenAI Compatible (LM Studio / vLLM)</option>
                           <option value="custom">Custom Provider</option>
                         </select>

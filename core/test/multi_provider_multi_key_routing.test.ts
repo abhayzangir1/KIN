@@ -148,6 +148,141 @@ describe('KIN Multi-Key & Multi-Provider Architecture Test Suite', { timeout: 30
         mockServer.close();
       }
     });
+
+    it('seamlessly rotates across 3 distinct keys with independent endpoints on 429', async () => {
+      const calls: Array<{ port: number; auth: string }> = [];
+
+      const server1 = http.createServer((req, res) => {
+        calls.push({ port: 1, auth: req.headers['authorization'] || '' });
+        res.writeHead(429, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'Rate limit on endpoint 1' } }));
+      });
+      const server2 = http.createServer((req, res) => {
+        calls.push({ port: 2, auth: req.headers['authorization'] || '' });
+        res.writeHead(429, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'Rate limit on endpoint 2' } }));
+      });
+      const server3 = http.createServer((req, res) => {
+        calls.push({ port: 3, auth: req.headers['authorization'] || '' });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          choices: [{ message: { content: 'Success from tertiary endpoint 3' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }));
+      });
+
+      await Promise.all([
+        new Promise<void>((r) => server1.listen(0, '127.0.0.1', () => r())),
+        new Promise<void>((r) => server2.listen(0, '127.0.0.1', () => r())),
+        new Promise<void>((r) => server3.listen(0, '127.0.0.1', () => r())),
+      ]);
+
+      const port1 = (server1.address() as any).port;
+      const port2 = (server2.address() as any).port;
+      const port3 = (server3.address() as any).port;
+
+      try {
+        const gateway = new ModelGateway();
+        gateway.registerCustomProvider('together', `http://127.0.0.1:${port1}/v1`);
+
+        gateway.setApiKeyResolver((p) => (p === 'together' ? 'key-ep1' : undefined));
+        gateway.setAllKeysResolver((p) => {
+          if (p === 'together') {
+            return [
+              { id: 'c1', key: 'key-ep1', baseUrl: `http://127.0.0.1:${port1}/v1` },
+              { id: 'c2', key: 'key-ep2', baseUrl: `http://127.0.0.1:${port2}/v1` },
+              { id: 'c3', key: 'key-ep3', baseUrl: `http://127.0.0.1:${port3}/v1` },
+            ];
+          }
+          return [];
+        });
+
+        const result = await gateway.invoke({
+          modelId: 'together:meta-llama/llama-3.3-70b',
+          messages: [{ role: 'user', content: 'Testing 3-hop failover' }],
+        });
+
+        expect(result.content).toBe('Success from tertiary endpoint 3');
+        expect(calls.length).toBe(3);
+        expect(calls[0]).toEqual({ port: 1, auth: 'Bearer key-ep1' });
+        expect(calls[1]).toEqual({ port: 2, auth: 'Bearer key-ep2' });
+        expect(calls[2]).toEqual({ port: 3, auth: 'Bearer key-ep3' });
+      } finally {
+        server1.close();
+        server2.close();
+        server3.close();
+      }
+    });
+
+    it('terminates cleanly when all available keys are rate limited without infinite ping-pong', async () => {
+      let attemptCount = 0;
+      const mockServer = http.createServer((req, res) => {
+        attemptCount++;
+        res.writeHead(429, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'All keys exhausted rate limit' } }));
+      });
+      await new Promise<void>((r) => mockServer.listen(0, '127.0.0.1', () => r()));
+      const srvPort = (mockServer.address() as any).port;
+
+      try {
+        const gateway = new ModelGateway();
+        gateway.registerCustomProvider('vllm', `http://127.0.0.1:${srvPort}/v1`);
+        gateway.setApiKeyResolver(() => 'key-1');
+        gateway.setAllKeysResolver(() => [
+          { id: 'k1', key: 'key-1' },
+          { id: 'k2', key: 'key-2' },
+        ]);
+
+        const result = await gateway.invoke({
+          modelId: 'vllm:mistralai/mistral-7b',
+          messages: [{ role: 'user', content: 'Testing all 429 exhaust' }],
+        });
+
+        expect(result.isError).toBe(true);
+        expect(result.content).toMatch(/Rate Limit/i);
+        expect(attemptCount).toBe(4);
+      } finally {
+        mockServer.close();
+      }
+    });
+
+    it('verifyProviderConnection verifies Together, vLLM, and DeepInfra with mock OpenAI-compatible models endpoints', async () => {
+      const mockApi = http.createServer((req, res) => {
+        if (req.url === '/v1/models' || req.url === '/models') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            data: [
+              { id: 'mock-model-1', object: 'model' },
+              { id: 'mock-model-2', object: 'model' },
+            ],
+          }));
+          return;
+        }
+        res.writeHead(404);
+        res.end();
+      });
+      await new Promise<void>((r) => mockApi.listen(0, '127.0.0.1', () => r()));
+      const apiPort = (mockApi.address() as any).port;
+      const endpoint = `http://127.0.0.1:${apiPort}/v1`;
+
+      try {
+        const gateway = new ModelGateway();
+
+        const vllmRes = await gateway.verifyProviderConnection('vllm', undefined, endpoint);
+        expect(vllmRes.working).toBe(true);
+        expect(vllmRes.models.length).toBeGreaterThan(0);
+
+        const togetherRes = await gateway.verifyProviderConnection('together', 'sk-mock-together', endpoint);
+        expect(togetherRes.working).toBe(true);
+        expect(togetherRes.models.length).toBeGreaterThan(0);
+
+        const deepinfraRes = await gateway.verifyProviderConnection('deepinfra', 'sk-mock-deepinfra', endpoint);
+        expect(deepinfraRes.working).toBe(true);
+        expect(deepinfraRes.models.length).toBeGreaterThan(0);
+      } finally {
+        mockApi.close();
+      }
+    });
   });
 
   describe('2. CoreServer Multi-Key BYOK End-to-End API Integration', () => {
@@ -315,6 +450,62 @@ describe('KIN Multi-Key & Multi-Provider Architecture Test Suite', { timeout: 30
       const putDupData: any = await putDupRes.json();
       expect(putDupData.duplicate).toBe(true);
       expect(putDupData.error).toContain('Duplicate keys cannot be saved');
+    });
+
+    it('POST /api/settings/credentials allows zero-auth local endpoints without API key', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/settings/credentials`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'lmstudio',
+          keyName: 'Local LM Studio 1234',
+          baseUrl: 'http://localhost:1234/v1',
+        }),
+      });
+      expect(res.status).toBe(201);
+      const data: any = await res.json();
+      expect(data.credential.id).toBeDefined();
+      expect(data.credential.provider).toBe('lmstudio');
+      expect(data.credential.keyAlias).toBe('Local LM Studio 1234');
+      expect(data.credential.maskedKey).toBe('No Key (Local)');
+      expect(data.credential.baseUrl).toBe('http://localhost:1234/v1');
+
+      const getRes = await fetch(`http://127.0.0.1:${port}/api/settings/credentials`);
+      const getData: any = await getRes.json();
+      const lmCred = getData.credentials.find((c: any) => c.id === data.credential.id);
+      expect(lmCred).toBeDefined();
+      expect(lmCred.maskedKey).toBe('No Key (Local)');
+
+      await fetch(`http://127.0.0.1:${port}/api/settings/credentials/${data.credential.id}`, { method: 'DELETE' });
+    });
+
+    it('syncModelGatewayProviders cleans up customEndpoints and prevents synthetic cred-* pollution', async () => {
+      const addRes = await fetch(`http://127.0.0.1:${port}/api/settings/credentials`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'my-custom-llm',
+          keyName: 'Custom LLM Server',
+          apiKey: 'custom-secret-key-4455',
+          baseUrl: 'http://127.0.0.1:9099/v1',
+        }),
+      });
+      expect(addRes.status).toBe(201);
+      const addData: any = await addRes.json();
+      const customCredId = addData.credential.id;
+
+      const endpointsBefore = (server as any).modelGateway.getCustomEndpointNames();
+      expect(endpointsBefore).toContain('my-custom-llm');
+      expect(endpointsBefore.some((name: string) => name.startsWith('cred-'))).toBe(false);
+
+      const delRes = await fetch(`http://127.0.0.1:${port}/api/settings/credentials/${customCredId}`, {
+        method: 'DELETE',
+      });
+      expect(delRes.status).toBe(200);
+
+      const endpointsAfter = (server as any).modelGateway.getCustomEndpointNames();
+      expect(endpointsAfter).not.toContain('my-custom-llm');
+      expect(endpointsAfter.some((name: string) => name.startsWith('cred-'))).toBe(false);
     });
   });
 });

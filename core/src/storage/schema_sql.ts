@@ -258,7 +258,7 @@ CREATE TABLE IF NOT EXISTS skill_experiences (
 CREATE TABLE IF NOT EXISTS providers (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    provider_type TEXT NOT NULL CHECK (provider_type IN ('ollama', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'openrouter', 'openai_compatible', 'custom')),
+    provider_type TEXT NOT NULL CHECK (provider_type IN ('ollama', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure', 'openrouter', 'together', 'deepinfra', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'vllm', 'openai_compatible', 'custom')),
     base_url TEXT,
     api_key_ref TEXT,
     is_active BOOLEAN NOT NULL DEFAULT 1,
