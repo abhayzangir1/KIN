@@ -214,7 +214,11 @@ export class Sentinel {
       case 'fetch_url':
       case 'webSearch':
       case 'web_search':
-        return { primary: 'web:browse', aliases: ['web:browse', 'web', 'browser', 'web_browse'] };
+      case 'sendExternalMessage':
+      case 'send_external_message':
+      case 'sendWebhookMessage':
+      case 'send_webhook_message':
+        return { primary: 'web:browse', aliases: ['web:browse', 'web', 'browser', 'web_browse', 'chat:write', 'chat:external', 'message:send', 'sendExternalMessage', 'send_external_message', '*'] };
       case 'computer':
       case 'application':
       case 'launchApp':

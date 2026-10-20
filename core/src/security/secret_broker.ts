@@ -179,6 +179,8 @@ export class SecretBroker {
     sanitized = sanitized.replace(/(gh[pousr]_[a-zA-Z0-9_]{20,})/gi, '[REDACTED][REDACTED_GITHUB_TOKEN]');
     sanitized = sanitized.replace(/(AIza[0-9A-Za-z\-_]{35})/g, '[REDACTED][REDACTED_GOOGLE_KEY]');
     sanitized = sanitized.replace(/(xox[baprs]-[0-9a-zA-Z\-]{10,})/gi, '[REDACTED][REDACTED_SLACK_TOKEN]');
+    sanitized = sanitized.replace(/(Bot\s+)?([a-zA-Z0-9_\-]{24,28}\.[a-zA-Z0-9_\-]{6}\.[a-zA-Z0-9_\-]{27,38})/gi, (_m, botPrefix) => (botPrefix || '') + '[REDACTED][REDACTED_DISCORD_TOKEN]');
+    sanitized = sanitized.replace(/(bot)?(\d{8,12}:[a-zA-Z0-9_-]{35})/gi, (_m, b) => (b ? 'bot' : '') + '[REDACTED][REDACTED_TELEGRAM_TOKEN]');
     sanitized = sanitized.replace(/(AKIA[0-9A-Z]{16})/g, '[REDACTED][REDACTED_AWS_KEY]');
     sanitized = sanitized.replace(/(glpat-[0-9a-zA-Z\-_]{20,})/gi, '[REDACTED][REDACTED_GITLAB_TOKEN]');
 

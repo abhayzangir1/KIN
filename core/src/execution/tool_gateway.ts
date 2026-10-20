@@ -722,6 +722,20 @@ export class ToolGateway {
         },
       },
       {
+        name: 'sendExternalMessage',
+        description: 'Send a notification or alert to an external messaging service (Discord webhook, Slack webhook, Telegram Bot API, or custom webhook URL).',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'The webhook or API URL to post to (must start with http:// or https://)' },
+            message: { type: 'string', description: 'The notification message or text content to send' },
+            platform: { type: 'string', enum: ['slack', 'discord', 'telegram', 'generic'], description: 'Optional target platform format (defaults to auto-detect or generic)' },
+            title: { type: 'string', description: 'Optional message header or title' },
+          },
+          required: ['url', 'message'],
+        },
+      },
+      {
         name: 'delegateToAgent',
         description: 'Coordinate or delegate a task directive to a peer specialist agent in the project workforce (e.g. @Backend, @Frontend, @QA).',
         parameters: {
@@ -1060,7 +1074,11 @@ export class ToolGateway {
       case 'fetch_url':
       case 'webSearch':
       case 'web_search':
-        return { primary: 'web:browse', aliases: ['web:browse', 'web', 'browser', 'web_browse'] };
+      case 'sendExternalMessage':
+      case 'send_external_message':
+      case 'sendWebhookMessage':
+      case 'send_webhook_message':
+        return { primary: 'web:browse', aliases: ['web:browse', 'web', 'browser', 'web_browse', 'chat:write', 'chat:external', 'message:send', 'sendExternalMessage', 'send_external_message', '*'] };
 
       case 'computer':
       case 'application':
@@ -1185,6 +1203,66 @@ export class ToolGateway {
     } catch (err) {
       console.warn('[TOOL GATEWAY] Failed to log action_record:', err);
     }
+  }
+
+  public static normalizeHostname(rawHostname: string): string {
+    return (rawHostname || '').toLowerCase().trim().replace(/^\[|\]$/g, '').replace(/\.+$/, '');
+  }
+
+  public static decodeIpv6Mapped(host: string): string {
+    if (!host.startsWith('::ffff:')) return host;
+    const rem = host.slice(7);
+    if (rem.includes('.')) return rem;
+    const parts = rem.split(':');
+    if (parts.length === 2) {
+      const high = parseInt(parts[0], 16);
+      const low = parseInt(parts[1], 16);
+      if (!isNaN(high) && !isNaN(low)) {
+        return `${(high >> 8) & 0xff}.${high & 0xff}.${(low >> 8) & 0xff}.${low & 0xff}`;
+      }
+    }
+    return rem;
+  }
+
+  public static isMetadataService(rawHostname: string): boolean {
+    const host = ToolGateway.normalizeHostname(rawHostname);
+    if (!host) return false;
+    if (
+      host === 'metadata' ||
+      host === 'metadata.google.internal' ||
+      host === '169.254.169.254' ||
+      host === '100.100.100.200' ||
+      host === 'fd00:ec2::254'
+    ) {
+      return true;
+    }
+    if (/^169\.254\./.test(host)) return true;
+    if (host.startsWith('::ffff:')) {
+      const decoded = ToolGateway.decodeIpv6Mapped(host);
+      if (/^169\.254\./.test(decoded) || decoded === '100.100.100.200') return true;
+    }
+    return false;
+  }
+
+  public static isPrivateOrLoopback(rawHostname: string): boolean {
+    let host = ToolGateway.normalizeHostname(rawHostname);
+    if (!host) return true;
+    if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) {
+      return true;
+    }
+    if (host.startsWith('::ffff:')) {
+      host = ToolGateway.decodeIpv6Mapped(host);
+    }
+    if (host === '::1' || host === '::' || /^0\./.test(host) || host === '0.0.0.0') return true;
+    if (/^127\./.test(host)) return true;
+    if (/^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host)) return true;
+    if (/^100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\./.test(host)) return true;
+    if (/^fe[89ab][0-9a-f]:/i.test(host) || /^f[cd][0-9a-f]{2}:/i.test(host)) return true;
+    return false;
+  }
+
+  public static isSsrfTarget(rawHostname: string): boolean {
+    return ToolGateway.isMetadataService(rawHostname) || ToolGateway.isPrivateOrLoopback(rawHostname);
   }
 
   /**
@@ -1993,27 +2071,12 @@ export class ToolGateway {
           }
 
           // SSRF Protection: Prevent accessing loopback and private intranet addresses
-          const hostname = parsed.hostname.toLowerCase();
-          const isMetadataService =
-            hostname === '169.254.169.254' ||
-            hostname === 'metadata.google.internal' ||
-            /^169\.254\./.test(hostname);
-
+          const hostname = parsed.hostname;
+          const isMetadata = ToolGateway.isMetadataService(hostname);
           const isTestEnv = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
-          const isPrivateIp = !isTestEnv && (
-            hostname === 'localhost' ||
-            hostname === '127.0.0.1' ||
-            hostname === '0.0.0.0' ||
-            hostname === '::1' ||
-            hostname === '[::1]' ||
-            /^10\./.test(hostname) ||
-            /^192\.168\./.test(hostname) ||
-            /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname) ||
-            hostname.endsWith('.internal') ||
-            hostname.endsWith('.local')
-          );
+          const isBlocked = isMetadata || (!isTestEnv && ToolGateway.isPrivateOrLoopback(hostname));
 
-          if ((isMetadataService || isPrivateIp) && !params.allowPrivateNetwork) {
+          if (isBlocked && !params.allowPrivateNetwork) {
             return {
               success: false,
               error: `SSRF_BLOCKED: Outbound request to private/loopback network address '${hostname}' is prohibited.`,
@@ -2163,6 +2226,106 @@ export class ToolGateway {
                 error: err.message || String(err),
               } as T,
               error: `webSearch failed: ${err.message || String(err)}`,
+              riskLevel: risk,
+            };
+          }
+        }
+
+        case 'sendExternalMessage':
+        case 'send_external_message':
+        case 'sendWebhookMessage':
+        case 'send_webhook_message': {
+          const rawUrl = params.url || params.targetUrl || params.webhookUrl;
+          const message = params.message || params.content || params.text;
+          const platform = String(params.platform || '').toLowerCase();
+          const title = params.title || '';
+          if (!rawUrl || typeof rawUrl !== 'string') {
+            throw new Error("sendExternalMessage requires a 'url' parameter");
+          }
+          if (!message || typeof message !== 'string') {
+            throw new Error("sendExternalMessage requires a 'message' parameter");
+          }
+          let parsed: URL;
+          try {
+            parsed = new URL(rawUrl.trim());
+          } catch {
+            throw new Error(`Invalid URL '${rawUrl}'`);
+          }
+          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            throw new Error(`Unsupported protocol '${parsed.protocol}'. Only http and https are allowed.`);
+          }
+          const hostname = parsed.hostname;
+          if (ToolGateway.isSsrfTarget(hostname) && !params.allowPrivateNetwork) {
+            return {
+              success: false,
+              error: `SSRF_BLOCKED: Outbound request to private/loopback network address '${hostname}' is prohibited.`,
+              riskLevel: risk,
+            };
+          }
+
+          let payload: Record<string, any> = {};
+          if (platform === 'discord' || rawUrl.includes('discord.com/api/webhooks')) {
+            const truncated = message.slice(0, 1990);
+            payload = { content: truncated };
+            if (title) {
+              payload.embeds = [{ title: title.slice(0, 256), description: message.slice(0, 4000), color: 0x5865F2 }];
+            }
+          } else if (platform === 'slack' || rawUrl.includes('hooks.slack.com')) {
+            const truncated = message.slice(0, 39000);
+            payload = {
+              text: title ? `*${title}*\n${truncated}` : truncated,
+              channel: params.channel || params.channelId || undefined,
+            };
+          } else if (platform === 'telegram' || rawUrl.includes('api.telegram.org')) {
+            const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const safeTitle = title ? `<b>${escapeHtml(title.slice(0, 256))}</b>\n` : '';
+            const safeMsg = escapeHtml(message.slice(0, 3800));
+            payload = {
+              chat_id: params.chatId || params.chat_id || params.channelId || params.channel_id || params.to || undefined,
+              text: safeTitle + safeMsg,
+              parse_mode: 'HTML',
+            };
+          } else {
+            payload = {
+              message: message.slice(0, 65536),
+              title: title || undefined,
+              timestamp: new Date().toISOString(),
+              ...(params.extraPayload && typeof params.extraPayload === 'object' ? params.extraPayload : {}),
+            };
+          }
+
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 12000);
+          try {
+            const res = await fetch(parsed.toString(), {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'User-Agent': 'KIN-Agent/1.0',
+                ...(params.headers || {}),
+              },
+              body: JSON.stringify(payload),
+              signal: controller.signal,
+            });
+            clearTimeout(timeout);
+            const status = res.status;
+            const respText = await res.text().catch(() => '');
+            return {
+              success: res.ok,
+              output: {
+                dispatched: res.ok,
+                status,
+                platform: platform || (rawUrl.includes('discord') ? 'discord' : rawUrl.includes('slack') ? 'slack' : rawUrl.includes('telegram') ? 'telegram' : 'generic'),
+                message: res.ok ? `Message dispatched successfully (${status}).` : `HTTP ${status}: ${respText}`,
+              } as T,
+              error: res.ok ? undefined : `External messaging HTTP ${status}: ${respText}`,
+              riskLevel: risk,
+            };
+          } catch (err: any) {
+            clearTimeout(timeout);
+            return {
+              success: false,
+              error: `sendExternalMessage failed: ${err.message || String(err)}`,
               riskLevel: risk,
             };
           }
@@ -3226,6 +3389,10 @@ export class ToolGateway {
       toolName === 'delegateTask' ||
       toolName === 'delegate' ||
       ((toolName === 'fetchUrl' || toolName === 'fetch_url') && safeParams.method && safeParams.method.toUpperCase() !== 'GET') ||
+      toolName === 'sendExternalMessage' ||
+      toolName === 'send_external_message' ||
+      toolName === 'sendWebhookMessage' ||
+      toolName === 'send_webhook_message' ||
       toolName === 'desktopMouseMove' ||
       toolName === 'desktopMouseClick' ||
       toolName === 'desktopFocusWindow' ||
