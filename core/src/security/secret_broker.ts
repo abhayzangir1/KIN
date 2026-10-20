@@ -119,30 +119,30 @@ export class SecretBroker {
               return `[DENIED_SPEND_CAP_EXCEEDED:${keyName}]`;
             }
 
-            if (callerAgentId) {
-              let isGranted = false;
-              if (row.scoped_grants_json) {
-                try {
-                  const grants: string[] = JSON.parse(row.scoped_grants_json);
-                  if (Array.isArray(grants) && (grants.includes(callerAgentId) || grants.includes('*'))) {
+            if (row.scoped_grants_json && row.scoped_grants_json.trim()) {
+              try {
+                const grants: string[] = JSON.parse(row.scoped_grants_json);
+                if (Array.isArray(grants) && grants.length > 0) {
+                  let isGranted = false;
+                  if (grants.includes('*') || (callerAgentId && grants.includes(callerAgentId))) {
                     isGranted = true;
                   }
-                } catch {}
-              }
-              if (!isGranted) {
-                try {
-                  EventLedger.getInstance().record({
-                    eventType: 'SECURITY_ALERT',
-                    entityType: 'agent',
-                    entityId: callerAgentId,
-                    payload: {
-                      reason: `Unauthorized secret placeholder access attempt for key '${keyName}'`,
-                      keyName,
-                    },
-                  });
-                } catch {}
-                return `[DENIED_UNAUTHORIZED_KEY_ACCESS:${keyName}]`;
-              }
+                  if (!isGranted) {
+                    try {
+                      EventLedger.getInstance().record({
+                        eventType: 'SECURITY_ALERT',
+                        entityType: 'agent',
+                        entityId: callerAgentId || 'anonymous',
+                        payload: {
+                          reason: `Unauthorized secret placeholder access attempt for key '${keyName}' (scoped grants violated)`,
+                          keyName,
+                        },
+                      });
+                    } catch {}
+                    return `[DENIED_UNAUTHORIZED_KEY_ACCESS:${keyName}]`;
+                  }
+                }
+              } catch {}
             }
             ciphertextToDecrypt = row.secret_hash;
           }

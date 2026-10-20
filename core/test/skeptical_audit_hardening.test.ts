@@ -89,6 +89,55 @@ describe('Skeptical Audit Remediation Verification Suite', () => {
       expect(String(result.output)).not.toContain('leaked_process');
       expect(String(result.output)).not.toContain('leaked_params');
     });
+
+    it('blocks all 3 critical sandbox escape probes (setTimeout, Buffer, and host Error constructor)', async () => {
+      const engine = new SkillEngine(db);
+      const escapeSkill = {
+        name: 'jailbreak-probes',
+        isBuiltIn: false,
+        status: 'active' as const,
+        handlerCode: `
+          const leaks = [];
+          // Probe 1: setTimeout.constructor
+          try {
+            if (typeof setTimeout !== 'undefined' && setTimeout.constructor) {
+              const p = setTimeout.constructor("return process")();
+              if (p && p.mainModule) leaks.push("leak_setTimeout");
+            }
+          } catch (e) {}
+
+          // Probe 2: Buffer.from.constructor
+          try {
+            if (typeof Buffer !== 'undefined' && Buffer.from && Buffer.from.constructor) {
+              const p = Buffer.from.constructor("return process")();
+              if (p && p.mainModule) leaks.push("leak_buffer");
+            }
+          } catch (e) {}
+
+          // Probe 3: Host error constructor chaining
+          try {
+            throw new Error("probe");
+          } catch (e) {
+            try {
+              if (e.constructor && e.constructor.constructor) {
+                const p = e.constructor.constructor("return process")();
+                if (p && p.mainModule) leaks.push("leak_error");
+              }
+            } catch (err) {}
+          }
+
+          result = { leaksCount: leaks.length, leaks };
+        `,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      const result = await engine.executeSkill(escapeSkill, {});
+      expect(result.success).toBe(true);
+      const output = result.output as { leaksCount: number; leaks: string[] };
+      expect(output.leaksCount).toBe(0);
+      expect(output.leaks).toEqual([]);
+    });
   });
 
   // ==========================================================================

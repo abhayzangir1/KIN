@@ -310,6 +310,12 @@ export class Sentinel {
         /\btruncate\s+(table)?\b/i, // TRUNCATE TABLE
         /\bmkfs\b/i, // mkfs
         /\bdd\s+if=/i, // dd if=
+        /\bcurl\b.*\|\s*(ba|z)?sh\b/i, // curl | sh
+        /\bwget\b.*\|\s*(ba|z)?sh\b/i, // wget | sh
+        /\bgit\s+push\s+.*(--force|-f)\b/i, // git push --force / -f
+        /\bchmod\s+(-[a-z]*R|[0-7]{3,4})\b/i, // chmod -R or numeric chmod
+        /\bnpm\s+publish\b/i, // npm publish
+        /\b(shutdown|reboot)\b/i, // system shutdown or reboot
       ];
 
       for (const pattern of destructivePatterns) {

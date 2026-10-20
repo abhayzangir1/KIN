@@ -351,50 +351,9 @@ export class SkillEngine {
       return clean;
     };
 
-    // Host prototype sanitization: Provide bounded Buffer proxy and freeze prototypes
-    const safeBufferProto = Object.create(null);
-    for (const key of Object.getOwnPropertyNames(Buffer.prototype)) {
-      if (key === 'constructor') continue;
-      try {
-        const desc = Object.getOwnPropertyDescriptor(Buffer.prototype, key);
-        if (desc) Object.defineProperty(safeBufferProto, key, desc);
-      } catch {}
-    }
-    Object.defineProperty(safeBufferProto, 'constructor', { value: undefined, writable: false, configurable: false });
-    Object.freeze(safeBufferProto);
-
-    const safeBuffer = Object.create(null);
-    safeBuffer.from = sanitizeFunction((...args: any[]) => {
-      const b = (Buffer.from as any)(...args);
-      Object.setPrototypeOf(b, safeBufferProto);
-      return b;
-    });
-    safeBuffer.alloc = sanitizeFunction((...args: any[]) => {
-      const b = (Buffer.alloc as any)(...args);
-      Object.setPrototypeOf(b, safeBufferProto);
-      return b;
-    });
-    safeBuffer.isBuffer = sanitizeFunction((obj: any) => Buffer.isBuffer(obj));
-    safeBuffer.byteLength = sanitizeFunction((...args: any[]) => (Buffer.byteLength as any)(...args));
-    safeBuffer.concat = sanitizeFunction((...args: any[]) => {
-      const b = (Buffer.concat as any)(...args);
-      Object.setPrototypeOf(b, safeBufferProto);
-      return b;
-    });
-    Object.defineProperty(safeBuffer, 'constructor', { value: undefined, writable: false, configurable: false });
-    Object.freeze(safeBuffer);
-
-    const safeConsole = Object.create(null);
-    safeConsole.log = sanitizeFunction(() => {});
-    safeConsole.warn = sanitizeFunction(() => {});
-    safeConsole.error = sanitizeFunction(() => {});
-    Object.defineProperty(safeConsole, 'constructor', { value: undefined, writable: false, configurable: false });
-    Object.freeze(safeConsole);
-
     const safeAbortSignal = Object.create(null);
     if (abortSignal) {
       Object.defineProperty(safeAbortSignal, 'aborted', { get: () => abortSignal.aborted });
-      safeAbortSignal.addEventListener = sanitizeFunction((...args: any[]) => (abortSignal.addEventListener as any)(...args));
     }
     Object.defineProperty(safeAbortSignal, 'constructor', { value: undefined, writable: false, configurable: false });
     Object.freeze(safeAbortSignal);
@@ -403,24 +362,24 @@ export class SkillEngine {
     const cleanContext = sanitizeObjectForSandbox(executionContext);
 
     const sandbox = Object.create(null);
+    sandbox.hostSetTimeout = setTimeout;
+    sandbox.hostClearTimeout = clearTimeout;
     sandbox.params = cleanParams;
     sandbox.input = cleanParams;
     sandbox.context = cleanContext;
     sandbox.executionContext = cleanContext;
     sandbox.abortSignal = safeAbortSignal;
-    sandbox.Buffer = safeBuffer;
-    sandbox.setTimeout = sanitizeFunction(setTimeout);
-    sandbox.clearTimeout = sanitizeFunction(clearTimeout);
-    sandbox.console = safeConsole;
     sandbox.module = Object.create(null);
     sandbox.module.exports = Object.create(null);
     sandbox.exports = Object.create(null);
     sandbox.result = undefined;
     Object.defineProperty(sandbox, 'constructor', { value: undefined, writable: false, configurable: false });
 
-    const context = vm.createContext(sandbox);
+    const context = vm.createContext(sandbox, {
+      codeGeneration: { strings: false, wasm: false },
+    });
 
-    // Sanitize and freeze host prototypes in VM context
+    // Sanitize and freeze prototypes and install isolated primitives in VM context
     try {
       vm.runInContext(
         `
@@ -438,6 +397,33 @@ export class SkillEngine {
           Object.freeze(Number.prototype);
           Object.freeze(Boolean.prototype);
         } catch (_) {}
+
+        const InContextBuffer = {
+          from: (data) => {
+            if (typeof data === 'string') return new TextEncoder().encode(data);
+            return new Uint8Array(data);
+          },
+          alloc: (size) => new Uint8Array(size),
+          isBuffer: (obj) => obj instanceof Uint8Array,
+          byteLength: (str) => typeof str === 'string' ? new TextEncoder().encode(str).length : (str?.length || 0),
+          concat: (list) => {
+            let total = list.reduce((acc, curr) => acc + curr.length, 0);
+            let res = new Uint8Array(total);
+            let off = 0;
+            for (const item of list) {
+              res.set(item, off);
+              off += item.length;
+            }
+            return res;
+          }
+        };
+        Object.freeze(InContextBuffer);
+        globalThis.Buffer = InContextBuffer;
+        globalThis.setTimeout = (fn, ms, ...args) => hostSetTimeout(typeof fn === 'function' ? fn : () => {}, ms, ...args);
+        globalThis.clearTimeout = (id) => hostClearTimeout(id);
+        delete sandbox.hostSetTimeout;
+        delete sandbox.hostClearTimeout;
+        globalThis.console = Object.freeze({ log: () => {}, warn: () => {}, error: () => {} });
         `,
         context
       );
@@ -577,39 +563,15 @@ export class SkillEngine {
           const sanitizedParams = sanitizeObjectForSandbox(cleanParams);
           const sanitizedContext = sanitizeObjectForSandbox(cleanContext);
 
-          const safeBufferProto = Object.create(null);
-          for (const key of Object.getOwnPropertyNames(Buffer.prototype)) {
-            if (key === 'constructor') continue;
-            try {
-              const desc = Object.getOwnPropertyDescriptor(Buffer.prototype, key);
-              if (desc) Object.defineProperty(safeBufferProto, key, desc);
-            } catch {}
-          }
-          Object.defineProperty(safeBufferProto, 'constructor', { value: undefined, writable: false, configurable: false });
-          Object.freeze(safeBufferProto);
-
-          const safeBuffer = Object.create(null);
-          safeBuffer.from = (...args) => {
-            const b = Buffer.from(...args);
-            Object.setPrototypeOf(b, safeBufferProto);
-            return b;
-          };
-          safeBuffer.alloc = (...args) => {
-            const b = Buffer.alloc(...args);
-            Object.setPrototypeOf(b, safeBufferProto);
-            return b;
-          };
-          safeBuffer.isBuffer = (obj) => Buffer.isBuffer(obj);
-          safeBuffer.byteLength = (...args) => Buffer.byteLength(...args);
-          safeBuffer.concat = (...args) => {
-            const b = Buffer.concat(...args);
-            Object.setPrototypeOf(b, safeBufferProto);
-            return b;
-          };
-          Object.defineProperty(safeBuffer, 'constructor', { value: undefined, writable: false, configurable: false });
-          Object.freeze(safeBuffer);
+          // Strip dangerous host hooks in worker realm
+          try {
+            delete global.process.mainModule;
+            delete global.require;
+          } catch (_) {}
 
           const sandbox = Object.create(null);
+          sandbox.hostSetTimeout = setTimeout;
+          sandbox.hostClearTimeout = clearTimeout;
           sandbox.params = sanitizedParams;
           sandbox.input = sanitizedParams;
           sandbox.context = sanitizedContext;
@@ -618,13 +580,14 @@ export class SkillEngine {
           sandbox.module.exports = Object.create(null);
           sandbox.exports = Object.create(null);
           sandbox.result = undefined;
-          sandbox.Buffer = safeBuffer;
-          sandbox.setTimeout = setTimeout;
-          sandbox.clearTimeout = clearTimeout;
-          sandbox.console = Object.freeze({ log: () => {}, warn: () => {}, error: () => {} });
           Object.defineProperty(sandbox, 'constructor', { value: undefined, writable: false, configurable: false });
 
-          const context = vm.createContext(sandbox);
+          // Disable string/wasm code generation at V8 context level
+          const context = vm.createContext(sandbox, {
+            codeGeneration: { strings: false, wasm: false },
+          });
+
+          // Install pure in-context primitives and freeze all prototypes
           try {
             vm.runInContext(
               'try {' +
@@ -640,7 +603,30 @@ export class SkillEngine {
               '  Object.freeze(String.prototype);' +
               '  Object.freeze(Number.prototype);' +
               '  Object.freeze(Boolean.prototype);' +
-              '} catch (_) {}',
+              '} catch (_) {}' +
+              'const InContextBuffer = {' +
+              '  from: (data) => (typeof data === "string" ? new TextEncoder().encode(data) : new Uint8Array(data)),' +
+              '  alloc: (size) => new Uint8Array(size),' +
+              '  isBuffer: (obj) => obj instanceof Uint8Array,' +
+              '  byteLength: (str) => (typeof str === "string" ? new TextEncoder().encode(str).length : (str?.length || 0)),' +
+              '  concat: (list) => {' +
+              '    let total = list.reduce((acc, curr) => acc + curr.length, 0);' +
+              '    let res = new Uint8Array(total);' +
+              '    let off = 0;' +
+              '    for (const item of list) {' +
+              '      res.set(item, off);' +
+              '      off += item.length;' +
+              '    }' +
+              '    return res;' +
+              '  }' +
+              '};' +
+              'Object.freeze(InContextBuffer);' +
+              'globalThis.Buffer = InContextBuffer;' +
+              'globalThis.setTimeout = (fn, ms, ...args) => hostSetTimeout(typeof fn === "function" ? fn : () => {}, ms, ...args);' +
+              'globalThis.clearTimeout = (id) => hostClearTimeout(id);' +
+              'delete sandbox.hostSetTimeout;' +
+              'delete sandbox.hostClearTimeout;' +
+              'globalThis.console = Object.freeze({ log: () => {}, warn: () => {}, error: () => {} });',
               context
             );
           } catch (_) {}

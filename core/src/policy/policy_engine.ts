@@ -90,10 +90,14 @@ export class PolicyEngine {
       let isWhitelistedCommand = false;
       if ((isShellTool || !isPathTool) && request.subagentApprovedWhitelist.permittedCommands) {
         const cmdTrimmed = request.commandOrPath.trim();
-        isWhitelistedCommand = request.subagentApprovedWhitelist.permittedCommands.some((cmd) => {
-          const c = cmd.trim();
-          return cmdTrimmed === c || cmdTrimmed.startsWith(c + ' ');
-        });
+        // Disallow command chaining (&&, ||, ;, |, `) from bypassing prefix whitelisting
+        const hasChaining = /[;&|`\r\n]/.test(cmdTrimmed);
+        if (!hasChaining) {
+          isWhitelistedCommand = request.subagentApprovedWhitelist.permittedCommands.some((cmd) => {
+            const c = cmd.trim();
+            return cmdTrimmed === c || cmdTrimmed.startsWith(c + ' ');
+          });
+        }
       }
 
       let isWhitelistedPath = false;

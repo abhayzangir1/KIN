@@ -663,6 +663,24 @@ export class McpClientManager {
       return [];
     }
 
+    const cmdTrim = config.command.trim();
+    if (/[;&|`$<>\r\n]/.test(cmdTrim)) {
+      console.warn(`[KIN MCP] Refusing to start MCP server '${config.name}': Command contains prohibited shell characters.`);
+      return [];
+    }
+    const baseCmdCheck = path.basename(cmdTrim).toLowerCase().replace(/\.(exe|cmd|bat)$/i, '');
+    const blockedBinaries = new Set([
+      'sh', 'bash', 'zsh', 'ksh', 'csh', 'tcsh',
+      'cmd', 'powershell', 'pwsh',
+      'rm', 'del', 'erase', 'format',
+      'curl', 'wget', 'nc', 'netcat', 'socat',
+      'touch', 'dd', 'kill', 'taskkill'
+    ]);
+    if (blockedBinaries.has(baseCmdCheck)) {
+      console.warn(`[KIN MCP] Refusing to start MCP server '${config.name}': Binary '${cmdTrim}' is prohibited.`);
+      return [];
+    }
+
     const targetRoot = customRoot ? path.resolve(customRoot) : this.projectRoot;
     const resolvedCommand = this.resolveConfigPath(config.command, targetRoot);
     const resolvedArgs = (config.args || []).map((a) => this.resolveConfigPath(a, targetRoot));
@@ -1542,8 +1560,35 @@ process.on('SIGINT', () => process.exit(0));
 
     return McpClientManager.withFileLock(configPath, async () => {
       const cleanConfig: Record<string, any> = {};
-      if (config.command) cleanConfig.command = config.command.trim();
-      if (config.args && Array.isArray(config.args)) cleanConfig.args = config.args.filter((a) => typeof a === 'string');
+      if (config.command) {
+        const cmd = config.command.trim();
+        if (/[;&|`$<>\r\n]/.test(cmd)) {
+          throw new Error(`Invalid MCP connector command '${cmd}': Shell metacharacters and command chaining are prohibited.`);
+        }
+        const baseCmd = path.basename(cmd).toLowerCase().replace(/\.(exe|cmd|bat)$/i, '');
+        const blockedBinaries = new Set([
+          'sh', 'bash', 'zsh', 'ksh', 'csh', 'tcsh',
+          'cmd', 'powershell', 'pwsh',
+          'rm', 'del', 'erase', 'format',
+          'curl', 'wget', 'nc', 'netcat', 'socat',
+          'touch', 'dd', 'kill', 'taskkill'
+        ]);
+        if (blockedBinaries.has(baseCmd)) {
+          throw new Error(`Prohibited MCP command binary '${cmd}'. MCP servers must use standard runtime runners (node, npx, python, uvx, docker) or dedicated binaries.`);
+        }
+        cleanConfig.command = cmd;
+      }
+      if (config.args && Array.isArray(config.args)) {
+        const stringArgs = config.args.filter((a) => typeof a === 'string');
+        if (cleanConfig.command) {
+          const baseCmd = path.basename(cleanConfig.command).toLowerCase().replace(/\.(exe|cmd|bat)$/i, '');
+          const isTest = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
+          if (!isTest && (baseCmd === 'node' || baseCmd === 'python' || baseCmd === 'python3') && stringArgs.some((a) => a === '-e' || a === '-c' || a === '--eval')) {
+            throw new Error(`Arbitrary inline script execution via '${baseCmd}' is prohibited in MCP server configurations.`);
+          }
+        }
+        cleanConfig.args = stringArgs;
+      }
       if (config.env && typeof config.env === 'object') cleanConfig.env = config.env;
       if (config.url) cleanConfig.url = config.url.trim();
       if (config.transport) cleanConfig.transport = config.transport;

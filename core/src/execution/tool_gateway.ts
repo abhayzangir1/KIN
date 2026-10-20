@@ -9,6 +9,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { exec } from 'node:child_process';
+import * as dns from 'node:dns';
 import { v4 as uuidv4 } from 'uuid';
 import { AutonomyMode, RiskLevel, AgentIdentity } from '../domain/types.js';
 import { MemoryRepository } from '../domain/memory_repository.js';
@@ -2071,15 +2072,34 @@ export class ToolGateway {
           }
 
           // SSRF Protection: Prevent accessing loopback and private intranet addresses
-          const hostname = parsed.hostname;
-          const isMetadata = ToolGateway.isMetadataService(hostname);
-          const isTestEnv = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
-          const isBlocked = isMetadata || (!isTestEnv && ToolGateway.isPrivateOrLoopback(hostname));
+          const verifySafeUrl = async (targetUrl: URL): Promise<{ safe: boolean; error?: string }> => {
+            const host = targetUrl.hostname;
+            const isTest = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
+            if (ToolGateway.isMetadataService(host)) {
+              return { safe: false, error: `SSRF_BLOCKED: Outbound request to cloud metadata service '${host}' is prohibited.` };
+            }
+            if (!isTest && ToolGateway.isPrivateOrLoopback(host)) {
+              return { safe: false, error: `SSRF_BLOCKED: Outbound request to private/loopback network address '${host}' is prohibited.` };
+            }
+            try {
+              const addresses = await dns.promises.lookup(host, { all: true });
+              for (const addr of addresses) {
+                if (ToolGateway.isMetadataService(addr.address)) {
+                  return { safe: false, error: `SSRF_BLOCKED: Destination '${host}' resolves to cloud metadata IP '${addr.address}'.` };
+                }
+                if (!isTest && ToolGateway.isPrivateOrLoopback(addr.address)) {
+                  return { safe: false, error: `SSRF_BLOCKED: Destination '${host}' resolves to private/loopback IP '${addr.address}'.` };
+                }
+              }
+            } catch {}
+            return { safe: true };
+          };
 
-          if (isBlocked && !params.allowPrivateNetwork) {
+          const initialCheck = await verifySafeUrl(parsed);
+          if (!initialCheck.safe) {
             return {
               success: false,
-              error: `SSRF_BLOCKED: Outbound request to private/loopback network address '${hostname}' is prohibited.`,
+              error: initialCheck.error,
               riskLevel: risk,
             };
           }
@@ -2090,15 +2110,51 @@ export class ToolGateway {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 15000);
           try {
-            const res = await fetch(parsed.toString(), {
-              method,
-              headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) KIN-Agent/1.0',
-                ...(params.headers || {}),
-              },
-              body: method === 'POST' ? params.body : undefined,
-              signal: controller.signal,
-            });
+            let currentUrl = parsed;
+            let redirectCount = 0;
+            const maxRedirects = 5;
+            let res: Response;
+
+            while (true) {
+              const check = await verifySafeUrl(currentUrl);
+              if (!check.safe) {
+                clearTimeout(timeout);
+                return {
+                  success: false,
+                  error: check.error,
+                  riskLevel: risk,
+                };
+              }
+
+              res = await fetch(currentUrl.toString(), {
+                method: redirectCount === 0 ? method : 'GET',
+                headers: {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) KIN-Agent/1.0',
+                  ...(params.headers || {}),
+                },
+                body: (method === 'POST' && redirectCount === 0) ? params.body : undefined,
+                signal: controller.signal,
+                redirect: 'manual',
+              });
+
+              if ([301, 302, 303, 307, 308].includes(res.status)) {
+                const location = res.headers.get('location');
+                if (!location) break;
+                redirectCount++;
+                if (redirectCount > maxRedirects) {
+                  clearTimeout(timeout);
+                  return {
+                    success: false,
+                    error: 'SSRF_BLOCKED: Exceeded maximum allowed redirects in fetchUrl (limit: 5)',
+                    riskLevel: risk,
+                  };
+                }
+                currentUrl = new URL(location, currentUrl);
+                continue;
+              }
+              break;
+            }
+
             clearTimeout(timeout);
             const status = res.status;
             const contentType = res.headers.get('content-type') || '';
@@ -2255,7 +2311,16 @@ export class ToolGateway {
             throw new Error(`Unsupported protocol '${parsed.protocol}'. Only http and https are allowed.`);
           }
           const hostname = parsed.hostname;
-          if (ToolGateway.isSsrfTarget(hostname) && !params.allowPrivateNetwork) {
+          const isTest = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
+          const allowPrivate = isTest && params.allowPrivateNetwork === true;
+          if (ToolGateway.isMetadataService(hostname)) {
+            return {
+              success: false,
+              error: `SSRF_BLOCKED: Outbound request to cloud metadata service '${hostname}' is prohibited.`,
+              riskLevel: risk,
+            };
+          }
+          if (!allowPrivate && ToolGateway.isSsrfTarget(hostname)) {
             return {
               success: false,
               error: `SSRF_BLOCKED: Outbound request to private/loopback network address '${hostname}' is prohibited.`,
@@ -2548,15 +2613,76 @@ export class ToolGateway {
           const domainAuthority = Array.isArray(params.domainAuthority) && params.domainAuthority.length > 0
             ? params.domainAuthority
             : [role];
-          const capabilities = Array.isArray(params.capabilities) && params.capabilities.length > 0
+
+          // Principle of Attenuation: A hired specialist cannot possess capabilities exceeding their hiring agent
+          let callerCaps: string[] = ['*'];
+          if (context.agentId && this.db) {
+            const callerRow = this.db.queryOne<{ capabilities_json: string; is_orchestrator: number }>(
+              `SELECT d.capabilities_json, i.is_orchestrator 
+               FROM agent_identities i 
+               JOIN agent_definitions d ON i.definition_id = d.id 
+               WHERE i.id = ?`,
+              context.agentId
+            );
+            if (callerRow && !callerRow.is_orchestrator) {
+              try {
+                callerCaps = JSON.parse(callerRow.capabilities_json || '[]');
+              } catch {
+                callerCaps = [];
+              }
+            }
+          }
+
+          const defaultCaps = ['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate', 'mcp:call'];
+          const requestedCaps: string[] = Array.isArray(params.capabilities) && params.capabilities.length > 0
             ? params.capabilities
-            : ['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate', 'mcp:call'];
+            : defaultCaps;
+
+          const hasWildcard = callerCaps.includes('*');
+          let capabilities = requestedCaps.filter((cap) => hasWildcard || (cap !== '*' && callerCaps.includes(cap)));
+          if (capabilities.length === 0 && !hasWildcard) {
+            if (callerCaps.includes('fs:read')) capabilities.push('fs:read');
+          }
+
           const sysPrompt = params.systemPrompt ||
             `You are ${normalizedName}, a ${role} specialist in project ${projectId}. Follow the capabilities and project scope provided for this run. Ask when access or authority is unclear.`;
 
           let agentId = `agent-${now}-${crypto.randomBytes(3).toString('hex')}`;
           let defId = `def-${now}-${crypto.randomBytes(3).toString('hex')}`;
           let candidateParent = params.parentAgentId || context.agentId;
+
+          // Enforce delegation depth limit (max recursion depth = 3)
+          if (candidateParent && this.db) {
+            let depth = 0;
+            let currentParent: string | null = candidateParent;
+            while (currentParent && depth < 10) {
+              const ancestor = this.db.queryOne<{ parent_agent_id: string | null }>(
+                'SELECT parent_agent_id FROM agent_identities WHERE id = ?',
+                currentParent
+              );
+              if (ancestor && ancestor.parent_agent_id) {
+                depth++;
+                currentParent = ancestor.parent_agent_id;
+              } else {
+                break;
+              }
+            }
+            if (depth >= 3) {
+              throw new Error(`Maximum delegation depth reached (limit: 3). Agent '${candidateParent}' cannot hire further subagents.`);
+            }
+          }
+
+          // Enforce project specialist capacity limit (max 25 agents)
+          if (this.db) {
+            const countRow = this.db.queryOne<{ count: number }>(
+              'SELECT COUNT(*) as count FROM agent_identities WHERE project_id = ? AND is_ephemeral = 0',
+              projectId
+            );
+            if (countRow && countRow.count >= 25) {
+              throw new Error(`Specialist capacity limit reached for project '${projectId}' (limit: 25).`);
+            }
+          }
+
           let verifiedParentId: string | null = null;
           if (candidateParent) {
             if (this.db) {
@@ -2727,8 +2853,18 @@ export class ToolGateway {
           const key = params.key || params.title;
           const value = params.value ?? params.content ?? params.thought;
           const type = params.type || 'working_state';
-          if (!key) {
-            throw new Error("rememberPrivate requires 'key' parameter");
+          if (!key || typeof key !== 'string') {
+            throw new Error("rememberPrivate requires a valid 'key' parameter");
+          }
+          if (key.startsWith('upload:')) {
+            throw new Error("Reserved prefix: 'upload:' cannot be used as a memory key.");
+          }
+          if (key.length > 256) {
+            throw new Error("Memory key exceeds maximum allowed length of 256 characters.");
+          }
+          const valStr = typeof value === 'string' ? value : JSON.stringify(value ?? '');
+          if (valStr.length > 65536) {
+            throw new Error("Memory value exceeds maximum allowed size of 64KB.");
           }
           if (this.memoryRepo) {
             this.memoryRepo.setMemory({
@@ -2782,8 +2918,18 @@ export class ToolGateway {
           const value = params.value ?? params.decision ?? params.content;
           const type = params.type || 'semantic';
           const targetProjectId = context.projectId || 'proj-kin';
-          if (!key) {
-            throw new Error("rememberProject requires 'key' parameter");
+          if (!key || typeof key !== 'string') {
+            throw new Error("rememberProject requires a valid 'key' parameter");
+          }
+          if (key.startsWith('upload:')) {
+            throw new Error("Reserved prefix: 'upload:' cannot be used as a memory key.");
+          }
+          if (key.length > 256) {
+            throw new Error("Memory key exceeds maximum allowed length of 256 characters.");
+          }
+          const valStr = typeof value === 'string' ? value : JSON.stringify(value ?? '');
+          if (valStr.length > 65536) {
+            throw new Error("Memory value exceeds maximum allowed size of 64KB.");
           }
           if (this.memoryRepo) {
             this.memoryRepo.setMemory({
@@ -3881,25 +4027,8 @@ export class ToolGateway {
         candidateRoots.push(projectRoot);
       }
 
-      // Strip sensitive tokens, credentials, and vault keys from shell execution
-      const sensitiveKeys = new Set([
-        'KIN_VAULT_KEY',
-        'KIN_IPC_AUTH_TOKEN',
-        'KIN_AUTH_TOKEN',
-        'OPENAI_API_KEY',
-        'ANTHROPIC_API_KEY',
-        'DEEPSEEK_API_KEY',
-        'GEMINI_API_KEY',
-        'GROQ_API_KEY',
-        'OPENROUTER_API_KEY',
-      ]);
-      const rawEnv = (process.env as Record<string, string>);
-      const env: Record<string, string> = {};
-      for (const [k, v] of Object.entries(rawEnv)) {
-        if (!sensitiveKeys.has(k) && !/^(KIN_VAULT|KIN_IPC|.*_API_KEY|.*_SECRET_KEY)/i.test(k)) {
-          if (v !== undefined) env[k] = v;
-        }
-      }
+      // Use strict system environment allowlist to prevent leaking cloud, git, or provider secrets
+      const env = McpClientManager.sanitizeMcpEnv();
       for (const root of candidateRoots) {
         const venvBinPath = path.join(root, '.venv', venvBinDir);
         if (fs.existsSync(venvBinPath)) {

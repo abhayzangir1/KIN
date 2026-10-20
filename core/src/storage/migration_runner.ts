@@ -438,7 +438,7 @@ export class MigrationRunner {
               const decrypted = SecretVault.getInstance().decrypt(row.secret_hash);
               if (decrypted) {
                 const fp = crypto.createHash('sha256').update(decrypted.trim()).digest('hex');
-                this.db.exec(`UPDATE managed_credentials SET key_fingerprint = '${fp}' WHERE id = '${row.id}';`);
+                this.db.execute('UPDATE managed_credentials SET key_fingerprint = ? WHERE id = ?;', fp, row.id);
               }
             } catch {}
           }

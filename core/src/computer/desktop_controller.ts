@@ -159,6 +159,19 @@ export class DesktopController {
    */
   public async launchApp(appNameOrPath: string, args: string[] = []): Promise<InteractionResult> {
     try {
+      const baseExe = path.basename(appNameOrPath, path.extname(appNameOrPath)).toLowerCase();
+      const blockedExes = new Set([
+        'cmd', 'powershell', 'pwsh', 'bash', 'sh', 'wscript', 'cscript', 'mshta',
+        'reg', 'regedit', 'certutil', 'bitsadmin', 'rundll32'
+      ]);
+      if (blockedExes.has(baseExe)) {
+        return {
+          success: false,
+          action: 'launchApp',
+          error: `Direct spawning of system command interpreter '${baseExe}' is prohibited via desktopLaunchApp.`,
+        };
+      }
+
       let targetPath = appNameOrPath;
 
       if (!fs.existsSync(appNameOrPath)) {
@@ -295,11 +308,11 @@ export class DesktopController {
 
     try {
       const isNum = typeof titleOrPid === 'number' || (/^\d+$/.test(String(titleOrPid).trim()) && !Number.isNaN(Number(titleOrPid)));
-      const escaped = String(titleOrPid).replace(/'/g, "''");
       const num = Number(titleOrPid);
+      const b64 = Buffer.from(String(titleOrPid), 'utf-8').toString('base64');
       const filter = isNum
-        ? `$p = Get-Process -Id ${num} -ErrorAction SilentlyContinue; if (-not $p) { $p = Get-Process | Where-Object { $_.MainWindowHandle -eq ${num} } | Select-Object -First 1 }; if (-not $p) { $p = Get-Process | Where-Object { $_.MainWindowTitle -like '*${escaped}*' } | Select-Object -First 1 }`
-        : `$p = Get-Process | Where-Object { $_.MainWindowTitle -like '*${escaped}*' } | Select-Object -First 1`;
+        ? `$targetTitle = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${b64}')); $p = Get-Process -Id ${num} -ErrorAction SilentlyContinue; if (-not $p) { $p = Get-Process | Where-Object { $_.MainWindowHandle -eq ${num} } | Select-Object -First 1 }; if (-not $p) { $p = Get-Process | Where-Object { $_.MainWindowTitle -like ('*' + $targetTitle + '*') } | Select-Object -First 1 }`
+        : `$targetTitle = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${b64}')); $p = Get-Process | Where-Object { $_.MainWindowTitle -like ('*' + $targetTitle + '*') } | Select-Object -First 1`;
 
       const psScript = `
         ${filter}
@@ -396,11 +409,11 @@ public static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
 
     try {
       const isNum = typeof titleOrPid === 'number' || (/^\d+$/.test(String(titleOrPid).trim()) && !Number.isNaN(Number(titleOrPid)));
-      const escaped = String(titleOrPid).replace(/'/g, "''");
       const num = Number(titleOrPid);
+      const b64 = Buffer.from(String(titleOrPid), 'utf-8').toString('base64');
       const filter = isNum
-        ? `$p = Get-Process -Id ${num} -ErrorAction SilentlyContinue; if (-not $p) { $p = Get-Process | Where-Object { $_.MainWindowHandle -eq ${num} } | Select-Object -First 1 }; if (-not $p) { $p = Get-Process | Where-Object { $_.MainWindowTitle -like '*${escaped}*' } | Select-Object -First 1 }`
-        : `$p = Get-Process | Where-Object { $_.MainWindowTitle -like '*${escaped}*' } | Select-Object -First 1`;
+        ? `$targetTitle = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${b64}')); $p = Get-Process -Id ${num} -ErrorAction SilentlyContinue; if (-not $p) { $p = Get-Process | Where-Object { $_.MainWindowHandle -eq ${num} } | Select-Object -First 1 }; if (-not $p) { $p = Get-Process | Where-Object { $_.MainWindowTitle -like ('*' + $targetTitle + '*') } | Select-Object -First 1 }`
+        : `$targetTitle = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${b64}')); $p = Get-Process | Where-Object { $_.MainWindowTitle -like ('*' + $targetTitle + '*') } | Select-Object -First 1`;
 
       const psScript = `
         ${filter}
@@ -686,16 +699,18 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
       // Escape special characters for SendKeys: { } [ ] + ^ % ~ ( ) in a single atomic pass
       const escaped = text
         .replace(/[{}]/g, (m) => `{${m}}`)
-        .replace(/[+^%~()]/g, (m) => `{${m}}`)
-        .replace(/'/g, "''");
+        .replace(/[+^%~()]/g, (m) => `{${m}}`);
+      const b64 = Buffer.from(escaped, 'utf-8').toString('base64');
 
       const psScript = `
+        $rawBytes = [System.Convert]::FromBase64String('${b64}')
+        $sendText = [System.Text.Encoding]::UTF8.GetString($rawBytes)
         try {
           $ws = New-Object -ComObject WScript.Shell
-          $ws.SendKeys('${escaped}')
+          $ws.SendKeys($sendText)
         } catch {
           Add-Type -AssemblyName System.Windows.Forms
-          [System.Windows.Forms.SendKeys]::SendWait('${escaped}')
+          [System.Windows.Forms.SendKeys]::SendWait($sendText)
         }
       `;
 
@@ -744,14 +759,17 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
         keyToken = `{${upper}}`;
       }
 
-      const stroke = `${prefix}${keyToken}`.replace(/'/g, "''");
+      const stroke = `${prefix}${keyToken}`;
+      const b64 = Buffer.from(stroke, 'utf-8').toString('base64');
       const psScript = `
+        $rawBytes = [System.Convert]::FromBase64String('${b64}')
+        $sendStroke = [System.Text.Encoding]::UTF8.GetString($rawBytes)
         try {
           $ws = New-Object -ComObject WScript.Shell
-          $ws.SendKeys('${stroke}')
+          $ws.SendKeys($sendStroke)
         } catch {
           Add-Type -AssemblyName System.Windows.Forms
-          [System.Windows.Forms.SendKeys]::SendWait('${stroke}')
+          [System.Windows.Forms.SendKeys]::SendWait($sendStroke)
         }
       `;
 
