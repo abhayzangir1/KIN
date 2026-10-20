@@ -209,7 +209,7 @@ export const AddProviderModal: React.FC = () => {
           baseUrl: endpointUrl.trim() || undefined,
         });
         if (!credRes.success) {
-          setErrorMsg('Failed to persist API credential.');
+          setErrorMsg(credRes.error || 'Failed to persist API credential.');
           setIsSubmitting(false);
           return;
         }

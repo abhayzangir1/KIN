@@ -221,7 +221,7 @@ export const SettingsModal: React.FC = () => {
           monthlyQuotaTokens: credQuota,
         });
         if (!res.success) {
-          setCredError('Failed to update credential');
+          setCredError(res.error || 'Failed to update credential');
           return;
         }
       } else {
@@ -233,7 +233,7 @@ export const SettingsModal: React.FC = () => {
           monthlyQuotaTokens: credQuota,
         });
         if (!res.success) {
-          setCredError('Failed to save credential');
+          setCredError(res.error || 'Failed to save credential');
           return;
         }
       }
@@ -253,7 +253,8 @@ export const SettingsModal: React.FC = () => {
   const handleDeleteCred = async (id: string, name: string) => {
     if (window.confirm(`Delete credential "${name}"? Agents will no longer be able to use this key.`)) {
       await deleteCredential(id);
-      fetchAvailableModels();
+      await fetchCredentials();
+      await fetchAvailableModels();
     }
   };
 
@@ -1272,34 +1273,51 @@ export const SettingsModal: React.FC = () => {
                     </div>
 
                     {/* Form Buttons */}
-                    <div className="flex items-center justify-end space-x-2 pt-2 border-t border-[#21262d]">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowCredForm(false);
-                          setEditingCredId(null);
-                        }}
-                        className="px-3 py-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-kin-text text-xs transition cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={credSaving}
-                        className="flex items-center space-x-1.5 px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow transition cursor-pointer disabled:opacity-50"
-                      >
-                        {credSaving ? (
-                          <>
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                            <span>Saving & Discovering Models...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Check className="w-3.5 h-3.5" />
-                            <span>Save & Discover Models</span>
-                          </>
-                        )}
-                      </button>
+                    <div className="flex items-center justify-between pt-2 border-t border-[#21262d]">
+                      {editingCredId ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const id = editingCredId;
+                            setShowCredForm(false);
+                            setEditingCredId(null);
+                            handleDeleteCred(id, credKeyName || credProvider);
+                          }}
+                          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-500/40 text-red-300 text-xs font-medium transition cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Delete Key</span>
+                        </button>
+                      ) : <div />}
+                      <div className="flex items-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowCredForm(false);
+                            setEditingCredId(null);
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-kin-text text-xs transition cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={credSaving}
+                          className="flex items-center space-x-1.5 px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow transition cursor-pointer disabled:opacity-50"
+                        >
+                          {credSaving ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>Saving & Discovering Models...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Save & Discover Models</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
                   </form>
                 )}
