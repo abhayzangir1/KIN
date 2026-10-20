@@ -499,11 +499,19 @@ describe('MCP Runtime End-to-End Validation', () => {
         body: JSON.stringify({ content: '/mcp', senderId: 'user-op' }),
       });
       expect(overviewRes.status).toBe(201);
-      const msgsRes1 = await fetch(`http://127.0.0.1:${actualPort}/api/channels/chan-general/messages`);
-      const msgsData1: any = await msgsRes1.json();
-      const overviewReply = msgsData1.messages[msgsData1.messages.length - 1];
-      expect(overviewReply.content).toContain('Active MCP Connectors & Tools');
-      expect(overviewReply.content).toContain('testServer');
+      let overviewReply: any = null;
+      for (let i = 0; i < 25; i++) {
+        const msgsRes1 = await fetch(`http://127.0.0.1:${actualPort}/api/channels/chan-general/messages`);
+        const msgsData1: any = await msgsRes1.json();
+        const candidate = msgsData1.messages[msgsData1.messages.length - 1];
+        if (candidate && candidate.content && candidate.content.includes('Active MCP Connectors & Tools')) {
+          overviewReply = candidate;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(overviewReply?.content).toContain('Active MCP Connectors & Tools');
+      expect(overviewReply?.content).toContain('testServer');
 
       // 4. Slash command: /mcp inspect inspectable_tool
       const inspectRes = await fetch(`http://127.0.0.1:${actualPort}/api/channels/chan-general/messages`, {
@@ -512,11 +520,19 @@ describe('MCP Runtime End-to-End Validation', () => {
         body: JSON.stringify({ content: '/mcp inspect inspectable_tool', senderId: 'user-op' }),
       });
       expect(inspectRes.status).toBe(201);
-      const msgsRes2 = await fetch(`http://127.0.0.1:${actualPort}/api/channels/chan-general/messages`);
-      const msgsData2: any = await msgsRes2.json();
-      const inspectReply = msgsData2.messages[msgsData2.messages.length - 1];
-      expect(inspectReply.content).toContain('MCP Tool Schema');
-      expect(inspectReply.content).toContain('Inspectable Tool Description');
+      let inspectReply: any = null;
+      for (let i = 0; i < 25; i++) {
+        const msgsRes2 = await fetch(`http://127.0.0.1:${actualPort}/api/channels/chan-general/messages`);
+        const msgsData2: any = await msgsRes2.json();
+        const candidate = msgsData2.messages[msgsData2.messages.length - 1];
+        if (candidate && candidate.content && candidate.content.includes('MCP Tool Schema')) {
+          inspectReply = candidate;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(inspectReply?.content).toContain('MCP Tool Schema');
+      expect(inspectReply?.content).toContain('Inspectable Tool Description');
 
       // 5. Slash command: /mcp reload
       const reloadRes = await fetch(`http://127.0.0.1:${actualPort}/api/channels/chan-general/messages`, {
