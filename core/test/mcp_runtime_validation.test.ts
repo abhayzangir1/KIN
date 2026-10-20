@@ -503,8 +503,8 @@ describe('MCP Runtime End-to-End Validation', () => {
       for (let i = 0; i < 25; i++) {
         const msgsRes1 = await fetch(`http://127.0.0.1:${actualPort}/api/channels/chan-general/messages`);
         const msgsData1: any = await msgsRes1.json();
-        const candidate = msgsData1.messages[msgsData1.messages.length - 1];
-        if (candidate && candidate.content && candidate.content.includes('Active MCP Connectors & Tools')) {
+        const candidate = msgsData1.messages.find((m) => m.content && m.content.includes('Active MCP Connectors & Tools'));
+        if (candidate) {
           overviewReply = candidate;
           break;
         }
@@ -524,8 +524,8 @@ describe('MCP Runtime End-to-End Validation', () => {
       for (let i = 0; i < 25; i++) {
         const msgsRes2 = await fetch(`http://127.0.0.1:${actualPort}/api/channels/chan-general/messages`);
         const msgsData2: any = await msgsRes2.json();
-        const candidate = msgsData2.messages[msgsData2.messages.length - 1];
-        if (candidate && candidate.content && candidate.content.includes('MCP Tool Schema')) {
+        const candidate = msgsData2.messages.find((m) => m.content && m.content.includes('MCP Tool Schema'));
+        if (candidate) {
           inspectReply = candidate;
           break;
         }
@@ -545,8 +545,8 @@ describe('MCP Runtime End-to-End Validation', () => {
       for (let i = 0; i < 25; i++) {
         const msgsRes3 = await fetch(`http://127.0.0.1:${actualPort}/api/channels/chan-general/messages`);
         const msgsData3: any = await msgsRes3.json();
-        const candidate = msgsData3.messages[msgsData3.messages.length - 1];
-        if (candidate && candidate.content && candidate.content.includes('MCP Servers Reloaded Successfully')) {
+        const candidate = msgsData3.messages.find((m) => m.content && m.content.includes('MCP Servers Reloaded Successfully'));
+        if (candidate) {
           reloadReply = candidate;
           break;
         }

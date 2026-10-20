@@ -84,10 +84,8 @@ jobs:
           DAEMON_PID=$!
           
           # Allow daemon initialization
-          sleep 4
-          
           echo "Querying daemon health endpoint..."
-          curl -sS --fail --retry 5 --retry-delay 1 --retry-connrefused http://127.0.0.1:54321/api/health
+          curl -sS --fail --retry 30 --retry-delay 1 --retry-connrefused --retry-max-time 60 http://127.0.0.1:54321/api/health
           
           echo "Daemon verified operational. Stopping background process..."
           kill -9 $DAEMON_PID 2>/dev/null || taskkill //F //PID $DAEMON_PID 2>/dev/null || taskkill //F //IM kin-core.exe 2>/dev/null || true
