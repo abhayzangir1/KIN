@@ -1,8 +1,10 @@
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { KinDatabase } from './db.js';
 import { EMBEDDED_SCHEMA_SQL } from './schema_sql.js';
+import { SecretVault } from '../security/secret_vault.js';
 
 export interface MigrationReport {
   success: boolean;
@@ -378,11 +380,17 @@ export class MigrationRunner {
         }
       }
 
-      // Pre-migration: managed_credentials table masked_key column
+      // Pre-migration: managed_credentials table masked_key, base_url, and key_fingerprint columns
       if (existingTables.includes('managed_credentials')) {
         const credCols = this.db.query<{ name: string }>("PRAGMA table_info(managed_credentials);").map((c) => c.name);
         if (!credCols.includes('masked_key')) {
           this.db.exec('ALTER TABLE managed_credentials ADD COLUMN masked_key TEXT;');
+        }
+        if (!credCols.includes('base_url')) {
+          this.db.exec('ALTER TABLE managed_credentials ADD COLUMN base_url TEXT;');
+        }
+        if (!credCols.includes('key_fingerprint')) {
+          this.db.exec('ALTER TABLE managed_credentials ADD COLUMN key_fingerprint TEXT;');
         }
       }
 
@@ -417,6 +425,25 @@ export class MigrationRunner {
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_messages_parent ON messages(parent_message_id);");
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_evidence_task ON evidence(task_id);");
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_evidence_run ON evidence(run_id);");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_managed_creds_fingerprint ON managed_credentials(key_fingerprint);");
+
+      // Backfill key_fingerprint for existing credentials that lack it
+      try {
+        const unhashedRows = this.db.query<{ id: string; secret_hash: string }>(
+          "SELECT id, secret_hash FROM managed_credentials WHERE key_fingerprint IS NULL OR key_fingerprint = '';"
+        );
+        for (const row of unhashedRows) {
+          if (row.secret_hash) {
+            try {
+              const decrypted = SecretVault.getInstance().decrypt(row.secret_hash);
+              if (decrypted) {
+                const fp = crypto.createHash('sha256').update(decrypted.trim()).digest('hex');
+                this.db.exec(`UPDATE managed_credentials SET key_fingerprint = '${fp}' WHERE id = '${row.id}';`);
+              }
+            } catch {}
+          }
+        }
+      } catch {}
     });
 
     // Run integrity check

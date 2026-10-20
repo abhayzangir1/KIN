@@ -151,6 +151,7 @@ export const SettingsModal: React.FC = () => {
   const [credProvider, setCredProvider] = useState('openai');
   const [credKeyName, setCredKeyName] = useState('');
   const [credApiKey, setCredApiKey] = useState('');
+  const [credBaseUrl, setCredBaseUrl] = useState('');
   const [credQuota, setCredQuota] = useState(5000000);
   const [showCredKey, setShowCredKey] = useState(false);
   const [credSaving, setCredSaving] = useState(false);
@@ -170,6 +171,7 @@ export const SettingsModal: React.FC = () => {
     setCredProvider('openai');
     setCredKeyName('');
     setCredApiKey('');
+    setCredBaseUrl('');
     setCredQuota(5000000);
     setShowCredKey(false);
     setCredError(null);
@@ -181,6 +183,7 @@ export const SettingsModal: React.FC = () => {
     setCredProvider(cred.provider);
     setCredKeyName(cred.keyName || cred.keyAlias || '');
     setCredApiKey('');
+    setCredBaseUrl(cred.baseUrl || cred.endpointUrl || '');
     setCredQuota(cred.monthlyQuotaTokens || cred.maxSpendTokens || 5000000);
     setShowCredKey(false);
     setCredError(null);
@@ -201,7 +204,7 @@ export const SettingsModal: React.FC = () => {
     setCredError(null);
     try {
       if (credApiKey.trim()) {
-        const verifyRes = await verifyProviderKey(credProvider, credApiKey.trim());
+        const verifyRes = await verifyProviderKey(credProvider, credApiKey.trim(), credBaseUrl.trim() || undefined);
         if (!verifyRes.working) {
           setCredError(`Key verification failed: ${verifyRes.message || 'Invalid API key or unreachable provider'}`);
           setCredSaving(false);
@@ -214,6 +217,7 @@ export const SettingsModal: React.FC = () => {
           provider: credProvider,
           keyName: credKeyName.trim(),
           apiKey: credApiKey.trim() || undefined,
+          baseUrl: credBaseUrl.trim() || undefined,
           monthlyQuotaTokens: credQuota,
         });
         if (!res.success) {
@@ -225,6 +229,7 @@ export const SettingsModal: React.FC = () => {
           provider: credProvider,
           keyName: credKeyName.trim(),
           apiKey: credApiKey.trim(),
+          baseUrl: credBaseUrl.trim() || undefined,
           monthlyQuotaTokens: credQuota,
         });
         if (!res.success) {
@@ -236,6 +241,7 @@ export const SettingsModal: React.FC = () => {
       setEditingCredId(null);
       setCredApiKey('');
       setCredKeyName('');
+      setCredBaseUrl('');
       await fetchAvailableModels();
     } catch (err: any) {
       setCredError(err.message || 'Error saving credential');
@@ -1149,7 +1155,7 @@ export const SettingsModal: React.FC = () => {
                       </div>
                     )}
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       {/* Provider Selector */}
                       <div>
                         <label className="block text-[11px] font-medium text-[#8b949e] mb-1">Provider</label>
@@ -1165,13 +1171,20 @@ export const SettingsModal: React.FC = () => {
                           <option value="gemini">Google Gemini (Gemini 2.0 Flash, 1.5 Pro)</option>
                           <option value="groq">Groq (Llama 3.3 70B, Ultra-fast LPU)</option>
                           <option value="deepseek">DeepSeek (DeepSeek V3, DeepSeek R1)</option>
-                          <option value="custom">Custom Provider (OpenAI Compatible)</option>
+                          <option value="together">Together AI</option>
+                          <option value="deepinfra">DeepInfra</option>
+                          <option value="fireworks">Fireworks AI</option>
+                          <option value="perplexity">Perplexity AI</option>
+                          <option value="cerebras">Cerebras</option>
+                          <option value="azure">Azure OpenAI</option>
+                          <option value="openai_compatible">OpenAI Compatible (LM Studio / vLLM)</option>
+                          <option value="custom">Custom Provider</option>
                         </select>
                       </div>
 
                       {/* Key Alias / Name */}
                       <div>
-                        <label className="block text-[11px] font-medium text-[#8b949e] mb-1">Key Alias / Name</label>
+                        <label className="block text-[11px] font-medium text-[#8b949e] mb-1">Key Alias / Label</label>
                         <input
                           type="text"
                           value={credKeyName}
@@ -1179,6 +1192,18 @@ export const SettingsModal: React.FC = () => {
                           placeholder="e.g. Primary Work Key"
                           className="w-full bg-[#0d1117] border border-[#30363d] rounded px-2.5 py-1.5 text-xs text-kin-text placeholder-[#484f58] focus:outline-none focus:border-emerald-500"
                           required
+                        />
+                      </div>
+
+                      {/* Base URL (Optional Override) */}
+                      <div>
+                        <label className="block text-[11px] font-medium text-[#8b949e] mb-1">Base URL (Optional)</label>
+                        <input
+                          type="text"
+                          value={credBaseUrl}
+                          onChange={(e) => setCredBaseUrl(e.target.value)}
+                          placeholder="e.g. http://localhost:1234/v1"
+                          className="w-full bg-[#0d1117] border border-[#30363d] rounded px-2.5 py-1.5 text-xs text-kin-text font-mono placeholder-[#484f58] focus:outline-none focus:border-emerald-500"
                         />
                       </div>
                     </div>
@@ -1344,9 +1369,14 @@ export const SettingsModal: React.FC = () => {
                           </div>
 
                           <div className="flex items-center justify-between text-[11px] font-mono text-[#8b949e]">
-                            <div className="flex items-center space-x-1.5">
-                              <Lock className="w-3 h-3 text-emerald-400" />
+                            <div className="flex items-center space-x-2 truncate">
+                              <Lock className="w-3 h-3 text-emerald-400 shrink-0" />
                               <span>{cred.maskedKey || '••••••••••••'}</span>
+                              {cred.baseUrl && (
+                                <span className="text-[10px] text-blue-400 truncate max-w-[200px]" title={cred.baseUrl}>
+                                  ({cred.baseUrl})
+                                </span>
+                              )}
                             </div>
                             <div>
                               <span>{used.toLocaleString()} / {max.toLocaleString()} tokens</span>

@@ -258,7 +258,7 @@ CREATE TABLE IF NOT EXISTS skill_experiences (
 CREATE TABLE IF NOT EXISTS providers (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    provider_type TEXT NOT NULL CHECK (provider_type IN ('ollama', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'openrouter', 'custom')),
+    provider_type TEXT NOT NULL CHECK (provider_type IN ('ollama', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'openrouter', 'openai_compatible', 'custom')),
     base_url TEXT,
     api_key_ref TEXT,
     is_active BOOLEAN NOT NULL DEFAULT 1,
@@ -403,6 +403,8 @@ CREATE TABLE IF NOT EXISTS managed_credentials (
     key_alias TEXT NOT NULL,
     secret_hash TEXT NOT NULL,
     masked_key TEXT,
+    key_fingerprint TEXT,
+    base_url TEXT,
     scoped_grants_json TEXT NOT NULL DEFAULT '[]',
     max_spend_tokens INTEGER,
     current_spend_tokens INTEGER NOT NULL DEFAULT 0,
@@ -415,6 +417,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_claimed_run ON tasks(claimed_by_run_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_lease ON tasks(lease_expires_at) WHERE status = 'running';
 CREATE INDEX IF NOT EXISTS idx_agent_evals_agent ON agent_evaluations(agent_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_managed_creds_provider ON managed_credentials(provider, key_alias);
+CREATE INDEX IF NOT EXISTS idx_managed_creds_fingerprint ON managed_credentials(key_fingerprint);
 CREATE INDEX IF NOT EXISTS idx_channel_members_agent ON channel_members(agent_id, channel_id);
 CREATE INDEX IF NOT EXISTS idx_agent_runs_parent ON agent_runs(parent_run_id);
 CREATE INDEX IF NOT EXISTS idx_checkpoints_run_id ON checkpoints(run_id);

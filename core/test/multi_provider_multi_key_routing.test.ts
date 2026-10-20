@@ -1,0 +1,262 @@
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { ModelGateway } from '../src/execution/model_gateway.js';
+import { CoreServer } from '../src/server/core_server.js';
+import { SecretVault } from '../src/security/secret_vault.js';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import * as http from 'node:http';
+
+describe('KIN Multi-Key & Multi-Provider Architecture Test Suite', { timeout: 30000 }, () => {
+  let tempDir: string;
+  let tempDbPath: string;
+  let server: CoreServer;
+  let port: number;
+
+  beforeAll(async () => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kin-multi-provider-test-'));
+    tempDbPath = path.join(tempDir, 'kin_multi_key_test.sqlite');
+    server = new CoreServer({ port: 0, dbPath: tempDbPath });
+    port = await server.start();
+  });
+
+  afterAll(async () => {
+    await server.stop();
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {}
+  });
+
+  describe('1. ModelGateway Custom BaseURL & Multi-Key Isolation', () => {
+    it('parses model IDs for standard providers, OpenAI-compatible providers, and custom prefixes', () => {
+      const gateway = new ModelGateway();
+      gateway.registerCustomProvider('my-vllm', 'http://127.0.0.1:8000/v1');
+
+      expect(gateway.parseModelId('openai:gpt-4o')).toEqual(['openai', 'gpt-4o']);
+      expect(gateway.parseModelId('anthropic:claude-3-7-sonnet')).toEqual(['anthropic', 'claude-3-7-sonnet']);
+      expect(gateway.parseModelId('together:meta-llama/llama-3.3-70b')).toEqual(['together', 'meta-llama/llama-3.3-70b']);
+      expect(gateway.parseModelId('deepinfra:deepseek-ai/deepseek-v3')).toEqual(['deepinfra', 'deepseek-ai/deepseek-v3']);
+      expect(gateway.parseModelId('vllm:mistralai/mistral-7b')).toEqual(['vllm', 'mistralai/mistral-7b']);
+      expect(gateway.parseModelId('openai_compatible:qwen/qwen-2.5-coder')).toEqual(['openai_compatible', 'qwen/qwen-2.5-coder']);
+      expect(gateway.parseModelId('my-vllm:custom-model-id')).toEqual(['my-vllm', 'custom-model-id']);
+      expect(gateway.parseModelId('openai/gpt-4o-mini')).toEqual(['openai', 'gpt-4o-mini']);
+      expect(gateway.parseModelId('ollama/llama3')).toEqual(['ollama', 'llama3']);
+      expect(gateway.parseModelId('llama3')).toEqual(['ollama', 'llama3']);
+    });
+
+    it('routes requests to custom baseURL instead of default cloud URL', async () => {
+      let receivedUrl = '';
+      let receivedAuth = '';
+      let receivedBody: any = null;
+
+      const mockTarget = http.createServer((req, res) => {
+        receivedUrl = req.url || '';
+        receivedAuth = req.headers['authorization'] || '';
+        let body = '';
+        req.on('data', (c) => (body += c));
+        req.on('end', () => {
+          try {
+            receivedBody = JSON.parse(body);
+          } catch {}
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              choices: [{ message: { content: 'Response from mock custom endpoint' } }],
+              usage: { prompt_tokens: 15, completion_tokens: 8, total_tokens: 23 },
+            })
+          );
+        });
+      });
+
+      await new Promise<void>((resolve) => mockTarget.listen(0, '127.0.0.1', () => resolve()));
+      const targetAddress = mockTarget.address() as any;
+      const targetBaseUrl = `http://127.0.0.1:${targetAddress.port}/v1`;
+
+      try {
+        const gateway = new ModelGateway();
+        gateway.registerCustomProvider('together', targetBaseUrl, 'test-together-key-123');
+
+        const result = await gateway.invoke({
+          modelId: 'together:meta-llama/llama-3.3-70b-instruct',
+          messages: [{ role: 'user', content: 'Hello custom provider' }],
+        });
+
+        expect(result.content).toBe('Response from mock custom endpoint');
+        expect(result.provider).toBe('together');
+        expect(receivedUrl).toBe('/v1/chat/completions');
+        expect(receivedAuth).toBe('Bearer test-together-key-123');
+        expect(receivedBody?.model).toBe('meta-llama/llama-3.3-70b-instruct');
+      } finally {
+        mockTarget.close();
+      }
+    });
+
+    it('seamlessly rotates to secondary key on 429 rate limit', async () => {
+      const keysUsed: string[] = [];
+      const mockServer = http.createServer((req, res) => {
+        const auth = req.headers['authorization'] || '';
+        keysUsed.push(auth);
+        if (auth.includes('key-primary-429')) {
+          res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '1' });
+          res.end(JSON.stringify({ error: { message: 'Rate limit exceeded on key 1' } }));
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            choices: [{ message: { content: 'Success from backup key 2' } }],
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          })
+        );
+      });
+
+      await new Promise<void>((resolve) => mockServer.listen(0, '127.0.0.1', () => resolve()));
+      const srvAddress = mockServer.address() as any;
+      const customUrl = `http://127.0.0.1:${srvAddress.port}/v1`;
+
+      try {
+        const gateway = new ModelGateway();
+        gateway.registerCustomProvider('openai', customUrl);
+
+        let primaryResolved = false;
+        gateway.setApiKeyResolver((p) => {
+          if (p === 'openai') {
+            return primaryResolved ? 'key-backup-success' : 'key-primary-429';
+          }
+          return undefined;
+        });
+
+        gateway.setAllKeysResolver((p) => {
+          if (p === 'openai') {
+            return [
+              { id: 'cred-1', key: 'key-primary-429', keyAlias: 'Primary Key' },
+              { id: 'cred-2', key: 'key-backup-success', keyAlias: 'Secondary Backup Key' },
+            ];
+          }
+          return [];
+        });
+
+        const result = await gateway.invoke({
+          modelId: 'openai:gpt-4o',
+          messages: [{ role: 'user', content: 'Test rate limit failover' }],
+        });
+
+        expect(result.content).toBe('Success from backup key 2');
+        expect(keysUsed).toContain('Bearer key-primary-429');
+        expect(keysUsed).toContain('Bearer key-backup-success');
+      } finally {
+        mockServer.close();
+      }
+    });
+  });
+
+  describe('2. CoreServer Multi-Key BYOK End-to-End API Integration', () => {
+    let cred1Id: string;
+    let cred2Id: string;
+    let togetherCredId: string;
+
+    it('POST /api/settings/credentials saves multiple keys for same provider with custom aliases and baseUrls', async () => {
+      // 1. Add primary OpenAI key
+      const res1 = await fetch(`http://127.0.0.1:${port}/api/settings/credentials`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'openai',
+          keyName: 'Production Work Key',
+          apiKey: 'sk-proj-prod-primary-key-12345678',
+          monthlyQuotaTokens: 10000000,
+        }),
+      });
+      expect(res1.status).toBe(201);
+      const data1: any = await res1.json();
+      expect(data1.credential.id).toBeDefined();
+      expect(data1.credential.keyAlias).toBe('Production Work Key');
+      expect(data1.credential.maskedKey).toContain('sk-p');
+      cred1Id = data1.credential.id;
+
+      // 2. Add secondary OpenAI key with distinct alias
+      const res2 = await fetch(`http://127.0.0.1:${port}/api/settings/credentials`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'openai',
+          keyName: 'Experimental Research Key',
+          apiKey: 'sk-proj-exp-secondary-key-87654321',
+          monthlyQuotaTokens: 2000000,
+        }),
+      });
+      expect(res2.status).toBe(201);
+      const data2: any = await res2.json();
+      expect(data2.credential.id).toBeDefined();
+      expect(data2.credential.keyAlias).toBe('Experimental Research Key');
+      cred2Id = data2.credential.id;
+
+      // 3. Add Together AI key with custom baseUrl
+      const res3 = await fetch(`http://127.0.0.1:${port}/api/settings/credentials`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'together',
+          keyName: 'Together AI High-Speed Key',
+          apiKey: 'sk-together-prod-token-99887766',
+          baseUrl: 'https://api.together.xyz/v1',
+          monthlyQuotaTokens: 50000000,
+        }),
+      });
+      expect(res3.status).toBe(201);
+      const data3: any = await res3.json();
+      expect(data3.credential.baseUrl).toBe('https://api.together.xyz/v1');
+      togetherCredId = data3.credential.id;
+    });
+
+    it('GET /api/settings/credentials lists all keys with masked keys, aliases, and baseUrls', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/settings/credentials`);
+      expect(res.status).toBe(200);
+      const data: any = await res.json();
+      expect(Array.isArray(data.credentials)).toBe(true);
+      expect(data.credentials.length).toBeGreaterThanOrEqual(3);
+
+      const openAiCreds = data.credentials.filter((c: any) => c.provider === 'openai');
+      expect(openAiCreds.length).toBe(2);
+      expect(openAiCreds.some((c: any) => c.keyAlias === 'Production Work Key')).toBe(true);
+      expect(openAiCreds.some((c: any) => c.keyAlias === 'Experimental Research Key')).toBe(true);
+
+      const togetherCred = data.credentials.find((c: any) => c.id === togetherCredId);
+      expect(togetherCred).toBeDefined();
+      expect(togetherCred.baseUrl).toBe('https://api.together.xyz/v1');
+      expect(togetherCred.maskedKey).toContain('sk-t');
+    });
+
+    it('PUT /api/settings/credentials/:id updates baseUrl and monthly quota without overwriting secret when not provided', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/settings/credentials/${cred1Id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keyName: 'Production Work Key (Updated)',
+          baseUrl: 'https://custom-proxy.internal/v1',
+          monthlyQuotaTokens: 25000000,
+        }),
+      });
+      expect(res.status).toBe(200);
+      const data: any = await res.json();
+      expect(data.credential.keyAlias).toBe('Production Work Key (Updated)');
+      expect(data.credential.baseUrl).toBe('https://custom-proxy.internal/v1');
+      expect(data.credential.monthlyQuotaTokens).toBe(25000000);
+    });
+
+    it('failure isolation: deleting one key preserves other keys for the same provider', async () => {
+      // Delete cred2
+      const delRes = await fetch(`http://127.0.0.1:${port}/api/settings/credentials/${cred2Id}`, {
+        method: 'DELETE',
+      });
+      expect(delRes.status).toBe(200);
+
+      // Verify cred1 still exists
+      const listRes = await fetch(`http://127.0.0.1:${port}/api/settings/credentials`);
+      const data: any = await listRes.json();
+      expect(data.credentials.some((c: any) => c.id === cred2Id)).toBe(false);
+      expect(data.credentials.some((c: any) => c.id === cred1Id)).toBe(true);
+      expect(data.credentials.some((c: any) => c.id === togetherCredId)).toBe(true);
+    });
+  });
+});

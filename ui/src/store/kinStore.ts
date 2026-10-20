@@ -576,6 +576,7 @@ export interface ManagedCredentialItem {
   keyName?: string;
   keyAlias?: string;
   maskedKey?: string;
+  baseUrl?: string;
   monthlyQuotaTokens?: number;
   maxSpendTokens?: number;
   usedTokens?: number;
@@ -875,7 +876,7 @@ interface KinState {
   isLoadingModels: boolean;
   fetchAvailableModels: (options?: { omitUnconfigured?: boolean; provider?: string }) => Promise<void>;
   verifyProviderKey: (provider: string, apiKey?: string, baseUrl?: string) => Promise<{ success: boolean; working: boolean; message: string; modelCount: number; models?: AvailableModelItem[] }>;
-  discoverModels: (provider: string, apiKey?: string) => Promise<{ success: boolean; count?: number; error?: string }>;
+  discoverModels: (provider: string, apiKey?: string, baseUrl?: string, keyAlias?: string) => Promise<{ success: boolean; count?: number; error?: string }>;
   addCustomModel: (
     modelId: string,
     optionsOrName?: string | { name?: string; provider?: string; contextWindow?: number; baseUrl?: string; apiKey?: string }
@@ -939,11 +940,12 @@ interface KinState {
     keyAlias?: string;
     apiKey?: string;
     secret?: string;
+    baseUrl?: string;
     monthlyQuotaTokens?: number;
     maxSpendTokens?: number;
     scopedAgentIds?: string[];
     scopedGrants?: string[];
-  }) => Promise<{ success: boolean; credential?: ManagedCredentialItem }>;
+  }) => Promise<{ success: boolean; credential?: ManagedCredentialItem; error?: string; duplicate?: boolean }>;
   updateCredential: (
     id: string,
     params: {
@@ -952,12 +954,13 @@ interface KinState {
       keyAlias?: string;
       apiKey?: string;
       secret?: string;
+      baseUrl?: string;
       monthlyQuotaTokens?: number;
       maxSpendTokens?: number;
       scopedAgentIds?: string[];
       scopedGrants?: string[];
     }
-  ) => Promise<{ success: boolean; credential?: ManagedCredentialItem }>;
+  ) => Promise<{ success: boolean; credential?: ManagedCredentialItem; error?: string; duplicate?: boolean }>;
   deleteCredential: (id: string) => Promise<boolean>;
   submitGrillMeAnswers: (
     params: { channelId?: string; topic?: string; answers: Record<string, string> } | Record<string, string>
@@ -4563,6 +4566,7 @@ export const useKinStore = create<KinState>((set, get) => ({
     keyAlias?: string;
     apiKey?: string;
     secret?: string;
+    baseUrl?: string;
     monthlyQuotaTokens?: number;
     maxSpendTokens?: number;
     scopedAgentIds?: string[];
@@ -4578,6 +4582,7 @@ export const useKinStore = create<KinState>((set, get) => ({
           keyName: params.keyName || params.keyAlias,
           secret: params.secret || params.apiKey,
           apiKey: params.apiKey || params.secret,
+          baseUrl: params.baseUrl,
           scopedGrants: params.scopedGrants || params.scopedAgentIds,
           scopedAgentIds: params.scopedAgentIds || params.scopedGrants,
           maxSpendTokens: params.maxSpendTokens || params.monthlyQuotaTokens,
@@ -4591,10 +4596,15 @@ export const useKinStore = create<KinState>((set, get) => ({
         }));
         return { success: true, credential: data.credential };
       }
-      return { success: false };
-    } catch (err) {
+      const errData = await res.json().catch(() => ({}));
+      return {
+        success: false,
+        error: errData.error || 'Failed to add credential',
+        duplicate: Boolean(errData.duplicate),
+      };
+    } catch (err: any) {
       console.error('[KIN UI] Failed to add credential:', err);
-      return { success: false };
+      return { success: false, error: err?.message || 'Network error' };
     }
   },
 
@@ -4606,6 +4616,7 @@ export const useKinStore = create<KinState>((set, get) => ({
       keyAlias?: string;
       apiKey?: string;
       secret?: string;
+      baseUrl?: string;
       monthlyQuotaTokens?: number;
       maxSpendTokens?: number;
       scopedAgentIds?: string[];
@@ -4622,6 +4633,7 @@ export const useKinStore = create<KinState>((set, get) => ({
           keyName: params.keyName || params.keyAlias,
           secret: params.secret || params.apiKey,
           apiKey: params.apiKey || params.secret,
+          baseUrl: params.baseUrl,
           scopedGrants: params.scopedGrants || params.scopedAgentIds,
           scopedAgentIds: params.scopedAgentIds || params.scopedGrants,
           maxSpendTokens: params.maxSpendTokens || params.monthlyQuotaTokens,
@@ -4635,10 +4647,15 @@ export const useKinStore = create<KinState>((set, get) => ({
         }));
         return { success: true, credential: data.credential };
       }
-      return { success: false };
-    } catch (err) {
+      const errData = await res.json().catch(() => ({}));
+      return {
+        success: false,
+        error: errData.error || 'Failed to update credential',
+        duplicate: Boolean(errData.duplicate),
+      };
+    } catch (err: any) {
       console.error('[KIN UI] Failed to update credential:', err);
-      return { success: false };
+      return { success: false, error: err?.message || 'Network error' };
     }
   },
 
@@ -4649,6 +4666,7 @@ export const useKinStore = create<KinState>((set, get) => ({
         set((state) => ({
           credentials: state.credentials.filter((c) => c.id !== id),
         }));
+        await get().fetchAvailableModels();
         return true;
       }
       return false;
@@ -4740,13 +4758,13 @@ export const useKinStore = create<KinState>((set, get) => ({
     }
   },
 
-  discoverModels: async (provider: string, apiKey?: string) => {
+  discoverModels: async (provider: string, apiKey?: string, baseUrl?: string, keyAlias?: string) => {
     set({ isLoadingModels: true });
     try {
       const res = await fetch('/api/models/discover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, apiKey }),
+        body: JSON.stringify({ provider, apiKey, baseUrl, keyAlias }),
       });
       const data = await res.json();
       if (res.ok) {

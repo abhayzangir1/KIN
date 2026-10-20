@@ -139,12 +139,15 @@ export interface ProviderReadiness {
   provider: string;
   configured: boolean;
   validated: boolean;
+  ready?: boolean;
+  keyCount?: number;
   modelCount: number;
   message?: string;
 }
 
 export interface ModelGatewayOptions {
   apiKeyResolver?: (provider: string, callerAgentId?: string) => string | undefined;
+  allKeysResolver?: (provider: string, callerAgentId?: string) => Array<{ id: string; key: string; keyAlias?: string }>;
   onUsage?: (provider: string, tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }) => void;
   openrouterApiKey?: string;
   openaiApiKey?: string;
@@ -166,6 +169,7 @@ export class ModelGateway {
   private groqApiKey?: string;
   private xaiApiKey?: string;
   private apiKeyResolver?: (provider: string, callerAgentId?: string) => string | undefined;
+  private allKeysResolver?: (provider: string, callerAgentId?: string) => Array<{ id: string; key: string; keyAlias?: string }>;
   private onUsage?: (provider: string, tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }) => void;
   private customEndpoints: Map<string, { baseUrl: string; apiKey?: string }> = new Map();
   private validatedProviders: Map<string, boolean> = new Map();
@@ -183,6 +187,7 @@ export class ModelGateway {
     this.groqApiKey = options?.groqApiKey || process.env.GROQ_API_KEY;
     this.xaiApiKey = options?.xaiApiKey || process.env.XAI_API_KEY;
     this.apiKeyResolver = options?.apiKeyResolver;
+    this.allKeysResolver = options?.allKeysResolver;
     this.onUsage = options?.onUsage;
   }
 
@@ -190,8 +195,24 @@ export class ModelGateway {
     this.customEndpoints.set(name.toLowerCase(), { baseUrl, apiKey });
   }
 
+  public unregisterCustomProvider(name: string): void {
+    this.customEndpoints.delete(name.toLowerCase().trim());
+  }
+
+  public getCustomEndpointNames(): string[] {
+    return Array.from(this.customEndpoints.keys());
+  }
+
+  public getCustomEndpoint(name: string): { baseUrl: string; apiKey?: string } | undefined {
+    return this.customEndpoints.get(name.toLowerCase());
+  }
+
   public setApiKeyResolver(resolver: (provider: string, callerAgentId?: string) => string | undefined) {
     this.apiKeyResolver = resolver;
+  }
+
+  public setAllKeysResolver(resolver: (provider: string, callerAgentId?: string) => Array<{ id: string; key: string; keyAlias?: string }>) {
+    this.allKeysResolver = resolver;
   }
 
   public setOnUsage(handler: (provider: string, tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }) => void) {
@@ -233,6 +254,8 @@ export class ModelGateway {
         provider: norm,
         configured: Boolean(this.ollamaHost),
         validated: isOnline,
+        ready: isOnline,
+        keyCount: 1,
         modelCount: isOnline ? (this.ollamaModelCountCached ?? 0) : 0,
         message: isOnline
           ? `Local Ollama online (${this.ollamaModelCountCached ?? 0} models available)`
@@ -246,7 +269,9 @@ export class ModelGateway {
           provider: norm,
           configured: true,
           validated: true,
-          modelCount: 1,
+          ready: true,
+          keyCount: 1,
+          modelCount: this.providerModelCounts.get(norm) || 1,
           message: `Custom endpoint "${norm}" registered at ${custom.baseUrl}`,
         };
       }
@@ -255,6 +280,8 @@ export class ModelGateway {
         provider: 'custom',
         configured: customCount > 0,
         validated: customCount > 0,
+        ready: customCount > 0,
+        keyCount: customCount,
         modelCount: customCount,
         message: customCount > 0 ? `${customCount} custom endpoint(s) registered` : 'No custom endpoint configured',
       };
@@ -263,14 +290,20 @@ export class ModelGateway {
     const isConfigured = Boolean(apiKey);
     const isValidated = this.validatedProviders.get(norm) ?? false;
     const count = this.providerModelCounts.get(norm) ?? 0;
+    const allKeys = this.allKeysResolver ? this.allKeysResolver(norm) : [];
+    const keyCount = allKeys.length || (isConfigured ? 1 : 0);
     return {
       provider: norm,
       configured: isConfigured,
       validated: isValidated,
+      ready: isConfigured && isValidated,
+      keyCount,
       modelCount: isValidated ? count : 0,
       message: !isConfigured
         ? `API key missing for ${norm}`
-        : (isValidated ? `Validated and reachable (${count} models)` : `API key configured; connection unverified (${norm})`),
+        : (isValidated
+            ? (keyCount > 1 ? `Validated and reachable (${count} models, ${keyCount} active keys)` : `Validated and reachable (${count} models)`)
+            : `API key configured; connection unverified (${norm})`),
     };
   }
 
@@ -284,6 +317,8 @@ export class ModelGateway {
           provider: 'ollama',
           configured: Boolean(this.ollamaHost),
           validated: false,
+          ready: false,
+          keyCount: 1,
           modelCount: 0,
           message: 'Local Ollama runtime unreachable (isolated via environment)',
         };
@@ -299,6 +334,8 @@ export class ModelGateway {
             provider: norm,
             configured: true,
             validated: true,
+            ready: true,
+            keyCount: 1,
             modelCount: models.length,
             message: `Local Ollama online (${models.length} model(s) available)`,
           };
@@ -310,6 +347,8 @@ export class ModelGateway {
         provider: norm,
         configured: Boolean(this.ollamaHost),
         validated: false,
+        ready: false,
+        keyCount: 1,
         modelCount: 0,
         message: 'Local Ollama runtime unreachable (offline)',
       };
@@ -322,7 +361,9 @@ export class ModelGateway {
           provider: norm,
           configured: true,
           validated: true,
-          modelCount: 1,
+          ready: true,
+          keyCount: 1,
+          modelCount: this.providerModelCounts.get(norm) || 1,
           message: `Custom endpoint "${norm}" registered at ${custom.baseUrl}`,
         };
       }
@@ -331,12 +372,16 @@ export class ModelGateway {
         provider: 'custom',
         configured: customCount > 0,
         validated: customCount > 0,
+        ready: customCount > 0,
+        keyCount: customCount,
         modelCount: customCount,
         message: customCount > 0 ? `${customCount} custom endpoint(s) registered` : 'No custom endpoint configured',
       };
     }
 
     const apiKey = this.resolveApiKey(norm);
+    const allKeys = this.allKeysResolver ? this.allKeysResolver(norm) : [];
+    const keyCount = allKeys.length || (apiKey ? 1 : 0);
     if (!apiKey) {
       this.validatedProviders.set(norm, false);
       this.providerModelCounts.set(norm, 0);
@@ -344,6 +389,8 @@ export class ModelGateway {
         provider: norm,
         configured: false,
         validated: false,
+        ready: false,
+        keyCount: 0,
         modelCount: 0,
         message: `API key not configured for ${norm}`,
       };
@@ -357,8 +404,12 @@ export class ModelGateway {
         provider: norm,
         configured: true,
         validated: verification.working,
+        ready: verification.working,
+        keyCount,
         modelCount: verification.working ? verification.modelCount : 0,
-        message: verification.message,
+        message: keyCount > 1
+          ? `${verification.message} (${keyCount} keys active)`
+          : verification.message,
       };
     } catch (e: any) {
       this.validatedProviders.set(norm, false);
@@ -367,6 +418,8 @@ export class ModelGateway {
         provider: norm,
         configured: true,
         validated: false,
+        ready: false,
+        keyCount,
         modelCount: 0,
         message: `Connection validation failed: ${e.message}`,
       };
@@ -377,6 +430,7 @@ export class ModelGateway {
     const norm = provider.toLowerCase().trim();
     this.validatedProviders.delete(norm);
     this.providerModelCounts.delete(norm);
+    this.customEndpoints.delete(norm);
   }
 
   /**
@@ -943,36 +997,85 @@ export class ModelGateway {
   public async fetchProviderModels(
     provider: string,
     explicitApiKey?: string,
-    options?: { omitUnconfigured?: boolean } | boolean
+    options?: { omitUnconfigured?: boolean; baseUrl?: string } | boolean
   ): Promise<DiscoveredModel[]> {
     const normProvider = provider.toLowerCase().trim();
     const shouldOmit = typeof options === 'boolean' ? options : Boolean(options?.omitUnconfigured);
+    const customBaseUrl = typeof options === 'object' ? options?.baseUrl : undefined;
     const apiKey = explicitApiKey || this.resolveApiKey(normProvider);
 
-    if (shouldOmit && normProvider !== 'ollama' && normProvider !== 'custom' && !this.customEndpoints.has(normProvider) && !apiKey) {
+    if (shouldOmit && normProvider !== 'ollama' && normProvider !== 'custom' && !this.customEndpoints.has(normProvider) && !customBaseUrl && !apiKey) {
       return [];
     }
 
     try {
-      if (normProvider === 'custom' || this.customEndpoints.has(normProvider)) {
+      if (normProvider === 'custom' || this.customEndpoints.has(normProvider) || customBaseUrl) {
         const result: DiscoveredModel[] = [];
-        const endpoints = normProvider === 'custom'
-          ? Array.from(this.customEndpoints.entries())
-          : (this.customEndpoints.has(normProvider) ? [[normProvider, this.customEndpoints.get(normProvider)!] as const] : []);
+        const endpoints: Array<[string, { baseUrl: string; apiKey?: string }]> = [];
+        if (customBaseUrl) {
+          endpoints.push([normProvider, { baseUrl: customBaseUrl, apiKey: explicitApiKey }]);
+        } else if (normProvider === 'custom') {
+          for (const entry of this.customEndpoints.entries()) {
+            endpoints.push(entry);
+          }
+        } else if (this.customEndpoints.has(normProvider)) {
+          endpoints.push([normProvider, this.customEndpoints.get(normProvider)!]);
+        }
+
         for (const [name, info] of endpoints) {
-          result.push({
-            id: `custom/${name}`,
-            name: `Custom (${name})`,
-            provider: 'custom',
-            contextWindow: 128000,
-            maxOutputTokens: 8192,
-            supportsTools: true,
-            supportsVision: false,
-            isFree: false,
-            description: `Custom model endpoint at ${info.baseUrl}`,
-            configured: true,
-            validated: true,
-          });
+          let liveModels: DiscoveredModel[] = [];
+          if (info.baseUrl) {
+            try {
+              const modelsUrl = info.baseUrl.replace(/\/+$/, '') + (info.baseUrl.includes('/models') ? '' : '/models');
+              const headers: Record<string, string> = {};
+              const keyToUse = explicitApiKey || info.apiKey || this.resolveApiKey(name);
+              if (keyToUse) {
+                headers['Authorization'] = `Bearer ${keyToUse}`;
+              }
+              const res = await fetch(modelsUrl, { headers, signal: AbortSignal.timeout(4000) }).catch(() => null);
+              if (res && res.ok) {
+                const data: any = await res.json().catch(() => ({}));
+                const list: any[] = data.data || data.models || [];
+                if (Array.isArray(list) && list.length > 0) {
+                  liveModels = list.map((m: any) => {
+                    const rawId = String(m.id || m.name);
+                    const prefixedId = rawId.startsWith(`${name}/`) ? rawId : `${name}/${rawId}`;
+                    return {
+                      id: prefixedId,
+                      name: m.name || m.id || prefixedId,
+                      provider: name,
+                      contextWindow: 128000,
+                      maxOutputTokens: 8192,
+                      supportsTools: true,
+                      supportsVision: false,
+                      isFree: false,
+                      description: `Model from ${name} at ${info.baseUrl}`,
+                      configured: true,
+                      validated: true,
+                    };
+                  });
+                }
+              }
+            } catch {}
+          }
+
+          if (liveModels.length > 0) {
+            result.push(...liveModels);
+          } else {
+            result.push({
+              id: `custom/${name}`,
+              name: `Custom (${name})`,
+              provider: 'custom',
+              contextWindow: 128000,
+              maxOutputTokens: 8192,
+              supportsTools: true,
+              supportsVision: false,
+              isFree: false,
+              description: `Custom model endpoint at ${info.baseUrl}`,
+              configured: true,
+              validated: true,
+            });
+          }
         }
         return result;
       }
@@ -1340,9 +1443,13 @@ export class ModelGateway {
       } else if (provider === 'openrouter') {
         return await this.invokeOpenRouter(modelName, params, startTime);
       } else if (provider === 'openai') {
-        const apiKey = this.resolveApiKey('openai', params.callerAgentId);
+        const custom = this.customEndpoints.get('openai');
+        const apiKey = custom?.apiKey || this.resolveApiKey('openai', params.callerAgentId);
+        const url = custom?.baseUrl
+          ? (custom.baseUrl.endsWith('/chat/completions') ? custom.baseUrl : `${custom.baseUrl.replace(/\/+$/, '')}/chat/completions`)
+          : 'https://api.openai.com/v1/chat/completions';
         return await this.invokeOpenAiCompatible(
-          'https://api.openai.com/v1/chat/completions',
+          url,
           apiKey,
           modelName,
           params,
@@ -1350,9 +1457,13 @@ export class ModelGateway {
           'openai'
         );
       } else if (provider === 'deepseek') {
-        const apiKey = this.resolveApiKey('deepseek', params.callerAgentId);
+        const custom = this.customEndpoints.get('deepseek');
+        const apiKey = custom?.apiKey || this.resolveApiKey('deepseek', params.callerAgentId);
+        const url = custom?.baseUrl
+          ? (custom.baseUrl.endsWith('/chat/completions') ? custom.baseUrl : `${custom.baseUrl.replace(/\/+$/, '')}/chat/completions`)
+          : 'https://api.deepseek.com/chat/completions';
         return await this.invokeOpenAiCompatible(
-          'https://api.deepseek.com/chat/completions',
+          url,
           apiKey,
           modelName,
           params,
@@ -1362,9 +1473,13 @@ export class ModelGateway {
       } else if (provider === 'anthropic') {
         return await this.invokeAnthropic(modelName, params, startTime);
       } else if (provider === 'gemini') {
-        const apiKey = this.resolveApiKey('gemini', params.callerAgentId);
+        const custom = this.customEndpoints.get('gemini');
+        const apiKey = custom?.apiKey || this.resolveApiKey('gemini', params.callerAgentId);
+        const url = custom?.baseUrl
+          ? (custom.baseUrl.endsWith('/chat/completions') ? custom.baseUrl : `${custom.baseUrl.replace(/\/+$/, '')}/chat/completions`)
+          : 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
         return await this.invokeOpenAiCompatible(
-          'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+          url,
           apiKey,
           modelName,
           params,
@@ -1372,9 +1487,13 @@ export class ModelGateway {
           'gemini'
         );
       } else if (provider === 'groq') {
-        const apiKey = this.resolveApiKey('groq', params.callerAgentId);
+        const custom = this.customEndpoints.get('groq');
+        const apiKey = custom?.apiKey || this.resolveApiKey('groq', params.callerAgentId);
+        const url = custom?.baseUrl
+          ? (custom.baseUrl.endsWith('/chat/completions') ? custom.baseUrl : `${custom.baseUrl.replace(/\/+$/, '')}/chat/completions`)
+          : 'https://api.groq.com/openai/v1/chat/completions';
         return await this.invokeOpenAiCompatible(
-          'https://api.groq.com/openai/v1/chat/completions',
+          url,
           apiKey,
           modelName,
           params,
@@ -1382,9 +1501,13 @@ export class ModelGateway {
           'groq'
         );
       } else if (provider === 'xai') {
-        const apiKey = this.resolveApiKey('xai', params.callerAgentId);
+        const custom = this.customEndpoints.get('xai');
+        const apiKey = custom?.apiKey || this.resolveApiKey('xai', params.callerAgentId);
+        const url = custom?.baseUrl
+          ? (custom.baseUrl.endsWith('/chat/completions') ? custom.baseUrl : `${custom.baseUrl.replace(/\/+$/, '')}/chat/completions`)
+          : 'https://api.x.ai/v1/chat/completions';
         return await this.invokeOpenAiCompatible(
-          'https://api.x.ai/v1/chat/completions',
+          url,
           apiKey,
           modelName,
           params,
@@ -1403,21 +1526,43 @@ export class ModelGateway {
           startTime,
           'azure'
         );
-      } else if (this.customEndpoints.has(provider) || (provider === 'custom' && this.customEndpoints.has(modelName)) || (provider === 'custom' && this.customEndpoints.size === 1)) {
-        const custom = this.customEndpoints.get(provider)
+      } else if (
+        this.customEndpoints.has(provider) ||
+        provider === 'custom' ||
+        provider === 'openai_compatible' ||
+        (this.customEndpoints.has(modelName)) ||
+        (modelName.includes('/') && this.customEndpoints.has(modelName.split('/')[0])) ||
+        (provider === 'custom' && this.customEndpoints.size === 1)
+      ) {
+        let endpointName = provider;
+        let actualModelName = modelName;
+        if ((provider === 'custom' || provider === 'openai_compatible') && modelName.includes('/')) {
+          const sub = modelName.split('/')[0];
+          if (this.customEndpoints.has(sub)) {
+            endpointName = sub;
+            actualModelName = modelName.slice(sub.length + 1);
+          }
+        }
+        const custom = this.customEndpoints.get(endpointName)
           || this.customEndpoints.get(modelName)
+          || (provider === 'openai_compatible' ? { baseUrl: 'http://localhost:1234/v1' } : undefined)
           || this.customEndpoints.values().next().value!;
-        const apiKey = custom.apiKey || this.resolveApiKey(provider, params.callerAgentId) || this.resolveApiKey(modelName, params.callerAgentId);
-        const url = custom.baseUrl.endsWith('/chat/completions')
-          ? custom.baseUrl
-          : `${custom.baseUrl.replace(/\/$/, '')}/chat/completions`;
+        const apiKey = custom?.apiKey
+          || this.resolveApiKey(endpointName, params.callerAgentId)
+          || this.resolveApiKey(modelName, params.callerAgentId)
+          || this.resolveApiKey('custom', params.callerAgentId)
+          || this.resolveApiKey('openai_compatible', params.callerAgentId);
+        const rawBaseUrl = custom?.baseUrl || 'http://localhost:8000/v1';
+        const url = rawBaseUrl.endsWith('/chat/completions')
+          ? rawBaseUrl
+          : `${rawBaseUrl.replace(/\/+$/, '')}/chat/completions`;
         return await this.invokeOpenAiCompatible(
           url,
           apiKey,
-          modelName,
+          actualModelName,
           params,
           startTime,
-          provider
+          endpointName
         );
       } else {
         // Check if provider is an OpenRouter namespace or model slug (e.g. meta-llama/..., qwen/...)
@@ -1488,18 +1633,34 @@ export class ModelGateway {
   }
 
   public parseModelId(modelId: string): [string, string] {
-    return ModelGateway.parseModelId(modelId);
+    const colonIdx = modelId.indexOf(':');
+    const slashIdx = modelId.indexOf('/');
+    if (colonIdx !== -1 && (slashIdx === -1 || colonIdx < slashIdx)) {
+      const prefix = modelId.substring(0, colonIdx).toLowerCase();
+      if (
+        ['ollama', 'openai', 'anthropic', 'gemini', 'groq', 'deepseek', 'xai', 'azure', 'custom', 'openrouter', 'together', 'deepinfra', 'vllm', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'openai_compatible'].includes(prefix) ||
+        this.customEndpoints.has(prefix)
+      ) {
+        return [prefix, modelId.substring(colonIdx + 1)];
+      }
+    }
+    if (slashIdx !== -1) {
+      return [modelId.substring(0, slashIdx).toLowerCase(), modelId.substring(slashIdx + 1)];
+    }
+    return ['ollama', modelId];
   }
 
   public static parseModelId(modelId: string): [string, string] {
     const colonIdx = modelId.indexOf(':');
-    if (colonIdx !== -1) {
+    const slashIdx = modelId.indexOf('/');
+    if (colonIdx !== -1 && (slashIdx === -1 || colonIdx < slashIdx)) {
       const prefix = modelId.substring(0, colonIdx).toLowerCase();
-      if (['ollama', 'openai', 'anthropic', 'gemini', 'groq', 'deepseek', 'xai', 'custom', 'openrouter'].includes(prefix)) {
+      if (
+        ['ollama', 'openai', 'anthropic', 'gemini', 'groq', 'deepseek', 'xai', 'azure', 'custom', 'openrouter', 'together', 'deepinfra', 'vllm', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'openai_compatible'].includes(prefix)
+      ) {
         return [prefix, modelId.substring(colonIdx + 1)];
       }
     }
-    const slashIdx = modelId.indexOf('/');
     if (slashIdx !== -1) {
       return [modelId.substring(0, slashIdx).toLowerCase(), modelId.substring(slashIdx + 1)];
     }
@@ -1713,9 +1874,10 @@ export class ModelGateway {
     modelName: string,
     params: ModelInvocationParams,
     startTime: number,
-    retryCount: number = 0
+    retryCount: number = 0,
+    explicitApiKey?: string
   ): Promise<ModelInvocationResult> {
-    const apiKey = this.resolveApiKey('openrouter', params.callerAgentId);
+    const apiKey = explicitApiKey || this.resolveApiKey('openrouter', params.callerAgentId);
     if (!apiKey) {
       throw new Error('API key for OPENROUTER is not set in managed credentials or environment.');
     }
@@ -1741,13 +1903,22 @@ export class ModelGateway {
     });
 
     if (res.status === 429) {
+      if (this.allKeysResolver && apiKey) {
+        const allKeys = this.allKeysResolver('openrouter', params.callerAgentId);
+        const altKeys = allKeys.filter((k) => k.key !== apiKey);
+        if (altKeys.length > 0) {
+          const next = altKeys[0];
+          console.warn(`[KIN MODEL GATEWAY] 429 rate limit on OpenRouter key. Seamlessly rotating to secondary key (${next.keyAlias || next.id}).`);
+          return this.invokeOpenRouter(modelName, params, startTime, retryCount, next.key);
+        }
+      }
       // Live 429 rate limit backoff retry
       if (retryCount < 2) {
         const retryAfterHeader = res.headers.get('retry-after');
         const retryAfterSec = retryAfterHeader ? parseInt(retryAfterHeader, 10) : 1;
         const backoffMs = (isNaN(retryAfterSec) ? 1 : retryAfterSec) * 1000 * (retryCount + 1);
         await new Promise((resolve) => setTimeout(resolve, backoffMs));
-        return this.invokeOpenRouter(modelName, params, startTime, retryCount + 1);
+        return this.invokeOpenRouter(modelName, params, startTime, retryCount + 1, apiKey);
       }
       throw new Error(`OpenRouter 429 Rate Limit exceeded after retries for model "${modelName}".`);
     }
@@ -1852,7 +2023,8 @@ export class ModelGateway {
     modelName: string,
     params: ModelInvocationParams,
     startTime: number,
-    provider: string
+    provider: string,
+    retryCount: number = 0
   ): Promise<ModelInvocationResult> {
     const isCustomEndpoint = provider === 'custom' || this.customEndpoints.has(provider);
     if (!apiKey && !isCustomEndpoint) {
@@ -1879,6 +2051,29 @@ export class ModelGateway {
         stream,
       }),
     });
+
+    if (res.status === 429) {
+      // 1. If multi-key resolver is available, attempt next available key for provider
+      if (this.allKeysResolver && apiKey) {
+        const allKeys = this.allKeysResolver(provider, params.callerAgentId);
+        const altKeys = allKeys.filter((k) => k.key !== apiKey);
+        if (altKeys.length > 0) {
+          const next = altKeys[0];
+          console.warn(`[KIN MODEL GATEWAY] 429 rate limit on current key for ${provider}. Seamlessly rotating to secondary key (${next.keyAlias || next.id}).`);
+          return this.invokeOpenAiCompatible(url, next.key, modelName, params, startTime, provider, retryCount);
+        }
+      }
+      // 2. Exponential backoff retry
+      if (retryCount < 2) {
+        const retryAfterHeader = res.headers.get('retry-after');
+        const retryAfterSec = retryAfterHeader ? parseInt(retryAfterHeader, 10) : 1;
+        const backoffMs = (isNaN(retryAfterSec) ? 1 : retryAfterSec) * 1000 * (retryCount + 1);
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        return this.invokeOpenAiCompatible(url, apiKey, modelName, params, startTime, provider, retryCount + 1);
+      }
+      const errText = await res.text().catch(() => res.statusText);
+      throw new Error(`${provider.toUpperCase()} HTTP 429 Rate Limit exceeded after retries: ${errText}`);
+    }
 
     if (!res.ok) {
       const errText = await res.text().catch(() => res.statusText);
@@ -1977,9 +2172,11 @@ export class ModelGateway {
   private async invokeAnthropic(
     modelName: string,
     params: ModelInvocationParams,
-    startTime: number
+    startTime: number,
+    retryCount: number = 0,
+    explicitApiKey?: string
   ): Promise<ModelInvocationResult> {
-    const apiKey = this.resolveApiKey('anthropic', params.callerAgentId);
+    const apiKey = explicitApiKey || this.resolveApiKey('anthropic', params.callerAgentId);
     if (!apiKey) {
       throw new Error('ANTHROPIC_API_KEY is not set in environment or managed credentials.');
     }
@@ -2000,9 +2197,14 @@ export class ModelGateway {
       }
     }
 
+    const custom = this.customEndpoints.get('anthropic');
+    const url = custom?.baseUrl
+      ? (custom.baseUrl.endsWith('/messages') ? custom.baseUrl : `${custom.baseUrl.replace(/\/+$/, '')}/messages`)
+      : 'https://api.anthropic.com/v1/messages';
+
     const stream = !!params.onToken;
     const effectiveSignal = resolveEffectiveSignal(params.signal);
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2019,6 +2221,27 @@ export class ModelGateway {
         stream,
       }),
     });
+
+    if (res.status === 429) {
+      if (this.allKeysResolver && apiKey) {
+        const allKeys = this.allKeysResolver('anthropic', params.callerAgentId);
+        const altKeys = allKeys.filter((k) => k.key !== apiKey);
+        if (altKeys.length > 0) {
+          const next = altKeys[0];
+          console.warn(`[KIN MODEL GATEWAY] 429 rate limit on Anthropic key. Seamlessly rotating to secondary key (${next.keyAlias || next.id}).`);
+          return this.invokeAnthropic(modelName, params, startTime, retryCount, next.key);
+        }
+      }
+      if (retryCount < 2) {
+        const retryAfterHeader = res.headers.get('retry-after');
+        const retryAfterSec = retryAfterHeader ? parseInt(retryAfterHeader, 10) : 1;
+        const backoffMs = (isNaN(retryAfterSec) ? 1 : retryAfterSec) * 1000 * (retryCount + 1);
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        return this.invokeAnthropic(modelName, params, startTime, retryCount + 1, apiKey);
+      }
+      const errText = await res.text().catch(() => res.statusText);
+      throw new Error(`Anthropic HTTP 429 Rate Limit exceeded after retries: ${errText}`);
+    }
 
     if (!res.ok) {
       const errText = await res.text().catch(() => res.statusText);

@@ -69,6 +69,48 @@ const PROVIDER_DEFAULTS: Record<string, { name: string; defaultBaseUrl: string; 
     requiresKey: true,
     placeholderKey: 'Azure API Key or Bearer token',
   },
+  together: {
+    name: 'Together AI',
+    defaultBaseUrl: 'https://api.together.xyz/v1',
+    requiresKey: true,
+    placeholderKey: 'sk-...',
+  },
+  deepinfra: {
+    name: 'DeepInfra',
+    defaultBaseUrl: 'https://api.deepinfra.com/v1/openai',
+    requiresKey: true,
+    placeholderKey: '...',
+  },
+  fireworks: {
+    name: 'Fireworks AI',
+    defaultBaseUrl: 'https://api.fireworks.ai/inference/v1',
+    requiresKey: true,
+    placeholderKey: 'fw_...',
+  },
+  perplexity: {
+    name: 'Perplexity AI',
+    defaultBaseUrl: 'https://api.perplexity.ai',
+    requiresKey: true,
+    placeholderKey: 'pplx-...',
+  },
+  cerebras: {
+    name: 'Cerebras',
+    defaultBaseUrl: 'https://api.cerebras.ai/v1',
+    requiresKey: true,
+    placeholderKey: 'csk-...',
+  },
+  lmstudio: {
+    name: 'LM Studio (Local)',
+    defaultBaseUrl: 'http://localhost:1234/v1',
+    requiresKey: false,
+    placeholderKey: 'Not required for local LM Studio',
+  },
+  vllm: {
+    name: 'vLLM (Local / Remote)',
+    defaultBaseUrl: 'http://localhost:8000/v1',
+    requiresKey: false,
+    placeholderKey: 'Bearer token (optional for local)',
+  },
   custom: {
     name: 'Custom Endpoint',
     defaultBaseUrl: 'http://localhost:8000/v1',
@@ -164,6 +206,7 @@ export const AddProviderModal: React.FC = () => {
           provider,
           keyAlias: keyAlias.trim() || `${config.name} Key`,
           apiKey: apiKey.trim(),
+          baseUrl: endpointUrl.trim() || undefined,
         });
         if (!credRes.success) {
           setErrorMsg('Failed to persist API credential.');
@@ -173,7 +216,12 @@ export const AddProviderModal: React.FC = () => {
       }
 
       // 2. Discover models for provider
-      const discRes = await discoverModels(provider, apiKey.trim() || undefined);
+      const discRes = await discoverModels(
+        provider,
+        apiKey.trim() || undefined,
+        endpointUrl.trim() || undefined,
+        keyAlias.trim() || undefined
+      );
 
       // 3. If custom model ID given, register it directly
       if (customModelId.trim()) {
@@ -256,9 +304,16 @@ export const AddProviderModal: React.FC = () => {
               <option value="deepseek">DeepSeek (DeepSeek V3, DeepSeek R1)</option>
               <option value="groq">Groq (Ultra-Fast LPU Inference)</option>
               <option value="xai">xAI (Grok 2, Grok Beta)</option>
+              <option value="together">Together AI (Llama 3.3, DeepSeek, Mistral)</option>
+              <option value="deepinfra">DeepInfra (High-Throughput Open Models)</option>
+              <option value="fireworks">Fireworks AI (Fast Function Calling & Reasoning)</option>
+              <option value="perplexity">Perplexity AI (Sonar Online Search Models)</option>
+              <option value="cerebras">Cerebras (Wafer-Scale Ultra-Fast Inference)</option>
               <option value="ollama">Ollama (Local Offline Runtime)</option>
-              <option value="openai_compatible">OpenAI Compatible (LM Studio, vLLM, LocalAI)</option>
-              <option value="custom">Custom Endpoint</option>
+              <option value="lmstudio">LM Studio (Local Server)</option>
+              <option value="vllm">vLLM (Self-Hosted Inference Engine)</option>
+              <option value="openai_compatible">OpenAI Compatible (Any Generic Endpoint)</option>
+              <option value="custom">Custom Endpoint (Custom Proxy / Route)</option>
             </select>
           </div>
 
