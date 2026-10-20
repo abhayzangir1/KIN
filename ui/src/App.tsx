@@ -13,6 +13,7 @@ import { CreateGoalModal } from './components/CreateGoalModal.js';
 import { CreateTaskModal } from './components/CreateTaskModal.js';
 import { DecisionsModal } from './components/DecisionsModal.js';
 import { SettingsModal } from './components/SettingsModal.js';
+import { ConnectorsModal } from './components/ConnectorsModal.js';
 import { AutomationsModal } from './components/AutomationsModal.js';
 import { ModelSelectorModal } from './components/ModelSelectorModal.js';
 import { AddProviderModal } from './components/AddProviderModal.js';
@@ -207,6 +208,7 @@ export const App: React.FC = () => {
           <CreateTaskModal />
           <DecisionsModal />
           <SettingsModal />
+          <ConnectorsModal />
           <AutomationsModal />
           <ModelSelectorModal />
           <AddProviderModal />

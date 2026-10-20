@@ -1,6 +1,6 @@
 import React from 'react';
 import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
-import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale, Trash2, Users, ShieldAlert } from 'lucide-react';
+import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale, Trash2, Users, ShieldAlert, Server } from 'lucide-react';
 import { AgentModelQuickSwitch } from './AgentModelQuickSwitch.js';
 
 export const Sidebar: React.FC = () => {
@@ -32,6 +32,8 @@ export const Sidebar: React.FC = () => {
     setAutomationsModalOpen,
     sidebarWidth,
     setSettingsModalOpen,
+    setConnectorsModalOpen,
+    mcpConnectors,
     autonomyMode,
     activeMainView,
     setActiveMainView,
@@ -561,6 +563,37 @@ export const Sidebar: React.FC = () => {
             </div>
             <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-cyan-500/10 text-cyan-500 font-semibold border border-cyan-500/20">
               {schedules.filter((s) => s.status === 'active').length} active
+            </span>
+          </button>
+        </div>
+
+        {/* MCP CONNECTORS SECTION */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-kin-muted">
+            <div className="flex items-center space-x-1">
+              <Server className="w-3.5 h-3.5 text-emerald-500" />
+              <span>Connectors & MCP</span>
+            </div>
+            <button
+              onClick={() => setConnectorsModalOpen(true)}
+              className="p-0.5 rounded hover:bg-kin-card text-kin-muted hover:text-emerald-500 transition cursor-pointer"
+              title="Open Connectors & MCP Modal"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <button
+            onClick={() => setConnectorsModalOpen(true)}
+            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-kin-muted hover:bg-kin-card hover:text-kin-text transition border border-kin-border group cursor-pointer"
+            title="Configure MCP Server Connections"
+          >
+            <div className="flex items-center space-x-2 truncate">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+              <span className="truncate">MCP Servers</span>
+            </div>
+            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-500 font-semibold border border-emerald-500/20">
+              {mcpConnectors.filter((c) => !c.disabled).length} active
             </span>
           </button>
         </div>

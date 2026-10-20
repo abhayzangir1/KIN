@@ -1531,6 +1531,39 @@ To delegate or coordinate with another specialist:
       if (res) return res;
     }
 
+    // 1b. XML-style function call syntax (Dots Studio, Hermes, MiniMax, Anthropic XML):
+    // <invoke name="tool_name"><parameter name="key">val</parameter></invoke> or <call name="tool_name">...
+    const xmlInvokeMatch = nonQuotedContent.match(/<(?:invoke|function_call|function|call)\s+name=["']([^"']+)["']>([\s\S]*?)<\/(?:invoke|function_call|function|call)>/i);
+    if (xmlInvokeMatch) {
+      const toolName = xmlInvokeMatch[1].trim();
+      const inner = xmlInvokeMatch[2];
+      const params: Record<string, any> = {};
+      const paramMatches = Array.from(inner.matchAll(/<(?:parameter|param|arg|argument)\s+name=["']([^"']+)["']>([\s\S]*?)<\/(?:parameter|param|arg|argument)>/gi));
+      if (paramMatches.length > 0) {
+        for (const pm of paramMatches) {
+          const pName = pm[1].trim();
+          const pVal = pm[2].trim();
+          try {
+            params[pName] = JSON.parse(pVal);
+          } catch {
+            params[pName] = pVal;
+          }
+        }
+      } else {
+        const childTagMatches = Array.from(inner.matchAll(/<([a-zA-Z0-9_-]+)>([\s\S]*?)<\/\1>/gi));
+        for (const cm of childTagMatches) {
+          const pName = cm[1].trim();
+          const pVal = cm[2].trim();
+          try {
+            params[pName] = JSON.parse(pVal);
+          } catch {
+            params[pName] = pVal;
+          }
+        }
+      }
+      return { name: toolName, params };
+    }
+
     // 2. Markdown code fences
     const codeBlockMatches = nonQuotedContent.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi);
     for (const match of codeBlockMatches) {

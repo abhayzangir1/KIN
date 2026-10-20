@@ -8,6 +8,7 @@ export default defineConfig({
     pool: 'threads',
     env: {
       KIN_ISOLATE_OLLAMA: 'true',
+      KIN_ISOLATE_GLOBAL_MCP: 'true',
     },
   },
 });

@@ -715,6 +715,38 @@ export interface McpServerItem {
   tools: string[];
 }
 
+export interface McpConnectorItem {
+  name: string;
+  scope: 'global' | 'project';
+  command?: string;
+  args?: string[];
+  url?: string;
+  env?: Record<string, string>;
+  disabled?: boolean;
+  status: 'running' | 'stopped' | 'failed' | 'disabled' | 'active' | 'error';
+  overridden?: boolean;
+  configPath?: string;
+  toolsCount: number;
+  tools: Array<{
+    name: string;
+    description?: string;
+    inputSchema?: Record<string, any>;
+  }> | string[];
+}
+
+export interface McpTestResult {
+  success: boolean;
+  durationMs: number;
+  toolsCount: number;
+  tools: Array<{
+    name: string;
+    description?: string;
+    inputSchema?: Record<string, any>;
+  }> | string[];
+  message?: string;
+  error?: string;
+}
+
 export interface LearningMetricsData {
   totalExperiences: number;
   totalSkills: number;
@@ -822,7 +854,12 @@ interface KinState {
   // MCP Connectors State
   mcpServers: McpServerItem[];
   mcpTools: McpToolItem[];
+  mcpConnectors: McpConnectorItem[];
+  globalMcpConfigPath: string;
+  projectMcpConfigPath: string;
   isLoadingMcp: boolean;
+  isLoadingConnectors: boolean;
+  isConnectorsModalOpen: boolean;
 
   // Desktop & Browser Control State
   discoveredApps: DiscoveredApp[];
@@ -1125,6 +1162,37 @@ interface KinState {
   // MCP Connector Actions
   fetchMcpData: () => Promise<void>;
   reloadMcpServers: () => Promise<{ success: boolean; toolsCount?: number; error?: string }>;
+  setConnectorsModalOpen: (open: boolean) => void;
+  fetchMcpConnectors: (projectId?: string) => Promise<void>;
+  saveMcpConnector: (params: {
+    scope: 'global' | 'project';
+    name: string;
+    config: {
+      command?: string;
+      args?: string[];
+      url?: string;
+      env?: Record<string, string>;
+      disabled?: boolean;
+    };
+  }) => Promise<{ success: boolean; toolsCount?: number; error?: string }>;
+  toggleMcpConnector: (params: {
+    scope: 'global' | 'project';
+    name: string;
+    disabled: boolean;
+  }) => Promise<{ success: boolean; error?: string }>;
+  deleteMcpConnector: (params: {
+    scope: 'global' | 'project';
+    name: string;
+  }) => Promise<{ success: boolean; error?: string }>;
+  testMcpConnector: (params: {
+    config: {
+      command?: string;
+      args?: string[];
+      url?: string;
+      env?: Record<string, string>;
+    };
+    timeoutMs?: number;
+  }) => Promise<McpTestResult>;
 
   // Desktop & Browser Actions
   fetchDiscoveredApps: () => Promise<void>;
@@ -1375,7 +1443,13 @@ export const useKinStore = create<KinState>((set, get) => ({
   // MCP Connectors State
   mcpServers: [],
   mcpTools: [],
+  mcpConnectors: [],
+  globalMcpConfigPath: '',
+  projectMcpConfigPath: '',
   isLoadingMcp: false,
+  isLoadingConnectors: false,
+  isConnectorsModalOpen: false,
+  setConnectorsModalOpen: (open: boolean) => set({ isConnectorsModalOpen: open }),
 
   // Desktop & Browser Control State
   discoveredApps: [],
@@ -2813,6 +2887,12 @@ export const useKinStore = create<KinState>((set, get) => ({
         } catch {}
       });
 
+      // MCP Connectors Updates
+      sse.addEventListener('mcp:connectors_updated', () => {
+        get().fetchMcpConnectors().catch(() => {});
+        get().fetchMcpData().catch(() => {});
+      });
+
       // Proactive Routines Updates
       sse.addEventListener('routine:created', () => {
         get().fetchRoutines();
@@ -2997,6 +3077,7 @@ export const useKinStore = create<KinState>((set, get) => ({
     await get().fetchState(projectId);
     await get().fetchGitStatus(projectId);
     await get().fetchUploads(projectId);
+    await get().fetchMcpConnectors(projectId);
   },
 
   createProject: async (name: string, repoPath?: string) => {
@@ -4015,6 +4096,8 @@ export const useKinStore = create<KinState>((set, get) => ({
         mcpServers: serversData.servers || [],
         isLoadingMcp: false,
       });
+      // Synchronously sync connectors list as well
+      get().fetchMcpConnectors().catch(() => {});
     } catch (err) {
       console.warn('[KIN UI] Failed to fetch MCP data:', err);
       set({ isLoadingMcp: false });
@@ -4031,7 +4114,10 @@ export const useKinStore = create<KinState>((set, get) => ({
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        await get().fetchMcpData();
+        await Promise.all([
+          get().fetchMcpData(),
+          get().fetchMcpConnectors(),
+        ]);
         return { success: true, toolsCount: data.toolsCount || 0 };
       }
       set({ isLoadingMcp: false });
@@ -4039,6 +4125,141 @@ export const useKinStore = create<KinState>((set, get) => ({
     } catch (err: any) {
       set({ isLoadingMcp: false });
       return { success: false, error: err?.message || 'Network error reloading MCP' };
+    }
+  },
+
+  fetchMcpConnectors: async (projectId?: string) => {
+    set({ isLoadingConnectors: true });
+    try {
+      const projId = projectId || get().activeProjectId;
+      const url = `/api/mcp/connectors${projId ? `?projectId=${encodeURIComponent(projId)}` : ''}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        set({
+          mcpConnectors: data.connectors || [],
+          globalMcpConfigPath: data.paths?.global || data.globalPath || '',
+          projectMcpConfigPath: data.paths?.project || data.projectPath || '',
+          isLoadingConnectors: false,
+        });
+      } else {
+        set({ isLoadingConnectors: false });
+      }
+    } catch (err) {
+      console.warn('[KIN UI] Failed to fetch MCP connectors:', err);
+      set({ isLoadingConnectors: false });
+    }
+  },
+
+  saveMcpConnector: async (params) => {
+    set({ isLoadingConnectors: true });
+    try {
+      const projId = get().activeProjectId;
+      const res = await fetch('/api/mcp/connectors/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...params, projectId: projId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        if (Array.isArray(data.connectors)) {
+          set({
+            mcpConnectors: data.connectors,
+            isLoadingConnectors: false,
+          });
+        } else {
+          await get().fetchMcpConnectors();
+        }
+        get().fetchMcpData().catch(() => {});
+        return { success: true, toolsCount: data.toolsCount };
+      }
+      set({ isLoadingConnectors: false });
+      return { success: false, error: data.error || 'Failed to save connector' };
+    } catch (err: any) {
+      set({ isLoadingConnectors: false });
+      return { success: false, error: err?.message || 'Network error saving connector' };
+    }
+  },
+
+  toggleMcpConnector: async (params) => {
+    try {
+      const projId = get().activeProjectId;
+      const res = await fetch('/api/mcp/connectors/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...params, projectId: projId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        if (Array.isArray(data.connectors)) {
+          set({ mcpConnectors: data.connectors });
+        } else {
+          await get().fetchMcpConnectors();
+        }
+        get().fetchMcpData().catch(() => {});
+        return { success: true };
+      }
+      return { success: false, error: data.error || 'Failed to toggle connector' };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Network error toggling connector' };
+    }
+  },
+
+  deleteMcpConnector: async (params) => {
+    set({ isLoadingConnectors: true });
+    try {
+      const projId = get().activeProjectId;
+      const res = await fetch('/api/mcp/connectors/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...params, projectId: projId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        if (Array.isArray(data.connectors)) {
+          set({
+            mcpConnectors: data.connectors,
+            isLoadingConnectors: false,
+          });
+        } else {
+          await get().fetchMcpConnectors();
+        }
+        get().fetchMcpData().catch(() => {});
+        return { success: true };
+      }
+      set({ isLoadingConnectors: false });
+      return { success: false, error: data.error || 'Failed to delete connector' };
+    } catch (err: any) {
+      set({ isLoadingConnectors: false });
+      return { success: false, error: err?.message || 'Network error deleting connector' };
+    }
+  },
+
+  testMcpConnector: async (params) => {
+    try {
+      const projId = get().activeProjectId;
+      const res = await fetch('/api/mcp/connectors/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...params, projectId: projId }),
+      });
+      const data = await res.json();
+      return {
+        success: Boolean(data.success),
+        durationMs: data.durationMs || 0,
+        toolsCount: data.toolsCount || 0,
+        tools: data.tools || [],
+        message: data.message,
+        error: data.error || (data.success ? undefined : (data.message || 'Probe failed')),
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        durationMs: 0,
+        toolsCount: 0,
+        tools: [],
+        error: err?.message || 'Network error testing connector',
+      };
     }
   },
 

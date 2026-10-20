@@ -295,5 +295,29 @@ describe('Skeptical Audit Remediation Verification Suite', () => {
       expect(toolCall?.name).toBe('readFile');
       expect(toolCall?.params.filePath).toBe('README.md');
     });
+
+    it('successfully extracts XML-style function calls (Dots Studio / Hermes / Anthropic invoke syntax)', async () => {
+      const { AgentLoopRunner } = await import('../src/kernel/agent_loop.js');
+      const dotsOutput = `<dots_function_call><invoke name="mcp__system__calculate"><parameter name="expression">(850 * 42) + 1200</parameter></invoke></dots_function_call>`;
+      const t1 = AgentLoopRunner.extractToolCall(dotsOutput);
+      expect(t1).toEqual({
+        name: 'mcp__system__calculate',
+        params: { expression: '(850 * 42) + 1200' },
+      });
+
+      const anthropicOutput = `<invoke name="readFile"><parameter name="filePath">/path/to/doc.txt</parameter></invoke>`;
+      const t2 = AgentLoopRunner.extractToolCall(anthropicOutput);
+      expect(t2).toEqual({
+        name: 'readFile',
+        params: { filePath: '/path/to/doc.txt' },
+      });
+
+      const callTagOutput = `<call name="slack_send_message"><arg name="channel">#general</arg><arg name="text">Hello world</arg></call>`;
+      const t3 = AgentLoopRunner.extractToolCall(callTagOutput);
+      expect(t3).toEqual({
+        name: 'slack_send_message',
+        params: { channel: '#general', text: 'Hello world' },
+      });
+    });
   });
 });

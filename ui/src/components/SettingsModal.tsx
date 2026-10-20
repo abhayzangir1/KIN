@@ -31,12 +31,17 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronRight,
+  Server,
+  Maximize2,
 } from 'lucide-react';
+import { ConnectorsManager } from './ConnectorsManager.js';
 
 export const SettingsModal: React.FC = () => {
   const {
     isSettingsModalOpen,
     setSettingsModalOpen,
+    setConnectorsModalOpen,
+    mcpConnectors,
     autonomyMode,
     setAutonomyMode,
     ollamaStatus,
@@ -70,7 +75,7 @@ export const SettingsModal: React.FC = () => {
     setTheme,
   } = useKinStore();
 
-  const [activeTab, setActiveTab] = useState<'general' | 'models' | 'credentials' | 'skills' | 'desktop' | 'evaluations' | 'database' | 'layout' | 'about'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'models' | 'credentials' | 'skills' | 'connectors' | 'desktop' | 'evaluations' | 'database' | 'layout' | 'about'>('general');
   const [isQueryingModels, setIsQueryingModels] = useState(false);
   const [vacuumStatus, setVacuumStatus] = useState<string | null>(null);
   const [isOptimizing, setIsOptimizing] = useState(false);
@@ -364,6 +369,23 @@ export const SettingsModal: React.FC = () => {
             >
               <Sparkles className="w-4 h-4 shrink-0" />
               <span>Skills & Engine</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('connectors')}
+              className={`flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition text-left ${
+                activeTab === 'connectors'
+                  ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30'
+                  : 'text-[#8b949e] hover:bg-[#161b22] hover:text-kin-text'
+              }`}
+            >
+              <div className="flex items-center space-x-2.5 truncate">
+                <Server className="w-4 h-4 shrink-0" />
+                <span className="truncate">Connectors & MCP</span>
+              </div>
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                {mcpConnectors.filter((c) => !c.disabled).length}
+              </span>
             </button>
 
             <button
@@ -1457,6 +1479,57 @@ export const SettingsModal: React.FC = () => {
                     <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
                   </button>
                 </div>
+
+                <div className="p-4 rounded-lg bg-[#161b22] border border-[#30363d] flex items-center justify-between">
+                  <div>
+                    <div className="text-xs font-bold text-kin-text flex items-center space-x-2">
+                      <Server className="w-4 h-4 text-emerald-400" />
+                      <span>Model Context Protocol (MCP) Connectors</span>
+                    </div>
+                    <div className="text-[11px] text-[#8b949e] mt-0.5">
+                      Configure external databases, tools, APIs, and custom stdio/HTTP-SSE connectors in Global and Project scopes.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('connectors')}
+                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-lg transition cursor-pointer"
+                  >
+                    <Server className="w-3.5 h-3.5" />
+                    <span>Manage Connectors</span>
+                    <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* CONNECTORS & MCP TAB */}
+            {activeTab === 'connectors' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-[#21262d]">
+                  <div>
+                    <h3 className="text-sm font-semibold text-kin-text mb-0.5 flex items-center space-x-2">
+                      <Server className="w-4 h-4 text-emerald-400" />
+                      <span>Model Context Protocol (MCP) Connectors</span>
+                    </h3>
+                    <p className="text-xs text-[#8b949e]">
+                      Configure and supervise external tools, databases, and APIs in Global (~/.kin/mcp.json) and Project (.kin/mcp.json) scopes.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSettingsModalOpen(false);
+                      setConnectorsModalOpen(true);
+                    }}
+                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#161b22] hover:bg-[#21262d] text-gray-300 hover:text-white text-xs font-semibold border border-[#30363d] transition cursor-pointer shrink-0"
+                    title="Pop out into Dedicated Fullscreen Modal"
+                  >
+                    <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Expand Window</span>
+                  </button>
+                </div>
+                <ConnectorsManager embeddedInModal={true} />
               </div>
             )}
 

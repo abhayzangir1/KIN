@@ -1308,6 +1308,32 @@ export class CoreServer {
     }
   }
 
+  public validateProjectBoundary(targetRoot?: string): { valid: boolean; root: string; error?: string } {
+    let resolved = targetRoot;
+    if (!resolved) {
+      resolved = this.workspaceRepo.getProject(this.activeProjectId)?.repoPath || process.cwd();
+    }
+    const normTarget = path.resolve(resolved);
+    const rootPattern = /^([a-zA-Z]:[/\\]?|\/|\\)$/;
+    if (rootPattern.test(normTarget)) {
+      return { valid: false, root: normTarget, error: `Forbidden: projectRoot '${targetRoot}' cannot be the filesystem root.` };
+    }
+
+    const registeredProjects = this.workspaceRepo.listProjects('ws-default');
+    const isAllowed = registeredProjects.some((p) => {
+      const pNorm = path.resolve(p.repoPath);
+      return normTarget === pNorm || (!path.relative(pNorm, normTarget).startsWith('..') && !path.isAbsolute(path.relative(pNorm, normTarget)));
+    }) || [process.cwd(), path.resolve(process.cwd(), '..'), os.tmpdir()].some((p) => {
+      const pNorm = path.resolve(p);
+      return normTarget === pNorm || (!path.relative(pNorm, normTarget).startsWith('..') && !path.isAbsolute(path.relative(pNorm, normTarget)));
+    });
+
+    if (!isAllowed) {
+      return { valid: false, root: normTarget, error: `Forbidden: projectRoot '${targetRoot}' is not within an allowed workspace boundary.` };
+    }
+    return { valid: true, root: normTarget };
+  }
+
   public createApprovalRecord(
     toolName: string,
     actionPayload: Record<string, any>,
@@ -5094,7 +5120,8 @@ export class CoreServer {
           contentLower.startsWith('/mcp:') ||
           contentLower.startsWith('/mcp\n')
         ) {
-          if (boss) {
+          const effectiveBoss = boss || this.agentRepo.listIdentitiesByProject(targetProjectId)[0] || this.agentRepo.getIdentity('agent-boss');
+          if (effectiveBoss) {
             const rawSub = rawContent.replace(/^\/mcp[\s:\n]*/i, '').trim();
 
             if (rawSub.startsWith('reload') || rawSub === 'refresh') {
@@ -5117,7 +5144,7 @@ export class CoreServer {
 
                 const reply = this.channelService.sendMessage({
                   channelId,
-                  senderId: boss.id,
+                  senderId: effectiveBoss.id,
                   senderType: 'agent',
                   content: reloadMsg,
                   productivityScore: 100,
@@ -5126,7 +5153,7 @@ export class CoreServer {
                   id: reply.id,
                   channelId: reply.channelId,
                   senderId: reply.senderId,
-                  senderName: boss.displayName.replace(/^@/, ''),
+                  senderName: effectiveBoss.displayName.replace(/^@/, ''),
                   senderType: 'agent',
                   content: reply.content,
                   createdAt: reply.createdAt,
@@ -5136,7 +5163,7 @@ export class CoreServer {
               } catch (reloadErr: any) {
                 const errMsg = this.channelService.sendMessage({
                   channelId,
-                  senderId: boss.id,
+                  senderId: effectiveBoss.id,
                   senderType: 'agent',
                   content: `⚠️ **MCP Reload Error**: ${reloadErr?.message || String(reloadErr)}`,
                   productivityScore: 100,
@@ -5145,7 +5172,7 @@ export class CoreServer {
                   id: errMsg.id,
                   channelId: errMsg.channelId,
                   senderId: errMsg.senderId,
-                  senderName: boss.displayName.replace(/^@/, ''),
+                  senderName: effectiveBoss.displayName.replace(/^@/, ''),
                   senderType: 'agent',
                   content: errMsg.content,
                   createdAt: errMsg.createdAt,
@@ -5162,7 +5189,7 @@ export class CoreServer {
               if (!found) {
                 const notFoundMsg = this.channelService.sendMessage({
                   channelId,
-                  senderId: boss.id,
+                  senderId: effectiveBoss.id,
                   senderType: 'agent',
                   content: `❌ MCP Tool \`${toolNameQuery}\` not found across active servers.`,
                   productivityScore: 100,
@@ -5171,7 +5198,7 @@ export class CoreServer {
                   id: notFoundMsg.id,
                   channelId: notFoundMsg.channelId,
                   senderId: notFoundMsg.senderId,
-                  senderName: boss.displayName.replace(/^@/, ''),
+                  senderName: effectiveBoss.displayName.replace(/^@/, ''),
                   senderType: 'agent',
                   content: notFoundMsg.content,
                   createdAt: notFoundMsg.createdAt,
@@ -5183,7 +5210,7 @@ export class CoreServer {
               const detail = `🔧 **MCP Tool Schema**: \`mcp__${found.serverName}__${found.name}\`\n- **Server**: \`${found.serverName}\`\n- **Description**: ${found.description || 'No description'}\n\n\`\`\`json\n${JSON.stringify(found.inputSchema, null, 2)}\n\`\`\``;
               const reply = this.channelService.sendMessage({
                 channelId,
-                senderId: boss.id,
+                senderId: effectiveBoss.id,
                 senderType: 'agent',
                 content: detail,
                 productivityScore: 100,
@@ -5192,7 +5219,7 @@ export class CoreServer {
                 id: reply.id,
                 channelId: reply.channelId,
                 senderId: reply.senderId,
-                senderName: boss.displayName.replace(/^@/, ''),
+                senderName: effectiveBoss.displayName.replace(/^@/, ''),
                 senderType: 'agent',
                 content: reply.content,
                 createdAt: reply.createdAt,
@@ -8148,35 +8175,215 @@ Format strictly as JSON:
         if (!targetRoot && body?.projectId) {
           targetRoot = this.workspaceRepo.getProject(body.projectId)?.repoPath;
         }
-        if (!targetRoot) {
-          targetRoot = this.workspaceRepo.getProject(this.activeProjectId)?.repoPath || process.cwd();
-        }
 
-        const normTarget = path.resolve(targetRoot);
-        const rootPattern = /^([a-zA-Z]:[/\\]?|\/|\\)$/;
-        if (rootPattern.test(normTarget)) {
-          return this.sendJson(res, 403, { error: `Forbidden: projectRoot '${targetRoot}' cannot be the filesystem root.` });
+        const boundaryCheck = this.validateProjectBoundary(targetRoot);
+        if (!boundaryCheck.valid) {
+          return this.sendJson(res, 403, { error: boundaryCheck.error });
         }
-        if (!fs.existsSync(normTarget)) {
+        targetRoot = boundaryCheck.root;
+
+        if (!fs.existsSync(targetRoot)) {
           return this.sendJson(res, 404, { error: `projectRoot '${targetRoot}' does not exist.` });
-        }
-
-        const registeredProjects = this.workspaceRepo.listProjects('ws-default');
-        const isAllowed = registeredProjects.some((p) => {
-          const pNorm = path.resolve(p.repoPath);
-          return normTarget === pNorm || (!path.relative(pNorm, normTarget).startsWith('..') && !path.isAbsolute(path.relative(pNorm, normTarget)));
-        }) || [process.cwd(), path.resolve(process.cwd(), '..'), os.tmpdir()].some((p) => {
-          const pNorm = path.resolve(p);
-          return normTarget === pNorm || (!path.relative(pNorm, normTarget).startsWith('..') && !path.isAbsolute(path.relative(pNorm, normTarget)));
-        });
-
-        if (!isAllowed) {
-          return this.sendJson(res, 403, { error: `Forbidden: projectRoot '${targetRoot}' is not within an allowed workspace boundary.` });
         }
 
         const tools = await this.mcpClient.reloadProject(targetRoot, true);
         const servers = this.mcpClient.getAllServers();
         return this.sendJson(res, 200, { success: true, projectRoot: targetRoot, toolsCount: tools.length, tools, servers });
+      }
+
+      // 35d. GET /api/mcp/connectors — Lists configured connectors across Global and Project scopes
+      if (req.method === 'GET' && pathname === '/api/mcp/connectors') {
+        let customRoot = parsedUrl.searchParams.get('projectRoot') || undefined;
+        const queryProjectId = parsedUrl.searchParams.get('projectId');
+        if (!customRoot && queryProjectId) {
+          customRoot = this.workspaceRepo.getProject(queryProjectId)?.repoPath;
+        }
+        const boundaryCheck = this.validateProjectBoundary(customRoot);
+        if (!boundaryCheck.valid) {
+          return this.sendJson(res, 403, { error: boundaryCheck.error });
+        }
+        customRoot = boundaryCheck.root;
+
+        const connectors = this.mcpClient.listConfiguredConnectors(customRoot);
+        const globalPath = McpClientManager.getGlobalConfigPath();
+        const projectPath = this.mcpClient.getProjectConfigPath(customRoot);
+        return this.sendJson(res, 200, {
+          success: true,
+          count: connectors.length,
+          connectors,
+          globalPath,
+          projectPath,
+          paths: {
+            global: globalPath,
+            project: projectPath,
+          },
+          activeProjectId: this.activeProjectId,
+        });
+      }
+
+      // 35d-2. GET /api/mcp/connectors/:name — Retrieves single connector details
+      const connectorGetMatch = pathname.match(/^\/api\/mcp\/connectors\/([^/]+)$/);
+      if (req.method === 'GET' && connectorGetMatch) {
+        const name = decodeURIComponent(connectorGetMatch[1]);
+        const scope = parsedUrl.searchParams.get('scope') as ('global' | 'project' | null);
+        let customRoot = parsedUrl.searchParams.get('projectRoot') || undefined;
+        const queryProjectId = parsedUrl.searchParams.get('projectId');
+        if (!customRoot && queryProjectId) {
+          customRoot = this.workspaceRepo.getProject(queryProjectId)?.repoPath;
+        }
+        const boundaryCheck = this.validateProjectBoundary(customRoot);
+        if (!boundaryCheck.valid) {
+          return this.sendJson(res, 403, { error: boundaryCheck.error });
+        }
+        customRoot = boundaryCheck.root;
+
+        const connectors = this.mcpClient.listConfiguredConnectors(customRoot);
+        const match = connectors.find((c) => c.name === name && (!scope || c.scope === scope));
+        if (!match) {
+          return this.sendJson(res, 404, { error: `Connector '${name}' not found` });
+        }
+        return this.sendJson(res, 200, { success: true, connector: match });
+      }
+
+      // 35e. POST /api/mcp/connectors/save — Saves or updates connector configuration in global or project scope
+      if (req.method === 'POST' && (pathname === '/api/mcp/connectors/save' || pathname === '/api/mcp/connectors')) {
+        const body = await this.parseJsonBody<{
+          scope: 'global' | 'project';
+          name: string;
+          config: any;
+          projectRoot?: string;
+          projectId?: string;
+        }>(req).catch(() => ({} as any));
+
+        if (!body.scope || !body.name || !body.config) {
+          return this.sendJson(res, 400, { error: 'scope ("global" | "project"), name, and config are required' });
+        }
+        let customRoot = body.projectRoot;
+        if (!customRoot && body.projectId) {
+          customRoot = this.workspaceRepo.getProject(body.projectId)?.repoPath;
+        }
+        const boundaryCheck = this.validateProjectBoundary(customRoot);
+        if (!boundaryCheck.valid) {
+          return this.sendJson(res, 403, { error: boundaryCheck.error });
+        }
+        customRoot = boundaryCheck.root;
+
+        try {
+          const result = await this.mcpClient.saveConnector(body.scope, body.name, body.config, customRoot);
+          this.broadcastEvent('mcp:connectors_updated', { scope: body.scope, name: body.name, connector: result.connector });
+          const connectors = this.mcpClient.listConfiguredConnectors(customRoot);
+          return this.sendJson(res, 200, {
+            ...result,
+            toolsCount: result.tools?.length || result.connector?.toolsCount || 0,
+            connectors,
+          });
+        } catch (saveErr: any) {
+          return this.sendJson(res, 400, { error: saveErr.message || 'Failed to save connector configuration' });
+        }
+      }
+
+      // 35f. POST /api/mcp/connectors/toggle — Enables or disables a connector in global or project scope
+      if (req.method === 'POST' && pathname === '/api/mcp/connectors/toggle') {
+        const body = await this.parseJsonBody<{
+          scope: 'global' | 'project';
+          name: string;
+          disabled: boolean;
+          projectRoot?: string;
+          projectId?: string;
+        }>(req).catch(() => ({} as any));
+
+        if (!body.scope || !body.name || typeof body.disabled !== 'boolean') {
+          return this.sendJson(res, 400, { error: 'scope ("global" | "project"), name, and disabled (boolean) are required' });
+        }
+        let customRoot = body.projectRoot;
+        if (!customRoot && body.projectId) {
+          customRoot = this.workspaceRepo.getProject(body.projectId)?.repoPath;
+        }
+        const boundaryCheck = this.validateProjectBoundary(customRoot);
+        if (!boundaryCheck.valid) {
+          return this.sendJson(res, 403, { error: boundaryCheck.error });
+        }
+        customRoot = boundaryCheck.root;
+
+        try {
+          const result = await this.mcpClient.toggleConnector(body.scope, body.name, body.disabled, customRoot);
+          this.broadcastEvent('mcp:connectors_updated', { scope: body.scope, name: body.name, disabled: body.disabled });
+          const connectors = this.mcpClient.listConfiguredConnectors(customRoot);
+          return this.sendJson(res, 200, {
+            ...result,
+            connectors,
+          });
+        } catch (toggleErr: any) {
+          return this.sendJson(res, 400, { error: toggleErr.message || 'Failed to toggle connector' });
+        }
+      }
+
+      // 35g. DELETE or POST /api/mcp/connectors/delete — Removes connector from config file
+      const connectorDeleteMatch = pathname.match(/^\/api\/mcp\/connectors\/([^/]+)$/);
+      if ((req.method === 'DELETE' && connectorDeleteMatch) || (req.method === 'POST' && pathname === '/api/mcp/connectors/delete')) {
+        let name = connectorDeleteMatch ? decodeURIComponent(connectorDeleteMatch[1]) : '';
+        let scope: 'global' | 'project' = (parsedUrl.searchParams.get('scope') as any) || 'project';
+        let customRoot = parsedUrl.searchParams.get('projectRoot') || undefined;
+        const queryProjectId = parsedUrl.searchParams.get('projectId');
+        if (!customRoot && queryProjectId) {
+          customRoot = this.workspaceRepo.getProject(queryProjectId)?.repoPath;
+        }
+
+        if (req.method === 'POST') {
+          const body = await this.parseJsonBody<{ name?: string; scope?: 'global' | 'project'; projectRoot?: string; projectId?: string }>(req).catch(() => ({} as any));
+          if (body.name) name = body.name;
+          if (body.scope) scope = body.scope;
+          if (body.projectRoot) customRoot = body.projectRoot;
+          if (!customRoot && body.projectId) {
+            customRoot = this.workspaceRepo.getProject(body.projectId)?.repoPath;
+          }
+        }
+        if (!name) {
+          return this.sendJson(res, 400, { error: 'Connector name is required' });
+        }
+        const boundaryCheck = this.validateProjectBoundary(customRoot);
+        if (!boundaryCheck.valid) {
+          return this.sendJson(res, 403, { error: boundaryCheck.error });
+        }
+        customRoot = boundaryCheck.root;
+
+        try {
+          const result = await this.mcpClient.deleteConnector(scope, name, customRoot);
+          this.broadcastEvent('mcp:connectors_updated', { scope, name, deleted: true });
+          const connectors = this.mcpClient.listConfiguredConnectors(customRoot);
+          return this.sendJson(res, 200, {
+            ...result,
+            connectors,
+          });
+        } catch (delErr: any) {
+          return this.sendJson(res, 400, { error: delErr.message || 'Failed to delete connector' });
+        }
+      }
+
+      // 35h. POST /api/mcp/connectors/test — Tests connection and tools discovery for a connector
+      if (req.method === 'POST' && (pathname === '/api/mcp/connectors/test' || pathname === '/api/mcp/test')) {
+        const body = await this.parseJsonBody<{
+          config: any;
+          timeoutMs?: number;
+          projectRoot?: string;
+          projectId?: string;
+        }>(req).catch(() => ({} as any));
+        if (!body.config || (!body.config.command && !body.config.url)) {
+          return this.sendJson(res, 400, { error: 'config with valid command or url is required' });
+        }
+        let customRoot = body.projectRoot;
+        if (!customRoot && body.projectId) {
+          customRoot = this.workspaceRepo.getProject(body.projectId)?.repoPath;
+        }
+        const boundaryCheck = this.validateProjectBoundary(customRoot);
+        if (!boundaryCheck.valid) {
+          return this.sendJson(res, 403, { error: boundaryCheck.error });
+        }
+        customRoot = boundaryCheck.root;
+
+        const timeoutMs = typeof body.timeoutMs === 'number' && body.timeoutMs > 0 ? body.timeoutMs : 10000;
+        const result = await this.mcpClient.testConnector(body.config, timeoutMs, customRoot);
+        return this.sendJson(res, 200, result);
       }
 
       // 36. GET /api/system/apps — Discover installed desktop applications

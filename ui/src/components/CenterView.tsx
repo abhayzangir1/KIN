@@ -93,6 +93,7 @@ export const CenterView: React.FC = () => {
     skills,
     fetchSkills,
     setSettingsModalOpen,
+    setConnectorsModalOpen,
   } = useKinStore();
 
   const isMachineTool = (tool?: string) => {
@@ -340,7 +341,8 @@ export const CenterView: React.FC = () => {
     { cmd: '/browser', desc: 'Control persistent browser session (e.g. /browser <url>)' },
     { cmd: '/learn', desc: 'Persist operational pattern into Tier 1 Project Memory' },
     { cmd: '/skills', desc: 'Browse and inspect installed agent skills' },
-    { cmd: '/mcp', desc: 'Inspect registered MCP servers & live tools (/mcp reload)' },
+    { cmd: '/mcp', desc: 'Manage MCP connectors & inspect live tools (/mcp reload)' },
+    { cmd: '/connectors', desc: 'Open MCP Connectors & Servers management modal' },
     { cmd: '/decisions', desc: 'Architecture Decision Records (ADR)' },
     { cmd: '/hire', desc: 'Hire new specialist' },
     { cmd: '/assign', desc: 'Assign agent to channel' },
@@ -422,6 +424,12 @@ export const CenterView: React.FC = () => {
   const handleSlashCommand = (cmd: string) => {
     setShowSlashMenu(false);
     if (cmd === '/clear') {
+      setInputText('');
+      inputRef.current?.focus();
+      return;
+    }
+    if (cmd === '/connectors') {
+      setConnectorsModalOpen(true);
       setInputText('');
       inputRef.current?.focus();
       return;
@@ -1776,12 +1784,12 @@ export const CenterView: React.FC = () => {
                     type="button"
                     onClick={() => {
                       setShowPlusMenu(false);
-                      handleSlashCommand('/mcp');
+                      setConnectorsModalOpen(true);
                     }}
                     className="w-full text-left px-2.5 py-1.5 rounded-lg bg-kin-card hover:bg-kin-surface border border-kin-border flex items-center justify-between text-kin-text transition cursor-pointer"
                   >
-                    <span className="truncate">Inspect Registered MCP Tools</span>
-                    <span className="text-[10px] text-kin-muted font-mono font-medium">Tools</span>
+                    <span className="truncate">Manage MCP Connectors & Tools</span>
+                    <span className="text-[10px] text-emerald-400 font-mono font-medium">Connectors</span>
                   </button>
                 </div>
 

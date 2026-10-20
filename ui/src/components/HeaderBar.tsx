@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useKinStore } from '../store/kinStore.js';
-import { Folder, Plus, X, Copy, Check, Activity, Network, PanelRight, PanelRightClose } from 'lucide-react';
+import { Folder, Plus, X, Copy, Check, Activity, Network, PanelRight, PanelRightClose, Server } from 'lucide-react';
 
 export const HeaderBar: React.FC = () => {
   const {
@@ -14,6 +14,8 @@ export const HeaderBar: React.FC = () => {
     isConnected,
     projectAnalytics,
     setDesktopControlModalOpen,
+    setConnectorsModalOpen,
+    mcpConnectors,
     browserStatus,
     activeTakeover,
     activeTakeovers,
@@ -155,6 +157,16 @@ export const HeaderBar: React.FC = () => {
             </>
           )}
         </div>
+
+        {/* MCP Connectors Capsule */}
+        <button
+          onClick={() => setConnectorsModalOpen(true)}
+          className="hidden sm:flex items-center space-x-1 px-2.5 py-0.5 rounded-md bg-kin-card hover:bg-kin-cardHover border border-kin-border text-kin-muted hover:text-kin-text transition cursor-pointer"
+          title="Open Model Context Protocol (MCP) Connectors Modal"
+        >
+          <Server className="w-3 h-3 text-emerald-400 shrink-0" />
+          <span className="text-[10px]">MCP: {mcpConnectors.filter((c) => !c.disabled).length}</span>
+        </button>
 
         {/* Canonical Inspector Panel Toggle Button */}
         <button
