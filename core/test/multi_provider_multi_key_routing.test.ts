@@ -258,5 +258,63 @@ describe('KIN Multi-Key & Multi-Provider Architecture Test Suite', { timeout: 30
       expect(data.credentials.some((c: any) => c.id === cred1Id)).toBe(true);
       expect(data.credentials.some((c: any) => c.id === togetherCredId)).toBe(true);
     });
+
+    it('rejects adding duplicate API key with HTTP 409 Conflict', async () => {
+      // Attempt to add the exact same key as cred1Id ('sk-proj-prod-primary-key-12345678')
+      const dupRes = await fetch(`http://127.0.0.1:${port}/api/settings/credentials`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'openai',
+          keyName: 'Duplicate Key Attempt',
+          apiKey: 'sk-proj-prod-primary-key-12345678',
+        }),
+      });
+      expect(dupRes.status).toBe(409);
+      const dupData: any = await dupRes.json();
+      expect(dupData.duplicate).toBe(true);
+      expect(dupData.error).toContain('already been added');
+
+      // Attempt with leading/trailing whitespace
+      const dupRes2 = await fetch(`http://127.0.0.1:${port}/api/settings/credentials`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'openai',
+          keyName: 'Duplicate Key With Whitespace',
+          apiKey: '   sk-proj-prod-primary-key-12345678  \n',
+        }),
+      });
+      expect(dupRes2.status).toBe(409);
+    });
+
+    it('rejects PUT updating a credential with a key already in use by another credential', async () => {
+      // Add a fresh credential first
+      const freshRes = await fetch(`http://127.0.0.1:${port}/api/settings/credentials`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'anthropic',
+          keyName: 'Anthropic Fresh Key',
+          apiKey: 'sk-ant-fresh-unique-token-99112233',
+        }),
+      });
+      expect(freshRes.status).toBe(201);
+      const freshData: any = await freshRes.json();
+      const freshId = freshData.credential.id;
+
+      // Try updating freshId to use cred1Id's key
+      const putDupRes = await fetch(`http://127.0.0.1:${port}/api/settings/credentials/${freshId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey: 'sk-proj-prod-primary-key-12345678',
+        }),
+      });
+      expect(putDupRes.status).toBe(409);
+      const putDupData: any = await putDupRes.json();
+      expect(putDupData.duplicate).toBe(true);
+      expect(putDupData.error).toContain('Duplicate keys cannot be saved');
+    });
   });
 });
