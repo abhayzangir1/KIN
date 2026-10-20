@@ -1213,24 +1213,38 @@ export const SkillsModal: React.FC = () => {
             </div>
 
             {/* Quick Setup Guide */}
-            <div className="p-4 rounded-xl bg-[#060a14] border border-[#141f36] space-y-2">
-              <h4 className="text-xs font-bold text-gray-200">How to configure MCP servers:</h4>
-              <p className="text-[11px] text-gray-400">
-                Place a file named <code className="text-cyan-300 font-mono">.kin/mcp.json</code> in your project folder:
+            <div className="p-4 rounded-xl bg-[#060a14] border border-[#141f36] space-y-3">
+              <h4 className="text-xs font-bold text-gray-200">How to configure external connectors (Slack, Notion, Gmail, etc.):</h4>
+              <p className="text-[11px] text-gray-400 leading-relaxed">
+                Configure external services globally across all projects in <code className="text-cyan-300 font-mono">~/.kin/mcp.json</code>, or for a specific project in <code className="text-cyan-300 font-mono">.kin/mcp.json</code>:
               </p>
-              <pre className="p-3 rounded-lg bg-[#04060c] border border-[#12192a] text-[10px] text-gray-300 font-mono overflow-x-auto">
+              <pre className="p-3 rounded-lg bg-[#04060c] border border-[#12192a] text-[10px] text-gray-300 font-mono overflow-x-auto leading-relaxed">
 {`{
   "mcpServers": {
+    "slack": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-slack"],
+      "env": {
+        "SLACK_BOT_TOKEN": "xoxb-your-slack-bot-token"
+      }
+    },
+    "notion": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-notion"],
+      "env": {
+        "NOTION_API_KEY": "secret_your_notion_api_key"
+      }
+    },
     "filesystem": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
-    },
-    "remote-tools": {
-      "url": "http://127.0.0.1:8000/sse"
     }
   }
 }`}
               </pre>
+              <p className="text-[10px] text-gray-500">
+                💡 <span className="text-gray-400 font-semibold">Tip:</span> You can also use KIN's built-in <code className="text-cyan-400 font-mono">browser</code> tool to interact directly with Gmail, Notion, or Slack web interfaces via your persistent browser session without needing API keys.
+              </p>
             </div>
           </div>
         )}
