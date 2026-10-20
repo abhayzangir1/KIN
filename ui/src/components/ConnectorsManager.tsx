@@ -174,6 +174,60 @@ interface ConnectorsManagerProps {
   embeddedInModal?: boolean;
 }
 
+function formatArgsForInput(args: string[]): string {
+  if (!args || args.length === 0) return '';
+  return args.map((arg) => {
+    if (/[\s"]/.test(arg)) {
+      return `"${arg.replace(/"/g, '\\"')}"`;
+    }
+    return arg;
+  }).join(' ');
+}
+
+function parseArgsFromInput(input: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  let quoteChar = '';
+  let escaping = false;
+
+  for (let i = 0; i < input.length; i++) {
+    const char = input[i];
+    if (escaping) {
+      current += char;
+      escaping = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaping = true;
+      continue;
+    }
+    if (inQuotes) {
+      if (char === quoteChar) {
+        inQuotes = false;
+      } else {
+        current += char;
+      }
+    } else {
+      if (char === '"' || char === "'") {
+        inQuotes = true;
+        quoteChar = char;
+      } else if (/\s/.test(char)) {
+        if (current.length > 0) {
+          result.push(current);
+          current = '';
+        }
+      } else {
+        current += char;
+      }
+    }
+  }
+  if (current.length > 0) {
+    result.push(current);
+  }
+  return result;
+}
+
 export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
   initialScopeFilter = 'all',
   embeddedInModal = false,
@@ -252,7 +306,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
           const realScript = `${kinDir}${sep}servers${sep}kin_standard_connectors.js`;
           initialArgs = [realScript];
         }
-        setFormArgs(initialArgs.join(' '));
+        setFormArgs(formatArgsForInput(initialArgs));
         setFormUrl('');
         const envs = Object.entries(preset.env || {}).map(([key, val]) => ({
           key,
@@ -295,7 +349,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
     } else {
       setFormType('stdio');
       setFormCommand(conn.command || '');
-      setFormArgs((conn.args || []).join(' '));
+      setFormArgs(formatArgsForInput(conn.args || []));
       setFormUrl('');
     }
     setIsEditorOpen(true);
@@ -347,17 +401,16 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
         url: formUrl.trim(),
         transport: 'http' as const,
         env: Object.keys(env).length > 0 ? env : undefined,
+        disabled: editingConnector ? editingConnector.disabled : false,
       };
     } else {
-      // Split args safely respecting space separation
-      const parsedArgs = formArgs.trim()
-        ? formArgs.trim().match(/(?:[^\s"]+|"[^"]*")+/g)?.map((a) => a.replace(/^"|"$/g, '')) || []
-        : [];
+      const parsedArgs = parseArgsFromInput(formArgs);
       return {
         command: formCommand.trim(),
         args: parsedArgs,
         transport: 'stdio' as const,
         env: Object.keys(env).length > 0 ? env : undefined,
+        disabled: editingConnector ? editingConnector.disabled : false,
       };
     }
   };

@@ -525,10 +525,18 @@ describe('MCP Runtime End-to-End Validation', () => {
         body: JSON.stringify({ content: '/mcp reload', senderId: 'user-op' }),
       });
       expect(reloadRes.status).toBe(201);
-      const msgsRes3 = await fetch(`http://127.0.0.1:${actualPort}/api/channels/chan-general/messages`);
-      const msgsData3: any = await msgsRes3.json();
-      const reloadReply = msgsData3.messages[msgsData3.messages.length - 1];
-      expect(reloadReply.content).toContain('MCP Servers Reloaded Successfully');
+      let reloadReply: any = null;
+      for (let i = 0; i < 25; i++) {
+        const msgsRes3 = await fetch(`http://127.0.0.1:${actualPort}/api/channels/chan-general/messages`);
+        const msgsData3: any = await msgsRes3.json();
+        const candidate = msgsData3.messages[msgsData3.messages.length - 1];
+        if (candidate && candidate.content && candidate.content.includes('MCP Servers Reloaded Successfully')) {
+          reloadReply = candidate;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(reloadReply?.content).toContain('MCP Servers Reloaded Successfully');
     } finally {
       await server.stop();
     }

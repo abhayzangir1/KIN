@@ -381,12 +381,95 @@ describe('Connectors Manager & MCP End-to-End Test Suite', () => {
     expect(calcResult.isError).toBeFalsy();
     expect(calcResult.content[0].text).toBe('225');
 
+    const minResult = await client.callTool('sysStandard', 'calculate', { expression: 'Math.min(10, 20)' });
+    expect(minResult.isError).toBeFalsy();
+    expect(minResult.content[0].text).toBe('10');
+
+    const powResult = await client.callTool('sysStandard', 'calculate', { expression: '2^8' });
+    expect(powResult.isError).toBeFalsy();
+    expect(powResult.content[0].text).toBe('256');
+
     // Call SQLite tool
     const sqlResult = await client.callTool('sysStandard', 'query_sqlite', { sql: 'SELECT 40 + 2 AS answer' });
     expect(sqlResult.isError).toBeFalsy();
     const rows = JSON.parse(sqlResult.content[0].text!);
     expect(rows[0].answer).toBe(42);
 
+    // Call SQLite tool with prepared statement params
+    const paramSqlResult = await client.callTool('sysStandard', 'query_sqlite', {
+      sql: 'SELECT ? + ? AS sum_val',
+      params: [15, 27],
+    });
+    expect(paramSqlResult.isError).toBeFalsy();
+    const paramRows = JSON.parse(paramSqlResult.content[0].text!);
+    expect(paramRows[0].sum_val).toBe(42);
+
     client.shutdown();
+  });
+
+  it('8. CoreServer REST: projectId scoping for test and delete endpoints with project boundary validation', async () => {
+    const dbPath = path.join(tempDir, 'core_test2.sqlite');
+    const srvScript = createMockServerScript('proj_api_srv.js', [{ name: 'scoped_tool', description: 'Scoped Tool', response: 'ok' }]);
+
+    const server = new CoreServer({ port: 0, dbPath, requireIpcAuth: false });
+    const port = await server.start();
+
+    try {
+      const projectId = 'proj-scoped-1';
+      (server as any).workspaceRepo.createProject({
+        id: projectId,
+        workspaceId: 'ws-default',
+        name: 'Test Scoped Project',
+        repoPath: tempDir,
+        createdAt: Date.now(),
+      });
+
+      // 1. Save connector using projectId
+      const saveRes = await fetch(`http://127.0.0.1:${port}/api/mcp/connectors/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scope: 'project',
+          name: 'projectScopedConn',
+          config: {
+            command: process.execPath,
+            args: [srvScript],
+          },
+          projectId,
+        }),
+      });
+      expect(saveRes.status).toBe(200);
+
+      // 2. Test connector using projectId
+      const testRes = await fetch(`http://127.0.0.1:${port}/api/mcp/connectors/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          config: {
+            command: process.execPath,
+            args: [srvScript],
+          },
+          projectId,
+        }),
+      });
+      expect(testRes.status).toBe(200);
+      const testJson = await testRes.json();
+      expect(testJson.success).toBe(true);
+      expect(testJson.tools).toContain('scoped_tool');
+
+      // 3. Delete connector using DELETE with query param projectId
+      const delRes = await fetch(`http://127.0.0.1:${port}/api/mcp/connectors/projectScopedConn?scope=project&projectId=${encodeURIComponent(projectId)}`, {
+        method: 'DELETE',
+      });
+      expect(delRes.status).toBe(200);
+      const delJson = await delRes.json();
+      expect(delJson.success).toBe(true);
+
+      // Verify deletion from project
+      const getRes = await fetch(`http://127.0.0.1:${port}/api/mcp/connectors/projectScopedConn?scope=project&projectId=${encodeURIComponent(projectId)}`);
+      expect(getRes.status).toBe(404);
+    } finally {
+      await server.stop();
+    }
   });
 });
