@@ -1352,11 +1352,16 @@ export class CoreServer {
       return { valid: false, root: normTarget, error: `Forbidden: projectRoot '${targetRoot}' cannot be the filesystem root.` };
     }
 
+    const monorepoRoot = (path.basename(process.cwd()) === 'core' || path.basename(process.cwd()) === 'ui') && fs.existsSync(path.resolve(process.cwd(), '../package.json'))
+      ? [path.resolve(process.cwd(), '..')]
+      : [];
+    const baseAllowedDirs = [process.cwd(), os.tmpdir(), ...monorepoRoot];
+
     const registeredProjects = this.workspaceRepo.listProjects('ws-default');
     const isAllowed = registeredProjects.some((p) => {
       const pNorm = path.resolve(p.repoPath);
       return normTarget === pNorm || (!path.relative(pNorm, normTarget).startsWith('..') && !path.isAbsolute(path.relative(pNorm, normTarget)));
-    }) || [process.cwd(), os.tmpdir()].some((p) => {
+    }) || baseAllowedDirs.some((p) => {
       const pNorm = path.resolve(p);
       return normTarget === pNorm || (!path.relative(pNorm, normTarget).startsWith('..') && !path.isAbsolute(path.relative(pNorm, normTarget)));
     });
