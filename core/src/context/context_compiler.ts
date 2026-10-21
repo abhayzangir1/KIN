@@ -241,7 +241,18 @@ export class ContextCompiler {
     // Block 3: 4-Tier Memory Hierarchy & Grounding Rules
     const decisionsText =
       input.projectDecisions.length > 0
-        ? input.projectDecisions.map((d) => `- ${d.key}: ${d.decision}`).join('\n')
+        ? input.projectDecisions.slice(0, 50).map((d) => {
+            const safeKey = String(d.key || '').slice(0, 256).replace(/[\r\n]/g, ' ');
+            let rawVal = String(d.decision || '');
+            if (rawVal.length > 2000) {
+              rawVal = rawVal.slice(0, 2000) + '... [truncated]';
+            }
+            const safeVal = rawVal
+              .replace(/###\s+/g, '## ')
+              .replace(/<(tool_call|tool|function_call)>/gi, '&lt;$1&gt;')
+              .replace(/\[(SYSTEM|DEVELOPER|INSTRUCTION)\]/gi, '[$1-CONTEXT]');
+            return `- ${safeKey}: ${safeVal}`;
+          }).join('\n')
         : 'No specific project constraints configured yet.';
 
     const formatMemoryList = (mems?: Array<{ key: string; type: string; value: unknown }>) => {

@@ -5167,7 +5167,16 @@ export class CoreServer {
                       targetPath = parentResolved;
                     }
                   }
+                  const boundaryCheck = this.validateProjectBoundary(targetPath);
+                  if (!boundaryCheck.valid) {
+                    throw new Error(`Skill import rejected: Path '${target}' must reside within an authorized project boundary.`);
+                  }
+                  targetPath = boundaryCheck.root;
                   if (fs.existsSync(targetPath) && fs.statSync(targetPath).isFile()) {
+                    const stats = fs.statSync(targetPath);
+                    if (stats.size > 5 * 1024 * 1024) {
+                      throw new Error(`Skill import rejected: File '${target}' exceeds maximum allowed size (5MB).`);
+                    }
                     const rawFileText = fs.readFileSync(targetPath, 'utf-8');
                     if (rawFileText.trim().startsWith('{') || rawFileText.trim().startsWith('[')) {
                       const resBundle = this.skillEngine.importSkillBundle(rawFileText);
