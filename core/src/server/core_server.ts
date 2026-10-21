@@ -133,6 +133,9 @@ export class CoreServer {
     recentTools: Array<{ toolName: string; params: any; output?: any; error?: string; timestamp: number; durationMs?: number }>;
     recentThoughts: Array<{ thought: string; timestamp: number }>;
   }> = new Map();
+  private monorepoRoot: string[] = (path.basename(process.cwd()) === 'core' || path.basename(process.cwd()) === 'ui') && fs.existsSync(path.resolve(process.cwd(), '../package.json'))
+    ? [path.resolve(process.cwd(), '..')]
+    : [];
 
   constructor(options: CoreServerOptions = {}) {
     this.port = options.port ?? 54321;
@@ -1352,10 +1355,7 @@ export class CoreServer {
       return { valid: false, root: normTarget, error: `Forbidden: projectRoot '${targetRoot}' cannot be the filesystem root.` };
     }
 
-    const monorepoRoot = (path.basename(process.cwd()) === 'core' || path.basename(process.cwd()) === 'ui') && fs.existsSync(path.resolve(process.cwd(), '../package.json'))
-      ? [path.resolve(process.cwd(), '..')]
-      : [];
-    const baseAllowedDirs = [process.cwd(), os.tmpdir(), ...monorepoRoot];
+    const baseAllowedDirs = [process.cwd(), os.tmpdir(), ...this.monorepoRoot];
 
     const registeredProjects = this.workspaceRepo.listProjects('ws-default');
     const isAllowed = registeredProjects.some((p) => {
@@ -2599,10 +2599,15 @@ export class CoreServer {
         }
 
         const project = this.workspaceRepo.getProject(this.activeProjectId);
-        if (project && body.cwd && !this.isWithinJail(project.repoPath, body.cwd)) {
+        const jailRoot = project?.repoPath || process.cwd();
+        if (body.cwd && !this.isWithinJail(jailRoot, body.cwd)) {
           return this.sendJson(res, 403, { error: 'Forbidden: cwd escapes project jail' });
         }
-        const workingDir = body.cwd || project?.repoPath || process.cwd();
+        const boundaryCheck = this.validateProjectBoundary(body.cwd || jailRoot);
+        if (!boundaryCheck.valid) {
+          return this.sendJson(res, 403, { error: boundaryCheck.error });
+        }
+        const workingDir = boundaryCheck.root;
         const timeoutMs = Math.min(Math.max(body.timeoutMs || 60000, 1000), 600000);
 
         const approvalToken = (req.headers['x-kin-approval-token'] as string) || body.approvalToken;

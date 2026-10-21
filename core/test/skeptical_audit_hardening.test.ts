@@ -9,6 +9,7 @@ import { SecretVault } from '../src/security/secret_vault.js';
 import { SecretBroker } from '../src/security/secret_broker.js';
 import { CoreServer } from '../src/server/core_server.js';
 import { BrowserController } from '../src/browser/browser_controller.js';
+import { DesktopController } from '../src/computer/desktop_controller.js';
 
 describe('Skeptical Audit Remediation Verification Suite', () => {
   const tempDir = path.resolve(os.tmpdir(), `kin_audit_verify_${Date.now()}`);
@@ -367,6 +368,39 @@ describe('Skeptical Audit Remediation Verification Suite', () => {
         name: 'slack_send_message',
         params: { channel: '#general', text: 'Hello world' },
       });
+    });
+  });
+
+  describe('8. Hardened Boundary Checks & Prohibited App Filtering', () => {
+    it('POST /api/terminal/exec rejects cwd escaping project jail even when no active project is set', async () => {
+      const server = new CoreServer({ port: 0, dbPath: path.join(tempDir, 'terminal_boundary.db'), requireIpcAuth: false });
+      const port = await server.start();
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/api/terminal/exec`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            command: 'echo test',
+            cwd: '../../../../dangerous_escaped_path',
+          }),
+        });
+        expect(res.status).toBe(403);
+        const json = await res.json();
+        expect(json.error).toMatch(/Forbidden|escapes/i);
+      } finally {
+        await server.stop();
+      }
+    });
+
+    it('DesktopController.discoverInstalledApps filters out system command interpreters', async () => {
+      const controller = new DesktopController();
+      const apps = await controller.discoverInstalledApps();
+      const blockedBinaries = ['bash', 'sh', 'cmd', 'powershell', 'pwsh', 'wscript', 'cscript'];
+      for (const app of apps) {
+        const base = path.basename(app.executablePath, path.extname(app.executablePath)).toLowerCase();
+        expect(blockedBinaries).not.toContain(base);
+        expect(blockedBinaries).not.toContain(app.name.toLowerCase());
+      }
     });
   });
 });

@@ -68,10 +68,16 @@ export class DesktopController {
   public async discoverInstalledApps(): Promise<DiscoveredApp[]> {
     const apps: DiscoveredApp[] = [];
     const seenPaths = new Set<string>();
+    const blockedExes = new Set([
+      'cmd', 'powershell', 'pwsh', 'bash', 'sh', 'wscript', 'cscript', 'mshta',
+      'reg', 'regedit', 'certutil', 'bitsadmin', 'rundll32'
+    ]);
 
     const addApp = (name: string, exePath: string, category: DiscoveredApp['category'], version?: string) => {
       const normalized = path.normalize(exePath).toLowerCase();
       if (seenPaths.has(normalized)) return;
+      const baseExe = path.basename(exePath, path.extname(exePath)).toLowerCase();
+      if (blockedExes.has(baseExe) || blockedExes.has(name.toLowerCase())) return;
       if (fs.existsSync(exePath)) {
         seenPaths.add(normalized);
         const id = `app-${name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()}`;
@@ -142,8 +148,6 @@ export class DesktopController {
       addApp('Google Chrome', '/Applications/Google Chrome.app', 'browser');
 
       if (process.platform === 'linux') {
-        addApp('bash', '/bin/bash', 'system');
-        addApp('bash', '/usr/bin/bash', 'system');
         addApp('curl', '/usr/bin/curl', 'development');
         addApp('git', '/usr/bin/git', 'development');
         addApp('Google Chrome', '/usr/bin/google-chrome', 'browser');
