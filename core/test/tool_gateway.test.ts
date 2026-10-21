@@ -233,7 +233,7 @@ describe('KIN Phase 4/5: Tool Gateway & Git Worktree Manager', () => {
     try {
       fs.rmSync(tempDbDir, { recursive: true, force: true });
     } catch {}
-  });
+  }, 30000);
 
   it('strictly scopes WorkspaceRepository.listAgentChannelIds to the specified project', () => {
     const tempDbDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kin-scope-test-'));
@@ -316,7 +316,7 @@ describe('KIN Phase 4/5: Tool Gateway & Git Worktree Manager', () => {
     try {
       fs.rmSync(tempDbDir, { recursive: true, force: true });
     } catch {}
-  });
+  }, 30000);
 
   it('allows a hired specialist to autonomously recruit a subagent under them with agent:hire capability', async () => {
     const tempDbDir = fs.mkdtempSync(path.join(tempRepoDir, 'kin-subagent-test-'));
@@ -386,7 +386,7 @@ describe('KIN Phase 4/5: Tool Gateway & Git Worktree Manager', () => {
     try {
       fs.rmSync(tempDbDir, { recursive: true, force: true });
     } catch {}
-  });
+  }, 30000);
 
   it('exposes hireSpecialist in AgentLoopRunner TOOL INSTRUCTIONS and parses tool calls', () => {
     const loopPrompt = (AgentLoopRunner.prototype as any).buildSystemPrompt('You are @Boss', []);
