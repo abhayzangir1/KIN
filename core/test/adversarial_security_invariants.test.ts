@@ -5,6 +5,8 @@ import { SkillEngine } from '../src/skills/skill_engine.js';
 import { WorkspaceRepository } from '../src/domain/workspace_repository.js';
 import { ToolGateway } from '../src/execution/tool_gateway.js';
 import { Sentinel } from '../src/security/sentinel.js';
+import { ChannelService } from '../src/communication/channel_service.js';
+import { MemoryRepository } from '../src/domain/memory_repository.js';
 
 describe('Adversarial Security Invariants & Audit Regressions', () => {
   it('blocks hostSetTimeout, setTimeout.constructor, and host process leakage in SkillEngine', async () => {
@@ -121,5 +123,55 @@ describe('Adversarial Security Invariants & Audit Regressions', () => {
     });
 
     expect(decision.requiresApproval).toBe(true);
+  });
+
+  it('redacts plaintext API keys and bearer tokens when persisting channel messages', () => {
+    const db = new KinDatabase(':memory:');
+    new MigrationRunner(db).runMigrations();
+    const service = new ChannelService(db);
+
+    const now = Date.now();
+    db.execute("INSERT INTO workspaces (id, name, root_path, default_autonomy_mode, created_at, updated_at) VALUES ('ws-sec', 'Secure WS', '.', 'AUTO', 100, 100)");
+    db.execute("INSERT INTO projects (id, workspace_id, name, repo_path, created_at, updated_at) VALUES ('proj-sec', 'ws-sec', 'Secure Project', '.', 100, 100)");
+    db.execute("INSERT INTO channels (id, project_id, name, is_private, channel_type, created_at) VALUES ('chan-sec', 'proj-sec', 'security', 0, 'channel', 100)");
+
+    const msg = service.sendMessage({
+      channelId: 'chan-sec',
+      senderId: 'user-sec',
+      senderType: 'human',
+      content: 'Here is the secret token: Bearer mysecrettoken1234567890abcdef and sk-123456789012345678901234567890',
+    });
+
+    expect(msg.content).not.toContain('mysecrettoken1234567890abcdef');
+    expect(msg.content).not.toContain('sk-123456789012345678901234567890');
+    expect(msg.content).toContain('[REDACTED][REDACTED_TOKEN]');
+    expect(msg.content).toContain('[REDACTED][REDACTED_KEY]');
+
+    const row = db.queryOne<{ content: string }>('SELECT content FROM messages WHERE id = ?', msg.id);
+    expect(row?.content).toBe(msg.content);
+  });
+
+  it('redacts sensitive API credentials when storing scoped memories', () => {
+    const db = new KinDatabase(':memory:');
+    new MigrationRunner(db).runMigrations();
+    const memoryRepo = new MemoryRepository(db);
+
+    const mem = memoryRepo.setMemory({
+      scope: 'project',
+      scopeId: 'proj-sec',
+      type: 'preference',
+      key: 'api_config',
+      value: {
+        endpoint: 'https://api.example.com',
+        apiKey: 'sk-secret12345678901234567890',
+      },
+    });
+
+    const parsed = mem.value as any;
+    expect(parsed.apiKey).toBe('[REDACTED][REDACTED_KEY]');
+
+    const storedRow = db.queryOne<{ value_json: string }>('SELECT value_json FROM memories WHERE id = ?', mem.id);
+    expect(storedRow?.value_json).not.toContain('sk-secret12345678901234567890');
+    expect(storedRow?.value_json).toContain('[REDACTED][REDACTED_KEY]');
   });
 });

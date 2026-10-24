@@ -5,6 +5,7 @@
 // ============================================================================
 
 import { KinDatabase, safeJsonParse } from '../storage/db.js';
+import { SecretBroker } from '../security/secret_broker.js';
 import { Memory, MemoryScope, MemoryType } from './types.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -47,6 +48,8 @@ export class MemoryRepository {
    */
   public setMemory(params: SetMemoryParams): Memory {
     const now = Date.now();
+    const safeValue = SecretBroker.getInstance().sanitizePayload(params.value);
+    const valJson = JSON.stringify(safeValue);
     return this.db.transactionSync(() => {
       const existing = this.getMemory(params.scope, params.scopeId, params.key);
 
@@ -58,7 +61,6 @@ export class MemoryRepository {
         }
 
         const nextVersion = existing.version + 1;
-        const valJson = JSON.stringify(params.value);
 
         // Archive current snapshot into memory_versions
         this.db.execute(
@@ -94,7 +96,7 @@ export class MemoryRepository {
         return {
           ...existing,
           type: params.type,
-          value: params.value,
+          value: safeValue,
           version: nextVersion,
           evidenceRef: params.evidenceRef ?? existing.evidenceRef,
           updatedAt: now,
@@ -107,7 +109,6 @@ export class MemoryRepository {
         }
 
         const id = `mem-${uuidv4()}`;
-        const valJson = JSON.stringify(params.value);
 
         this.db.execute(
           `INSERT INTO memories (id, scope, scope_id, type, key, value_json, version, evidence_ref, created_at, updated_at)
@@ -129,7 +130,7 @@ export class MemoryRepository {
           scopeId: params.scopeId,
           type: params.type,
           key: params.key,
-          value: params.value,
+          value: safeValue,
           version: 1,
           evidenceRef: params.evidenceRef,
           createdAt: now,

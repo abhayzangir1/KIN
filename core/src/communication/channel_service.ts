@@ -49,8 +49,9 @@ export class ChannelService {
     }
 
     const id = uuidv4();
-    const mentions = this.extractMentions(params.content);
-    const score = params.productivityScore ?? this.calculateInitialProductivity(params.content);
+    const cleanContent = SecretBroker.getInstance(this.db).redactSecrets(params.content);
+    const mentions = this.extractMentions(cleanContent);
+    const score = params.productivityScore ?? this.calculateInitialProductivity(cleanContent);
     const now = Date.now();
 
     const message: Message = {
@@ -58,7 +59,7 @@ export class ChannelService {
       channelId: params.channelId,
       senderId: params.senderId,
       senderType: params.senderType,
-      content: params.content,
+      content: cleanContent,
       parentMessageId: params.parentMessageId,
       mentions,
       productivityScore: score,
