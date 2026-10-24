@@ -58,7 +58,7 @@ KIN is organized into three production workspaces:
 ### Automated Test Suite
 - **Core Test Suite (`npm test --workspace=core`)**:
   - **44 Test Files**: All 44 passed.
-  - **653 Tests**: All 653 passed (0 failed, 0 skipped, 100% green).
+  - **653 Tests**: All 653 passed (0 failed, 0 skipped, all green).
   - Concurrency & adversarial test suites (`adversarial_r1_concurrency_stress.test.ts`, `adversarial_storage_resilience.test.ts`, `adversarial_storage_stress.test.ts`) verify task lease contention, message ingestion fencing, atomic CAS approval gates, and SHA-256 EventLedger cryptographic integrity under multi-worker loads.
   - Test suites utilize isolated temporary directories in the system temp directory to prevent any dirty git working tree artifacts.
 
