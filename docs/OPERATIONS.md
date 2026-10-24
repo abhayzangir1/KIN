@@ -121,3 +121,50 @@ sqlite3 kin_storage.sqlite ".backup kin_backup_$(date +%Y%m%d).sqlite"
   curl -H "Authorization: Bearer $KIN_TOKEN" http://127.0.0.1:54321/api/diagnostics
   ```
 - **Daemon Logs**: Tail stdout/stderr in your terminal or redirect to a dedicated logfile (`kin.log`).
+
+---
+
+## 7. Verification, Testing & Build Operations
+
+### Automated Test Execution
+
+KIN maintains a comprehensive automated testing suite (634 tests across 43 test suites).
+
+**Monorepo Test Command:**
+```bash
+npm test
+```
+
+**Core Workspace Test Command:**
+```bash
+npm test --workspace=core
+```
+
+**Individual Test File Execution:**
+```bash
+npx vitest run core/test/adversarial_r1_concurrency_stress.test.ts
+```
+
+### Full Production Builds
+
+**Monorepo Build (Core & UI):**
+```bash
+npm run build
+```
+
+**Core Daemon Build (`tsc`):**
+```bash
+npm run build --workspace=core
+```
+
+**Frontend UI Build (`tsc && vite build`):**
+```bash
+npm run build --workspace=ui
+```
+
+### Operational Invariant: Background Server Processes
+
+> **MANDATORY VERIFICATION RULE**:  
+> During automated test execution and build verification workflows, all background daemons (`node core/dist/start_daemon.js` or `npm run daemon`) and UI development servers (`npm run dev` or `npm run dev --workspace=ui`) must remain completely stopped.  
+> 
+> Automated test suites dynamically instantiate isolated in-memory or ephemeral SQLite databases and bind to dynamic loopback ports (port `0`). Running external daemons concurrently can create file handle locks on temporary SQLite files, generate lease collisions, or cause port contention. Automated verification commands expect a clean, idle host environment.

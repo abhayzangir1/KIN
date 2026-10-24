@@ -5,6 +5,13 @@ import * as path from 'node:path';
 
 function getIpcToken(): string | null {
   try {
+    if (process.env.KIN_DATA_DIR && process.env.KIN_DATA_DIR.trim().length > 0) {
+      const custom = path.resolve(process.env.KIN_DATA_DIR.trim());
+      const p1 = path.join(custom, 'ipc_auth.token');
+      if (fs.existsSync(p1)) return fs.readFileSync(p1, 'utf-8').trim();
+      const p2 = path.join(custom, '.kin', 'ipc_auth.token');
+      if (fs.existsSync(p2)) return fs.readFileSync(p2, 'utf-8').trim();
+    }
     const tokenPath = path.resolve(__dirname, '../.kin/ipc_auth.token');
     if (fs.existsSync(tokenPath)) {
       return fs.readFileSync(tokenPath, 'utf-8').trim();

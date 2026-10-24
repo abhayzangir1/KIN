@@ -260,9 +260,24 @@ Approve or reject a gated tool invocation using atomic Compare-And-Swap (CAS) re
   ```json
   { "approved": true }
   ```
+  *(Also accepts `{ "status": "approved" }` or `{ "decision": "approve" }`)*
 - **Responses**:
-  - `200 OK`: Approval state successfully transitioned to `approved` or `rejected`.
-  - `409 Conflict`: `{ "error": "Approval was already resolved by another request." }` returned when concurrent resolution attempts are made.
+  - `200 OK`:
+    ```json
+    {
+      "success": true,
+      "approvalId": "appr-1730000000",
+      "status": "approved",
+      "result": { ... }
+    }
+    ```
+    Approval state successfully transitioned to `approved` or `rejected`. The gated tool execution proceeds only for the winning request.
+  - `409 Conflict`:
+    ```json
+    { "error": "Approval was already resolved by another request." }
+    ```
+    Returned when concurrent or duplicate resolution attempts are received (`changes === 0`). Prevents double-execution of privileged tools under concurrent caller races.
+  - `400 Bad Request`: Returned if the approval does not exist or has expired.
 
 ---
 
@@ -283,26 +298,51 @@ Create a high-level goal.
   ```
 
 ### `POST /api/goals/:id/tasks`
-Create a task node in the goal's Directed Acyclic Graph (DAG) with dependency ordering.
+Create a task node in the goal's Directed Acyclic Graph (DAG) with prerequisite dependency ordering.
 - **Request Body**:
   ```json
   {
     "title": "Implement SQLite WAL stress test runner",
     "description": "Verify concurrent write throughput under multi-agent load",
     "assignedAgentId": "agent-orchestrator",
+    "dependsOnTaskIds": ["task-1", "task-2"],
+    "status": "backlog",
+    "verificationSpec": {}
+  }
+  ```
+- **Parameters**:
+  - `title` *(string, required)*: Task title.
+  - `description` *(string, optional)*: Task description and instructions.
+  - `assignedAgentId` *(string, optional)*: ID of assigned agent.
+  - `dependsOnTaskIds` *(string[], optional)*: Array of prerequisite task IDs that must complete before this task can start.
+  - `status` *(string, optional)*: Initial status (`backlog`, `ready`, etc.).
+- **Backlog Initialization & DAG Semantics**:
+  - If `dependsOnTaskIds` is provided and non-empty (or if `status === 'pending'`), the task automatically initializes in `'backlog'` status.
+  - If no dependencies are specified, the task initializes in `'ready'` status.
+  - Dependency existence is strictly validated: every task ID in `dependsOnTaskIds` must already exist in the database, or an error is thrown.
+  - Depth-first cycle detection (`wouldCreateCycle`) prevents circular dependency deadlocks.
+  - When prerequisite tasks reach `'completed'`, the orchestrator evaluates downstream dependencies and promotes eligible tasks from `'backlog'` to `'ready'`.
+- **Response `201`**:
+  ```json
+  {
+    "task": {
+      "id": "task-1730000000",
+      "goalId": "goal-1",
+      "title": "Implement SQLite WAL stress test runner",
+      "description": "...",
+      "status": "backlog",
+      "createdAt": 1730000000000,
+      "updatedAt": 1730000000000
+    },
     "dependsOnTaskIds": ["task-1", "task-2"]
   }
   ```
-- **Validation**:
-  - Ensures all `dependsOnTaskIds` exist in the database.
-  - Cycle detection prevents circular dependencies (`wouldCreateCycle`).
-  - Tasks remain in `backlog` until all prerequisite tasks reach `completed` status.
 
 ### `PATCH /api/tasks/:id/status`
-Update task progress (`pending`, `running`, `completed`, `failed`).
+Update task progress (`backlog`, `ready`, `running`, `completed`, `failed`, `blocked`).
 
 ### `POST /api/tasks/:id/sign-off`
-Operator manual sign-off for completed deliverables.
+Operator manual sign-off for completed deliverables. Verified via constant-time token comparison (`crypto.timingSafeEqual`).
 
 ### `GET /api/projects/:id/decisions`
 List Architectural Decision Records (ADRs).
@@ -317,14 +357,50 @@ Record an agent or human vote on a decision record.
 
 ## ⏰ 8. Proactive Routines & Automations
 
-### `GET /api/projects/:id/schedules`
-List configured background schedules.
+### `GET /api/projects/:id/schedules` (also `/api/schedules`, `/api/automations`, `/api/projects/:id/automations`)
+Consolidated endpoint listing all proactive schedules and automations for the project (or across the workspace).
+- **Response `200`**:
+  ```json
+  {
+    "automations": [
+      {
+        "id": "sched-1730000000",
+        "projectId": "proj-kin",
+        "projectName": "KIN",
+        "repoPath": "D:/kin_sandbox_workspace",
+        "channelId": "chan-general",
+        "channelName": "#general",
+        "targetAgentId": "agent-orchestrator",
+        "agentName": "@Boss",
+        "type": "cron",
+        "cronExpression": "0 9 * * 1-5",
+        "prompt": "Daily triage bot",
+        "status": "active",
+        "createdAt": 1730000000000
+      }
+    ],
+    "schedules": [
+      {
+        "id": "sched-1730000000",
+        "projectId": "proj-kin",
+        "channelId": "chan-general",
+        "targetAgentId": "agent-orchestrator",
+        "type": "cron",
+        "cronExpression": "0 9 * * 1-5",
+        "prompt": "Daily triage bot",
+        "status": "active",
+        "createdAt": 1730000000000
+      }
+    ]
+  }
+  ```
 
 ### `POST /api/projects/:id/schedules`
 Register a proactive background automation.
 - **Request Body**:
   ```json
   {
+    "type": "cron",
     "name": "Morning Briefing",
     "cronExpression": "0 9 * * 1-5",
     "channelId": "chan-general",
