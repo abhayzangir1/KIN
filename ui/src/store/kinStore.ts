@@ -1201,6 +1201,7 @@ interface KinState {
 
 let eventSourceInstance: EventSource | null = null;
 let sseReconnectTimer: any = null;
+let sseReconnectAttempts = 0;
 
 export const useKinStore = create<KinState>((set, get) => ({
   projects: [],
@@ -2912,6 +2913,7 @@ export const useKinStore = create<KinState>((set, get) => ({
       });
 
       sse.onopen = () => {
+        sseReconnectAttempts = 0;
         set({ isConnected: true });
         get().fetchState();
         const activeChan = get().activeChannelId;
@@ -2939,11 +2941,12 @@ export const useKinStore = create<KinState>((set, get) => ({
         if (sseReconnectTimer) {
           clearTimeout(sseReconnectTimer);
         }
+        const delay = Math.min(15000, 1000 * Math.pow(1.5, sseReconnectAttempts++)) + Math.floor(Math.random() * 500);
         sseReconnectTimer = setTimeout(() => {
           sseReconnectTimer = null;
-          console.log('[KIN UI] EventSource connection error or disconnect, auto-reconnecting...');
+          console.log(`[KIN UI] EventSource connection error or disconnect, auto-reconnecting (attempt ${sseReconnectAttempts}, delay ${delay}ms)...`);
           get().initSSE();
-        }, 3000);
+        }, delay);
       };
     } catch (err) {
       console.error('[KIN UI] SSE connection error:', err);
@@ -2952,6 +2955,7 @@ export const useKinStore = create<KinState>((set, get) => ({
   },
 
   closeSSE: () => {
+    sseReconnectAttempts = 0;
     if (sseReconnectTimer) {
       clearTimeout(sseReconnectTimer);
       sseReconnectTimer = null;

@@ -95,11 +95,12 @@ export class MigrationRunner {
       }
     }
 
-    if (!schemaSql) {
-      if (EMBEDDED_SCHEMA_SQL && EMBEDDED_SCHEMA_SQL.trim().length > 0) {
+    // Defensive guard against stale disk schema copies:
+    // If EMBEDDED_SCHEMA_SQL has newer features (e.g. xai/azure provider types or key_fingerprint)
+    // that are missing from schemaSql on disk, always prefer authoritative EMBEDDED_SCHEMA_SQL.
+    if (EMBEDDED_SCHEMA_SQL && EMBEDDED_SCHEMA_SQL.trim().length > 0) {
+      if (!schemaSql || (!schemaSql.includes('xai') && EMBEDDED_SCHEMA_SQL.includes('xai'))) {
         schemaSql = EMBEDDED_SCHEMA_SQL;
-      } else {
-        throw new Error(`Migration schema file not found in search paths: ${candidatePaths.slice(0, 4).join(', ')}`);
       }
     }
 
@@ -399,6 +400,44 @@ export class MigrationRunner {
         const channelCols = this.db.query<{ name: string }>("PRAGMA table_info(channels);").map((c) => c.name);
         if (!channelCols.includes('channel_type')) {
           this.db.exec("ALTER TABLE channels ADD COLUMN channel_type TEXT DEFAULT 'channel' CHECK (channel_type IN ('channel', 'direct_message', 'meeting'));");
+        }
+      }
+
+      // Pre-migration: providers table provider_type CHECK constraint widening and column guarantees
+      if (existingTables.includes('providers')) {
+        const provCols = this.db.query<{ name: string }>("PRAGMA table_info(providers);").map((c) => c.name);
+        if (!provCols.includes('base_url')) {
+          this.db.exec('ALTER TABLE providers ADD COLUMN base_url TEXT;');
+        }
+        if (!provCols.includes('api_key_ref')) {
+          this.db.exec('ALTER TABLE providers ADD COLUMN api_key_ref TEXT;');
+        }
+        if (!provCols.includes('is_active')) {
+          this.db.exec('ALTER TABLE providers ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1;');
+        }
+
+        const providersSql = this.db.queryOne<{ sql: string }>(
+          "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'providers';"
+        )?.sql || '';
+
+        if (!providersSql.includes('xai') || !providersSql.includes('azure')) {
+          this.db.exec(`
+            PRAGMA foreign_keys = OFF;
+            CREATE TABLE providers_dg_tmp (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              provider_type TEXT NOT NULL CHECK (provider_type IN ('ollama', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure', 'openrouter', 'together', 'deepinfra', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'vllm', 'openai_compatible', 'custom')),
+              base_url TEXT,
+              api_key_ref TEXT,
+              is_active BOOLEAN NOT NULL DEFAULT 1,
+              created_at INTEGER NOT NULL
+            );
+            INSERT INTO providers_dg_tmp (id, name, provider_type, base_url, api_key_ref, is_active, created_at)
+            SELECT id, name, provider_type, base_url, api_key_ref, is_active, created_at FROM providers;
+            DROP TABLE providers;
+            ALTER TABLE providers_dg_tmp RENAME TO providers;
+            PRAGMA foreign_keys = ON;
+          `);
         }
       }
 

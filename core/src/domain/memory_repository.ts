@@ -4,7 +4,7 @@
 // with Optimistic Concurrency Control (OCC) and version history snapshots.
 // ============================================================================
 
-import { KinDatabase } from '../storage/db.js';
+import { KinDatabase, safeJsonParse } from '../storage/db.js';
 import { Memory, MemoryScope, MemoryType } from './types.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -203,12 +203,7 @@ export class MemoryRepository {
     );
 
     return rows.map((r) => {
-      let val: unknown = null;
-      try {
-        val = JSON.parse(r.value_json);
-      } catch {
-        val = r.value_json;
-      }
+      const val = safeJsonParse(r.value_json, r.value_json);
       return {
         id: r.id,
         memoryId: r.memory_id,
@@ -221,12 +216,7 @@ export class MemoryRepository {
   }
 
   private mapRowToMemory(row: any): Memory {
-    let val: unknown = null;
-    try {
-      val = JSON.parse(row.value_json);
-    } catch {
-      val = row.value_json;
-    }
+    const val = safeJsonParse(row.value_json, row.value_json);
     return {
       id: row.id,
       scope: row.scope,

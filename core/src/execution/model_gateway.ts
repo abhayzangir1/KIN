@@ -1709,7 +1709,14 @@ export class ModelGateway {
       } else if (provider === 'azure') {
         const apiKey = this.resolveApiKey('azure', params.callerAgentId);
         const custom = this.customEndpoints.get('azure');
-        const url = custom?.baseUrl || 'https://YOUR_RESOURCE.openai.azure.com/openai/deployments';
+        let url = custom?.baseUrl || 'https://YOUR_RESOURCE.openai.azure.com/openai/deployments';
+        if (!url.includes('/chat/completions')) {
+          const cleanBase = url.replace(/\/+$/, '');
+          const deployment = modelName.replace(/^azure\//, '');
+          url = cleanBase.includes('/openai/deployments')
+            ? `${cleanBase}/${deployment}/chat/completions?api-version=2024-02-15-preview`
+            : `${cleanBase}/openai/deployments/${deployment}/chat/completions?api-version=2024-02-15-preview`;
+        }
         return await this.invokeOpenAiCompatible(
           url,
           apiKey,
@@ -2130,6 +2137,8 @@ export class ModelGateway {
     let promptTokens = 0;
     let completionTokens = 0;
     let totalTokens = 0;
+    const streamToolCalls = new Map<number, { id: string; name: string; arguments: string }>();
+    const collectedToolCalls: Array<{ name: string; parameters: any }> = [];
 
     if (stream && res.body && typeof (res.body as any).getReader === 'function') {
       const reader = (res.body as any).getReader();
@@ -2165,12 +2174,35 @@ export class ModelGateway {
                 params.onToken(deltaContent);
               }
             }
+            const toolCallsDelta = parsed?.choices?.[0]?.delta?.tool_calls;
+            if (Array.isArray(toolCallsDelta)) {
+              for (const tc of toolCallsDelta) {
+                const idx = tc.index ?? 0;
+                if (!streamToolCalls.has(idx)) {
+                  streamToolCalls.set(idx, { id: tc.id || '', name: tc.function?.name || '', arguments: '' });
+                }
+                const current = streamToolCalls.get(idx)!;
+                if (tc.id) current.id = tc.id;
+                if (tc.function?.name) current.name += tc.function.name;
+                if (tc.function?.arguments) current.arguments += tc.function.arguments;
+              }
+            }
             if (parsed.usage) {
               promptTokens = parsed.usage.prompt_tokens || promptTokens;
               completionTokens = parsed.usage.completion_tokens || completionTokens;
               totalTokens = parsed.usage.total_tokens || totalTokens;
             }
           } catch {}
+        }
+      }
+
+      for (const tc of streamToolCalls.values()) {
+        let parsedArgs: any = {};
+        if (tc.arguments) {
+          try { parsedArgs = JSON.parse(tc.arguments); } catch { parsedArgs = { raw: tc.arguments }; }
+        }
+        if (tc.name) {
+          collectedToolCalls.push({ name: tc.name, parameters: parsedArgs });
         }
       }
     } else {
@@ -2184,12 +2216,40 @@ export class ModelGateway {
       if (reasoning) {
         fullThinking = reasoning;
       }
+
+      const choiceToolCalls = choiceMsg?.tool_calls;
+      if (Array.isArray(choiceToolCalls)) {
+        for (const tc of choiceToolCalls) {
+          const fnName = tc?.function?.name || tc?.name;
+          if (!fnName) continue;
+          let fnArgs = tc?.function?.arguments ?? tc?.arguments ?? tc?.parameters ?? {};
+          if (typeof fnArgs === 'string') {
+            try { fnArgs = JSON.parse(fnArgs); } catch {}
+          }
+          collectedToolCalls.push({ name: fnName, parameters: fnArgs });
+        }
+      }
+
       promptTokens = data?.usage?.prompt_tokens || 0;
       completionTokens = data?.usage?.completion_tokens || 0;
       totalTokens = data?.usage?.total_tokens || 0;
       if (params.onToken && content) {
         params.onToken(content);
       }
+    }
+
+    if (collectedToolCalls.length > 0) {
+      for (const tc of collectedToolCalls) {
+        const toolXml = `\n<tool_call>\n${JSON.stringify({ name: tc.name, parameters: tc.parameters }, null, 2)}\n</tool_call>\n`;
+        content += toolXml;
+        if (params.onToken) {
+          params.onToken(toolXml);
+        }
+      }
+    }
+
+    if (!content.trim() && fullThinking.trim()) {
+      content = fullThinking.trim();
     }
 
     const separated = separateThinkingAndContent(content, fullThinking);
@@ -2235,6 +2295,9 @@ export class ModelGateway {
     };
     if (apiKey && apiKey !== 'local-no-key') {
       reqHeaders['Authorization'] = `Bearer ${apiKey}`;
+      if (provider === 'azure') {
+        reqHeaders['api-key'] = apiKey;
+      }
     }
 
     const res = await fetch(url, {
@@ -2288,6 +2351,8 @@ export class ModelGateway {
     let promptTokens = 0;
     let completionTokens = 0;
     let totalTokens = 0;
+    const streamToolCalls = new Map<number, { id: string; name: string; arguments: string }>();
+    const collectedToolCalls: Array<{ name: string; parameters: any }> = [];
 
     if (stream && res.body && typeof (res.body as any).getReader === 'function') {
       const reader = (res.body as any).getReader();
@@ -2323,12 +2388,35 @@ export class ModelGateway {
                 params.onToken(deltaContent);
               }
             }
+            const toolCallsDelta = parsed?.choices?.[0]?.delta?.tool_calls;
+            if (Array.isArray(toolCallsDelta)) {
+              for (const tc of toolCallsDelta) {
+                const idx = tc.index ?? 0;
+                if (!streamToolCalls.has(idx)) {
+                  streamToolCalls.set(idx, { id: tc.id || '', name: tc.function?.name || '', arguments: '' });
+                }
+                const current = streamToolCalls.get(idx)!;
+                if (tc.id) current.id = tc.id;
+                if (tc.function?.name) current.name += tc.function.name;
+                if (tc.function?.arguments) current.arguments += tc.function.arguments;
+              }
+            }
             if (parsed.usage) {
               promptTokens = parsed.usage.prompt_tokens || promptTokens;
               completionTokens = parsed.usage.completion_tokens || completionTokens;
               totalTokens = parsed.usage.total_tokens || totalTokens;
             }
           } catch {}
+        }
+      }
+
+      for (const tc of streamToolCalls.values()) {
+        let parsedArgs: any = {};
+        if (tc.arguments) {
+          try { parsedArgs = JSON.parse(tc.arguments); } catch { parsedArgs = { raw: tc.arguments }; }
+        }
+        if (tc.name) {
+          collectedToolCalls.push({ name: tc.name, parameters: parsedArgs });
         }
       }
     } else {
@@ -2342,12 +2430,40 @@ export class ModelGateway {
       if (reasoning) {
         fullThinking = reasoning;
       }
+
+      const choiceToolCalls = choiceMsg?.tool_calls;
+      if (Array.isArray(choiceToolCalls)) {
+        for (const tc of choiceToolCalls) {
+          const fnName = tc?.function?.name || tc?.name;
+          if (!fnName) continue;
+          let fnArgs = tc?.function?.arguments ?? tc?.arguments ?? tc?.parameters ?? {};
+          if (typeof fnArgs === 'string') {
+            try { fnArgs = JSON.parse(fnArgs); } catch {}
+          }
+          collectedToolCalls.push({ name: fnName, parameters: fnArgs });
+        }
+      }
+
       promptTokens = data?.usage?.prompt_tokens || 0;
       completionTokens = data?.usage?.completion_tokens || 0;
       totalTokens = data?.usage?.total_tokens || 0;
       if (params.onToken && content) {
         params.onToken(content);
       }
+    }
+
+    if (collectedToolCalls.length > 0) {
+      for (const tc of collectedToolCalls) {
+        const toolXml = `\n<tool_call>\n${JSON.stringify({ name: tc.name, parameters: tc.parameters }, null, 2)}\n</tool_call>\n`;
+        content += toolXml;
+        if (params.onToken) {
+          params.onToken(toolXml);
+        }
+      }
+    }
+
+    if (!content.trim() && fullThinking.trim()) {
+      content = fullThinking.trim();
     }
 
     const separated = separateThinkingAndContent(content, fullThinking);
