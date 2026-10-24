@@ -663,7 +663,10 @@ export class ModelGateway {
       }
 
       if (norm === 'gemini') {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey!)}`, {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models`, {
+          headers: {
+            'x-goog-api-key': apiKey!,
+          },
           signal: AbortSignal.timeout(8000),
         }).catch((err) => { throw new Error(`Network failure connecting to Google Gemini: ${err.message}`); });
 

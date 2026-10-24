@@ -166,6 +166,7 @@ export class TaskRepository {
            lease_expires_at = ?,
            updated_at = ?
        WHERE id = ?
+         AND (assigned_agent_id IS NULL OR assigned_agent_id = '' OR assigned_agent_id = ?)
          AND (
            status = 'ready'
            OR status = 'assigned'
@@ -177,6 +178,7 @@ export class TaskRepository {
       leaseExpiresAt,
       now,
       taskId,
+      agentId,
       runId,
       now
     );

@@ -2960,7 +2960,7 @@ export class CoreServer {
           return this.sendJson(res, 403, { error: 'Forbidden: Path traversal outside project jail' });
         }
 
-        // Sensitive File Denylist: Prevent reading credentials, tokens, or repo secrets
+        // Sensitive File Denylist: Prevent reading credentials, tokens, database, or repo secrets
         const lowerRel = relPath.toLowerCase().replace(/\\/g, '/');
         const blockedSensitivePatterns = [
           'vault.key',
@@ -2971,9 +2971,26 @@ export class CoreServer {
           'id_ed25519',
           '.npmrc',
           '.pypirc',
+          'kin_storage.sqlite',
+          'kin_storage.sqlite-wal',
+          'kin_storage.sqlite-shm',
         ];
-        if (blockedSensitivePatterns.some((pattern) => lowerRel === pattern || lowerRel.endsWith('/' + pattern) || lowerRel.includes('.kin/' + pattern))) {
-          return this.sendJson(res, 403, { error: 'Forbidden: Access to sensitive credential or repository configuration files is prohibited.' });
+        const isBlocked =
+          lowerRel.endsWith('.sqlite') ||
+          lowerRel.endsWith('.sqlite3') ||
+          lowerRel.endsWith('.sqlite-wal') ||
+          lowerRel.endsWith('.sqlite-shm') ||
+          lowerRel.includes('/.kin/') ||
+          lowerRel.startsWith('.kin/') ||
+          lowerRel.includes('/.ssh/') ||
+          lowerRel.startsWith('.ssh/') ||
+          lowerRel.includes('/.aws/') ||
+          lowerRel.startsWith('.aws/') ||
+          blockedSensitivePatterns.some((pattern) =>
+            lowerRel === pattern || lowerRel.endsWith('/' + pattern) || lowerRel.includes('.kin/' + pattern)
+          );
+        if (isBlocked) {
+          return this.sendJson(res, 403, { error: 'Forbidden: Access to sensitive credential, database, or repository configuration files is prohibited.' });
         }
 
         const resolvedPath = path.resolve(project.repoPath, relPath);
@@ -6497,10 +6514,6 @@ Format strictly as JSON:
             }
           }
           const validCaps = new Set(['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate', 'mcp:call', 'browser:read', 'browser:interact', 'desktop:read', 'desktop:interact', 'memory:read', 'memory:write', 'net:fetch']);
-          if (!callerAgentId) {
-            validCaps.add('*');
-            validCaps.add('tools:*');
-          }
           const sanitizedCaps = body.capabilities.filter(c => validCaps.has(c));
           this.db.execute(
             `UPDATE agent_definitions SET capabilities_json = ? WHERE id = ?`,
@@ -6571,10 +6584,6 @@ Format strictly as JSON:
             }
           }
           const validCaps = new Set(['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate', 'mcp:call', 'browser:read', 'browser:interact', 'desktop:read', 'desktop:interact', 'memory:read', 'memory:write', 'net:fetch']);
-          if (!callerAgentId) {
-            validCaps.add('*');
-            validCaps.add('tools:*');
-          }
           const sanitizedCaps = (body as any).capabilities.filter((c: string) => validCaps.has(c));
           this.db.execute(
             `UPDATE agent_definitions SET capabilities_json = ? WHERE id = ?`,
@@ -11137,7 +11146,7 @@ Format strictly as JSON:
         },
         onRenewLease: (tId: string) => {
           try {
-            return this.taskRepo.renewTaskLease(tId, run.id, 60000);
+            return this.taskRepo.renewTaskLease(tId, run.id, 300000);
           } catch {
             return false;
           }

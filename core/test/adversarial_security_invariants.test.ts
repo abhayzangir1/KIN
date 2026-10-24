@@ -12,6 +12,10 @@ import { ChannelService } from '../src/communication/channel_service.js';
 import { MemoryRepository } from '../src/domain/memory_repository.js';
 import { ActivationEngine } from '../src/communication/activation_engine.js';
 import { McpClientManager } from '../src/execution/mcp_client.js';
+import * as crypto from 'node:crypto';
+import { SecretBroker } from '../src/security/secret_broker.js';
+import { SecretVault } from '../src/security/secret_vault.js';
+import { TaskRepository } from '../src/domain/task_repository.js';
 
 describe('Adversarial Security Invariants & Audit Regressions', () => {
   it('blocks hostSetTimeout, setTimeout.constructor, and host process leakage in SkillEngine', async () => {
@@ -387,5 +391,108 @@ describe('Adversarial Security Invariants & Audit Regressions', () => {
     expect(routing.action).toBe('sequential_specialists');
     expect(routing.targetAgents).toHaveLength(1);
     expect(routing.targetAgents[0].id).toBe('agent-carol');
+  });
+
+  it('enforces default-deny for agent secret placeholder access when scoped grants are unset, and blocks raw vault token bypass', () => {
+    const db = new KinDatabase(':memory:');
+    new MigrationRunner(db).runMigrations();
+    const vault = SecretVault.getInstance();
+    const rawKey = 'sk-prod-super-secret-12345';
+    const encrypted = vault.encrypt(rawKey);
+
+    // Insert credential with '[]' scoped_grants_json (default when created without explicit agent scopes)
+    db.execute(
+      `INSERT INTO managed_credentials (id, provider, key_alias, secret_hash, masked_key, scoped_grants_json, max_spend_tokens, current_spend_tokens, is_active, created_at, updated_at)
+       VALUES ('cred-unscoped', 'openai', 'OPENAI_API_KEY', ?, 'sk-...2345', '[]', 100000, 0, 1, ?, ?)`,
+      encrypted,
+      Date.now(),
+      Date.now()
+    );
+
+    const broker = new SecretBroker(db);
+
+    // 1. Agent caller without explicit grants is default-denied
+    const agentResult = broker.resolvePlaceholders(
+      { key: '{{vault:OPENAI_API_KEY}}' },
+      'agent-rogue-1'
+    );
+    expect(agentResult.key).toBe('[DENIED_UNAUTHORIZED_KEY_ACCESS:OPENAI_API_KEY]');
+
+    // 2. Direct raw vault ciphertext injection by an agent caller is also denied
+    const rawVaultInjection = broker.resolvePlaceholders(
+      { key: `{{vault:${encrypted}}}` },
+      'agent-rogue-1'
+    );
+    expect(rawVaultInjection.key).toBe(`[DENIED_UNAUTHORIZED_KEY_ACCESS:${encrypted}]`);
+
+    // 3. System/operator caller (no agent id) can resolve successfully
+    const systemResult = broker.resolvePlaceholders(
+      { key: '{{vault:OPENAI_API_KEY}}' }
+    );
+    expect(systemResult.key).toBe(rawKey);
+  });
+
+  it('redacts generic JWT tokens from content', () => {
+    const broker = new SecretBroker();
+    const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+    const text = `Received auth token: ${jwt} for session`;
+    const sanitized = broker.redactSecrets(text);
+    expect(sanitized).not.toContain(jwt);
+    expect(sanitized).toContain('[REDACTED][REDACTED_JWT]');
+  });
+
+  it('supports SecretVault passphrase salted scrypt derivation with transparent legacy SHA-256 fallback', () => {
+    const passphrase = 'my-custom-super-secure-passphrase';
+    
+    // Create ciphertext using legacy SHA-256 derived key directly
+    const legacyKey = crypto.createHash('sha256').update(passphrase, 'utf-8').digest();
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', legacyKey, iv);
+    const secretText = 'top-secret-legacy-data-payload';
+    const encrypted = Buffer.concat([cipher.update(secretText, 'utf-8'), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    const legacyCiphertext = `vault:v1:${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
+
+    // Modern vault with passphrase derives scrypt master key and retains legacy SHA-256 fallback
+    const modernVault = new SecretVault({ masterKey: passphrase });
+    
+    // Decrypting legacy ciphertext must succeed via fallback
+    const decryptedLegacy = modernVault.decrypt(legacyCiphertext);
+    expect(decryptedLegacy).toBe(secretText);
+
+    // Newly encrypted data under modern vault decrypts accurately
+    const newEncrypted = modernVault.encrypt('new-secret-payload');
+    expect(modernVault.decrypt(newEncrypted)).toBe('new-secret-payload');
+  });
+
+  it('TaskRepository.claimTaskWithLease prevents cross-agent task stealing', () => {
+    const db = new KinDatabase(':memory:');
+    new MigrationRunner(db).runMigrations();
+    const repo = new TaskRepository(db);
+
+    const wsId = 'ws-test';
+    const projId = 'proj-test';
+    const now = Date.now();
+    db.execute("INSERT INTO workspaces (id, name, root_path, default_autonomy_mode, created_at, updated_at) VALUES (?, 'Test WS', '.', 'AUTO', ?, ?)", wsId, now, now);
+    db.execute("INSERT INTO projects (id, workspace_id, name, repo_path, created_at, updated_at) VALUES (?, ?, 'Test Project', '.', ?, ?)", projId, wsId, now, now);
+    db.execute("INSERT INTO goals (id, project_id, title, description, acceptance_criteria_json, status, created_at, updated_at) VALUES ('goal-1', ?, 'Test Goal', 'desc', '[]', 'active', ?, ?)", projId, now, now);
+    db.execute("INSERT INTO agent_definitions (id, name, role, system_prompt, default_model_id, created_at) VALUES ('def-1', 'Agent 1', 'Role', 'Prompt', 'model', ?)", now);
+    db.execute("INSERT INTO agent_identities (id, workspace_id, definition_id, display_name, active_model_id, created_at, updated_at) VALUES ('agent-owner-1', ?, 'def-1', '@owner', 'model', ?, ?)", wsId, now, now);
+    db.execute("INSERT INTO agent_identities (id, workspace_id, definition_id, display_name, active_model_id, created_at, updated_at) VALUES ('agent-thief-2', ?, 'def-1', '@thief', 'model', ?, ?)", wsId, now, now);
+
+    db.execute(
+      `INSERT INTO tasks (id, goal_id, title, description, status, assigned_agent_id, created_at, updated_at)
+       VALUES ('task-assigned-agent1', 'goal-1', 'Build API', 'Build backend API', 'assigned', 'agent-owner-1', ?, ?)`,
+      now,
+      now
+    );
+
+    // Another agent (agent-thief-2) tries to claim a task assigned to agent-owner-1
+    const stolenClaim = repo.claimTaskWithLease('task-assigned-agent1', 'agent-thief-2', 'run-thief', 60000);
+    expect(stolenClaim).toBe(false);
+
+    // The assigned agent (agent-owner-1) successfully claims it
+    const validClaim = repo.claimTaskWithLease('task-assigned-agent1', 'agent-owner-1', 'run-owner', 60000);
+    expect(validClaim).toBe(true);
   });
 });

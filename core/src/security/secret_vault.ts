@@ -16,6 +16,7 @@ export interface SecretVaultOptions {
 export class SecretVault {
   private static instance: SecretVault | null = null;
   private masterKey: Buffer;
+  private legacyMasterKey?: Buffer;
   private keyFilePath: string;
 
   constructor(options?: SecretVaultOptions) {
@@ -39,7 +40,8 @@ export class SecretVault {
         if (options.masterKey.length === 32) {
           this.masterKey = options.masterKey;
         } else {
-          this.masterKey = crypto.createHash('sha256').update(options.masterKey).digest();
+          this.legacyMasterKey = crypto.createHash('sha256').update(options.masterKey).digest();
+          this.masterKey = crypto.scryptSync(options.masterKey, 'kin-vault-salt-v1', 32, { N: 16384, r: 8, p: 1 });
         }
       } else {
         this.masterKey = this.deriveKeyFromString(options.masterKey);
@@ -71,7 +73,8 @@ export class SecretVault {
     if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
       return Buffer.from(trimmed, 'hex');
     }
-    return crypto.createHash('sha256').update(trimmed, 'utf-8').digest();
+    this.legacyMasterKey = crypto.createHash('sha256').update(trimmed, 'utf-8').digest();
+    return crypto.scryptSync(trimmed, 'kin-vault-salt-v1', 32, { N: 16384, r: 8, p: 1 });
   }
 
   private loadOrGenerateKeyFile(filePath: string): Buffer {
@@ -153,15 +156,26 @@ export class SecretVault {
     const authTag = Buffer.from(tagHex, 'hex');
     const encryptedText = Buffer.from(cipherHex, 'hex');
 
-    const decipher = crypto.createDecipheriv('aes-256-gcm', this.masterKey, iv);
-    decipher.setAuthTag(authTag);
+    const tryDecrypt = (key: Buffer): string => {
+      const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+      decipher.setAuthTag(authTag);
+      const decrypted = Buffer.concat([
+        decipher.update(encryptedText),
+        decipher.final(),
+      ]);
+      return decrypted.toString('utf-8');
+    };
 
-    const decrypted = Buffer.concat([
-      decipher.update(encryptedText),
-      decipher.final(),
-    ]);
-
-    return decrypted.toString('utf-8');
+    try {
+      return tryDecrypt(this.masterKey);
+    } catch (err) {
+      if (this.legacyMasterKey) {
+        try {
+          return tryDecrypt(this.legacyMasterKey);
+        } catch {}
+      }
+      throw err;
+    }
   }
 
   /**

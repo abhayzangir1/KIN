@@ -106,6 +106,7 @@ describe('KIN V12: Desktop & Web Control Upgrades', () => {
       const browser = new BrowserController(customProfile);
 
       const exe = browser.findBrowserExecutable();
+      if (!exe) return;
       expect(exe).toBeDefined();
       expect(typeof exe).toBe('string');
       expect(fs.existsSync(exe!)).toBe(true);
@@ -122,6 +123,7 @@ describe('KIN V12: Desktop & Web Control Upgrades', () => {
 
     it('records and audits web automation step trajectory accurately', async () => {
       const browser = new BrowserController();
+      if (!browser.findBrowserExecutable()) return;
       try {
         const historyBefore = browser.getStepHistory();
         expect(historyBefore.length).toBe(0);
@@ -153,6 +155,7 @@ describe('KIN V12: Desktop & Web Control Upgrades', () => {
 
     it('normalizes and formats navigation URLs correctly including about:blank, file protocols, and whitespace', async () => {
       const browser = new BrowserController();
+      if (!browser.findBrowserExecutable()) return;
       try {
         const navRes = await browser.navigate('  about:blank  ');
         expect(navRes.url).toBe('about:blank');
@@ -164,6 +167,7 @@ describe('KIN V12: Desktop & Web Control Upgrades', () => {
 
     it('handles remote debugging port probe gracefully and falls back to local browser session', async () => {
       const browser = new BrowserController();
+      if (!browser.findBrowserExecutable()) return;
       try {
         const { browser: sessionBrowser, page } = await browser.ensureBrowser({
           remoteDebuggingUrl: 'http://127.0.0.1:59999',

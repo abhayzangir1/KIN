@@ -69,6 +69,9 @@ export class SecretBroker {
     return str.replace(vaultPattern, (_match, keyName) => {
       // 1. If keyName is already a vault ciphertext (e.g. vault:v1:...), decrypt directly
       if (keyName.startsWith('vault:v1:')) {
+        if (callerAgentId && callerAgentId !== 'system' && callerAgentId !== 'operator') {
+          return `[DENIED_UNAUTHORIZED_KEY_ACCESS:${keyName}]`;
+        }
         const decrypted = this.vault.decrypt(keyName);
         if (decrypted && decrypted !== keyName) {
           this.registerSecretForRedaction(decrypted);
@@ -119,30 +122,31 @@ export class SecretBroker {
               return `[DENIED_SPEND_CAP_EXCEEDED:${keyName}]`;
             }
 
+            // Enforce default-deny scoped authorization: caller agents must be explicitly granted access or '*'
+            let grants: string[] = [];
             if (row.scoped_grants_json && row.scoped_grants_json.trim()) {
               try {
-                const grants: string[] = JSON.parse(row.scoped_grants_json);
-                if (Array.isArray(grants) && grants.length > 0) {
-                  let isGranted = false;
-                  if (grants.includes('*') || (callerAgentId && grants.includes(callerAgentId))) {
-                    isGranted = true;
-                  }
-                  if (!isGranted) {
-                    try {
-                      EventLedger.getInstance().record({
-                        eventType: 'SECURITY_ALERT',
-                        entityType: 'agent',
-                        entityId: callerAgentId || 'anonymous',
-                        payload: {
-                          reason: `Unauthorized secret placeholder access attempt for key '${keyName}' (scoped grants violated)`,
-                          keyName,
-                        },
-                      });
-                    } catch {}
-                    return `[DENIED_UNAUTHORIZED_KEY_ACCESS:${keyName}]`;
-                  }
-                }
+                const parsed = JSON.parse(row.scoped_grants_json);
+                if (Array.isArray(parsed)) grants = parsed;
               } catch {}
+            }
+
+            if (callerAgentId && callerAgentId !== 'system' && callerAgentId !== 'operator') {
+              const isGranted = grants.includes('*') || grants.includes(callerAgentId);
+              if (!isGranted) {
+                try {
+                  EventLedger.getInstance().record({
+                    eventType: 'SECURITY_ALERT',
+                    entityType: 'agent',
+                    entityId: callerAgentId,
+                    payload: {
+                      reason: `Unauthorized secret placeholder access attempt for key '${keyName}' (scoped grants violated)`,
+                      keyName,
+                    },
+                  });
+                } catch {}
+                return `[DENIED_UNAUTHORIZED_KEY_ACCESS:${keyName}]`;
+              }
             }
             ciphertextToDecrypt = row.secret_hash;
           }
@@ -183,6 +187,7 @@ export class SecretBroker {
     sanitized = sanitized.replace(/(bot)?(\d{8,12}:[a-zA-Z0-9_-]{35})/gi, (_m, b) => (b ? 'bot' : '') + '[REDACTED][REDACTED_TELEGRAM_TOKEN]');
     sanitized = sanitized.replace(/(AKIA[0-9A-Z]{16})/g, '[REDACTED][REDACTED_AWS_KEY]');
     sanitized = sanitized.replace(/(glpat-[0-9a-zA-Z\-_]{20,})/gi, '[REDACTED][REDACTED_GITLAB_TOKEN]');
+    sanitized = sanitized.replace(/(eyJ[a-zA-Z0-9_\-]{10,}\.eyJ[a-zA-Z0-9_\-]{10,}\.[a-zA-Z0-9_\-]{10,})/g, '[REDACTED][REDACTED_JWT]');
 
     return sanitized;
   }
