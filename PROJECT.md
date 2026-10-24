@@ -58,10 +58,10 @@ KIN is a local-first, multi-agent AI engineering harness and workspace orchestra
 |---|------|-------|-------------|--------|
 | 1 | Adversarial Concurrency Test Track (R1) | Author `core/test/adversarial_r1_concurrency_stress.test.ts`, create `TEST_INFRA.md`, publish `TEST_READY.md` | None | DONE (test_writer_m1: 12 tests, 5.5s) |
 | 2 | Security, Sandbox & Boundary Hardening (R3) | Skill VM sandbox timer isolation, symlink canonicalization in artifact & boundary checks, env sanitization, timing-safe signoff, CORS boundary, LLM error redaction, protected git paths | None | DONE (worker_m2: 52/52 security tests pass) |
-| 3 | Core Concurrency & Facade Remediation (R1, R2, R4) | Atomic CAS approval resolution, transactional EventLedger append, DM INSERT OR IGNORE, lease reclamation TOCTOU fix, deterministic message order, ReAct lease check, dependency validation, schedules route consolidation | M1, M2 | DONE (worker_m3: 634 tests, 43 suites pass) |
+| 3 | Core Concurrency & Facade Remediation (R1, R2, R4) | Atomic CAS approval resolution, transactional EventLedger append, DM INSERT OR IGNORE, lease reclamation TOCTOU fix, deterministic message order, ReAct lease check, dependency validation, schedules route consolidation | M1, M2 | DONE (worker_m3: 653 tests, 44 suites pass) |
 | 4 | Frontend UI/UX State & Contract Alignment (R2, R4) | Goal status enum alignment, DAG dependency parameter wiring in store & modal, dead auth guard removal | M3 | DONE (worker_m4: UI build clean code 0) |
-| 5 | Documentation & Architecture Alignment (R5) | Full documentation sync across `README.md` and `docs/` for all 18 harness layers, security posture, and operational guidelines | M2, M3, M4 | IN_PROGRESS |
-| 6 | Full Verification, Forensic Audit & Release Git Commit (R6) | 100% pass on `npm test` (600+ tests), clean `npm run build` (0 errors), forensic integrity audit (CLEAN), and atomic release git commit | M1, M2, M3, M4, M5 | PLANNED |
+| 5 | Documentation & Architecture Alignment (R5) | Full documentation sync across `README.md` and `docs/` for all 18 harness layers, security posture, and operational guidelines | M2, M3, M4 | DONE |
+| 6 | Full Verification, Forensic Audit & Release Git Commit (R6) | 653 tests passing across 44 test suites (100% pass rate) on `npm test`, clean `npm run build` (0 errors), forensic integrity audit (CLEAN), and atomic release git commit | M1, M2, M3, M4, M5 | DONE |
 
 ---
 
