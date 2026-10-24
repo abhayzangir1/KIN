@@ -362,8 +362,21 @@ export class SkillEngine {
     const cleanContext = sanitizeObjectForSandbox(executionContext);
 
     const sandbox = Object.create(null);
-    sandbox.hostSetTimeout = setTimeout;
-    sandbox.hostClearTimeout = clearTimeout;
+
+    const safeSetTimeout = function (fn: any, ms: any, ...args: any[]) {
+      return setTimeout(typeof fn === 'function' ? fn : () => {}, ms, ...args);
+    };
+    Object.setPrototypeOf(safeSetTimeout, null);
+    Object.defineProperty(safeSetTimeout, 'constructor', { value: undefined, writable: false, configurable: false });
+
+    const safeClearTimeout = function (id: any) {
+      return clearTimeout(id);
+    };
+    Object.setPrototypeOf(safeClearTimeout, null);
+    Object.defineProperty(safeClearTimeout, 'constructor', { value: undefined, writable: false, configurable: false });
+
+    sandbox.setTimeout = safeSetTimeout;
+    sandbox.clearTimeout = safeClearTimeout;
     sandbox.params = cleanParams;
     sandbox.input = cleanParams;
     sandbox.context = cleanContext;
@@ -419,10 +432,6 @@ export class SkillEngine {
         };
         Object.freeze(InContextBuffer);
         globalThis.Buffer = InContextBuffer;
-        globalThis.setTimeout = (fn, ms, ...args) => hostSetTimeout(typeof fn === 'function' ? fn : () => {}, ms, ...args);
-        globalThis.clearTimeout = (id) => hostClearTimeout(id);
-        delete sandbox.hostSetTimeout;
-        delete sandbox.hostClearTimeout;
         globalThis.console = Object.freeze({ log: () => {}, warn: () => {}, error: () => {} });
         `,
         context
@@ -509,9 +518,26 @@ export class SkillEngine {
       }
     };
 
+    const transpileSkillCode = (code: string): string => {
+      try {
+        const ts = require('typescript');
+        return ts.transpileModule(code, {
+          compilerOptions: {
+            module: ts.ModuleKind.CommonJS,
+            target: ts.ScriptTarget.ES2022,
+            removeComments: false,
+          },
+        }).outputText;
+      } catch {
+        return code;
+      }
+    };
+
+    const compiledHandler = transpileSkillCode(skill.handlerCode || '');
+
     const wrappedCode = `
       (async () => {
-        ${skill.handlerCode}
+        ${compiledHandler}
         if (typeof module !== 'undefined' && typeof module.exports === 'function') {
           return await module.exports(params, executionContext);
         }
@@ -526,6 +552,9 @@ export class SkillEngine {
         }
         if (typeof execute === 'function') {
           return await execute(params, executionContext);
+        }
+        if (typeof exports !== 'undefined' && typeof exports.execute === 'function') {
+          return await exports.execute(params, executionContext);
         }
         return typeof result !== 'undefined' ? result : (typeof module !== 'undefined' && module.exports && Object.keys(module.exports).length > 0 ? module.exports : { executed: true });
       })()
@@ -570,8 +599,21 @@ export class SkillEngine {
           } catch (_) {}
 
           const sandbox = Object.create(null);
-          sandbox.hostSetTimeout = setTimeout;
-          sandbox.hostClearTimeout = clearTimeout;
+
+          const safeSetTimeout = function (fn, ms, ...args) {
+            return setTimeout(typeof fn === 'function' ? fn : () => {}, ms, ...args);
+          };
+          Object.setPrototypeOf(safeSetTimeout, null);
+          Object.defineProperty(safeSetTimeout, 'constructor', { value: undefined, writable: false, configurable: false });
+
+          const safeClearTimeout = function (id) {
+            return clearTimeout(id);
+          };
+          Object.setPrototypeOf(safeClearTimeout, null);
+          Object.defineProperty(safeClearTimeout, 'constructor', { value: undefined, writable: false, configurable: false });
+
+          sandbox.setTimeout = safeSetTimeout;
+          sandbox.clearTimeout = safeClearTimeout;
           sandbox.params = sanitizedParams;
           sandbox.input = sanitizedParams;
           sandbox.context = sanitizedContext;
@@ -622,10 +664,6 @@ export class SkillEngine {
               '};' +
               'Object.freeze(InContextBuffer);' +
               'globalThis.Buffer = InContextBuffer;' +
-              'globalThis.setTimeout = (fn, ms, ...args) => hostSetTimeout(typeof fn === "function" ? fn : () => {}, ms, ...args);' +
-              'globalThis.clearTimeout = (id) => hostClearTimeout(id);' +
-              'delete sandbox.hostSetTimeout;' +
-              'delete sandbox.hostClearTimeout;' +
               'globalThis.console = Object.freeze({ log: () => {}, warn: () => {}, error: () => {} });',
               context
             );

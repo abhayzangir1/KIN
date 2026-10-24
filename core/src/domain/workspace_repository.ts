@@ -1,4 +1,4 @@
-import { KinDatabase } from '../storage/db.js';
+import { KinDatabase, safeJsonParseObject } from '../storage/db.js';
 import { Workspace, Project, Channel } from './types.js';
 
 export class WorkspaceRepository {
@@ -75,7 +75,7 @@ export class WorkspaceRepository {
       workspaceId: row.workspace_id,
       name: row.name,
       repoPath: row.repo_path,
-      settings: JSON.parse(row.settings_json),
+      settings: safeJsonParseObject(row.settings_json, {}),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -97,7 +97,7 @@ export class WorkspaceRepository {
       workspaceId: r.workspace_id,
       name: r.name,
       repoPath: r.repo_path,
-      settings: JSON.parse(r.settings_json),
+      settings: safeJsonParseObject(r.settings_json, {}),
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     }));
@@ -141,7 +141,7 @@ export class WorkspaceRepository {
     );
   }
 
-  public getChannel(id: string): Channel | undefined {
+  public getChannel(id: string, projectId?: string): Channel | undefined {
     let row = this.db.queryOne<{
       id: string;
       project_id: string;
@@ -152,8 +152,19 @@ export class WorkspaceRepository {
       created_at: number;
     }>('SELECT * FROM channels WHERE id = ?', id);
 
+    if (row && projectId && row.project_id !== projectId) {
+      row = undefined;
+    }
+
     if (!row) {
       const cleanName = id.replace(/^#/, '').trim();
+      const nameQuery = projectId
+        ? 'SELECT * FROM channels WHERE (name = ? COLLATE NOCASE OR name = ? COLLATE NOCASE OR id = ? OR id = ?) AND project_id = ? LIMIT 1'
+        : 'SELECT * FROM channels WHERE (name = ? COLLATE NOCASE OR name = ? COLLATE NOCASE OR id = ? OR id = ?) LIMIT 1';
+      const nameParams = projectId
+        ? [cleanName, `#${cleanName}`, cleanName, `chan-${cleanName}`, projectId]
+        : [cleanName, `#${cleanName}`, cleanName, `chan-${cleanName}`];
+
       row = this.db.queryOne<{
         id: string;
         project_id: string;
@@ -162,13 +173,7 @@ export class WorkspaceRepository {
         is_private: number;
         channel_type?: string | null;
         created_at: number;
-      }>(
-        'SELECT * FROM channels WHERE (name = ? COLLATE NOCASE OR name = ? COLLATE NOCASE OR id = ? OR id = ?) LIMIT 1',
-        cleanName,
-        `#${cleanName}`,
-        cleanName,
-        `chan-${cleanName}`
-      );
+      }>(nameQuery, ...nameParams);
     }
 
     if (!row) return undefined;
@@ -214,11 +219,11 @@ export class WorkspaceRepository {
   public getOrCreateDirectMessageChannel(agentA: string, agentB: string, projectId: string): Channel {
     const [p1, p2] = [agentA, agentB].sort();
     const dmId = `dm-${p1}-${p2}`;
-    const existing = this.getChannel(dmId);
+    const existing = this.getChannel(dmId, projectId) || this.getChannel(dmId);
     if (existing) {
-      this.addChannelMember(dmId, agentA);
-      this.addChannelMember(dmId, agentB);
-      existing.participantIds = this.listChannelMemberIds(dmId);
+      this.addChannelMember(existing.id, agentA, projectId);
+      this.addChannelMember(existing.id, agentB, projectId);
+      existing.participantIds = this.listChannelMemberIds(existing.id);
       return existing;
     }
     const now = Date.now();
@@ -233,13 +238,13 @@ export class WorkspaceRepository {
       createdAt: now,
     };
     this.createChannel(channel);
-    this.addChannelMember(dmId, agentA);
-    this.addChannelMember(dmId, agentB);
+    this.addChannelMember(dmId, agentA, projectId);
+    this.addChannelMember(dmId, agentB, projectId);
     channel.participantIds = this.listChannelMemberIds(dmId);
     return channel;
   }
 
-  public addChannelMember(channelId: string, agentId: string): void {
+  public addChannelMember(channelId: string, agentId: string, projectId?: string): void {
     let targetChanId = channelId;
     const chanExists = this.db.queryOne<{ id: string }>('SELECT id FROM channels WHERE id = ?', channelId);
     if (!chanExists) {

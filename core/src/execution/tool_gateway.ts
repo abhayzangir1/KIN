@@ -3055,12 +3055,11 @@ export class ToolGateway {
             const actualChanId = row[0]?.id || targetChannelId;
             const senderIdentity = this.agentRepo?.getIdentity(context.agentId);
             this.db.execute(
-              `INSERT INTO messages (id, channel_id, sender_id, sender_name, sender_type, content, created_at)
-               VALUES (?, ?, ?, ?, 'agent', ?, ?)`,
+              `INSERT INTO messages (id, channel_id, sender_id, sender_type, content, created_at)
+               VALUES (?, ?, ?, 'agent', ?, ?)`,
               msgId,
               actualChanId,
               context.agentId,
-              senderIdentity?.displayName || context.agentId,
               String(content),
               now
             );
@@ -3563,7 +3562,7 @@ export class ToolGateway {
     }
 
     if (toolName === 'executeShell') {
-      const cmd = (safeParams.command || '').toLowerCase();
+      const cmd = (safeParams.command || '').trim().toLowerCase();
       // Destructive, system, or package operations are HIGH/CRITICAL
       if (
         cmd.includes('rm -rf') ||
@@ -3573,7 +3572,12 @@ export class ToolGateway {
         cmd.includes('drop table') ||
         cmd.includes('format') ||
         cmd.includes('curl ') ||
-        cmd.includes('wget ')
+        cmd.includes('wget ') ||
+        cmd.includes('shutdown') ||
+        cmd.includes('reboot') ||
+        cmd.includes('chmod') ||
+        cmd.includes('git push --force') ||
+        cmd.includes('git reset --hard')
       ) {
         return 'HIGH';
       }

@@ -284,3 +284,92 @@ export class KinDatabase {
     return this.isClosed;
   }
 }
+
+/**
+ * Safely parses a JSON string into an object, falling back to a default object if null, invalid, or non-object.
+ * Guarantees return value is a non-null, non-array object.
+ */
+export function safeJsonParseObject<T extends Record<string, unknown> = Record<string, unknown>>(
+  raw: unknown,
+  fallback: T = {} as T
+): T {
+  if (raw === null || raw === undefined) {
+    return fallback;
+  }
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    return raw as T;
+  }
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return fallback;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as T;
+    }
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Safely parses a JSON string into an array, falling back to a default array if null, invalid, or non-array.
+ * Guarantees return value satisfies Array.isArray().
+ */
+export function safeJsonParseArray<T = unknown>(
+  raw: unknown,
+  fallback: T[] = []
+): T[] {
+  if (raw === null || raw === undefined) {
+    return fallback;
+  }
+  if (Array.isArray(raw)) {
+    return raw as T[];
+  }
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return fallback;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed as T[];
+    }
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Generic safe JSON parse with fallback for arbitrary types.
+ */
+export function safeJsonParse<T>(raw: unknown, fallback: T): T {
+  if (raw === null || raw === undefined) {
+    return fallback;
+  }
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return fallback;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed === null || parsed === undefined) {
+      return fallback;
+    }
+    if (Array.isArray(fallback) && !Array.isArray(parsed)) {
+      return fallback;
+    }
+    if (
+      typeof fallback === 'object' &&
+      fallback !== null &&
+      !Array.isArray(fallback) &&
+      (typeof parsed !== 'object' || Array.isArray(parsed) || parsed === null)
+    ) {
+      return fallback;
+    }
+    return parsed as T;
+  } catch {
+    return fallback;
+  }
+}
+

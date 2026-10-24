@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import * as child_process from 'node:child_process';
-import { KinDatabase } from '../storage/db.js';
+import { KinDatabase, safeJsonParseObject, safeJsonParseArray } from '../storage/db.js';
 import { Goal, Task, TaskStatus, Decision, DecisionStatus } from './types.js';
 import { GoalRepository } from './goal_repository.js';
 
@@ -95,12 +95,7 @@ export class TaskRepository {
 
     if (!row) return undefined;
 
-    let verificationSpec: Record<string, unknown> = {};
-    try {
-      verificationSpec = JSON.parse(row.verification_spec_json || '{}');
-    } catch {
-      verificationSpec = {};
-    }
+    const verificationSpec = safeJsonParseObject(row.verification_spec_json, {});
 
     return {
       id: row.id,
@@ -674,7 +669,7 @@ export class TaskRepository {
       description: r.description,
       assignedAgentId: r.assigned_agent_id ?? undefined,
       status: r.status as TaskStatus,
-      verificationSpec: JSON.parse(r.verification_spec_json || '{}'),
+      verificationSpec: safeJsonParseObject(r.verification_spec_json, {}),
       evidenceBundleId: r.evidence_bundle_id ?? undefined,
       claimedByRunId: r.claimed_by_run_id ?? undefined,
       leaseExpiresAt: r.lease_expires_at ?? undefined,
@@ -714,7 +709,7 @@ export class TaskRepository {
       description: r.description,
       assignedAgentId: r.assigned_agent_id ?? undefined,
       status: r.status as TaskStatus,
-      verificationSpec: JSON.parse(r.verification_spec_json || '{}'),
+      verificationSpec: safeJsonParseObject(r.verification_spec_json, {}),
       evidenceBundleId: r.evidence_bundle_id ?? undefined,
       claimedByRunId: r.claimed_by_run_id ?? undefined,
       leaseExpiresAt: r.lease_expires_at ?? undefined,
@@ -773,7 +768,7 @@ export class TaskRepository {
       decidedById: row.decided_by_id,
       title: row.title,
       rationale: row.rationale,
-      alternativesConsidered: JSON.parse(row.alternatives_considered_json || '[]'),
+      alternativesConsidered: safeJsonParseArray<string>(row.alternatives_considered_json, []),
       status: row.status as DecisionStatus,
       createdAt: row.created_at,
     };
@@ -799,7 +794,7 @@ export class TaskRepository {
       decidedById: r.decided_by_id,
       title: r.title,
       rationale: r.rationale,
-      alternativesConsidered: JSON.parse(r.alternatives_considered_json || '[]'),
+      alternativesConsidered: safeJsonParseArray<string>(r.alternatives_considered_json, []),
       status: r.status as DecisionStatus,
       createdAt: r.created_at,
     }));
@@ -829,7 +824,7 @@ export class TaskRepository {
       decidedById: r.decided_by_id,
       title: r.title,
       rationale: r.rationale,
-      alternativesConsidered: JSON.parse(r.alternatives_considered_json || '[]'),
+      alternativesConsidered: safeJsonParseArray<string>(r.alternatives_considered_json, []),
       status: r.status as DecisionStatus,
       createdAt: r.created_at,
     }));

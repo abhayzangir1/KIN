@@ -3,7 +3,7 @@
 // Message persistence, mention extraction, and productivity scoring.
 // ============================================================================
 
-import { KinDatabase } from '../storage/db.js';
+import { KinDatabase, safeJsonParseArray } from '../storage/db.js';
 import { Message, SenderType } from '../domain/types.js';
 import { EventLedger } from '../security/event_ledger.js';
 import { SecretBroker } from '../security/secret_broker.js';
@@ -121,7 +121,7 @@ export class ChannelService {
       senderType: r.sender_type as SenderType,
       content: r.content,
       parentMessageId: r.parent_message_id ?? undefined,
-      mentions: JSON.parse(r.mentions_json),
+      mentions: safeJsonParseArray<string>(r.mentions_json, []),
       productivityScore: r.productivity_score,
       createdAt: r.created_at,
     }));
@@ -149,7 +149,7 @@ export class ChannelService {
       senderType: r.sender_type as SenderType,
       content: r.content,
       parentMessageId: r.parent_message_id ?? undefined,
-      mentions: JSON.parse(r.mentions_json || '[]'),
+      mentions: safeJsonParseArray<string>(r.mentions_json, []),
       productivityScore: r.productivity_score,
       createdAt: r.created_at,
     };

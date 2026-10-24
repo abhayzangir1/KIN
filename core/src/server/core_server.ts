@@ -1130,10 +1130,7 @@ export class CoreServer {
       }
     }
 
-    // Prune historical duplicate goals on startup
-    try {
-      this.goalRepo.pruneDuplicateGoals('proj-kin');
-    } catch {}
+    // Startup initialization: verify goals exist without destructive pruning
 
     // Ensure initial project goal and tasks exist for proj-kin
     const goals = this.goalRepo.listGoals('proj-kin');
@@ -1916,10 +1913,10 @@ export class CoreServer {
     try {
       const u = new URL(origin);
       if (u.protocol === 'tauri:' && u.hostname === 'localhost') return true;
-      if (u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '::1') return true;
+      if (u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '::1' || u.hostname === 'tauri.localhost') return true;
       return false;
     } catch {
-      return origin === 'tauri://localhost' || origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1');
+      return origin === 'tauri://localhost' || origin === 'http://tauri.localhost' || origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1');
     }
   }
 
@@ -6485,7 +6482,24 @@ Format strictly as JSON:
         }
 
         if (body.capabilities && Array.isArray(body.capabilities)) {
-          const validCaps = new Set(['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate', 'mcp:call', 'browser:read', 'browser:interact', 'desktop:read', 'desktop:interact', 'memory:read', 'memory:write', 'net:fetch', 'tools:*', '*']);
+          const callerAgentId = (req.headers['x-caller-agent-id'] || req.headers['x-agent-id']) as string | undefined;
+          if (callerAgentId) {
+            const callerIdentity = this.agentRepo.getIdentity(callerAgentId);
+            const callerDef = callerIdentity ? this.agentRepo.getDefinition(callerIdentity.definitionId) : undefined;
+            const callerCaps = new Set(callerDef?.capabilities || []);
+            const hasWildcard = callerCaps.has('*') || callerCaps.has('tools:*');
+            if (!hasWildcard) {
+              const unauthorized = body.capabilities.filter(c => !callerCaps.has(c));
+              if (unauthorized.length > 0) {
+                return this.sendJson(res, 403, { error: `Forbidden: Caller agent cannot grant unheld capabilities: ${unauthorized.join(', ')}` });
+              }
+            }
+          }
+          const validCaps = new Set(['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate', 'mcp:call', 'browser:read', 'browser:interact', 'desktop:read', 'desktop:interact', 'memory:read', 'memory:write', 'net:fetch']);
+          if (!callerAgentId) {
+            validCaps.add('*');
+            validCaps.add('tools:*');
+          }
           const sanitizedCaps = body.capabilities.filter(c => validCaps.has(c));
           this.db.execute(
             `UPDATE agent_definitions SET capabilities_json = ? WHERE id = ?`,
@@ -6542,7 +6556,24 @@ Format strictly as JSON:
         }
 
         if ((body as any).capabilities && Array.isArray((body as any).capabilities)) {
-          const validCaps = new Set(['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate', 'mcp:call', 'browser:read', 'browser:interact', 'desktop:read', 'desktop:interact', 'memory:read', 'memory:write', 'net:fetch', 'tools:*', '*']);
+          const callerAgentId = (req.headers['x-caller-agent-id'] || req.headers['x-agent-id']) as string | undefined;
+          if (callerAgentId) {
+            const callerIdentity = this.agentRepo.getIdentity(callerAgentId);
+            const callerDef = callerIdentity ? this.agentRepo.getDefinition(callerIdentity.definitionId) : undefined;
+            const callerCaps = new Set(callerDef?.capabilities || []);
+            const hasWildcard = callerCaps.has('*') || callerCaps.has('tools:*');
+            if (!hasWildcard) {
+              const unauthorized = (body as any).capabilities.filter((c: string) => !callerCaps.has(c));
+              if (unauthorized.length > 0) {
+                return this.sendJson(res, 403, { error: `Forbidden: Caller agent cannot grant unheld capabilities: ${unauthorized.join(', ')}` });
+              }
+            }
+          }
+          const validCaps = new Set(['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate', 'mcp:call', 'browser:read', 'browser:interact', 'desktop:read', 'desktop:interact', 'memory:read', 'memory:write', 'net:fetch']);
+          if (!callerAgentId) {
+            validCaps.add('*');
+            validCaps.add('tools:*');
+          }
           const sanitizedCaps = (body as any).capabilities.filter((c: string) => validCaps.has(c));
           this.db.execute(
             `UPDATE agent_definitions SET capabilities_json = ? WHERE id = ?`,
@@ -11657,6 +11688,10 @@ Format strictly as JSON:
               if (currentTask.verificationSpec?.command) {
                 const verifyCmd = currentTask.verificationSpec.command;
                 try {
+                  const assignedIdentity = currentTask.assignedAgentId ? this.agentRepo.getIdentity(currentTask.assignedAgentId) : undefined;
+                  const assignedDef = assignedIdentity ? this.agentRepo.getDefinition(assignedIdentity.definitionId) : undefined;
+                  const agentCaps = assignedDef?.capabilities || ['fs:read', 'fs:write'];
+
                   const sentinel = Sentinel.getInstance();
                   const decision = sentinel.evaluate({
                     agentId: currentTask.assignedAgentId || 'task-verifier',
@@ -11664,10 +11699,13 @@ Format strictly as JSON:
                     params: { command: verifyCmd, cwd: repoRoot },
                     riskLevel: 'HIGH',
                     autonomyMode: this.getEffectiveAutonomyMode(),
-                    agentCapabilities: ['*'],
+                    agentCapabilities: agentCaps,
                   });
                   if (!decision.allowed) {
                     throw new Error(`Verification command blocked by Sentinel: ${decision.reason}`);
+                  }
+                  if (decision.requiresApproval) {
+                    throw new Error(`Verification command requires operator approval: ${decision.reason}`);
                   }
 
                   const cleanEnv: Record<string, string> = {};

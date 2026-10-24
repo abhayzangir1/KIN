@@ -46,23 +46,7 @@ export async function getIpcToken(): Promise<string | null> {
       }
     } catch {}
 
-    // In web dev mode or loopback browser session, fetch token via authorized Vite proxy
-    if (nativeFetch) {
-      try {
-        const authRes = await nativeFetch('/api/auth/token');
-        if (authRes.ok) {
-          const authData = await authRes.json();
-          if (authData && typeof authData.token === 'string' && authData.token.trim()) {
-            const freshToken = authData.token.trim();
-            cachedIpcToken = freshToken;
-            try {
-              window.sessionStorage.setItem('kin_ipc_token', freshToken);
-            } catch {}
-            return freshToken;
-          }
-        }
-      } catch {}
-    }
+    // In web dev mode or loopback browser session, the Vite proxy automatically injects the IPC token
   }
   return null;
 }

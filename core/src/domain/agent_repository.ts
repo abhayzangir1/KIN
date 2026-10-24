@@ -1,4 +1,4 @@
-import { KinDatabase } from '../storage/db.js';
+import { KinDatabase, safeJsonParseArray } from '../storage/db.js';
 import { AgentDefinition, AgentIdentity } from './types.js';
 
 export class AgentRepository {
@@ -44,18 +44,8 @@ export class AgentRepository {
 
     if (!row) return undefined;
 
-    let domainAuthority: string[] = [];
-    let capabilities: string[] = [];
-    try {
-      domainAuthority = JSON.parse(row.domain_authority_json || '[]');
-    } catch {
-      domainAuthority = [];
-    }
-    try {
-      capabilities = JSON.parse(row.capabilities_json || '[]');
-    } catch {
-      capabilities = [];
-    }
+    const domainAuthority = safeJsonParseArray<string>(row.domain_authority_json, []);
+    const capabilities = safeJsonParseArray<string>(row.capabilities_json, []);
 
     return {
       id: row.id,
@@ -123,11 +113,7 @@ export class AgentRepository {
 
     let capabilities: string[] | undefined;
     if (row.def_capabilities_json) {
-      try {
-        capabilities = JSON.parse(row.def_capabilities_json);
-      } catch {
-        capabilities = [];
-      }
+      capabilities = safeJsonParseArray<string>(row.def_capabilities_json, []);
     }
 
     return {
@@ -191,11 +177,7 @@ export class AgentRepository {
 
     let capabilities: string[] | undefined;
     if (row.def_capabilities_json) {
-      try {
-        capabilities = JSON.parse(row.def_capabilities_json);
-      } catch {
-        capabilities = [];
-      }
+      capabilities = safeJsonParseArray<string>(row.def_capabilities_json, []);
     }
 
     return {
@@ -271,11 +253,7 @@ export class AgentRepository {
     return rows.map((row) => {
       let capabilities: string[] | undefined;
       if (row.def_capabilities_json) {
-        try {
-          capabilities = JSON.parse(row.def_capabilities_json);
-        } catch {
-          capabilities = [];
-        }
+        capabilities = safeJsonParseArray<string>(row.def_capabilities_json, []);
       }
       return {
         id: row.id,
@@ -331,11 +309,7 @@ export class AgentRepository {
     return rows.map((row) => {
       let capabilities: string[] | undefined;
       if (row.def_capabilities_json) {
-        try {
-          capabilities = JSON.parse(row.def_capabilities_json);
-        } catch {
-          capabilities = [];
-        }
+        capabilities = safeJsonParseArray<string>(row.def_capabilities_json, []);
       }
       return {
         id: row.id,
@@ -391,11 +365,7 @@ export class AgentRepository {
     return rows.map((row) => {
       let capabilities: string[] | undefined;
       if (row.def_capabilities_json) {
-        try {
-          capabilities = JSON.parse(row.def_capabilities_json);
-        } catch {
-          capabilities = [];
-        }
+        capabilities = safeJsonParseArray<string>(row.def_capabilities_json, []);
       }
       return {
         id: row.id,

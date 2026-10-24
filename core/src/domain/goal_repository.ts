@@ -1,4 +1,4 @@
-import { KinDatabase } from '../storage/db.js';
+import { KinDatabase, safeJsonParseArray, safeJsonParse } from '../storage/db.js';
 import { Goal, GoalStatus } from './types.js';
 
 export class GoalRepository {
@@ -49,19 +49,10 @@ export class GoalRepository {
 
     if (!row) return undefined;
 
-    let acceptanceCriteria: string[] = [];
-    try {
-      acceptanceCriteria = JSON.parse(row.acceptance_criteria_json || '[]');
-    } catch {
-      acceptanceCriteria = [];
-    }
-
-    let proposedReplanning: any = undefined;
-    if (row.proposed_replanning_json) {
-      try {
-        proposedReplanning = JSON.parse(row.proposed_replanning_json);
-      } catch {}
-    }
+    const acceptanceCriteria = safeJsonParseArray<string>(row.acceptance_criteria_json, []);
+    const proposedReplanning = row.proposed_replanning_json
+      ? safeJsonParse<any>(row.proposed_replanning_json, undefined)
+      : undefined;
 
     return {
       id: row.id,
@@ -111,7 +102,7 @@ export class GoalRepository {
     );
   }
 
-  public listGoals(projectId: string, deduplicate: boolean = true): Goal[] {
+  public listGoals(projectId: string, deduplicate: boolean = false): Goal[] {
     const rows = this.db.query<{
       id: string;
       project_id: string;
@@ -130,18 +121,15 @@ export class GoalRepository {
     }>('SELECT * FROM goals WHERE project_id = ? ORDER BY updated_at DESC, created_at DESC', projectId);
 
     const goals = rows.map((r) => {
-      let proposedReplanning: any = undefined;
-      if (r.proposed_replanning_json) {
-        try {
-          proposedReplanning = JSON.parse(r.proposed_replanning_json);
-        } catch {}
-      }
+      const proposedReplanning = r.proposed_replanning_json
+        ? safeJsonParse<any>(r.proposed_replanning_json, undefined)
+        : undefined;
       return {
         id: r.id,
         projectId: r.project_id,
         title: r.title,
         description: r.description,
-        acceptanceCriteria: JSON.parse(r.acceptance_criteria_json || '[]'),
+        acceptanceCriteria: safeJsonParseArray<string>(r.acceptance_criteria_json, []),
         status: r.status as GoalStatus,
         deadline: r.deadline ?? undefined,
         checkInPolicy: r.check_in_policy ?? undefined,
@@ -259,18 +247,15 @@ export class GoalRepository {
     }>('SELECT * FROM goals WHERE origin_channel_id = ? ORDER BY created_at DESC', originChannelId);
 
     return rows.map((r) => {
-      let proposedReplanning: any = undefined;
-      if (r.proposed_replanning_json) {
-        try {
-          proposedReplanning = JSON.parse(r.proposed_replanning_json);
-        } catch {}
-      }
+      const proposedReplanning = r.proposed_replanning_json
+        ? safeJsonParse<any>(r.proposed_replanning_json, undefined)
+        : undefined;
       return {
         id: r.id,
         projectId: r.project_id,
         title: r.title,
         description: r.description,
-        acceptanceCriteria: JSON.parse(r.acceptance_criteria_json || '[]'),
+        acceptanceCriteria: safeJsonParseArray<string>(r.acceptance_criteria_json, []),
         status: r.status as GoalStatus,
         deadline: r.deadline ?? undefined,
         checkInPolicy: r.check_in_policy ?? undefined,
