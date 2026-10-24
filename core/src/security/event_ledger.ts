@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 // ============================================================================
 // KIN AUTHORITATIVE UNIFIED EVENT LEDGER
 // Append-only structured audit recorder capturing end-to-end lifecycle provenance
@@ -79,14 +80,31 @@ export class EventLedger {
     const payloadJson = JSON.stringify(sanitizedPayload);
     const now = Date.now();
 
+    let prevHash = 'GENESIS_HASH_0000000000000000';
+    try {
+      const lastRow = this.db.queryOne<{
+        record_hash?: string;
+      }>('SELECT record_hash FROM event_journal WHERE record_hash IS NOT NULL ORDER BY id DESC LIMIT 1');
+      if (lastRow?.record_hash) {
+        prevHash = lastRow.record_hash;
+      }
+    } catch {}
+
+    const recordHash = crypto
+      .createHash('sha256')
+      .update(`${prevHash}:${params.eventType}:${params.entityType}:${params.entityId}:${params.runId || ''}:${payloadJson}:${now}`)
+      .digest('hex');
+
     const result = this.db.execute(
-      `INSERT INTO event_journal (event_type, entity_type, entity_id, run_id, payload_json, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO event_journal (event_type, entity_type, entity_id, run_id, payload_json, record_hash, prev_hash, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       params.eventType,
       params.entityType,
       params.entityId,
       params.runId || null,
       payloadJson,
+      recordHash,
+      prevHash,
       now
     );
 
@@ -132,5 +150,56 @@ export class EventLedger {
       payload: JSON.parse(r.payload_json || '{}'),
       createdAt: r.created_at,
     }));
+  }
+  /**
+   * Verifies cryptographic hash chain integrity across all journal records.
+   */
+  public verifyChainIntegrity(): {
+    valid: boolean;
+    verifiedCount: number;
+    compromisedId?: number;
+    error?: string;
+  } {
+    const rows = this.db.query<{
+      id: number;
+      event_type: string;
+      entity_type: string;
+      entity_id: string;
+      run_id: string | null;
+      payload_json: string;
+      record_hash: string | null;
+      prev_hash: string | null;
+      created_at: number;
+    }>('SELECT id, event_type, entity_type, entity_id, run_id, payload_json, record_hash, prev_hash, created_at FROM event_journal ORDER BY id ASC');
+
+    let expectedPrevHash = 'GENESIS_HASH_0000000000000000';
+    let verifiedCount = 0;
+
+    for (const row of rows) {
+      if (!row.record_hash) continue;
+      if (row.prev_hash !== expectedPrevHash) {
+        return {
+          valid: false,
+          verifiedCount,
+          compromisedId: row.id,
+          error: `Broken chain link at event ID ${row.id}: expected prev_hash '${expectedPrevHash}', found '${row.prev_hash}'`,
+        };
+      }
+      const expectedHash = crypto
+        .createHash('sha256')
+        .update(`${row.prev_hash}:${row.event_type}:${row.entity_type}:${row.entity_id}:${row.run_id || ''}:${row.payload_json}:${row.created_at}`)
+        .digest('hex');
+      if (row.record_hash !== expectedHash) {
+        return {
+          valid: false,
+          verifiedCount,
+          compromisedId: row.id,
+          error: `Tampered event record detected at ID ${row.id}: hash mismatch`,
+        };
+      }
+      expectedPrevHash = row.record_hash;
+      verifiedCount++;
+    }
+    return { valid: true, verifiedCount };
   }
 }

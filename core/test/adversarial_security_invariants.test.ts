@@ -16,6 +16,8 @@ import * as crypto from 'node:crypto';
 import { SecretBroker } from '../src/security/secret_broker.js';
 import { SecretVault } from '../src/security/secret_vault.js';
 import { TaskRepository } from '../src/domain/task_repository.js';
+import { EventLedger } from '../src/security/event_ledger.js';
+import { OutputSpiller } from '../src/context/output_spiller.js';
 
 describe('Adversarial Security Invariants & Audit Regressions', () => {
   it('blocks hostSetTimeout, setTimeout.constructor, and host process leakage in SkillEngine', async () => {
@@ -494,5 +496,113 @@ describe('Adversarial Security Invariants & Audit Regressions', () => {
     // The assigned agent (agent-owner-1) successfully claims it
     const validClaim = repo.claimTaskWithLease('task-assigned-agent1', 'agent-owner-1', 'run-owner', 60000);
     expect(validClaim).toBe(true);
+  });
+
+  it('EventLedger computes a cryptographically tamper-evident hash chain and detects compromised records', () => {
+    const db = new KinDatabase(':memory:');
+    new MigrationRunner(db).runMigrations();
+    const ledger = EventLedger.initialize(db);
+
+    // 1. Record a series of sequential events
+    ledger.record({ eventType: 'TASK_CREATED', entityType: 'task', entityId: 't-1', payload: { title: 'First Task' } });
+    ledger.record({ eventType: 'RUN_CREATED', entityType: 'run', entityId: 'r-1', payload: { model: 'gpt-4o' } });
+    ledger.record({ eventType: 'TASK_COMPLETED', entityType: 'task', entityId: 't-1', payload: { success: true } });
+
+    // 2. Chain integrity is initially valid across all 3 records
+    const check1 = ledger.verifyChainIntegrity();
+    expect(check1.valid).toBe(true);
+    expect(check1.verifiedCount).toBe(3);
+
+    // 3. Tampering with an event payload breaks chain verification
+    db.execute("UPDATE event_journal SET payload_json = '{\"title\":\"TAMPERED_INJECTION\"}' WHERE id = 1");
+    const check2 = ledger.verifyChainIntegrity();
+    expect(check2.valid).toBe(false);
+    expect(check2.compromisedId).toBe(1);
+    expect(check2.error).toContain('Tampered event record detected');
+  });
+
+  it('TaskRepository detects and blocks dependency cycles in task DAGs', () => {
+    const db = new KinDatabase(':memory:');
+    new MigrationRunner(db).runMigrations();
+    const repo = new TaskRepository(db);
+
+    const now = Date.now();
+    db.execute("INSERT INTO workspaces (id, name, root_path, default_autonomy_mode, created_at, updated_at) VALUES ('ws-dag', 'DAG WS', '.', 'AUTO', ?, ?)", now, now);
+    db.execute("INSERT INTO projects (id, workspace_id, name, repo_path, created_at, updated_at) VALUES ('proj-dag', 'ws-dag', 'DAG Proj', '.', ?, ?)", now, now);
+    db.execute("INSERT INTO goals (id, project_id, title, description, acceptance_criteria_json, status, created_at, updated_at) VALUES ('goal-dag', 'proj-dag', 'DAG Goal', 'desc', '[]', 'active', ?, ?)", now, now);
+
+    // Create task A
+    repo.createTask({
+      id: 'task-A',
+      goalId: 'goal-dag',
+      title: 'Task A',
+      status: 'ready',
+      retryCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // Create task B depending on A
+    repo.createTask({
+      id: 'task-B',
+      goalId: 'goal-dag',
+      title: 'Task B',
+      status: 'ready',
+      retryCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    }, ['task-A']);
+
+    // Attempting to create task C depending on B, and making A depend on C (cycle A -> B -> C -> A)
+    repo.createTask({
+      id: 'task-C',
+      goalId: 'goal-dag',
+      title: 'Task C',
+      status: 'ready',
+      retryCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    }, ['task-B']);
+
+    // Self cycle
+    expect(() => {
+      repo.createTask({
+        id: 'task-D',
+        goalId: 'goal-dag',
+        title: 'Task D',
+        status: 'ready',
+        retryCount: 0,
+        createdAt: now,
+        updatedAt: now,
+      }, ['task-D']);
+    }).toThrow(/Circular dependency detected/);
+
+    expect(repo.wouldCreateCycle('task-A', 'task-C')).toBe(true);
+  });
+
+  it('OutputSpiller cleanStaleSpills unlinks logs exceeding TTL retention', () => {
+    const tempSpillDir = path.join(os.tmpdir(), `kin-test-spill-${Date.now()}`);
+    fs.mkdirSync(tempSpillDir, { recursive: true });
+
+    try {
+      const spiller = new OutputSpiller({ spillDir: tempSpillDir, thresholdBytes: 10 });
+      
+      // Create a fresh log file and a stale log file
+      const freshFile = path.join(tempSpillDir, 'fresh.log');
+      const staleFile = path.join(tempSpillDir, 'stale.log');
+      fs.writeFileSync(freshFile, 'fresh data');
+      fs.writeFileSync(staleFile, 'stale data');
+
+      // Set staleFile mtime to 10 days ago
+      const tenDaysAgo = (Date.now() - 10 * 24 * 60 * 60 * 1000) / 1000;
+      fs.utimesSync(staleFile, tenDaysAgo, tenDaysAgo);
+
+      const cleaned = spiller.cleanStaleSpills(7 * 24 * 60 * 60 * 1000);
+      expect(cleaned).toBe(1);
+      expect(fs.existsSync(freshFile)).toBe(true);
+      expect(fs.existsSync(staleFile)).toBe(false);
+    } finally {
+      fs.rmSync(tempSpillDir, { recursive: true, force: true });
+    }
   });
 });

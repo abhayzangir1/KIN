@@ -381,6 +381,17 @@ export class MigrationRunner {
         }
       }
 
+      // Pre-migration: event_journal hash chain columns
+      if (existingTables.includes('event_journal')) {
+        const journalCols = this.db.query<{ name: string }>("PRAGMA table_info(event_journal);").map((c) => c.name);
+        if (!journalCols.includes('record_hash')) {
+          this.db.exec('ALTER TABLE event_journal ADD COLUMN record_hash TEXT;');
+        }
+        if (!journalCols.includes('prev_hash')) {
+          this.db.exec('ALTER TABLE event_journal ADD COLUMN prev_hash TEXT;');
+        }
+      }
+
       // Pre-migration: managed_credentials table masked_key, base_url, and key_fingerprint columns
       if (existingTables.includes('managed_credentials')) {
         const credCols = this.db.query<{ name: string }>("PRAGMA table_info(managed_credentials);").map((c) => c.name);

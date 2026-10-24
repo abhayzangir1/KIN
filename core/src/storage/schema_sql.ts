@@ -298,6 +298,8 @@ CREATE TABLE IF NOT EXISTS event_journal (
     entity_id TEXT NOT NULL,
     run_id TEXT,
     payload_json TEXT NOT NULL,
+    record_hash TEXT,
+    prev_hash TEXT,
     created_at INTEGER NOT NULL
 );
 

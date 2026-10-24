@@ -29,6 +29,33 @@ export class OutputSpiller {
     if (!fs.existsSync(this.spillDir)) {
       fs.mkdirSync(this.spillDir, { recursive: true });
     }
+    try {
+      this.cleanStaleSpills();
+    } catch {}
+  }
+
+  /**
+   * Prunes spilled observation log files older than maxAgeMs (default 7 days).
+   */
+  public cleanStaleSpills(maxAgeMs: number = 7 * 24 * 60 * 60 * 1000): number {
+    let cleaned = 0;
+    try {
+      if (!fs.existsSync(this.spillDir)) return 0;
+      const now = Date.now();
+      const files = fs.readdirSync(this.spillDir);
+      for (const file of files) {
+        if (!file.endsWith('.log')) continue;
+        const fullPath = path.join(this.spillDir, file);
+        try {
+          const stat = fs.statSync(fullPath);
+          if (now - stat.mtimeMs > maxAgeMs) {
+            fs.unlinkSync(fullPath);
+            cleaned++;
+          }
+        } catch {}
+      }
+    } catch {}
+    return cleaned;
   }
 
   /**

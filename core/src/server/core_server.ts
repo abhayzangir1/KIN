@@ -6615,11 +6615,20 @@ Format strictly as JSON:
           return this.sendJson(res, 400, { error: `Invalid autonomyMode '${body?.autonomyMode}'. Allowed values: ${validModes.join(', ')}` });
         }
 
-        this.db.execute(
-          `UPDATE workspaces SET default_autonomy_mode = ?, updated_at = ? WHERE id = 'ws-default'`,
+        const wsId = (body as any).workspaceId || 'ws-default';
+        const updated = this.db.execute(
+          `UPDATE workspaces SET default_autonomy_mode = ?, updated_at = ? WHERE id = ? OR id = 'ws-default'`,
           body.autonomyMode,
-          Date.now()
+          Date.now(),
+          wsId
         );
+        if (Number(updated.changes) === 0) {
+          this.db.execute(
+            `UPDATE workspaces SET default_autonomy_mode = ?, updated_at = ? WHERE id = (SELECT id FROM workspaces LIMIT 1)`,
+            body.autonomyMode,
+            Date.now()
+          );
+        }
 
         try {
           EventLedger.getInstance().record({

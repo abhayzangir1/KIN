@@ -67,6 +67,9 @@ export class TaskRepository {
       );
 
       for (const depId of dependsOnTaskIds) {
+        if (this.wouldCreateCycle(task.id, depId)) {
+          throw new Error(`Circular dependency detected: Task '${task.id}' cannot depend on '${depId}'.`);
+        }
         this.db.execute(
           `INSERT INTO task_dependencies (task_id, depends_on_task_id) VALUES (?, ?)`,
           task.id,
@@ -74,6 +77,33 @@ export class TaskRepository {
         );
       }
     });
+  }
+
+
+  /**
+   * Checks whether adding a dependency would introduce a cycle in the task DAG.
+   */
+  public wouldCreateCycle(taskId: string, dependsOnTaskId: string): boolean {
+    if (taskId === dependsOnTaskId) return true;
+    const visited = new Set<string>();
+    const queue = [dependsOnTaskId];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (current === taskId) return true;
+      if (!visited.has(current)) {
+        visited.add(current);
+        const deps = this.db.query<{ depends_on_task_id: string }>(
+          'SELECT depends_on_task_id FROM task_dependencies WHERE task_id = ?',
+          current
+        );
+        for (const dep of deps) {
+          if (!visited.has(dep.depends_on_task_id)) {
+            queue.push(dep.depends_on_task_id);
+          }
+        }
+      }
+    }
+    return false;
   }
 
   public getTask(id: string): Task | undefined {
