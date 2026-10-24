@@ -13,7 +13,7 @@ Local-first execution • Hybrid model routing (Local Ollama & BYOK Cloud) • A
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org/)
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri)](https://tauri.app/)
 [![SQLite](https://img.shields.io/badge/SQLite-WAL%20Mode-003B57?logo=sqlite)](https://sqlite.org/)
-[![Tests](https://img.shields.io/badge/Tests-634%20Passed%20(100%25)-success)](docs/PROJECT_STATUS.md)
+[![Tests](https://img.shields.io/badge/Tests-653%20Passed%20(100%25)-success)](docs/PROJECT_STATUS.md)
 
 [Overview](#-overview) •
 [Key Features](#-key-features) •
@@ -186,7 +186,7 @@ npm run tauri:dev
 ```
 
 ### 4. Run the Test Suite
-KIN maintains a comprehensive automated testing suite with **634 tests across 43 test suites (100% pass rate)**:
+KIN maintains a comprehensive automated testing suite with **653 tests across 44 test suites (100% pass rate)**:
 ```bash
 npm test --workspace=core
 ```
@@ -217,7 +217,7 @@ Comprehensive guides, technical references, and tutorials are available in the [
 - **[REST & IPC API Reference](docs/API.md)**: Full endpoint specification covering Channels, Messages, Agents, Models, Desktop, Browser, and Automations.
 - **[Product Requirements Document (PRD)](docs/PRD.md)**: Product vision, user personas, UX architecture, and functional requirements.
 - **[Technical Requirements Document (TRD)](docs/TRD.md)**: Non-functional requirements, security model, and performance boundaries.
-- **[Project Status & Verification Audit](docs/PROJECT_STATUS.md)**: Live verification status of all 634 tests, audit remediations, and roadmap.
+- **[Project Status & Verification Audit](docs/PROJECT_STATUS.md)**: Live verification status of all 653 tests, audit remediations, and roadmap.
 - **[Tutorials & Guides](docs/TUTORIALS.md)**:
   - [01: Assembling a Research Swarm](docs/TUTORIALS/01-research-swarm.md)
   - [02: Automating Daily Proactive Routines](docs/TUTORIALS/02-daily-routines.md)

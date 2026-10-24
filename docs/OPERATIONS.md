@@ -128,7 +128,7 @@ sqlite3 kin_storage.sqlite ".backup kin_backup_$(date +%Y%m%d).sqlite"
 
 ### Automated Test Execution
 
-KIN maintains a comprehensive automated testing suite (634 tests across 43 test suites).
+KIN maintains a comprehensive automated testing suite (653 tests across 44 test suites).
 
 **Monorepo Test Command:**
 ```bash
