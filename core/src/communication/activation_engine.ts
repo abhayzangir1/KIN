@@ -47,6 +47,7 @@ export interface ChannelRoutingResult {
 export interface ChannelRoutingInput {
   channelId: string;
   isPrivate?: boolean;
+  channelType?: string;
   message: Message;
   channelMembers: AgentIdentity[];
   allProjectAgents: AgentIdentity[];
@@ -188,10 +189,12 @@ export class ActivationEngine {
    * 4. Zero relevant specialists: Orchestrator (@Boss) steps in as safety net.
    */
   public evaluateChannelRouting(input: ChannelRoutingInput): ChannelRoutingResult {
-    const { channelId, isPrivate, message, channelMembers, allProjectAgents, definitionsMap } = input;
+    const { channelId, isPrivate, channelType, message, channelMembers, allProjectAgents, definitionsMap } = input;
 
     // 1. Condition 1: Direct Message (DM)
-    if (isPrivate || channelId.startsWith('dm-')) {
+    // DMs are strictly 1-on-1 private correspondence (either starting with 'dm-' or explicitly marked 'direct_message' / 'dm')
+    const isDirectMessage = channelId.startsWith('dm-') || channelType === 'direct_message' || channelType === 'dm';
+    if (isDirectMessage) {
       const otherMembers = channelMembers.filter((m) => m.id !== message.senderId);
       let targetAgent: AgentIdentity | undefined = otherMembers[0];
 
@@ -241,7 +244,8 @@ export class ActivationEngine {
       const isSenderAuthorizedForAll = message.senderType === 'human' || message.senderId === 'user-operator' || message.senderId === 'system';
       const isAll = mentionedClean.includes('all') && isSenderAuthorizedForAll;
 
-      const candidatePool = isAll ? channelMembers : allProjectAgents;
+      // In private channels, candidate pool is strictly restricted to channel members
+      const candidatePool = (isAll || isPrivate) ? channelMembers : allProjectAgents;
       const matchedAgents = candidatePool.filter((agent) => {
         if (agent.id === message.senderId) return false;
         if (isAll) return true;
@@ -280,8 +284,13 @@ export class ActivationEngine {
       if (agent.id === message.senderId) return false;
       const cleanName = agent.displayName.replace(/^@/, '').trim();
       if (cleanName.length < 2) return false;
-      const regex = new RegExp(`\\b${cleanName}\\b`, 'i');
-      return regex.test(message.content);
+      try {
+        const escaped = cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`(^|[^\\w])${escaped}($|[^\\w])`, 'i');
+        return regex.test(message.content);
+      } catch {
+        return false;
+      }
     });
     if (namedMembers.length > 0) {
       return {
@@ -346,9 +355,9 @@ export class ActivationEngine {
     // 4. Condition 4: Zero relevant specialists -> Orchestrator (@Boss) safety net fallback
     const boss =
       channelMembers.find((a) => a.isOrchestrator) ||
-      allProjectAgents.find((a) => a.isOrchestrator) ||
+      (!isPrivate ? allProjectAgents.find((a) => a.isOrchestrator) : undefined) ||
       channelMembers[0] ||
-      allProjectAgents[0];
+      (!isPrivate ? allProjectAgents[0] : undefined);
 
     return {
       action: 'orchestrator_fallback',

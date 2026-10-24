@@ -276,6 +276,253 @@ export class Sentinel {
   }
 
   /**
+   * Authoritative Sentinel Risk Assessment.
+   * Classifies actions according to real system impact, preventing callers from under-declaring risk.
+   */
+  public evaluateRisk(toolName: string, params: Record<string, any> = {}, callerRisk?: RiskLevel): RiskLevel {
+    if (callerRisk === 'CRITICAL') {
+      return 'CRITICAL';
+    }
+
+    const lowerTool = toolName.toLowerCase();
+    const safeParams = params || {};
+
+    if (
+      lowerTool.includes('droptable') ||
+      lowerTool.includes('purgedatabase')
+    ) {
+      return 'CRITICAL';
+    }
+
+    // Unified first-class capabilities risk classification
+    if (toolName === 'computer') {
+      const act = safeParams.action;
+      if (act === 'screenshot') return 'LOW';
+      if (act === 'type' || act === 'key') return 'HIGH';
+      return 'MEDIUM';
+    }
+
+    if (toolName === 'application') {
+      const act = safeParams.action;
+      if (act === 'list' || act === 'list_windows') return 'LOW';
+      if (act === 'close') return 'HIGH';
+      return 'MEDIUM';
+    }
+
+    if (toolName === 'browser') {
+      const act = safeParams.action;
+      if (act === 'inspect' || act === 'screenshot' || act === 'status') return 'LOW';
+      if (act === 'type' || act === 'evaluate' || act === 'step' || act === 'close') return 'HIGH';
+      return 'MEDIUM';
+    }
+
+    // High consequence UI & OS mutations
+    if (
+      toolName === 'desktopType' ||
+      toolName === 'desktopSendKey' ||
+      toolName === 'desktopLaunchApp' ||
+      toolName === 'desktopCloseWindow' ||
+      toolName === 'browserType' ||
+      toolName === 'browserEvaluate' ||
+      toolName === 'browserClose' ||
+      toolName === 'browserStep'
+    ) {
+      return 'HIGH';
+    }
+
+    // Read-only inspection tools
+    if (
+      toolName === 'readFile' ||
+      toolName === 'listDirectory' ||
+      toolName === 'schedule' ||
+      toolName === 'cancelSchedule' ||
+      toolName === 'listSchedules' ||
+      toolName === 'desktopScreenshot' ||
+      toolName === 'desktopDiscoverApps' ||
+      toolName === 'desktopListWindows' ||
+      toolName === 'browserInspect' ||
+      toolName === 'browserScreenshot' ||
+      toolName === 'rememberPrivate' ||
+      toolName === 'remember_private' ||
+      toolName === 'recallPrivate' ||
+      toolName === 'recall_private' ||
+      toolName === 'rememberProject' ||
+      toolName === 'remember_project' ||
+      toolName === 'sendDirectMessage' ||
+      toolName === 'send_direct_message' ||
+      toolName === 'directMessage' ||
+      toolName === 'webSearch' ||
+      toolName === 'web_search' ||
+      ((toolName === 'fetchUrl' || toolName === 'fetch_url') && (!safeParams.method || safeParams.method.toUpperCase() === 'GET'))
+    ) {
+      const targetPath = (safeParams.filePath || safeParams.path || '').toLowerCase();
+      if (
+        targetPath.includes('.env') ||
+        targetPath.includes('.ssh') ||
+        targetPath.includes('id_rsa') ||
+        targetPath.includes('id_ed25519') ||
+        targetPath.includes('vault.key') ||
+        targetPath.includes('ipc_auth.token') ||
+        targetPath.includes('.aws') ||
+        targetPath.includes('.azure') ||
+        targetPath.includes('kin_storage.sqlite')
+      ) {
+        return 'HIGH';
+      }
+      return 'LOW';
+    }
+
+    // Shell tool evaluation
+    if (lowerTool === 'executeshell' || lowerTool === 'shell') {
+      const rawCmd = (safeParams.command || '').trim();
+      const cmd = rawCmd.toLowerCase();
+
+      // Database tampering / DB file manipulation / privilege escalation
+      if (
+        /\bsqlite3?\b/i.test(cmd) ||
+        /\b(kin_storage\.sqlite|\.sqlite)\b/i.test(cmd) ||
+        (/\b(workspaces|agent_identities|approvals|event_journal|managed_credentials|vault_items)\b/i.test(cmd) && /\b(update|delete|insert|drop|alter)\b/i.test(cmd))
+      ) {
+        return 'CRITICAL';
+      }
+
+      // Explicit disk format
+      if (/\bformat\s+[a-z]:/i.test(cmd)) {
+        return 'CRITICAL';
+      }
+
+      // Network exfiltration & out-of-band egress
+      if (
+        /\b(curl|wget|nc|netcat|ncat|socat|telnet|ssh|scp|sftp|rsync|ftp)\b/i.test(cmd) ||
+        /\b(invoke-webrequest|invoke-restmethod|iwr|irm)\b/i.test(cmd)
+      ) {
+        return 'HIGH';
+      }
+
+      // Credential theft / private key access / secrets reconnaissance
+      if (
+        /\.env(\.[a-z0-9_-]+)?\b/i.test(cmd) ||
+        /\.ssh[\\\/](id_rsa|id_ed25519|id_ecdsa|id_dsa|authorized_keys|known_hosts)/i.test(cmd) ||
+        /\b(id_rsa|id_ed25519|id_ecdsa|id_dsa)\b/i.test(cmd) ||
+        /\.aws[\\\/]credentials/i.test(cmd) ||
+        /\.kin[\\\/](vault\.key|ipc_auth\.token)/i.test(cmd) ||
+        /\b(vault\.key|ipc_auth\.token)\b/i.test(cmd)
+      ) {
+        return 'HIGH';
+      }
+
+      // Arbitrary interpreter / subshell execution
+      if (
+        /\b(python3?|node|perl|ruby|php)\s+(-c|-e|--eval|-r)\b/i.test(cmd) ||
+        /\b(bash|sh|zsh|csh|tcsh|powershell|pwsh)\s+(-c|-enc|-encodedcommand|-command)\b/i.test(cmd) ||
+        /\bbase64\s+(-d|--decode)\s*\|\s*(ba|z)?sh\b/i.test(cmd) ||
+        /\|\s*(bash|sh|zsh|powershell|pwsh)\b/i.test(cmd)
+      ) {
+        return 'HIGH';
+      }
+
+      // System persistence / process termination / startup modification
+      if (
+        /\bcrontab\b/i.test(cmd) ||
+        />>?\s*~?[\\\/]?(\.bashrc|\.zshrc|\.profile|\.bash_profile)/i.test(cmd) ||
+        /\b(pkill|killall|taskkill)\b/i.test(cmd) ||
+        /\bkill\s+-9\b/i.test(cmd)
+      ) {
+        return 'HIGH';
+      }
+
+      // System package installation & remote repository mutation
+      if (
+        /\b(npm|pnpm|yarn)\s+install\s+(-g|--global)\b/i.test(cmd) ||
+        /\bpip\s+install\s+(--break-system-packages|-g)\b/i.test(cmd) ||
+        /\b(gem|cargo)\s+install\b/i.test(cmd) ||
+        /\bgit\s+push\b/i.test(cmd)
+      ) {
+        return 'HIGH';
+      }
+
+      // Destructive file deletion / system mutation
+      if (
+        cmd.includes('rm -rf') ||
+        cmd.includes('remove-item') ||
+        cmd.includes('npm install') ||
+        cmd.includes('pip install') ||
+        cmd.includes('drop table') ||
+        cmd.includes('shutdown') ||
+        cmd.includes('reboot') ||
+        cmd.includes('chmod') ||
+        cmd.includes('git reset --hard')
+      ) {
+        return 'HIGH';
+      }
+
+      return callerRisk === 'HIGH' ? 'HIGH' : 'MEDIUM';
+    }
+
+    // Safe reversible operations & UI navigation
+    if (
+      toolName === 'writeFile' ||
+      toolName === 'create_skill' ||
+      toolName === 'createSkill' ||
+      toolName === 'import_skill' ||
+      toolName === 'importSkill' ||
+      toolName === 'hireSpecialist' ||
+      toolName === 'hire_specialist' ||
+      toolName === 'hireAgent' ||
+      toolName === 'assignCoworker' ||
+      toolName === 'assign_coworker' ||
+      toolName === 'inviteToChannel' ||
+      toolName === 'callMeeting' ||
+      toolName === 'call_meeting' ||
+      toolName === 'conveneMeeting' ||
+      toolName === 'delegateToAgent' ||
+      toolName === 'delegate_to_agent' ||
+      toolName === 'coordinateWithAgent' ||
+      toolName === 'coordinate_with_agent' ||
+      toolName === 'delegateTask' ||
+      toolName === 'delegate' ||
+      ((toolName === 'fetchUrl' || toolName === 'fetch_url') && safeParams.method && safeParams.method.toUpperCase() !== 'GET') ||
+      toolName === 'sendExternalMessage' ||
+      toolName === 'send_external_message' ||
+      toolName === 'sendWebhookMessage' ||
+      toolName === 'send_webhook_message' ||
+      toolName === 'desktopMouseMove' ||
+      toolName === 'desktopMouseClick' ||
+      toolName === 'desktopFocusWindow' ||
+      toolName === 'browserNavigate' ||
+      toolName === 'browserClick'
+    ) {
+      return 'MEDIUM';
+    }
+
+    // Filesystem read / write tools targeting sensitive credentials or database
+    if (
+      lowerTool === 'readfile' ||
+      lowerTool === 'read_file' ||
+      lowerTool === 'writefile' ||
+      lowerTool === 'write_file'
+    ) {
+      const targetPath = (safeParams.filePath || safeParams.path || '').toLowerCase();
+      if (
+        targetPath.includes('.env') ||
+        targetPath.includes('.ssh') ||
+        targetPath.includes('id_rsa') ||
+        targetPath.includes('id_ed25519') ||
+        targetPath.includes('vault.key') ||
+        targetPath.includes('ipc_auth.token') ||
+        targetPath.includes('.aws') ||
+        targetPath.includes('.azure') ||
+        targetPath.includes('kin_storage.sqlite')
+      ) {
+        return 'HIGH';
+      }
+    }
+
+    if (callerRisk) return callerRisk;
+    return 'MEDIUM';
+  }
+
+  /**
    * Authoritative check for non-reversible or destructive operations.
    */
   public isDestructiveAction(toolName: string, params: Record<string, any>): { isDestructive: boolean; reason?: string } {
@@ -316,6 +563,11 @@ export class Sentinel {
         /\bchmod\s+(-[a-z]*R|[0-7]{3,4})\b/i, // chmod -R or numeric chmod
         /\bnpm\s+publish\b/i, // npm publish
         /\b(shutdown|reboot)\b/i, // system shutdown or reboot
+        // Database tampering & privilege escalation / audit log wiping
+        /\bsqlite3?\b.*(update|delete|insert|drop|alter)\b/i,
+        /\b(update|delete\s+from|insert\s+into)\s+(workspaces|agent_identities|approvals|event_journal|managed_credentials|vault_items)\b/i,
+        /\bdelete\s+from\s+event_journal\b/i,
+        /\b(update|delete)\b.*kin_storage\.sqlite\b/i,
       ];
 
       for (const pattern of destructivePatterns) {
@@ -393,6 +645,9 @@ export class Sentinel {
       };
     }
 
+    // Authoritative Risk Assessment: Upgrade effective risk level if dangerous action detected
+    const effectiveRisk = this.evaluateRisk(request.toolName, request.params, request.riskLevel);
+
     // 4. PolicyEngine evaluation for standard capability attenuation and autonomy rules
     const commandOrPath = request.params?.filePath || request.params?.path || request.params?.command || request.params?.dirPath;
     const policyReq: ActionEvaluationRequest = {
@@ -400,7 +655,7 @@ export class Sentinel {
       parentRunId: request.parentRunId,
       toolName: request.toolName,
       commandOrPath,
-      riskLevel: request.riskLevel,
+      riskLevel: effectiveRisk,
       autonomyMode: request.autonomyMode,
       agentCapabilities: request.agentCapabilities,
     };

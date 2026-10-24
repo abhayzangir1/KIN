@@ -4092,6 +4092,7 @@ export class CoreServer {
         const routing = this.activationEngine.evaluateChannelRouting({
           channelId,
           isPrivate: channel?.isPrivate,
+          channelType: channel?.channelType,
           message: userMsg,
           channelMembers,
           allProjectAgents,
@@ -12383,6 +12384,7 @@ Format strictly as JSON:
     const routing = this.activationEngine.evaluateChannelRouting({
       channelId,
       isPrivate: channel?.isPrivate,
+      channelType: channel?.channelType,
       message: userMsg,
       channelMembers,
       allProjectAgents,

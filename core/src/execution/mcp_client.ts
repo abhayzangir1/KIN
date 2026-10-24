@@ -128,9 +128,18 @@ export class McpClientManager {
       safeEnv['windir'] = process.env.windir || sysRoot;
     }
     const cleanEnv: Record<string, string> = { ...safeEnv, ...(configEnv || {}) };
+    const dangerousEnvKeys = new Set([
+      'node_options', 'pythonpath', 'pythonhome', 'ld_preload', 'ld_library_path',
+      'dyld_insert_libraries', 'dyld_library_path', 'bash_env', 'env', 'prompt_command',
+      'perl5lib', 'rubyopt', 'kin_ipc_token', 'kin_vault_key'
+    ]);
     for (const key of Object.keys(cleanEnv)) {
-      if (!configEnv || !(key in configEnv)) {
-        if (/api_key|secret|token|kin_/i.test(key)) {
+      if (dangerousEnvKeys.has(key.toLowerCase())) {
+        delete cleanEnv[key];
+        continue;
+      }
+      if (/api_key|secret|token|kin_/i.test(key)) {
+        if (!configEnv || !(key in configEnv)) {
           delete cleanEnv[key];
         }
       }
@@ -1566,15 +1575,20 @@ process.on('SIGINT', () => process.exit(0));
           throw new Error(`Invalid MCP connector command '${cmd}': Shell metacharacters and command chaining are prohibited.`);
         }
         const baseCmd = path.basename(cmd).toLowerCase().replace(/\.(exe|cmd|bat)$/i, '');
-        const blockedBinaries = new Set([
+        const allowedRunners = new Set([
+          'node', 'npx', 'python', 'python3', 'uv', 'uvx', 'docker', 'bun', 'deno'
+        ]);
+        const isCustomExecutable = cmd.includes('/') || cmd.includes('\\');
+        const prohibitedBinaries = new Set([
           'sh', 'bash', 'zsh', 'ksh', 'csh', 'tcsh',
           'cmd', 'powershell', 'pwsh',
           'rm', 'del', 'erase', 'format',
           'curl', 'wget', 'nc', 'netcat', 'socat',
-          'touch', 'dd', 'kill', 'taskkill'
+          'touch', 'dd', 'kill', 'taskkill',
+          'ruby', 'perl', 'php', 'lua', 'mshta', 'cscript', 'wscript', 'certutil'
         ]);
-        if (blockedBinaries.has(baseCmd)) {
-          throw new Error(`Prohibited MCP command binary '${cmd}'. MCP servers must use standard runtime runners (node, npx, python, uvx, docker) or dedicated binaries.`);
+        if (prohibitedBinaries.has(baseCmd) || (!allowedRunners.has(baseCmd) && !isCustomExecutable)) {
+          throw new Error(`Prohibited MCP command binary '${cmd}'. MCP servers must use standard runtime runners (node, npx, python, python3, uv, uvx, docker, bun, deno) or a dedicated executable.`);
         }
         cleanConfig.command = cmd;
       }
@@ -1589,7 +1603,20 @@ process.on('SIGINT', () => process.exit(0));
         }
         cleanConfig.args = stringArgs;
       }
-      if (config.env && typeof config.env === 'object') cleanConfig.env = config.env;
+      if (config.env && typeof config.env === 'object') {
+        const sanitizedEnv: Record<string, string> = {};
+        const dangerousEnvKeys = new Set([
+          'node_options', 'pythonpath', 'pythonhome', 'ld_preload', 'ld_library_path',
+          'dyld_insert_libraries', 'dyld_library_path', 'bash_env', 'env', 'prompt_command',
+          'perl5lib', 'rubyopt', 'kin_ipc_token', 'kin_vault_key'
+        ]);
+        for (const [k, v] of Object.entries(config.env)) {
+          if (typeof v === 'string' && !dangerousEnvKeys.has(k.toLowerCase())) {
+            sanitizedEnv[k] = v;
+          }
+        }
+        cleanConfig.env = sanitizedEnv;
+      }
       if (config.url) cleanConfig.url = config.url.trim();
       if (config.transport) cleanConfig.transport = config.transport;
       if (typeof config.disabled === 'boolean') {

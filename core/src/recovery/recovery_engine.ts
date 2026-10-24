@@ -38,7 +38,15 @@ function safeTestPattern(pattern: string, text: string): boolean {
   if (text.toLowerCase().includes(pattern.toLowerCase())) {
     return true;
   }
-  // 2. Regular expression pattern evaluation
+  // 2. Bound length and reject nested/hostile quantifiers to prevent ReDoS
+  if (pattern.length > 256) return false;
+  if (
+    /(\+|\*|\{\d+,?\d*\})\s*(\+|\*|\{\d+,?\d*\})/.test(pattern) ||
+    /\([^)]*(\+|\*|\{\d+,?\d*\})\)[+*]/.test(pattern)
+  ) {
+    return false;
+  }
+  // 3. Regular expression pattern evaluation
   try {
     return new RegExp(pattern, 'i').test(text);
   } catch {

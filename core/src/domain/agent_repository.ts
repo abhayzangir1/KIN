@@ -60,6 +60,13 @@ export class AgentRepository {
   }
 
   public createIdentity(identity: AgentIdentity): void {
+    if (!identity.displayName || typeof identity.displayName !== 'string') {
+      throw new Error('Agent displayName must be a non-empty string.');
+    }
+    const cleanName = identity.displayName.trim();
+    if (cleanName.length < 2 || cleanName.length > 64) {
+      throw new Error(`Agent displayName '${cleanName}' must be between 2 and 64 characters.`);
+    }
     this.db.execute(
       `INSERT INTO agent_identities (id, workspace_id, project_id, definition_id, parent_agent_id, display_name, avatar_url, active_model_id, fallback_model_id, is_orchestrator, is_ephemeral, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
