@@ -80,35 +80,37 @@ export class EventLedger {
     const payloadJson = JSON.stringify(sanitizedPayload);
     const now = Date.now();
 
-    let prevHash = 'GENESIS_HASH_0000000000000000';
-    try {
-      const lastRow = this.db.queryOne<{
-        record_hash?: string;
-      }>('SELECT record_hash FROM event_journal WHERE record_hash IS NOT NULL ORDER BY id DESC LIMIT 1');
-      if (lastRow?.record_hash) {
-        prevHash = lastRow.record_hash;
-      }
-    } catch {}
+    return this.db.transactionSync(() => {
+      let prevHash = 'GENESIS_HASH_0000000000000000';
+      try {
+        const lastRow = this.db.queryOne<{
+          record_hash?: string;
+        }>('SELECT record_hash FROM event_journal WHERE record_hash IS NOT NULL ORDER BY id DESC LIMIT 1');
+        if (lastRow?.record_hash) {
+          prevHash = lastRow.record_hash;
+        }
+      } catch {}
 
-    const recordHash = crypto
-      .createHash('sha256')
-      .update(`${prevHash}:${params.eventType}:${params.entityType}:${params.entityId}:${params.runId || ''}:${payloadJson}:${now}`)
-      .digest('hex');
+      const recordHash = crypto
+        .createHash('sha256')
+        .update(`${prevHash}:${params.eventType}:${params.entityType}:${params.entityId}:${params.runId || ''}:${payloadJson}:${now}`)
+        .digest('hex');
 
-    const result = this.db.execute(
-      `INSERT INTO event_journal (event_type, entity_type, entity_id, run_id, payload_json, record_hash, prev_hash, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      params.eventType,
-      params.entityType,
-      params.entityId,
-      params.runId || null,
-      payloadJson,
-      recordHash,
-      prevHash,
-      now
-    );
+      const result = this.db.execute(
+        `INSERT INTO event_journal (event_type, entity_type, entity_id, run_id, payload_json, record_hash, prev_hash, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        params.eventType,
+        params.entityType,
+        params.entityId,
+        params.runId || null,
+        payloadJson,
+        recordHash,
+        prevHash,
+        now
+      );
 
-    return Number(result.lastInsertRowid);
+      return Number(result.lastInsertRowid);
+    });
   }
 
   /**

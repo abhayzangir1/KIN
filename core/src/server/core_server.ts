@@ -1346,7 +1346,13 @@ export class CoreServer {
     if (!resolved) {
       resolved = this.workspaceRepo.getProject(this.activeProjectId)?.repoPath || process.cwd();
     }
-    const normTarget = path.resolve(resolved);
+    let normTarget = path.resolve(resolved);
+    try {
+      if (fs.existsSync(normTarget)) {
+        normTarget = fs.realpathSync(normTarget);
+      }
+    } catch {}
+
     const rootPattern = /^([a-zA-Z]:[/\\]?|\/|\\)$/;
     if (rootPattern.test(normTarget)) {
       return { valid: false, root: normTarget, error: `Forbidden: projectRoot '${targetRoot}' cannot be the filesystem root.` };
@@ -1354,12 +1360,22 @@ export class CoreServer {
 
     const baseAllowedDirs = [process.cwd(), os.tmpdir(), ...this.monorepoRoot];
 
+    const resolveCanonical = (p: string) => {
+      let resolvedDir = path.resolve(p);
+      try {
+        if (fs.existsSync(resolvedDir)) {
+          resolvedDir = fs.realpathSync(resolvedDir);
+        }
+      } catch {}
+      return resolvedDir;
+    };
+
     const registeredProjects = this.workspaceRepo.listProjects('ws-default');
     const isAllowed = registeredProjects.some((p) => {
-      const pNorm = path.resolve(p.repoPath);
+      const pNorm = resolveCanonical(p.repoPath);
       return normTarget === pNorm || (!path.relative(pNorm, normTarget).startsWith('..') && !path.isAbsolute(path.relative(pNorm, normTarget)));
     }) || baseAllowedDirs.some((p) => {
-      const pNorm = path.resolve(p);
+      const pNorm = resolveCanonical(p);
       return normTarget === pNorm || (!path.relative(pNorm, normTarget).startsWith('..') && !path.isAbsolute(path.relative(pNorm, normTarget)));
     });
 
@@ -1577,6 +1593,7 @@ export class CoreServer {
           timeout: timeoutMs,
           maxBuffer: 1024 * 1024 * 15,
           shell: isWin ? 'cmd.exe' : '/bin/bash',
+          env: McpClientManager.sanitizeMcpEnv(),
         },
         (error, stdout, stderr) => {
           resolve({
@@ -1916,7 +1933,14 @@ export class CoreServer {
       if (u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '::1' || u.hostname === 'tauri.localhost') return true;
       return false;
     } catch {
-      return origin === 'tauri://localhost' || origin === 'http://tauri.localhost' || origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1');
+      return (
+        origin === 'tauri://localhost' ||
+        origin === 'http://tauri.localhost' ||
+        origin === 'http://localhost' ||
+        origin.startsWith('http://localhost:') ||
+        origin === 'http://127.0.0.1' ||
+        origin.startsWith('http://127.0.0.1:')
+      );
     }
   }
 
@@ -2960,8 +2984,19 @@ export class CoreServer {
           return this.sendJson(res, 403, { error: 'Forbidden: Path traversal outside project jail' });
         }
 
+        const resolvedPath = path.resolve(project.repoPath, relPath);
+        if (!fs.existsSync(resolvedPath)) {
+          return this.sendJson(res, 404, { error: 'Artifact file not found' });
+        }
+
         // Sensitive File Denylist: Prevent reading credentials, tokens, database, or repo secrets
         const lowerRel = relPath.toLowerCase().replace(/\\/g, '/');
+        let canonicalRel = lowerRel;
+        try {
+          const canonicalTarget = fs.realpathSync(resolvedPath);
+          canonicalRel = path.relative(project.repoPath, canonicalTarget).toLowerCase().replace(/\\/g, '/');
+        } catch {}
+
         const blockedSensitivePatterns = [
           'vault.key',
           'ipc_auth.token',
@@ -2975,27 +3010,26 @@ export class CoreServer {
           'kin_storage.sqlite-wal',
           'kin_storage.sqlite-shm',
         ];
-        const isBlocked =
-          lowerRel.endsWith('.sqlite') ||
-          lowerRel.endsWith('.sqlite3') ||
-          lowerRel.endsWith('.sqlite-wal') ||
-          lowerRel.endsWith('.sqlite-shm') ||
-          lowerRel.includes('/.kin/') ||
-          lowerRel.startsWith('.kin/') ||
-          lowerRel.includes('/.ssh/') ||
-          lowerRel.startsWith('.ssh/') ||
-          lowerRel.includes('/.aws/') ||
-          lowerRel.startsWith('.aws/') ||
-          blockedSensitivePatterns.some((pattern) =>
-            lowerRel === pattern || lowerRel.endsWith('/' + pattern) || lowerRel.includes('.kin/' + pattern)
+        const isSensitivePattern = (p: string) => {
+          return (
+            p.endsWith('.sqlite') ||
+            p.endsWith('.sqlite3') ||
+            p.endsWith('.sqlite-wal') ||
+            p.endsWith('.sqlite-shm') ||
+            p.includes('/.kin/') ||
+            p.startsWith('.kin/') ||
+            p.includes('/.ssh/') ||
+            p.startsWith('.ssh/') ||
+            p.includes('/.aws/') ||
+            p.startsWith('.aws/') ||
+            blockedSensitivePatterns.some((pattern) =>
+              p === pattern || p.endsWith('/' + pattern) || p.includes('.kin/' + pattern)
+            )
           );
-        if (isBlocked) {
-          return this.sendJson(res, 403, { error: 'Forbidden: Access to sensitive credential, database, or repository configuration files is prohibited.' });
-        }
+        };
 
-        const resolvedPath = path.resolve(project.repoPath, relPath);
-        if (!fs.existsSync(resolvedPath)) {
-          return this.sendJson(res, 404, { error: 'Artifact file not found' });
+        if (isSensitivePattern(lowerRel) || isSensitivePattern(canonicalRel)) {
+          return this.sendJson(res, 403, { error: 'Forbidden: Access to sensitive credential, database, or repository configuration files is prohibited.' });
         }
 
         const stats = fs.statSync(resolvedPath);
@@ -6710,12 +6744,15 @@ Format strictly as JSON:
         const status = isApproved ? 'approved' : 'rejected';
         const now = Date.now();
 
-        this.db.execute(
-          `UPDATE approvals SET status = ?, decided_at = ? WHERE id = ?`,
+        const updateRes = this.db.execute(
+          `UPDATE approvals SET status = ?, decided_at = ? WHERE id = ? AND status = 'pending'`,
           status,
           now,
           approvalId
         );
+        if (Number(updateRes.changes) === 0) {
+          return this.sendJson(res, 409, { error: 'Approval was already resolved by another request.' });
+        }
 
         try {
           EventLedger.getInstance().record({
@@ -7321,7 +7358,16 @@ Format strictly as JSON:
             });
           }
 
-          if (providedAuthToken !== validServerToken) {
+          let isTokenValid = false;
+          if (providedAuthToken && validServerToken) {
+            const provBuf = Buffer.from(String(providedAuthToken));
+            const validBuf = Buffer.from(String(validServerToken));
+            if (provBuf.length === validBuf.length && crypto.timingSafeEqual(provBuf, validBuf)) {
+              isTokenValid = true;
+            }
+          }
+
+          if (!isTokenValid) {
             if (currentTask.status !== 'review') {
               this.taskRepo.updateTaskStatus(taskId, 'review');
               this.broadcastEvent('task:updated', { taskId, status: 'review' });
@@ -7821,6 +7867,27 @@ Format strictly as JSON:
           return this.sendJson(res, 403, { error: 'Forbidden: Path traversal outside project jail' });
         }
 
+        const lowerPath = body.path.toLowerCase().replace(/\\/g, '/').replace(/^\.?\//, '');
+        let canonicalRel = lowerPath;
+        try {
+          if (fs.existsSync(fullPath)) {
+            const canonicalFull = fs.realpathSync(fullPath);
+            canonicalRel = path.relative(project.repoPath, canonicalFull).toLowerCase().replace(/\\/g, '/').replace(/^\.?\//, '');
+          }
+        } catch {}
+
+        const isProtectedGitPath = (p: string) => {
+          return (
+            p === '.git' || p.startsWith('.git/') ||
+            p === '.kin' || p.startsWith('.kin/') ||
+            p === '.env' || p.startsWith('.env.') || p.endsWith('/.env') || p.includes('/.env.')
+          );
+        };
+
+        if (isProtectedGitPath(lowerPath) || isProtectedGitPath(canonicalRel)) {
+          return this.sendJson(res, 403, { error: 'Forbidden: Cannot revert protected repository metadata or credentials.' });
+        }
+
         const { stdout: statusOut } = await this.execFileCommand('git', ['status', '--porcelain=v1', '--', body.path], project.repoPath);
         const statusLines = statusOut.trim().split('\n').filter(Boolean);
         const isUntracked = statusLines.length > 0 && statusLines.every((l) => l.startsWith('?? '));
@@ -7855,6 +7922,28 @@ Format strictly as JSON:
 
         if (!this.isWithinJail(project.repoPath, body.path)) {
           return this.sendJson(res, 403, { error: 'Forbidden: Path traversal outside project jail' });
+        }
+
+        const fullPath = path.resolve(project.repoPath, body.path);
+        const lowerPath = body.path.toLowerCase().replace(/\\/g, '/').replace(/^\.?\//, '');
+        let canonicalRel = lowerPath;
+        try {
+          if (fs.existsSync(fullPath)) {
+            const canonicalFull = fs.realpathSync(fullPath);
+            canonicalRel = path.relative(project.repoPath, canonicalFull).toLowerCase().replace(/\\/g, '/').replace(/^\.?\//, '');
+          }
+        } catch {}
+
+        const isProtectedGitPath = (p: string) => {
+          return (
+            p === '.git' || p.startsWith('.git/') ||
+            p === '.kin' || p.startsWith('.kin/') ||
+            p === '.env' || p.startsWith('.env.') || p.endsWith('/.env') || p.includes('/.env.')
+          );
+        };
+
+        if (isProtectedGitPath(lowerPath) || isProtectedGitPath(canonicalRel)) {
+          return this.sendJson(res, 403, { error: 'Forbidden: Cannot stage protected repository metadata or credentials.' });
         }
 
         let stageRes;
@@ -8115,13 +8204,8 @@ Format strictly as JSON:
         return;
       }
 
-      // 29. GET /api/projects/:id/schedules
+      // 29. Route 29 GET /api/projects/:id/schedules consolidated into Route 59
       const schedulesMatch = pathname.match(/^\/api\/projects\/([^/]+)\/schedules$/);
-      if (req.method === 'GET' && schedulesMatch) {
-        const projectId = schedulesMatch[1];
-        const list = this.scheduler.listSchedules(projectId);
-        return this.sendJson(res, 200, { schedules: list });
-      }
 
       // 30. POST /api/projects/:id/schedules
       if (req.method === 'POST' && schedulesMatch) {

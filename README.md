@@ -13,7 +13,7 @@ Local-first execution • Hybrid model routing (Local Ollama & BYOK Cloud) • A
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org/)
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri)](https://tauri.app/)
 [![SQLite](https://img.shields.io/badge/SQLite-WAL%20Mode-003B57?logo=sqlite)](https://sqlite.org/)
-[![Tests](https://img.shields.io/badge/Tests-478%20Passed%20(100%25)-success)](docs/PROJECT_STATUS.md)
+[![Tests](https://img.shields.io/badge/Tests-634%20Passed%20(100%25)-success)](docs/PROJECT_STATUS.md)
 
 [Overview](#-overview) •
 [Key Features](#-key-features) •
@@ -40,6 +40,33 @@ Every project in KIN forms an isolated organizational boundary equipped with:
 - **Native Desktop & Web Control**: Inspect Windows GUI windows, discover installed applications, synthesize keystrokes, capture displays, and automate Chromium via headless Puppeteer.
 - **Proactive Background Routines**: Standard 5-field cron expressions and interval timers dispatching scheduled missions directly to channels without polling loops.
 - **Path-Jailed Git Worktrees**: Isolated worktree sandboxes, live unified diff viewer, and instant rollback preventing rogue writes to your repository.
+
+---
+
+## 🏛️ AI Agent Harness Architecture (18 Production Layers)
+
+KIN implements a comprehensive 18-layer agent harness designed for mission-critical, autonomous multi-agent systems:
+
+| Layer | Harness Component | Implementation & Production Guarantees |
+|---|---|---|
+| **1. Foundation Model Layer** | `ModelGateway` | Multi-provider routing (Ollama, OpenRouter, OpenAI, Anthropic, Gemini, DeepSeek, Groq), multi-key pooling, streaming SSE, and secret-redacted upstream error interception. |
+| **2. Orchestration Layer** | `AgentLoopRunner`, `@Boss` | ReAct autonomous reasoning-acting cycles, turn timeouts, loop breakers, mid-execution steering aborts, and lease loss watchdog enforcement. |
+| **3. Context Layer** | `ContextManager` | Sliding token budgets, prompt compilation, quote-reply thread trees, and system prompt dynamic synthesis. |
+| **4. Memory Layer** | `MemoryRepository` | 4-tier scoped memories (Project, Channel, Agent-Private, and DM) with secret redaction and temporal retrieval. |
+| **5. Tool Layer** | `ToolGateway` | Dynamic tool registration, schema introspection, permission checking, and safe cancellation via AbortSignal. |
+| **6. Connector Layer** | `ConnectorManager` | Custom integration adapters with strict project/global scope boundaries and sanitized process environments. |
+| **7. MCP Layer** | `McpClientManager` | Model Context Protocol client supervisor with binary allowlists, dangerous env stripping, clean process teardown, and live discovery. |
+| **8. Knowledge/RAG Layer** | `KnowledgeEngine` | Local vector and text embeddings (`nomic-embed-text`), similarity search, and workspace document indexing. |
+| **9. Workspace Layer** | `WorktreeManager` | Isolated Git worktrees, canonical path-jailing (`fs.realpathSync`), unified diff generation, and transactional rollbacks. |
+| **10. Planning Layer** | `TaskRepository` | DAG task planning, cycle detection (`wouldCreateCycle`), dependency existence validation, and status transitions. |
+| **11. Execution Layer** | `SkillEngine` | Sandboxed VM execution with prototype freezing fail-closed, timer isolation (opaque IDs), and host reference eradication. |
+| **12. Multi-Agent Layer** | `AgentRepository`, `ChannelService` | Multi-agent workforce coordination, departmental channels, peer-to-peer DMs with concurrency resilience (`INSERT OR IGNORE`), and deterministic chronological ordering. |
+| **13. Governance Layer** | `Sentinel`, Autonomy Modes | Strict autonomy policies (`AUTO`, `SUPERVISED`, `READ_ONLY`), atomic CAS approval gates (`409 Conflict`), and lease ownership fencing. |
+| **14. Observability Layer** | `EventLedger`, Telemetry Drawer | Transactional SHA-256 cryptographic hash-chained event journal, live thought streaming, and action audit records. |
+| **15. Evaluation Layer** | `EvaluationHarness` | Verification specs, test runners, output validation gates, and anti-loop stagnation heuristics. |
+| **16. Security Layer** | `SecretBroker`, `Vault` | Scrypt KDF, AES-256-GCM credential vault, constant-time token comparison (`timingSafeEqual`), loopback port bounds, and protected path guards. |
+| **17. UI Layer** | React 18, Tailwind, Zustand | 4-pane collaborative workbench, 2-tier swarm map, DAG task dependency selector, and calm dark mode. |
+| **18. Deployment Infrastructure** | Tauri v2, Rust Shell, Node.js Core | Local-first desktop packaging, supervised loopback daemon, and single-port authenticated REST/SSE IPC. |
 
 ---
 
@@ -211,9 +238,13 @@ Comprehensive guides, technical references, and tutorials are available in the [
 
 - **100% Local Application State**: All agent definitions, message histories, task DAGs, and memories are stored on your local disk in `kin_storage.sqlite`.
 - **Zero Telemetry Leakage**: KIN does not send usage metrics, telemetry, or user prompts to any central server. Prompts are dispatched exclusively to the inference providers you explicitly configure.
-- **AES-256-GCM Vault**: Credentials entered into Settings are encrypted at rest using machine-derived keys before being written to SQLite.
-- **Path-Jailed Worktrees**: File manipulation tools (`readFile`, `writeFile`, `listDirectory`) strictly enforce canonical path jail checks against the active project boundary, preventing directory traversal attacks (`../`).
-- **Loopback IPC Authentication**: The Core Daemon binds strictly to `127.0.0.1` and enforces bearer authentication via high-entropy local tokens (`ipc_auth.token`).
+- **AES-256-GCM Vault & Scrypt KDF**: Credentials entered into Settings are encrypted at rest using machine-derived keys before being written to SQLite.
+- **VM Sandbox Isolation & Safe Timers**: Custom skills execute in an isolated Node.js VM context with frozen prototypes, safe timer isolation (opaque numeric handles mapping to internal host maps), and fail-closed prototype freezing that blocks `Function` constructor escapes.
+- **Atomic CAS Approval Gates**: Multi-agent actions requiring human authorization resolve via atomic Compare-And-Swap (`UPDATE ... WHERE status = 'pending'`), guaranteeing exactly one resolution and returning HTTP 409 Conflict to duplicate attempts.
+- **Cryptographic Event Ledger**: Every governance decision, agent action, and approval is recorded in a transactional SHA-256 hash-chained event journal (`event_journal`), verified for tamper resistance.
+- **Secret Redaction**: Active secret brokers continuously scrub credentials, Bearer tokens, and sensitive patterns across chat messages, memory tiers, and upstream LLM error outputs.
+- **Path-Jailed Worktrees & Git Guards**: File manipulation tools strictly enforce canonical path jail checks (`fs.realpathSync`) against the active project boundary, blocking symlink escapes, path traversal attacks, and write operations to `.git`, `.kin`, and `.env`.
+- **Loopback IPC Authentication & Timing Safety**: The Core Daemon binds strictly to `127.0.0.1`, enforces bearer authentication via high-entropy local tokens, and validates operator sign-offs using constant-time comparisons (`crypto.timingSafeEqual`).
 
 ---
 

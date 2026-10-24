@@ -109,8 +109,8 @@ export class ChannelService {
       created_at: number;
     }>(
       `SELECT * FROM (
-        SELECT * FROM messages WHERE channel_id = ? ORDER BY created_at DESC LIMIT ?
-      ) sub ORDER BY created_at ASC`,
+        SELECT * FROM messages WHERE channel_id = ? ORDER BY created_at DESC, id DESC LIMIT ?
+      ) sub ORDER BY created_at ASC, id ASC`,
       channelId,
       limit
     );

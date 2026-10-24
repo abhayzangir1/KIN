@@ -255,18 +255,21 @@ Set global autonomy policy:
 List pending action approvals.
 
 ### `POST /api/approvals/:id/resolve`
-Approve or reject a gated tool invocation.
+Approve or reject a gated tool invocation using atomic Compare-And-Swap (CAS) resolution.
 - **Request Body**:
   ```json
   { "approved": true }
   ```
+- **Responses**:
+  - `200 OK`: Approval state successfully transitioned to `approved` or `rejected`.
+  - `409 Conflict`: `{ "error": "Approval was already resolved by another request." }` returned when concurrent resolution attempts are made.
 
 ---
 
 ## 🎯 7. Goals, DAG Tasks & Decision Records
 
 ### `GET /api/projects/:id/goals`
-List all goals and milestone tasks for a project.
+List all goals and milestone tasks for a project. Goal status values: `draft`, `active`, `completed`, `failed`, `cancelled`.
 
 ### `POST /api/projects/:id/goals`
 Create a high-level goal.
@@ -280,7 +283,20 @@ Create a high-level goal.
   ```
 
 ### `POST /api/goals/:id/tasks`
-Create a task node in the goal's Directed Acyclic Graph (DAG).
+Create a task node in the goal's Directed Acyclic Graph (DAG) with dependency ordering.
+- **Request Body**:
+  ```json
+  {
+    "title": "Implement SQLite WAL stress test runner",
+    "description": "Verify concurrent write throughput under multi-agent load",
+    "assignedAgentId": "agent-orchestrator",
+    "dependsOnTaskIds": ["task-1", "task-2"]
+  }
+  ```
+- **Validation**:
+  - Ensures all `dependsOnTaskIds` exist in the database.
+  - Cycle detection prevents circular dependencies (`wouldCreateCycle`).
+  - Tasks remain in `backlog` until all prerequisite tasks reach `completed` status.
 
 ### `PATCH /api/tasks/:id/status`
 Update task progress (`pending`, `running`, `completed`, `failed`).

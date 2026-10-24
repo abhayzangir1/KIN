@@ -192,7 +192,7 @@ if (typeof window !== 'undefined' && typeof window.fetch === 'function' && nativ
       (typeof window !== 'undefined' && window.location && url.startsWith(window.location.origin + '/api/'));
 
     const headers = new Headers(init?.headers || (typeof input === 'object' && 'headers' in input ? (input as Request).headers : {}));
-    if (isLocalApi && !headers.has('Authorization') && !url.includes('/api/auth/token')) {
+    if (isLocalApi && !headers.has('Authorization')) {
       const token = await getIpcToken();
       if (token) {
         headers.set('Authorization', `Bearer ${token}`);
@@ -452,7 +452,7 @@ export interface GoalItem {
   title: string;
   description: string;
   acceptanceCriteria: string[];
-  status: 'active' | 'completed' | 'archived';
+  status: 'draft' | 'active' | 'completed' | 'failed' | 'cancelled';
   createdAt: number;
   updatedAt: number;
 }
@@ -1078,7 +1078,7 @@ interface KinState {
   deleteProject: (projectId: string) => Promise<void>;
   createGoal: (title: string, description?: string, acceptanceCriteria?: string[]) => Promise<void>;
   deleteGoal: (goalId: string) => Promise<{ success: boolean; error?: string }>;
-  createTask: (goalId: string, title: string, description?: string, assignedAgentId?: string) => Promise<void>;
+  createTask: (goalId: string, title: string, description?: string, assignedAgentId?: string, dependsOnTaskIds?: string[]) => Promise<void>;
   deleteTask: (taskId: string) => Promise<{ success: boolean; error?: string }>;
   updateTaskStatus: (taskId: string, status: 'backlog' | 'ready' | 'assigned' | 'running' | 'blocked' | 'review' | 'completed' | 'failed' | 'cancelled') => Promise<void>;
   setNewGoalModalOpen: (open: boolean) => void;
@@ -3342,12 +3342,12 @@ export const useKinStore = create<KinState>((set, get) => ({
     }
   },
 
-  createTask: async (goalId: string, title: string, description?: string, assignedAgentId?: string) => {
+  createTask: async (goalId: string, title: string, description?: string, assignedAgentId?: string, dependsOnTaskIds?: string[]) => {
     try {
       const res = await fetch(`/api/goals/${goalId}/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, description, assignedAgentId }),
+        body: JSON.stringify({ title, description, assignedAgentId, dependsOnTaskIds }),
       });
       if (res.ok) {
         const data = await res.json();

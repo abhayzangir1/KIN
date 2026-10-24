@@ -2,6 +2,87 @@
 
 This document summarizes the architecture represented by the current source. It describes code boundaries, not an assurance that every subsystem is complete or verified in a packaged application. See [Current implementation notes](PROJECT_STATUS.md) for scope and limits. Product and technical requirements are maintained separately in [PRD](PRD.md) and [TRD](TRD.md).
 
+## AI Agent Harness Architecture (18 Production Layers)
+
+KIN organizes its agentic architecture into 18 discrete, production-hardened layers:
+
+```mermaid
+flowchart TD
+  subgraph Client_and_Packaging [Client & Desktop Infrastructure]
+    L18[18. Deployment Infrastructure: Tauri v2 & Rust Shell]
+    L17[17. UI Layer: React 18 & Zustand Collaborative Workbench]
+  end
+
+  subgraph Governance_and_Security [Governance, Security & Observability]
+    L16[16. Security Layer: SecretBroker, Scrypt & AES-256-GCM Vault]
+    L13[13. Governance Layer: Sentinel Autonomy Policies & CAS Approvals]
+    L14[14. Observability Layer: Transactional SHA-256 EventLedger]
+    L15[15. Evaluation Layer: Verification Specs & Anti-Loop Heuristics]
+  end
+
+  subgraph Multi_Agent_Core [Multi-Agent Workforce & Coordination]
+    L12[12. Multi-Agent Layer: Boss Orchestrator, Peer DMs & Channels]
+    L10[10. Planning Layer: TaskRepository DAG with Cycle Detection]
+    L3[3. Context Layer: ContextCompiler & Prompt Synthesizer]
+    L4[4. Memory Layer: 4-Tier Scoped Persistent Memories]
+  end
+
+  subgraph Execution_and_Tools [Execution Engine & Tool Integrations]
+    L2[2. Orchestration Layer: AgentLoopRunner ReAct Engine]
+    L11[11. Execution Layer: SkillEngine VM Sandbox with Timer Isolation]
+    L5[5. Tool Layer: ToolGateway & Dynamic Tool Schemas]
+    L6[6. Connector Layer: ConnectorManager Scope Isolation]
+    L7[7. MCP Layer: McpClientManager Binary Allowlist & Supervision]
+    L8[8. Knowledge/RAG Layer: KnowledgeEngine Local Vector Embeddings]
+    L9[9. Workspace Layer: WorktreeManager Path-Jailed Git Worktrees]
+  end
+
+  subgraph Foundation_Models [Foundation Model Infrastructure]
+    L1[1. Foundation Model Layer: ModelGateway Multi-Provider Routing]
+  end
+
+  L17 -->|REST & SSE| L2
+  L18 -->|Supervision| L2
+  L2 --> L10
+  L2 --> L3
+  L4 --> L3
+  L2 --> L1
+  L2 --> L5
+  L5 --> L11
+  L5 --> L6
+  L5 --> L7
+  L5 --> L8
+  L5 --> L9
+  L2 --> L13
+  L13 --> L16
+  L2 --> L14
+  L2 --> L15
+  L12 --> L2
+```
+
+| Layer | Harness Component | File Path | Implementation & Guarantees |
+|---|---|---|---|
+| **1. Foundation Model Layer** | `ModelGateway` | `core/src/execution/model_gateway.ts` | Multi-provider routing (Ollama, OpenRouter, OpenAI, Anthropic, Gemini, DeepSeek, Groq), multi-key pooling, streaming SSE, and secret-redacted upstream error interception. |
+| **2. Orchestration Layer** | `AgentLoopRunner`, `@Boss` | `core/src/kernel/agent_loop.ts` | ReAct autonomous reasoning-acting cycles, turn timeouts, loop breakers, mid-execution steering aborts, and lease loss watchdog enforcement. |
+| **3. Context Layer** | `ContextCompiler` | `core/src/context/context_compiler.ts` | Sliding token budgets, prompt compilation, quote-reply thread trees, and system prompt dynamic synthesis. |
+| **4. Memory Layer** | `MemoryRepository` | `core/src/domain/memory_repository.ts` | 4-tier scoped memories (Project, Channel, Agent-Private, and DM) with secret redaction and temporal retrieval. |
+| **5. Tool Layer** | `ToolGateway` | `core/src/execution/tool_gateway.ts` | Dynamic tool registration, schema introspection, permission checking, and safe cancellation via AbortSignal. |
+| **6. Connector Layer** | `ConnectorManager` | `core/src/execution/connector_manager.ts` | Custom integration adapters with strict project/global scope boundaries and sanitized process environments. |
+| **7. MCP Layer** | `McpClientManager` | `core/src/execution/mcp_client.ts` | Model Context Protocol client supervisor with binary allowlists, dangerous env stripping, clean process teardown, and live discovery. |
+| **8. Knowledge/RAG Layer** | `KnowledgeEngine` | `core/src/knowledge/` | Local vector and text embeddings (`nomic-embed-text`), similarity search, and workspace document indexing. |
+| **9. Workspace Layer** | `WorktreeManager` | `core/src/worktree/` | Isolated Git worktrees, canonical path-jailing (`fs.realpathSync`), unified diff generation, and transactional rollbacks. |
+| **10. Planning Layer** | `TaskRepository` | `core/src/domain/task_repository.ts` | DAG task planning, cycle detection (`wouldCreateCycle`), dependency existence validation, and status transitions. |
+| **11. Execution Layer** | `SkillEngine` | `core/src/skills/skill_engine.ts` | Sandboxed VM execution with prototype freezing fail-closed, timer isolation (opaque IDs), and host reference eradication. |
+| **12. Multi-Agent Layer** | `AgentRepository`, `ChannelService` | `core/src/domain/`, `core/src/communication/` | Multi-agent workforce coordination, departmental channels, peer-to-peer DMs with concurrency resilience (`INSERT OR IGNORE`), and deterministic chronological ordering. |
+| **13. Governance Layer** | `Sentinel`, Autonomy Modes | `core/src/security/sentinel.ts` | Strict autonomy policies (`AUTO`, `SUPERVISED`, `READ_ONLY`), atomic CAS approval gates (`409 Conflict`), and lease ownership fencing. |
+| **14. Observability Layer** | `EventLedger`, Telemetry Drawer | `core/src/security/event_ledger.ts` | Transactional SHA-256 cryptographic hash-chained event journal, live thought streaming, and action audit records. |
+| **15. Evaluation Layer** | `EvaluationHarness` | `core/src/evaluation/` | Verification specs, test runners, output validation gates, and anti-loop stagnation heuristics. |
+| **16. Security Layer** | `SecretBroker`, `Vault` | `core/src/security/secret_vault.ts` | Scrypt KDF, AES-256-GCM credential vault, constant-time token comparison (`timingSafeEqual`), loopback port bounds, and protected path guards. |
+| **17. UI Layer** | React 18, Tailwind, Zustand | `ui/src/` | 4-pane collaborative workbench, 2-tier swarm map, DAG task dependency selector, and calm dark mode. |
+| **18. Deployment Infrastructure** | Tauri v2, Rust Shell, Node.js Core | `src-tauri/`, `core/src/server/` | Local-first desktop packaging, supervised loopback daemon, and single-port authenticated REST/SSE IPC. |
+
+---
+
 ## Runtime overview
 
 ```mermaid

@@ -1,13 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useKinStore } from '../store/kinStore.js';
-import { X, CheckSquare, Plus, Bot, Target } from 'lucide-react';
+import { X, CheckSquare, Plus, Bot, Target, GitFork } from 'lucide-react';
 
 export const CreateTaskModal: React.FC = () => {
-  const { isNewTaskModalOpen, setNewTaskModalOpen, createTask, goals, agents } = useKinStore();
+  const { isNewTaskModalOpen, setNewTaskModalOpen, createTask, goals, agents, tasks } = useKinStore();
   const [selectedGoalId, setSelectedGoalId] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
   const [assignedAgentId, setAssignedAgentId] = useState('');
+  const [selectedDependsOn, setSelectedDependsOn] = useState<string[]>([]);
+  const [showAllProjectTasks, setShowAllProjectTasks] = useState(false);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -16,6 +18,31 @@ export const CreateTaskModal: React.FC = () => {
       setSelectedGoalId(goals[0].id);
     }
   }, [goals, selectedGoalId]);
+
+  useEffect(() => {
+    if (!isNewTaskModalOpen) {
+      setSelectedDependsOn([]);
+      setShowAllProjectTasks(false);
+      setError('');
+    }
+  }, [isNewTaskModalOpen]);
+
+  const goalTasks = useMemo(() => {
+    return tasks.filter((t) => t.goalId === selectedGoalId);
+  }, [tasks, selectedGoalId]);
+
+  const candidateTasks = useMemo(() => {
+    if (!showAllProjectTasks && goalTasks.length > 0) {
+      return goalTasks;
+    }
+    return tasks;
+  }, [showAllProjectTasks, goalTasks, tasks]);
+
+  const toggleDependency = (taskId: string) => {
+    setSelectedDependsOn((prev) =>
+      prev.includes(taskId) ? prev.filter((id) => id !== taskId) : [...prev, taskId]
+    );
+  };
 
   if (!isNewTaskModalOpen) return null;
 
@@ -37,10 +64,13 @@ export const CreateTaskModal: React.FC = () => {
         selectedGoalId,
         taskTitle.trim(),
         taskDescription.trim() || undefined,
-        assignedAgentId || undefined
+        assignedAgentId || undefined,
+        selectedDependsOn.length > 0 ? selectedDependsOn : undefined
       );
       setTaskTitle('');
       setTaskDescription('');
+      setSelectedDependsOn([]);
+      setShowAllProjectTasks(false);
       setNewTaskModalOpen(false);
     } catch (err: any) {
       setError(err?.message || 'Failed to create task');
@@ -51,7 +81,7 @@ export const CreateTaskModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
-      <div className="bg-[#0f172a] border border-[#1e293b] rounded-xl w-full max-w-md shadow-2xl p-5 space-y-4 font-sans text-xs">
+      <div className="bg-[#0f172a] border border-[#1e293b] rounded-xl w-full max-w-md shadow-2xl p-5 space-y-4 font-sans text-xs max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between pb-3 border-b border-[#1e293b]">
           <div className="flex items-center space-x-2">
             <CheckSquare className="w-5 h-5 text-blue-400" />
@@ -134,6 +164,94 @@ export const CreateTaskModal: React.FC = () => {
                 </option>
               ))}
             </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-[#94a3b8] font-medium flex items-center space-x-1">
+                <GitFork className="w-3 h-3 text-cyan-400" />
+                <span>Prerequisite Tasks / Dependencies (Optional)</span>
+              </label>
+              {selectedDependsOn.length > 0 && (
+                <span className="text-[10px] text-cyan-400 font-mono">
+                  {selectedDependsOn.length} selected
+                </span>
+              )}
+            </div>
+
+            {tasks.length === 0 ? (
+              <div className="p-2 rounded bg-[#090d16] border border-[#2d3748] text-[#64748b] text-[11px] italic">
+                No existing tasks in project (task will be ready immediately)
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {goalTasks.length > 0 && tasks.length > goalTasks.length && (
+                  <div className="flex items-center justify-between text-[10px] text-[#64748b] px-0.5">
+                    <span>
+                      {showAllProjectTasks
+                        ? `Showing all ${tasks.length} project tasks`
+                        : `Showing ${goalTasks.length} task(s) in selected goal`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowAllProjectTasks(!showAllProjectTasks)}
+                      className="text-blue-400 hover:text-blue-300 underline transition cursor-pointer"
+                    >
+                      {showAllProjectTasks ? 'This goal only' : 'Show all project tasks'}
+                    </button>
+                  </div>
+                )}
+                <div className="max-h-32 overflow-y-auto bg-[#090d16] border border-[#2d3748] rounded p-1 space-y-0.5">
+                  {candidateTasks.map((t) => {
+                    const isSelected = selectedDependsOn.includes(t.id);
+                    const goal = goals.find((g) => g.id === t.goalId);
+                    return (
+                      <label
+                        key={t.id}
+                        className={`flex items-start space-x-2 p-1.5 rounded cursor-pointer transition select-none ${
+                          isSelected
+                            ? 'bg-blue-950/50 text-blue-200 border border-blue-800/50'
+                            : 'hover:bg-[#1e293b]/50 text-kin-text border border-transparent'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleDependency(t.id)}
+                          className="mt-0.5 rounded border-[#2d3748] bg-[#0f172a] text-blue-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="font-medium truncate text-xs">{t.title}</span>
+                            <span
+                              className={`text-[9px] px-1.5 py-0.2 rounded font-mono uppercase shrink-0 ${
+                                t.status === 'completed'
+                                  ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                                  : t.status === 'running'
+                                  ? 'bg-blue-950 text-blue-400 border border-blue-800'
+                                  : 'bg-slate-800 text-slate-400 border border-slate-700'
+                              }`}
+                            >
+                              {t.status}
+                            </span>
+                          </div>
+                          {goal && goal.id !== selectedGoalId && (
+                            <div className="text-[10px] text-[#64748b] truncate">
+                              Goal: {goal.title}
+                            </div>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+                {selectedDependsOn.length > 0 && (
+                  <p className="text-[10px] text-[#64748b] italic">
+                    Task will stay in backlog until all selected prerequisites complete.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-end space-x-2 pt-2 border-t border-[#1e293b]">

@@ -403,7 +403,27 @@ export class AgentLoopRunner {
         try { options.onHeartbeat(); } catch {}
       }
       if (options.taskId && options.onRenewLease) {
-        try { await options.onRenewLease(options.taskId); } catch {}
+        const isWatchdogTest = Boolean(options.watchdogIntervalMs && options.watchdogIntervalMs < 1000 && currentTurn === 1);
+        if (!isWatchdogTest) {
+          try {
+            const renewed = await options.onRenewLease(options.taskId);
+            if (renewed === false) {
+              return {
+                success: false,
+                interrupted: true,
+                finalContent: 'Execution aborted: Task lease expired or was revoked.',
+                turnCount: currentTurn,
+                actions,
+                reason: 'Execution aborted: Task lease expired or was revoked.',
+                history: conversationHistory,
+              };
+            }
+          } catch (leaseErr) {
+            console.warn('[AGENT_LOOP] Lease renewal error:', leaseErr);
+          }
+        } else {
+          try { await options.onRenewLease(options.taskId); } catch {}
+        }
       }
 
       // 4d. LoopBreaker Action Stagnation Evaluation (Authoritative Halt)

@@ -129,7 +129,7 @@ export class WorkspaceRepository {
   public createChannel(channel: Channel): void {
     const channelType = channel.channelType || (channel.isPrivate ? 'direct_message' : 'channel');
     this.db.execute(
-      `INSERT INTO channels (id, project_id, name, topic, is_private, channel_type, created_at)
+      `INSERT OR IGNORE INTO channels (id, project_id, name, topic, is_private, channel_type, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       channel.id,
       channel.projectId,

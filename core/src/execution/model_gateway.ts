@@ -5,6 +5,7 @@
 // ============================================================================
 
 import { SecretVault } from '../security/secret_vault.js';
+import { SecretBroker } from '../security/secret_broker.js';
 
 export interface ModelMessage {
   role: 'system' | 'user' | 'assistant';
@@ -1906,7 +1907,8 @@ export class ModelGateway {
     });
 
     if (!res.ok) {
-      const errText = await res.text().catch(() => res.statusText);
+      const rawErrText = await res.text().catch(() => res.statusText);
+      const errText = SecretBroker.getInstance().redactSecrets(rawErrText);
       throw new Error(`Ollama HTTP ${res.status}: ${errText}`);
     }
 
@@ -2131,7 +2133,8 @@ export class ModelGateway {
     }
 
     if (!res.ok) {
-      const errText = await res.text().catch(() => res.statusText);
+      const rawErrText = await res.text().catch(() => res.statusText);
+      const errText = SecretBroker.getInstance().redactSecrets(rawErrText);
       throw new Error(`OpenRouter HTTP ${res.status}: ${errText}`);
     }
 
@@ -2340,12 +2343,14 @@ export class ModelGateway {
         await new Promise((resolve) => setTimeout(resolve, backoffMs));
         return this.invokeOpenAiCompatible(url, apiKey, modelName, params, startTime, provider, retryCount + 1, attemptedKeys);
       }
-      const errText = await res.text().catch(() => res.statusText);
+      const rawErrText = await res.text().catch(() => res.statusText);
+      const errText = SecretBroker.getInstance().redactSecrets(rawErrText);
       throw new Error(`${provider.toUpperCase()} HTTP 429 Rate Limit exceeded after retries: ${errText}`);
     }
 
     if (!res.ok) {
-      const errText = await res.text().catch(() => res.statusText);
+      const rawErrText = await res.text().catch(() => res.statusText);
+      const errText = SecretBroker.getInstance().redactSecrets(rawErrText);
       throw new Error(`${provider.toUpperCase()} HTTP ${res.status}: ${errText}`);
     }
 
@@ -2568,12 +2573,14 @@ export class ModelGateway {
         await new Promise((resolve) => setTimeout(resolve, backoffMs));
         return this.invokeAnthropic(modelName, params, startTime, retryCount + 1, apiKey, url, attemptedKeys);
       }
-      const errText = await res.text().catch(() => res.statusText);
+      const rawErrText = await res.text().catch(() => res.statusText);
+      const errText = SecretBroker.getInstance().redactSecrets(rawErrText);
       throw new Error(`Anthropic HTTP 429 Rate Limit exceeded after retries: ${errText}`);
     }
 
     if (!res.ok) {
-      const errText = await res.text().catch(() => res.statusText);
+      const rawErrText = await res.text().catch(() => res.statusText);
+      const errText = SecretBroker.getInstance().redactSecrets(rawErrText);
       throw new Error(`Anthropic HTTP ${res.status}: ${errText}`);
     }
 

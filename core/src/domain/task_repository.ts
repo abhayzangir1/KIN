@@ -67,6 +67,10 @@ export class TaskRepository {
       );
 
       for (const depId of dependsOnTaskIds) {
+        const depTask = this.getTask(depId);
+        if (!depTask) {
+          throw new Error(`Invalid dependency: Task '${depId}' does not exist.`);
+        }
         if (this.wouldCreateCycle(task.id, depId)) {
           throw new Error(`Circular dependency detected: Task '${task.id}' cannot depend on '${depId}'.`);
         }
@@ -305,11 +309,12 @@ export class TaskRepository {
                    lease_expires_at = NULL,
                    retry_count = retry_count + 1,
                    updated_at = ?
-               WHERE id = ? AND status = 'running' AND claimed_by_run_id = ?`,
+               WHERE id = ? AND status = 'running' AND claimed_by_run_id = ? AND (lease_expires_at IS NULL OR lease_expires_at < ?)`,
               nextStatus,
               now,
               row.id,
-              row.claimed_by_run_id!
+              row.claimed_by_run_id!,
+              now
             )
           : this.db.execute(
               `UPDATE tasks
@@ -318,10 +323,11 @@ export class TaskRepository {
                    lease_expires_at = NULL,
                    retry_count = retry_count + 1,
                    updated_at = ?
-               WHERE id = ? AND status = 'running' AND claimed_by_run_id IS NULL`,
+               WHERE id = ? AND status = 'running' AND claimed_by_run_id IS NULL AND (lease_expires_at IS NULL OR lease_expires_at < ?)`,
               nextStatus,
               now,
-              row.id
+              row.id,
+              now
             );
         if (Number(res.changes) > 0) {
           reclaimedIds.push(row.id);

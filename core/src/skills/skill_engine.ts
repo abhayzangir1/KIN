@@ -363,14 +363,27 @@ export class SkillEngine {
 
     const sandbox = Object.create(null);
 
+    let nextTimerId = 1;
+    const activeTimers = new Map<number, NodeJS.Timeout>();
+
     const safeSetTimeout = function (fn: any, ms: any, ...args: any[]) {
-      return setTimeout(typeof fn === 'function' ? fn : () => {}, ms, ...args);
+      const id = nextTimerId++;
+      const t = setTimeout(() => {
+        activeTimers.delete(id);
+        if (typeof fn === 'function') fn(...args);
+      }, ms);
+      activeTimers.set(id, t);
+      return id;
     };
     Object.setPrototypeOf(safeSetTimeout, null);
     Object.defineProperty(safeSetTimeout, 'constructor', { value: undefined, writable: false, configurable: false });
 
     const safeClearTimeout = function (id: any) {
-      return clearTimeout(id);
+      const t = activeTimers.get(id);
+      if (t) {
+        clearTimeout(t);
+        activeTimers.delete(id);
+      }
     };
     Object.setPrototypeOf(safeClearTimeout, null);
     Object.defineProperty(safeClearTimeout, 'constructor', { value: undefined, writable: false, configurable: false });
@@ -396,20 +409,18 @@ export class SkillEngine {
     try {
       vm.runInContext(
         `
-        try {
-          Object.freeze(Object.prototype);
-          Object.freeze(Function.prototype);
-          const AsyncFunction = (async function () {}).constructor;
-          if (AsyncFunction) Object.freeze(AsyncFunction.prototype);
-          const GeneratorFunction = (function* () {}).constructor;
-          if (GeneratorFunction) Object.freeze(GeneratorFunction.prototype);
-          Object.freeze(Array.prototype);
-          Object.freeze(Promise.prototype);
-          Object.freeze(Error.prototype);
-          Object.freeze(String.prototype);
-          Object.freeze(Number.prototype);
-          Object.freeze(Boolean.prototype);
-        } catch (_) {}
+        Object.freeze(Object.prototype);
+        Object.freeze(Function.prototype);
+        const AsyncFunction = (async function () {}).constructor;
+        if (AsyncFunction) Object.freeze(AsyncFunction.prototype);
+        const GeneratorFunction = (function* () {}).constructor;
+        if (GeneratorFunction) Object.freeze(GeneratorFunction.prototype);
+        Object.freeze(Array.prototype);
+        Object.freeze(Promise.prototype);
+        Object.freeze(Error.prototype);
+        Object.freeze(String.prototype);
+        Object.freeze(Number.prototype);
+        Object.freeze(Boolean.prototype);
 
         const InContextBuffer = {
           from: (data) => {
@@ -436,7 +447,9 @@ export class SkillEngine {
         `,
         context
       );
-    } catch (_) {}
+    } catch (initErr: any) {
+      throw new Error(`CRITICAL_SANDBOX_FAILURE: Unable to initialize secure VM realm: ${initErr?.message || String(initErr)}`);
+    }
 
     return context;
   }
@@ -600,14 +613,27 @@ export class SkillEngine {
 
           const sandbox = Object.create(null);
 
+          let nextTimerId = 1;
+          const activeTimers = new Map();
+
           const safeSetTimeout = function (fn, ms, ...args) {
-            return setTimeout(typeof fn === 'function' ? fn : () => {}, ms, ...args);
+            const id = nextTimerId++;
+            const t = setTimeout(() => {
+              activeTimers.delete(id);
+              if (typeof fn === 'function') fn(...args);
+            }, ms);
+            activeTimers.set(id, t);
+            return id;
           };
           Object.setPrototypeOf(safeSetTimeout, null);
           Object.defineProperty(safeSetTimeout, 'constructor', { value: undefined, writable: false, configurable: false });
 
           const safeClearTimeout = function (id) {
-            return clearTimeout(id);
+            const t = activeTimers.get(id);
+            if (t) {
+              clearTimeout(t);
+              activeTimers.delete(id);
+            }
           };
           Object.setPrototypeOf(safeClearTimeout, null);
           Object.defineProperty(safeClearTimeout, 'constructor', { value: undefined, writable: false, configurable: false });
@@ -632,20 +658,18 @@ export class SkillEngine {
           // Install pure in-context primitives and freeze all prototypes
           try {
             vm.runInContext(
-              'try {' +
-              '  Object.freeze(Object.prototype);' +
-              '  Object.freeze(Function.prototype);' +
-              '  const AsyncFunction = (async function () {}).constructor;' +
-              '  if (AsyncFunction) Object.freeze(AsyncFunction.prototype);' +
-              '  const GeneratorFunction = (function* () {}).constructor;' +
-              '  if (GeneratorFunction) Object.freeze(GeneratorFunction.prototype);' +
-              '  Object.freeze(Array.prototype);' +
-              '  Object.freeze(Promise.prototype);' +
-              '  Object.freeze(Error.prototype);' +
-              '  Object.freeze(String.prototype);' +
-              '  Object.freeze(Number.prototype);' +
-              '  Object.freeze(Boolean.prototype);' +
-              '} catch (_) {}' +
+              'Object.freeze(Object.prototype);' +
+              'Object.freeze(Function.prototype);' +
+              'const AsyncFunction = (async function () {}).constructor;' +
+              'if (AsyncFunction) Object.freeze(AsyncFunction.prototype);' +
+              'const GeneratorFunction = (function* () {}).constructor;' +
+              'if (GeneratorFunction) Object.freeze(GeneratorFunction.prototype);' +
+              'Object.freeze(Array.prototype);' +
+              'Object.freeze(Promise.prototype);' +
+              'Object.freeze(Error.prototype);' +
+              'Object.freeze(String.prototype);' +
+              'Object.freeze(Number.prototype);' +
+              'Object.freeze(Boolean.prototype);' +
               'const InContextBuffer = {' +
               '  from: (data) => (typeof data === "string" ? new TextEncoder().encode(data) : new Uint8Array(data)),' +
               '  alloc: (size) => new Uint8Array(size),' +
@@ -667,7 +691,9 @@ export class SkillEngine {
               'globalThis.console = Object.freeze({ log: () => {}, warn: () => {}, error: () => {} });',
               context
             );
-          } catch (_) {}
+          } catch (initErr) {
+            throw new Error('CRITICAL_SANDBOX_FAILURE: Unable to initialize secure VM realm: ' + (initErr && initErr.message ? initErr.message : String(initErr)));
+          }
 
           const script = new vm.Script(wrappedCode);
           const output = await script.runInContext(context);
