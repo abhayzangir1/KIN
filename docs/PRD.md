@@ -1033,6 +1033,18 @@ No external content may:
 - reveal protected secrets;
 - bypass tool restrictions.
 
+### 23.1 Hardened Security Boundaries & Sandbox Isolation
+
+To protect developer workstations against sandbox escapes, credential leaks, and path traversals, the following security boundary requirements are enforced:
+- **VM Sandbox Timer Isolation**: Custom skill routines executing in the Node.js VM context (`skill_engine.ts`) must never receive host timer references. `safeSetTimeout` must generate pure numeric identifiers mapped to internal host timer maps, preventing prototype traversal to the host `Function` constructor.
+- **Fail-Closed Prototype Freezing**: Prototype freezing in the execution context must fail closed; if prototype sealing or realm initialization encounters an exception, the runtime must reject execution immediately.
+- **Canonical Symlink Traversal Verification**: All file artifact retrieval endpoints and project boundary containment checks must evaluate canonical realpaths using `fs.realpathSync`. Canonical targets must be verified against project roots and blocked sensitive patterns (`vault.key`, `ipc_auth.token`, `.env`, `.git/config`, `kin_storage.sqlite*`).
+- **Subprocess Environment Sanitization**: Terminal commands and child tool processes must not inherit parent environment variables in full. Sensitive variables (`KIN_VAULT_KEY`, `KIN_IPC_TOKEN`, cloud credentials) must be stripped via `McpClientManager.sanitizeMcpEnv()`.
+- **Timing-Safe Token Verification**: Operator task sign-off tokens and manual authorization tokens must be verified using constant-time comparison (`crypto.timingSafeEqual`) to eliminate timing side channels.
+- **Strict Loopback CORS Origin Filtering**: Loopback origins must enforce explicit colon/port delimiters (`http://localhost:` and `http://127.0.0.1:`), rejecting spoofed origins such as `http://localhost.attacker.com`.
+- **Upstream Secret Redaction**: Upstream provider error payloads must be scrubbed by `SecretBroker.getInstance().redactSecrets()` before throwing, ensuring API keys and bearer tokens are never persisted in error journals or trajectories.
+- **Git Protected Path Confinement**: Repository staging and revert operations must verify paths against `.git`, `.kin`, and `.env`, rejecting destructive writes to internal state files.
+
 ---
 
 # 24. Non-functional product requirements
@@ -1244,11 +1256,12 @@ The following are reference sources, not mandatory dependencies:
 - **Non-Destructive Pause:** Rather than failing the task, runs transition to `RunState = 'quota_paused'` with `quotaResetsAt` computed from HTTP `Retry-After` headers or intelligent exponential backoff.
 - **Automated Resume Timer:** A docked Quota Pause Banner presents a live countdown timer until quota reset, an instant `Resume Now` override, and a `Switch to Ollama` one-click fallback for offline/local execution.
 
-### 31.3 Atomic Distributed Task Leases
+### 31.3 Atomic Distributed Task Leases & TOCTOU Reclamation
 - **Distributed Concurrency Control:** Extends the `tasks` schema with `claimed_by_run_id`, `lease_expires_at`, and `retry_count`.
 - **Atomic Lease Claims:** Atomic SQL operations (`claimTaskWithLease`) ensure that a task can only be claimed by a single agent run, preventing duplicate execution and race conditions during high-concurrency swarm operations.
 - **Lease Renewal & Heartbeats:** Active runs periodically renew their task lease (`renewTaskLease`).
-- **Abandoned Lease Reclamation:** If a worker process terminates abnormally, expired task leases are automatically reclaimed (`reclaimExpiredTaskLeases`), resetting task status to `pending` and incrementing `retry_count` subject to max retry thresholds.
+- **Abandoned Lease TOCTOU Fencing:** Expired task leases are reclaimed via `reclaimExpiredTaskLeases` with strict timestamp fencing (`AND (lease_expires_at IS NULL OR lease_expires_at < ?)`), preventing the scheduler from stealing a task lease that was legitimately renewed between candidate selection and update execution.
+- **Turn-Start Lease Renewal Enforcement:** `AgentLoopRunner` evaluates `options.onRenewLease` at the start of each execution turn. If lease renewal fails or returns `false`, execution immediately aborts with `interrupted: true`, preventing runaway worker processes.
 
 ### 31.4 Strategic Goal Ancestry & Objective Anchor
 - **Root-to-Leaf Alignment:** Deep recursive delegation chains propagate ancestral goal trees (`GoalAncestryChain`) down to leaf agents.
@@ -1288,6 +1301,27 @@ The following are reference sources, not mandatory dependencies:
 - **Top Header Swarm Map Button:** Prominent navigation trigger in the top application header bar providing immediate access to the interactive workforce hierarchy map and reporting lines.
 - **Strict Project & Channel Scoping:** Agent channel memberships in topology views are strictly filtered to the active project, preventing foreign channel ID leakage.
 - **Minimalist Dual-Theme Styling:** Complete light and dark theme styling across all views, sidebars, modals, and cards without dark bleed-through. Heavy borders and outlines are replaced with clean surfaces and smooth hover shadow highlights.
+
+### 31.10 Atomic Compare-And-Swap (CAS) Approval Resolution
+- **Conditional CAS Update:** Privileged approval resolutions (`POST /api/approvals/:id/resolve`) execute via conditional atomic SQL:
+  ```sql
+  UPDATE approvals SET status = ?, decided_at = ? WHERE id = ? AND status = 'pending'
+  ```
+- **Conflict Handling (HTTP 409):** If `changes === 0`, the server immediately returns HTTP 409 Conflict with `{ error: 'Approval was already resolved by another request.' }`, ensuring exactly one caller executes the underlying tool and prevents duplicate action dispatches.
+
+### 31.11 Transactional EventLedger Cryptographic Append
+- **Transactional Chaining:** All event recording operations (`EventLedger.record`) wrap `prevHash` querying and SHA-256 insertion in a single SQLite transaction (`this.db.transactionSync()`).
+- **Chain Integrity Invariant:** Under heavy parallel logging across worker threads, serialized writes eliminate hash chain forking and ensure that sequential chain integrity verification passes without broken links.
+
+### 31.12 Channel Concurrency Resilience & Deterministic Ordering
+- **DM Creation Idempotency:** Auto-provisioning direct message channels utilizes `INSERT OR IGNORE INTO channels`, eliminating unique constraint collisions during simultaneous two-way messaging between agents.
+- **Deterministic Message Retrieval:** Message queries apply secondary tie-breaker sorting (`ORDER BY created_at DESC, id DESC`), ensuring consistent chronological display order during high-frequency message bursts within the exact same millisecond.
+
+### 31.13 Frontend Task DAG Dependency Support & Contract Alignment
+- **Interactive Prerequisite Selection:** `CreateTaskModal.tsx` provides an interactive prerequisite task selector with status badges, allowing operators and agents to define multi-stage DAG workflows.
+- **Backlog Initialization Semantics:** Tasks created with unresolved dependencies initialize in `backlog` status and are automatically promoted to `ready` when prerequisite tasks reach `completed`.
+- **State Store Serialization:** `kinStore.ts` transparently serializes `dependsOnTaskIds?: string[]` to `POST /api/goals/:id/tasks`.
+- **Goal Status Enum Contract:** Aligned consistently across SQLite DDL, domain models, REST validation, and frontend interfaces: `'draft' | 'active' | 'completed' | 'failed' | 'cancelled'`.
 
 ---
 

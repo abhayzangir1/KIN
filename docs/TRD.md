@@ -432,6 +432,12 @@ policy.changed
 
 Events must be idempotently attributable to a run/action where possible.
 
+## 6.1 Transactional EventLedger Cryptographic Append
+- **Linear SHA-256 Hashing:** Every event row in SQLite `event_journal` stores `prev_hash` and `record_hash = sha256(prev_hash + timestamp + event_type + payload_json + context_id)`.
+- **Atomic Transaction Wrap:** `EventLedger.record()` wraps the query for the previous record hash (`SELECT record_hash FROM event_journal ORDER BY id DESC LIMIT 1`) and the insertion of the new record inside `this.db.transactionSync()`.
+- **Forking Prevention Invariant:** Under concurrent multi-agent executions, wrapping read-and-insert in a single transaction synchronizes SQLite writes, eliminating chain forking under parallel load.
+- **Verification Engine:** `verifyChainIntegrity()` traverses the journal sequentially from row 1 to row N, recomputing expected digests and flagging payload tampering or corrupted links with the exact `compromisedId`.
+
 ---
 
 # 7. IPC architecture
@@ -546,6 +552,22 @@ Human steering and cancellation events jump ahead of ordinary autonomous work.
 ## 9.2 Event-Driven Coalesced Wakeup Queue & Host Resource Governor
 - `WakeupQueue` enforces a 1000ms coalescing window per `agentId:channelId` pair to merge duplicate wakeup calls.
 - Interrogates `ComputerSupervisor` and system free memory metrics before dispatching; if free RAM drops below 500MB, dispatch is queued to prevent host out-of-memory thrashing.
+
+## 9.3 Task Lease TOCTOU Reclamation, ReAct Renewal Watchdog & DAG Validation
+- **TOCTOU Lease Reclamation Fencing:** Batch lease reclamation in `TaskRepository.reclaimExpiredTaskLeases` enforces `AND (lease_expires_at IS NULL OR lease_expires_at < ?)`, preventing stealing a lease legitimately renewed during the candidate selection window.
+- **Turn-Start Lease Check:** `AgentLoopRunner` evaluates `options.onRenewLease` before each turn. If lease renewal returns `false`, execution immediately aborts with `interrupted: true`.
+- **DAG Dependency Existence & Cycle Validation:** `TaskRepository.createTask` verifies that every dependency ID in `dependsOnTaskIds` exists in SQLite and verifies acyclicity via `wouldCreateCycle(taskId, depId)`. Circular dependencies throw descriptive errors.
+
+## 9.4 Atomic Compare-And-Swap (CAS) Approval Gate
+- **Conditional CAS Update:** Privileged approval resolutions (`POST /api/approvals/:id/resolve`) execute via conditional atomic SQL:
+  ```sql
+  UPDATE approvals SET status = ?, decided_at = ? WHERE id = ? AND status = 'pending'
+  ```
+- **Conflict Handling (HTTP 409):** If `changes === 0`, the server immediately returns HTTP 409 Conflict with `{ error: 'Approval was already resolved by another request.' }`, ensuring exactly one caller executes the underlying tool and preventing duplicate action dispatches.
+
+## 9.5 Channel Concurrency Resilience & Deterministic Chronological Ordering
+- **DM Auto-Provisioning Concurrency Resilience:** Peer-to-peer direct message channels utilize `INSERT OR IGNORE INTO channels`, eliminating SQLite unique constraint collisions when two agents message each other simultaneously.
+- **Deterministic Message Retrieval:** Message retrieval applies secondary tie-breaker sorting (`ORDER BY created_at DESC, id DESC` in the subquery and `ORDER BY created_at ASC, id ASC` in the outer query), eliminating non-deterministic display ordering during same-millisecond bursts.
 
 ---
 
@@ -1031,11 +1053,18 @@ Do not let content redefine:
 
 ## 18.1 Key Security Invariants & Protections
 
-1. **Strict Path Jail Confinement**: All file read/write operations validate that the resolved target path is strictly within the project jail root. Directory traversal (`../`) and prefix collisions are rejected with 403 Forbidden.
-2. **Financial Safety Shield**: Sensitive operations (`stripe`, `billing`, checkout buttons) trigger the Human Authorization Protocol and halt execution until explicit operator signoff.
-3. **Opt-in Computer Automation**: Desktop mouse/keyboard control is guarded by a serialized single-flight execution queue with native window focus management preventing conflicting inputs.
-4. **Bring Your Own Key (BYOK) Encryption**: Provider API keys are encrypted at rest with scoped grants and daily spending caps.
-5. **Local application state and explicit network boundaries**: Messages, tasks, goals, decisions, and checkpoints are stored in local SQLite. Hosted model requests, browser navigation, and connected MCP tools can send data to external services; local storage does not mean network traffic is disabled.
+1. **Strict Path Jail Confinement & Canonical Symlink Checks**: All file read/write operations and artifact download endpoints (`/api/projects/:id/artifacts/file`) validate canonical realpaths derived from `fs.realpathSync`. Target paths must remain strictly within canonical project boundaries. Symlinks pointing to blocked sensitive patterns (`vault.key`, `ipc_auth.token`, `.env`, `.git/config`, `kin_storage.sqlite*`) are rejected with 403 Forbidden.
+2. **VM Sandbox Timer Isolation**: Custom skills executing in the Node.js VM realm (`skill_engine.ts`) use `safeSetTimeout`, which generates pure numeric IDs stored in an outer host Map. Host `NodeJS.Timeout` objects are never returned across the VM boundary, eliminating constructor traversal to the host `Function` constructor.
+3. **Fail-Closed Sandbox Freezing**: Realm initialization and V8 prototype freezing fail closed: any exception thrown during context freezing triggers an immediate `CRITICAL_SANDBOX_FAILURE` exception, blocking untrusted execution with unfrozen prototypes.
+4. **Terminal Environment Sanitization**: Terminal subprocesses executed by `core_server.ts` pass sanitized environments via `McpClientManager.sanitizeMcpEnv()`. System secrets (`KIN_VAULT_KEY`, `KIN_IPC_TOKEN`, cloud credentials) are stripped, preventing secret inheritance by child shell processes.
+5. **Constant-Time Sign-Off Token Verification**: Operator task sign-off tokens are verified using `crypto.timingSafeEqual` after buffer length verification, eliminating timing side-channel attacks.
+6. **Strict Loopback CORS Origin Filtering**: Loopback CORS origin checking requires explicit colon/port delimiters (`origin === 'http://localhost' || origin.startsWith('http://localhost:')`), preventing spoofed origins such as `http://localhost.attacker.com` from accessing loopback endpoints.
+7. **Upstream Model Error Secret Scrubbing**: Upstream LLM provider error messages are intercepted and scrubbed by `SecretBroker.getInstance().redactSecrets()` before throwing, ensuring API keys and bearer tokens are never exposed in error journals or trajectories.
+8. **Git Protected Path Confinement**: Repository staging and revert endpoints (`/api/projects/:id/git/revert` and `/api/projects/:id/git/stage`) resolve canonical paths and explicitly forbid modifications targeting `.git`, `.kin`, or `.env`.
+9. **Financial Safety Shield**: Sensitive operations (`stripe`, `billing`, checkout buttons) trigger the Human Authorization Protocol and halt execution until explicit operator signoff.
+10. **Opt-in Computer Automation**: Desktop mouse/keyboard control is guarded by a serialized single-flight execution queue with native window focus management preventing conflicting inputs.
+11. **Bring Your Own Key (BYOK) Encryption**: Provider API keys are encrypted at rest with scoped grants and daily spending caps.
+12. **Local application state and explicit network boundaries**: Messages, tasks, goals, decisions, and checkpoints are stored in local SQLite. Hosted model requests, browser navigation, and connected MCP tools can send data to external services; local storage does not mean network traffic is disabled.
 
 ---
 

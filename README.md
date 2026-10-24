@@ -49,24 +49,25 @@ KIN implements a comprehensive 18-layer agent harness designed for mission-criti
 
 | Layer | Harness Component | Implementation & Production Guarantees |
 |---|---|---|
-| **1. Foundation Model Layer** | `ModelGateway` | Multi-provider routing (Ollama, OpenRouter, OpenAI, Anthropic, Gemini, DeepSeek, Groq), multi-key pooling, streaming SSE, and secret-redacted upstream error interception. |
-| **2. Orchestration Layer** | `AgentLoopRunner`, `@Boss` | ReAct autonomous reasoning-acting cycles, turn timeouts, loop breakers, mid-execution steering aborts, and lease loss watchdog enforcement. |
-| **3. Context Layer** | `ContextManager` | Sliding token budgets, prompt compilation, quote-reply thread trees, and system prompt dynamic synthesis. |
-| **4. Memory Layer** | `MemoryRepository` | 4-tier scoped memories (Project, Channel, Agent-Private, and DM) with secret redaction and temporal retrieval. |
-| **5. Tool Layer** | `ToolGateway` | Dynamic tool registration, schema introspection, permission checking, and safe cancellation via AbortSignal. |
-| **6. Connector Layer** | `ConnectorManager` | Custom integration adapters with strict project/global scope boundaries and sanitized process environments. |
-| **7. MCP Layer** | `McpClientManager` | Model Context Protocol client supervisor with binary allowlists, dangerous env stripping, clean process teardown, and live discovery. |
-| **8. Knowledge/RAG Layer** | `KnowledgeEngine` | Local vector and text embeddings (`nomic-embed-text`), similarity search, and workspace document indexing. |
-| **9. Workspace Layer** | `WorktreeManager` | Isolated Git worktrees, canonical path-jailing (`fs.realpathSync`), unified diff generation, and transactional rollbacks. |
-| **10. Planning Layer** | `TaskRepository` | DAG task planning, cycle detection (`wouldCreateCycle`), dependency existence validation, and status transitions. |
-| **11. Execution Layer** | `SkillEngine` | Sandboxed VM execution with prototype freezing fail-closed, timer isolation (opaque IDs), and host reference eradication. |
-| **12. Multi-Agent Layer** | `AgentRepository`, `ChannelService` | Multi-agent workforce coordination, departmental channels, peer-to-peer DMs with concurrency resilience (`INSERT OR IGNORE`), and deterministic chronological ordering. |
-| **13. Governance Layer** | `Sentinel`, Autonomy Modes | Strict autonomy policies (`AUTO`, `SUPERVISED`, `READ_ONLY`), atomic CAS approval gates (`409 Conflict`), and lease ownership fencing. |
-| **14. Observability Layer** | `EventLedger`, Telemetry Drawer | Transactional SHA-256 cryptographic hash-chained event journal, live thought streaming, and action audit records. |
-| **15. Evaluation Layer** | `EvaluationHarness` | Verification specs, test runners, output validation gates, and anti-loop stagnation heuristics. |
-| **16. Security Layer** | `SecretBroker`, `Vault` | Scrypt KDF, AES-256-GCM credential vault, constant-time token comparison (`timingSafeEqual`), loopback port bounds, and protected path guards. |
-| **17. UI Layer** | React 18, Tailwind, Zustand | 4-pane collaborative workbench, 2-tier swarm map, DAG task dependency selector, and calm dark mode. |
-| **18. Deployment Infrastructure** | Tauri v2, Rust Shell, Node.js Core | Local-first desktop packaging, supervised loopback daemon, and single-port authenticated REST/SSE IPC. |
+| **L0 (Storage & Persistence)** | SQLite WAL Connection, Schema DDL | Embedded SQLite WAL connection (`core/src/storage/db.ts`), migration runner, safe JSON fallback parsing for corrupt rows, and schema DDL. |
+| **L1 (Domain Repositories)** | Domain Repositories | Workspace, Agent, Task, Goal, and Memory repositories with resilient fallback parsing (`core/src/domain/`). |
+| **L2 (Governance & Policy)** | Policy Engine & Autonomy | Autonomy modes (`AUTO`, `ALWAYS_ASK`, `FULL_ACCESS`), capability attenuation, financial safety gates, and action risk tiers (`core/src/policy/`). |
+| **L3 (Security & Perimeter)** | Sentinel & EventLedger | Sentinel fail-closed barrier, single-use approval tokens, AES-256-GCM vault, secret broker redaction, and transactional HMAC/SHA-256 event ledger (`core/src/security/`). |
+| **L4 (Execution & Tool Gateway)** | ToolGateway | Dynamic tool registration, schema introspection, permission checking, parameters validation, and filesystem jail confinement (`core/src/execution/tool_gateway.ts`). |
+| **L5 (Worktree & Git Isolation)** | WorktreeManager | Isolated Git worktrees, branch lifecycle, diff calculation, merge mutex, and canonical path containment (`core/src/execution/worktree_manager.ts`). |
+| **L6 (Model Gateway & Routing)** | ModelGateway | Multi-provider LLM gateway (Ollama, OpenRouter, OpenAI, Anthropic, Gemini, DeepSeek, Groq), token quota budgeting, key rotation, and upstream error secret redaction (`core/src/execution/model_gateway.ts`). |
+| **L7 (Context Compilation)** | ContextCompiler | Sliding token budgets, 5-block prompt compilation, quote-reply thread trees, output spiller, and compaction engine (`core/src/context/`). |
+| **L8 (MCP Integration)** | McpClientManager | Model Context Protocol client supervisor with binary allowlists, dangerous environment stripping, clean process teardown, and live discovery (`core/src/execution/mcp_client.ts`). |
+| **L9 (Skills Engine & Sandbox)** | SkillEngine | Procedural skills registry, isolated VM sandbox execution with numeric timer handles, fail-closed prototype freezing, and lesson harvesting (`core/src/skills/skill_engine.ts`). |
+| **L10 (Kernel & Autonomous Loop)** | AgentLoopRunner & Kernel | Multi-turn ReAct agent loop, lease renewal watchdogs, turn timeouts, state transitions, and coalesced wakeup queue (`core/src/kernel/`). |
+| **L11 (Orchestration & DAG Scheduling)** | Task DAG & Scheduling | Task dependency DAG, cycle detection (`wouldCreateCycle`), dependency existence validation, task backlog promotion, and workforce coordination (`core/src/domain/task_repository.ts`, `core/src/kernel/`). |
+| **L12 (Automation & Cron)** | SchedulerService | 5-field cron parsing, one-shot timer schedules, iteration limits, and proactive routine execution (`core/src/automation/scheduler.ts`). |
+| **L13 (Communication & Channels)** | ChannelService & Routing | Multi-agent departmental channels, private peer DMs with `INSERT OR IGNORE` concurrency resilience, loop breaker, activation engine, and deterministic message ordering (`core/src/communication/`). |
+| **L14 (Recovery & Self-Healing)** | RecoveryEngine | Observation verification, pre/post-action state checks, turn checkpointing, and startup crash/timeout self-healing (`core/src/recovery/`). |
+| **L15 (Desktop Automation)** | DesktopController | Desktop window controller, host desktop input automation, installed application launcher, and screen capture (`core/src/computer/`). |
+| **L16 (Browser Automation)** | BrowserController | Persistent browser context, Playwright/Puppeteer driver, DOM inspection, and navigation history (`core/src/browser/`). |
+| **L17 (Networking & IPC Server)** | CoreServer | Core HTTP REST and SSE server, loopback IPC token authentication, strict CORS origin filtering, canonical symlink checks (`fs.realpathSync`), and git protected path guards (`core/src/server/core_server.ts`). |
+| **L18 (Frontend UI/UX)** | React 18, Zustand, Tauri Shell | 4-pane collaborative workbench (`ui/src/`), Zustand reactive store (`kinStore.ts`), Tailwind CSS, DAG task dependency selector (`CreateTaskModal.tsx`), and Tauri Rust desktop shell (`src-tauri/`). |
 
 ---
 
@@ -185,7 +186,7 @@ npm run tauri:dev
 ```
 
 ### 4. Run the Test Suite
-KIN maintains a comprehensive automated testing suite with **478 tests across 32 test files**:
+KIN maintains a comprehensive automated testing suite with **634 tests across 43 test suites (100% pass rate)**:
 ```bash
 npm test --workspace=core
 ```
@@ -216,7 +217,7 @@ Comprehensive guides, technical references, and tutorials are available in the [
 - **[REST & IPC API Reference](docs/API.md)**: Full endpoint specification covering Channels, Messages, Agents, Models, Desktop, Browser, and Automations.
 - **[Product Requirements Document (PRD)](docs/PRD.md)**: Product vision, user personas, UX architecture, and functional requirements.
 - **[Technical Requirements Document (TRD)](docs/TRD.md)**: Non-functional requirements, security model, and performance boundaries.
-- **[Project Status & Verification Audit](docs/PROJECT_STATUS.md)**: Live verification status of all 478 tests, audit remediations, and roadmap.
+- **[Project Status & Verification Audit](docs/PROJECT_STATUS.md)**: Live verification status of all 634 tests, audit remediations, and roadmap.
 - **[Tutorials & Guides](docs/TUTORIALS.md)**:
   - [01: Assembling a Research Swarm](docs/TUTORIALS/01-research-swarm.md)
   - [02: Automating Daily Proactive Routines](docs/TUTORIALS/02-daily-routines.md)
@@ -234,17 +235,39 @@ Comprehensive guides, technical references, and tutorials are available in the [
 
 ---
 
-## 🔒 Security & Privacy
+## 🔒 Security Posture & Boundary Hardening
 
-- **100% Local Application State**: All agent definitions, message histories, task DAGs, and memories are stored on your local disk in `kin_storage.sqlite`.
-- **Zero Telemetry Leakage**: KIN does not send usage metrics, telemetry, or user prompts to any central server. Prompts are dispatched exclusively to the inference providers you explicitly configure.
-- **AES-256-GCM Vault & Scrypt KDF**: Credentials entered into Settings are encrypted at rest using machine-derived keys before being written to SQLite.
-- **VM Sandbox Isolation & Safe Timers**: Custom skills execute in an isolated Node.js VM context with frozen prototypes, safe timer isolation (opaque numeric handles mapping to internal host maps), and fail-closed prototype freezing that blocks `Function` constructor escapes.
-- **Atomic CAS Approval Gates**: Multi-agent actions requiring human authorization resolve via atomic Compare-And-Swap (`UPDATE ... WHERE status = 'pending'`), guaranteeing exactly one resolution and returning HTTP 409 Conflict to duplicate attempts.
-- **Cryptographic Event Ledger**: Every governance decision, agent action, and approval is recorded in a transactional SHA-256 hash-chained event journal (`event_journal`), verified for tamper resistance.
-- **Secret Redaction**: Active secret brokers continuously scrub credentials, Bearer tokens, and sensitive patterns across chat messages, memory tiers, and upstream LLM error outputs.
-- **Path-Jailed Worktrees & Git Guards**: File manipulation tools strictly enforce canonical path jail checks (`fs.realpathSync`) against the active project boundary, blocking symlink escapes, path traversal attacks, and write operations to `.git`, `.kin`, and `.env`.
-- **Loopback IPC Authentication & Timing Safety**: The Core Daemon binds strictly to `127.0.0.1`, enforces bearer authentication via high-entropy local tokens, and validates operator sign-offs using constant-time comparisons (`crypto.timingSafeEqual`).
+KIN implements defense-in-depth across the entire execution perimeter:
+- **VM Sandbox Timer Isolation**: Custom skills execute inside an isolated Node.js VM context (`core/src/skills/skill_engine.ts`). Rather than returning host `NodeJS.Timeout` objects (which expose constructor traversals to the outer V8 realm's `Function` constructor), `safeSetTimeout` generates pure numeric handles mapped to an internal map and returns only primitive numbers.
+- **Fail-Closed Prototype Freezing**: Prototype freezing in the sandbox realm fails closed: if prototype sealing or context freezing encounters an error, the execution environment throws `CRITICAL_SANDBOX_FAILURE` immediately rather than proceeding with unfrozen objects.
+- **Canonical Symlink Checks**: Endpoints serving artifacts (`/api/projects/:id/artifacts/file`) and validating project boundaries evaluate target paths using `fs.realpathSync`. Canonical targets are verified against project boundaries and denylist patterns (`vault.key`, `ipc_auth.token`, `.env`, `.git/config`, `kin_storage.sqlite*`), eliminating symlink directory traversal escapes.
+- **Terminal Environment Sanitization**: Subprocess executions in `core_server.ts` pass sanitized environments via `McpClientManager.sanitizeMcpEnv()`, stripping sensitive variables (`KIN_VAULT_KEY`, `KIN_IPC_TOKEN`, cloud tokens) to prevent secret inheritance by child shell commands.
+- **Timing-Safe Sign-Off Tokens**: Manual task completion verification compares operator sign-off tokens using `crypto.timingSafeEqual`, preventing timing side-channel attacks.
+- **Strict CORS Origin Filtering**: Loopback CORS matching in `core_server.ts` requires explicit colon/port separators (`origin === 'http://localhost' || origin.startsWith('http://localhost:')`), strictly preventing malicious origins like `http://localhost.attacker.com` from accessing local APIs.
+- **Upstream Secret Redaction in Model Gateway**: Raw error strings returned by external providers (Ollama, OpenRouter, OpenAI, Anthropic) are intercepted and scrubbed by `SecretBroker.getInstance().redactSecrets()` before throwing, ensuring API keys and bearer tokens are never exposed in error logs or trajectories.
+- **Git Protected Paths**: Working tree operations (`/api/projects/:id/git/revert` and `/api/projects/:id/git/stage`) resolve canonical paths and explicitly forbid staging or reverting protected directories (`.git`, `.kin`, `.env`).
+
+---
+
+## ⚡ Concurrency & Synchronization Engine
+
+KIN is architected for deterministic high-concurrency multi-agent collaboration:
+- **Atomic Compare-And-Swap (CAS) Approval Resolution**: Action approvals resolve via conditional atomic SQL (`UPDATE approvals SET status = ?, decided_at = ? WHERE id = ? AND status = 'pending'`). Exactly one request transitions state with `changes === 1`; concurrent rival attempts receive `changes === 0` and are rejected with **HTTP 409 Conflict**, preventing double execution of privileged tools.
+- **Transactional EventLedger Cryptographic Append**: Hash retrieval (`prevHash`), SHA-256 digest computation, and event insertion are wrapped in a single SQLite transaction (`this.db.transactionSync()`). This guarantees strict linear continuity without hash chain forks even under heavy parallel event logging.
+- **DM Auto-Provisioning Concurrency Resilience**: Peer-to-peer direct message channels utilize `INSERT OR IGNORE INTO channels`, eliminating SQLite unique constraint collisions when two agents initiate contact simultaneously.
+- **Task Lease Expiry Reclamation TOCTOU Fencing**: Background lease reclamation executes with timestamp fencing (`AND (lease_expires_at IS NULL OR lease_expires_at < ?)`), preventing the scheduler from stealing a task lease that was legitimately renewed between candidate selection and update execution.
+- **Deterministic Message Chronological Ordering**: Message retrieval applies composite sorting (`ORDER BY created_at DESC, id DESC` in the subquery and `ORDER BY created_at ASC, id ASC` in the outer query), eliminating non-deterministic display ordering during same-millisecond bursts.
+- **ReAct Loop Lease Renewal Loss Enforcement**: The agent loop actively evaluates `options.onRenewLease` at turn start and terminates execution immediately if the lease was revoked or expired, preventing runaway orphan executions.
+
+---
+
+## 🔀 Frontend Task DAG Dependency Support
+
+KIN provides full visual and operational support for Directed Acyclic Graph (DAG) task scheduling:
+- **Prerequisite Task Selection in `CreateTaskModal.tsx`**: Users can view existing tasks for the selected goal or across the entire project, toggling prerequisite dependencies with interactive status indicators (`completed`, `running`, `backlog`).
+- **Backlog Initialization Semantics**: Tasks created with unresolved prerequisite dependencies automatically initialize in `backlog` status. When all dependencies reach `completed`, the orchestrator promotes the task to `ready` for agent claim.
+- **State Store Contract (`kinStore.ts`)**: `createTask` transparently accepts `dependsOnTaskIds?: string[]` and serializes it in the `POST /api/goals/:id/tasks` request payload.
+- **Goal Status Enum Contract**: Aligned across SQLite schema, domain types, server validation, and `GoalItem.status` (`'draft' | 'active' | 'completed' | 'failed' | 'cancelled'`).
 
 ---
 

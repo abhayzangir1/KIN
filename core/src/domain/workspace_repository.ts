@@ -57,6 +57,19 @@ export class WorkspaceRepository {
     );
   }
 
+  public updateProject(project: Project): void {
+    this.db.execute(
+      `UPDATE projects
+       SET name = ?, repo_path = ?, settings_json = ?, updated_at = ?
+       WHERE id = ?`,
+      project.name,
+      project.repoPath,
+      JSON.stringify(project.settings ?? {}),
+      project.updatedAt ?? Date.now(),
+      project.id
+    );
+  }
+
   public getProject(id: string): Project | undefined {
     const row = this.db.queryOne<{
       id: string;
