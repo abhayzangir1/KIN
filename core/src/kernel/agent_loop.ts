@@ -1585,6 +1585,42 @@ To delegate or coordinate with another specialist:
       return { name: toolName, params };
     }
 
+    // 1c. Dots Studio function call syntax (<dots_function_call> ... </invoke>)
+    const dotsMatch = nonQuotedContent.match(/<dots_function_call>([\s\S]*?)(?:<\/invoke>|<\/dots_function_call>|$)/i);
+    if (dotsMatch) {
+      const inner = dotsMatch[1];
+      const nameMatch = inner.match(/=\s*["']?([a-zA-Z0-9_-]+)["']?/);
+      if (nameMatch) {
+        const toolName = nameMatch[1].trim();
+        const paramsMatch = inner.match(/parameters\s*=\s*(\{[\s\S]*?\})/i);
+        let params: Record<string, any> = {};
+        if (paramsMatch) {
+          const rawParams = paramsMatch[1];
+          try {
+            const norm = rawParams
+              .replace(/([,{]\s*)=\s*"?([a-zA-Z0-9_-]+)"?\s*=/g, '$1"$2":')
+              .replace(/\}+\s*$/, '}');
+            params = JSON.parse(norm);
+          } catch {
+            const kvMatches = Array.from(rawParams.matchAll(/["']?([a-zA-Z0-9_-]+)["']?\s*[=:]\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^,}\n]+)/g));
+            for (const kv of kvMatches) {
+              const k = kv[1];
+              let v = kv[2].trim();
+              if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+                try {
+                  v = JSON.parse(v);
+                } catch {
+                  v = v.slice(1, -1);
+                }
+              }
+              params[k] = v;
+            }
+          }
+        }
+        return { name: toolName, params };
+      }
+    }
+
     // 2. Markdown code fences
     const codeBlockMatches = nonQuotedContent.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi);
     for (const match of codeBlockMatches) {

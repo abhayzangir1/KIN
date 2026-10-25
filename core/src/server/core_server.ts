@@ -13,6 +13,7 @@ import * as crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { AgentDefinition, AgentIdentity, Channel, Goal, Task, TaskStatus, Decision, DecisionStatus, AgentEvaluation, ManagedCredential } from '../domain/types.js';
 import { KinDatabase } from '../storage/db.js';
+import { getDataDirectory } from '../storage/data_directory.js';
 import { MigrationRunner } from '../storage/migration_runner.js';
 import { WakeupQueue } from '../kernel/wakeup_queue.js';
 import { WorkspaceRepository } from '../domain/workspace_repository.js';
@@ -139,6 +140,22 @@ export class CoreServer {
     : [];
 
   constructor(options: CoreServerOptions = {}) {
+    if (!process.env.OPENROUTER_API_KEY) {
+      const envCandidates = [
+        path.resolve(process.cwd(), '.env'),
+        path.resolve(process.cwd(), '..', '.env'),
+        path.resolve(getDataDirectory(), '.env'),
+        'D:\\KIN\\.env',
+      ];
+      for (const envPath of envCandidates) {
+        if (fs.existsSync(envPath)) {
+          try {
+            process.loadEnvFile(envPath);
+            break;
+          } catch {}
+        }
+      }
+    }
     this.port = options.port ?? 54321;
     this.requireIpcAuth = options.requireIpcAuth ?? (this.port === 54321);
     this.dbPath = options.dbPath ?? './kin_storage.sqlite';

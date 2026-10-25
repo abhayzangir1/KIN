@@ -8,6 +8,23 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { getDataDirectory } from './storage/data_directory.js';
 
+// Automatically load .env if available
+const envCandidates = [
+  path.resolve(process.cwd(), '.env'),
+  path.resolve(process.cwd(), '..', '.env'),
+  path.resolve(getDataDirectory(), '.env'),
+  'D:\\KIN\\.env',
+];
+for (const envPath of envCandidates) {
+  if (fs.existsSync(envPath)) {
+    try {
+      process.loadEnvFile(envPath);
+      console.log(`[KIN CORE] Environment variables loaded from: ${envPath}`);
+      break;
+    } catch {}
+  }
+}
+
 function resolveDbPath(): string {
   if (process.env.KIN_DB_PATH) {
     return path.resolve(process.env.KIN_DB_PATH);

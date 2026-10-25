@@ -1850,7 +1850,18 @@ export class ModelGateway {
       }
     }
     if (slashIdx !== -1) {
-      return [modelId.substring(0, slashIdx).toLowerCase(), modelId.substring(slashIdx + 1)];
+      const prefix = modelId.substring(0, slashIdx).toLowerCase();
+      if (
+        ['ollama', 'openai', 'anthropic', 'gemini', 'groq', 'deepseek', 'xai', 'azure', 'custom', 'openrouter', 'together', 'deepinfra', 'vllm', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'openai_compatible'].includes(prefix) ||
+        this.customEndpoints.has(prefix)
+      ) {
+        return [prefix, modelId.substring(slashIdx + 1)];
+      }
+      // If prefix is an OpenRouter namespace (e.g. "nvidia/nemotron-...", "google/gemma-...", "dots-studio/...", "thinkingmachines/...")
+      if (this.openrouterApiKey || process.env.OPENROUTER_API_KEY) {
+        return ['openrouter', modelId];
+      }
+      return [prefix, modelId.substring(slashIdx + 1)];
     }
     return ['ollama', modelId];
   }
@@ -1867,7 +1878,16 @@ export class ModelGateway {
       }
     }
     if (slashIdx !== -1) {
-      return [modelId.substring(0, slashIdx).toLowerCase(), modelId.substring(slashIdx + 1)];
+      const prefix = modelId.substring(0, slashIdx).toLowerCase();
+      if (
+        ['ollama', 'openai', 'anthropic', 'gemini', 'groq', 'deepseek', 'xai', 'azure', 'custom', 'openrouter', 'together', 'deepinfra', 'vllm', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'openai_compatible'].includes(prefix)
+      ) {
+        return [prefix, modelId.substring(slashIdx + 1)];
+      }
+      if (process.env.OPENROUTER_API_KEY) {
+        return ['openrouter', modelId];
+      }
+      return [prefix, modelId.substring(slashIdx + 1)];
     }
     return ['ollama', modelId];
   }
