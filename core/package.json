@@ -12,7 +12,8 @@
     "daemon": "node dist/start_daemon.js",
     "package:binary": "node scripts/package_binary.js",
     "test": "vitest run --fileParallelism=false --pool=threads",
-    "test:foundation": "vitest run test/foundation.test.ts"
+    "test:foundation": "vitest run test/foundation.test.ts",
+    "test:e2e": "vitest run test/e2e_browser_app.test.ts test/e2e_18_layer_production_verification.test.ts test/e2e_production_harness.test.ts --fileParallelism=false --pool=threads"
   },
   "dependencies": {
     "puppeteer-core": "^25.12.0",

@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit -p core/tsconfig.json && tsc --noEmit -p ui/tsconfig.json",
     "test": "npm run test --workspace=core",
     "test:foundation": "npm run test:foundation --workspace=core",
+    "test:e2e": "npm run test:e2e --workspace=core",
     "core:dev": "npm run dev --workspace=core",
     "ui:dev": "npm run dev --workspace=ui",
     "tauri:dev": "tauri dev",
