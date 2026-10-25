@@ -3667,6 +3667,7 @@ export class ToolGateway {
         base === 'vault.key' ||
         base === '.env' ||
         base.startsWith('.env.') ||
+        base.endsWith('.env') ||
         base === '.npmrc' ||
         base === '.pypirc' ||
         base === 'id_rsa' ||

@@ -1,0 +1,83 @@
+name: KIN Desktop Release Builder
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build Native App (${{ matrix.platform }})
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows-latest, macos-latest, ubuntu-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux System Dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev pkg-config libdbus-1-dev
+
+      - name: Clean Install npm dependencies
+        run: npm ci
+
+      - name: Build Core and UI Workspaces
+        run: npm run build
+
+      - name: Package Standalone Sidecar Binary
+        run: node core/scripts/package_binary.js
+
+      - name: Verify Core Vitest Test Suite
+        run: npm run test --workspace=core
+
+      - name: Build Tauri Desktop Package
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'KIN ${{ github.ref_name }}'
+          releaseBody: |
+            ## KIN — Local-First Autonomous AI Workforce Platform (${{ github.ref_name }})
+            
+            ### Verified Capabilities:
+            - **Local-first Multi-Agent Harness**: Autonomous swarm coordination (@Boss, @Coder, @Tester).
+            - **Hybrid LLM Routing**: 100% offline local Ollama and OpenRouter (470+ models with Free Tier discovery).
+            - **7 Scoped Memory Fabrics**: Global, workspace, project, team, channel, agent_private, and task scopes with OCC versioning.
+            - **Disposable & Ephemeral Tools**: Dynamic tool synthesis, sandboxed ESM execution, and autonomous disposal.
+            - **Cross-Platform Security**: Hardened filesystem path jailing with zero symlink escape vectors.
+            
+            ### Installation:
+            - **Windows**: Download `KIN_${{ github.ref_name }}_x64-setup.exe` or `KIN_${{ github.ref_name }}_x64.msi` for one-click installation.
+            - **macOS**: Download `KIN_${{ github.ref_name }}_universal.dmg`.
+            - **Linux**: Download `KIN_${{ github.ref_name }}_amd64.AppImage` or `.deb`.
+            - **Portable / Source**: Run `install.bat` (Windows) or `./install.sh` (macOS/Linux).
+          releaseDraft: false
+          prerelease: false

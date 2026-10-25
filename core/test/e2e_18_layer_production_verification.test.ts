@@ -634,7 +634,8 @@ describe('KIN 18-Layer AI Agent Harness Production Verification', () => {
       const rootDir = fs.existsSync(path.resolve(process.cwd(), 'package.json')) && fs.existsSync(path.resolve(process.cwd(), 'src-tauri'))
         ? process.cwd()
         : path.resolve(process.cwd(), '..');
-      const sidecarPath = path.resolve(rootDir, 'src-tauri', 'binaries', 'kin-core.exe');
+      const binaryName = process.platform === 'win32' ? 'kin-core.exe' : 'kin-core';
+      const sidecarPath = path.resolve(rootDir, 'src-tauri', 'binaries', binaryName);
       expect(fs.existsSync(sidecarPath)).toBe(true);
       expect(fs.statSync(sidecarPath).size).toBeGreaterThan(50 * 1024 * 1024);
     });

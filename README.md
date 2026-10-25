@@ -13,7 +13,7 @@ Local-first execution • Hybrid model routing (Local Ollama & BYOK Cloud) • A
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org/)
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri)](https://tauri.app/)
 [![SQLite](https://img.shields.io/badge/SQLite-WAL%20Mode-003B57?logo=sqlite)](https://sqlite.org/)
-[![Tests](https://img.shields.io/badge/Tests-669%20Passed-success)](docs/PROJECT_STATUS.md)
+[![Tests](https://img.shields.io/badge/Tests-738%20Passed-success)](docs/PROJECT_STATUS.md)
 
 [Overview](#-overview) •
 [Key Features](#-key-features) •
@@ -118,12 +118,21 @@ Manage local Ollama connectivity, configure encrypted API keys (AES-256-GCM) for
 - **Multi-Channel Mobility**: Agents can be assigned to multiple departmental channels (`assignCoworker`), convene meetings (`callMeeting`), broadcast updates (`channel_post`), and recruit dynamic specialists (`hireSpecialist`).
 - **Private Peer DMs**: Autonomous agent-to-agent private communication channels with a 5-turn depth ceiling, completion token detection, and operator transparency.
 
-### 🧠 4-Tier Scoped Memory Fabric
-State and context are strictly layered across four privacy boundaries:
-1. **Project Memory (`rememberProject`)**: High-level domain conventions, project architecture, and rules shared across all project agents.
-2. **Channel Memory (`rememberChannel`)**: Departmental context scoped strictly to the current channel.
-3. **Agent Private Memory (`rememberPrivate`)**: Confidential specialist scratchpads, personal lessons, and tool histories.
-4. **Direct Message Context**: Transient 1-on-1 dialog history never leaked to public channels.
+### 🧠 7-Tier Scoped Memory Fabric
+State and context are strictly layered across seven privacy boundaries with Optimistic Concurrency Control (OCC) version fencing and historical version archiving (`memory_versions` table):
+1. **Global Memory**: System-wide configuration and baseline defaults.
+2. **Workspace Memory**: Workspace-wide conventions and preferences.
+3. **Project Memory (`rememberProject`)**: High-level domain conventions, architecture, and rules shared across all project agents.
+4. **Team Memory**: Context shared among dynamic agent teams or sub-swarms.
+5. **Channel Memory (`rememberChannel`)**: Departmental context scoped strictly to the current channel.
+6. **Agent Private Memory (`rememberPrivate`)**: Confidential specialist scratchpads, personal lessons, and tool histories guarded by caller identity validation.
+7. **Task Memory**: Transient task-level evidence and scratchpads.
+
+### 🛠️ Ephemeral Skills & Disposable Tools Lifecycle
+- **Autonomous Tool Creation**: Agents can synthesize custom disposable tools at runtime via `create_skill` (`skillType: 'tool_extension'`).
+- **Sandboxed Worker Execution**: Dynamic tools execute within an isolated Node.js ESM worker thread with frozen prototypes (`Object.freeze(Object.prototype)`), timeout enforcement, and support for TypeScript `export default` and `main` functions.
+- **Autonomous Disposal**: Agents can cleanly destroy disposable tools when tasks complete via `dispose_tool` or `delete_skill` (supporting bare names, UUIDs, or projected `skill__<name>` identifiers) without operator confirmation gates.
+- **Chat Management**: Operators can manage skills directly from chat using `/skills list`, `/skills create`, and `/skills delete <idOrName>`.
 
 ### 🔀 Hybrid Model Gateway & Instant Switching
 - **Local Ollama Integration**: Auto-detects local Ollama instances on `127.0.0.1:11434`, pulling local tags (`gemma4:e2b`, `qwen2.5-coder:3b`, `nomic-embed-text`) with zero API costs.
@@ -142,74 +151,38 @@ State and context are strictly layered across four privacy boundaries:
 
 ---
 
-## ⚡ Quick Start
+## ⚡ Quick Start & One-Click Installation
 
-### Prerequisites
-- **Node.js**: v20.0.0 or higher (v22+ recommended)
-- **npm**: v10.0.0 or higher
-- **Rust & Cargo**: v1.80+ (only required if building the native Tauri desktop shell)
-- **Ollama** *(Optional)*: Required for offline/local model inference ([ollama.com](https://ollama.com))
+### Option 1: One-Click Installer (Recommended)
 
-### 1. Clone & Install
+- **Windows:** Double-click [`install.bat`](install.bat) (or run in Command Prompt). It automatically checks Node.js, installs dependencies, builds all workspaces, packages the sidecar binary, generates a desktop shortcut, and offers to launch KIN.
+- **macOS / Linux:** Run [`./install.sh`](install.sh).
+- **Native Desktop Installers:** Download pre-compiled `.exe` setup, `.msi`, `.dmg`, or `.AppImage` packages directly from [GitHub Releases](https://github.com/abhayzangir1/KIN/releases).
+
+### Option 2: Manual Clone & Setup
 ```bash
 git clone https://github.com/abhayzangir1/KIN.git
 cd KIN
 npm install
-```
-
-### 2. Build Workspaces
-Compile the TypeScript core daemon and the Vite/React frontend:
-```bash
 npm run build
 ```
 
-### 3. Start KIN
-
-#### Option A: One-Click Production Mode (Default)
-Run KIN directly in production mode without dev server overhead. The core daemon serves both the IPC APIs and the pre-compiled React workbench on port `54321`:
-
-**Windows:**
-```cmd
-start.bat
-```
-
-**macOS / Linux:**
-```bash
-chmod +x start.sh
-./start.sh
-```
-Or via npm:
-```bash
-npm run start:prod
-```
-Open your browser at **`http://127.0.0.1:54321`**.
-
-#### Option B: Development Mode (Vite HMR)
-Run with live Hot Module Replacement (HMR) for frontend development:
-
-**Windows:**
-```cmd
-start.bat --dev
-```
-
-**macOS / Linux:**
-```bash
-./start.sh --dev
-```
-Open your browser at **`http://127.0.0.1:5173`**.
-
-#### Option C: Native Desktop Application (Tauri Shell)
-Launch the unified native desktop shell:
-```bash
-npm run tauri:dev
-```
-To package the standalone desktop installer with freshly compiled Node SEA binary sidecars:
-```bash
-npm run package:desktop
-```
+### Option 3: Launching KIN
+- **One-Click Production Mode (Default):**
+  - Windows: `start.bat`
+  - macOS / Linux: `./start.sh`
+  - Or: `npm run start:prod`
+  - Web UI: **`http://127.0.0.1:54321`**
+- **Development Mode (Vite HMR):**
+  - Windows: `start.bat --dev`
+  - macOS / Linux: `./start.sh --dev`
+  - Dev UI: **`http://127.0.0.1:5173`**
+- **Native Desktop Application (Tauri Shell):**
+  - `npm run tauri:dev`
+  - Packaging installer: `npm run package:desktop`
 
 ### 4. Run the Test Suite
-KIN maintains a comprehensive automated testing suite with **669 tests across 45 test suites (all passing deterministically, 0 skipped, 0 failed)**:
+KIN maintains a comprehensive automated testing suite with **738 tests across 52 test suites (100% passing deterministically, 0 skipped, 0 failed)**:
 ```bash
 npm test --workspace=core
 ```

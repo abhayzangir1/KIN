@@ -616,12 +616,12 @@ public static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
    * Moves the cursor to (x, y) coordinates.
    */
   public async mouseMove(x: number, y: number, options?: { smooth?: boolean; steps?: number; abortSignal?: AbortSignal }): Promise<InteractionResult> {
-    if (!this.isWindows) {
-      return { success: false, action: 'mouseMove', error: 'Desktop GUI automation is only supported on Windows host environments.' };
-    }
-
     if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) {
       return { success: false, action: 'mouseMove', error: `Invalid coordinates: (${x}, ${y}). Coordinates must be finite numbers.` };
+    }
+
+    if (!this.isWindows) {
+      return { success: false, action: 'mouseMove', error: 'Desktop GUI automation is only supported on Windows host environments.' };
     }
 
     const clampedX = Math.max(-32768, Math.min(32767, Math.round(x)));
@@ -653,12 +653,12 @@ public static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
     const button = options.button || 'left';
     const double = Boolean(options.doubleClick);
 
-    if (!this.isWindows) {
-      return { success: false, action: 'mouseClick', error: 'Desktop GUI automation is only supported on Windows host environments.' };
-    }
-
     if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) {
       return { success: false, action: 'mouseClick', error: `Invalid coordinates: (${x}, ${y}). Coordinates must be finite numbers.` };
+    }
+
+    if (!this.isWindows) {
+      return { success: false, action: 'mouseClick', error: 'Desktop GUI automation is only supported on Windows host environments.' };
     }
 
     const clampedX = Math.max(-32768, Math.min(32767, Math.round(x)));

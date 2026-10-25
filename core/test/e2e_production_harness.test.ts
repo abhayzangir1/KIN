@@ -299,11 +299,12 @@ describe('KIN Production Readiness & End-to-End Verification Harness', () => {
 
   // 7. Desktop Native Sidecar Binary Verification
   describe('7. Standalone Native Desktop Sidecar Binary Verification', () => {
-    it('verifies src-tauri/binaries/kin-core.exe exists and has valid executable size', () => {
+    it('verifies src-tauri/binaries/kin-core binary exists and has valid executable size', () => {
       const rootDir = fs.existsSync(path.resolve(process.cwd(), 'package.json')) && fs.existsSync(path.resolve(process.cwd(), 'src-tauri'))
         ? process.cwd()
         : path.resolve(process.cwd(), '..');
-      const tauriBinary = path.resolve(rootDir, 'src-tauri', 'binaries', 'kin-core.exe');
+      const binaryName = process.platform === 'win32' ? 'kin-core.exe' : 'kin-core';
+      const tauriBinary = path.resolve(rootDir, 'src-tauri', 'binaries', binaryName);
       expect(fs.existsSync(tauriBinary)).toBe(true);
 
       const stat = fs.statSync(tauriBinary);
