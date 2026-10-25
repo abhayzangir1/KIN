@@ -104,6 +104,7 @@ export interface AgentRun {
   usedTokens: number;
   quotaResetsAt?: number | null;
   interruptedTurn?: number | null;
+  modelId?: string;
   createdAt: number;
   completedAt?: number;
 }

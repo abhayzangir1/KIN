@@ -620,10 +620,17 @@ public static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
       return { success: false, action: 'mouseMove', error: 'Desktop GUI automation is only supported on Windows host environments.' };
     }
 
+    if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) {
+      return { success: false, action: 'mouseMove', error: `Invalid coordinates: (${x}, ${y}). Coordinates must be finite numbers.` };
+    }
+
+    const clampedX = Math.max(-32768, Math.min(32767, Math.round(x)));
+    const clampedY = Math.max(-32768, Math.min(32767, Math.round(y)));
+
     try {
       const psScript = `
         Add-Type -AssemblyName System.Windows.Forms
-        [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${Math.round(x)}, ${Math.round(y)})
+        [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${clampedX}, ${clampedY})
       `;
       const res = await this.runPowerShell(psScript, options?.abortSignal);
       if (res.exitCode !== 0) {
@@ -650,6 +657,13 @@ public static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
       return { success: false, action: 'mouseClick', error: 'Desktop GUI automation is only supported on Windows host environments.' };
     }
 
+    if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) {
+      return { success: false, action: 'mouseClick', error: `Invalid coordinates: (${x}, ${y}). Coordinates must be finite numbers.` };
+    }
+
+    const clampedX = Math.max(-32768, Math.min(32767, Math.round(x)));
+    const clampedY = Math.max(-32768, Math.min(32767, Math.round(y)));
+
     try {
       let downFlag = 0x02; // MOUSEEVENTF_LEFTDOWN
       let upFlag = 0x04;   // MOUSEEVENTF_LEFTUP
@@ -664,7 +678,7 @@ public static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
 
       const psScript = `
         Add-Type -AssemblyName System.Windows.Forms
-        [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${Math.round(x)}, ${Math.round(y)})
+        [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${clampedX}, ${clampedY})
         $sig = @'
 [DllImport("user32.dll")]
 public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);

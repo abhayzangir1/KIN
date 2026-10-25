@@ -2032,7 +2032,8 @@ export const useKinStore = create<KinState>((set, get) => ({
             const nextCache = { ...state.channelMessagesCache };
             const chanMsgs = nextCache[msg.channelId] || [];
             if (!chanMsgs.some((m) => m.id === msg.id)) {
-              nextCache[msg.channelId] = [...chanMsgs, msg];
+              const updated = [...chanMsgs, msg];
+              nextCache[msg.channelId] = updated.length > 500 ? updated.slice(-500) : updated;
             }
 
             const updatedChannels = state.channels.map((c) => {
@@ -2044,7 +2045,7 @@ export const useKinStore = create<KinState>((set, get) => ({
 
             const shouldAppendToActive = msg.channelId === state.activeChannelId || !msg.channelId;
             const nextActiveMessages = shouldAppendToActive && !state.messages.some((m) => m.id === msg.id)
-              ? [...state.messages, msg]
+              ? (state.messages.length >= 500 ? [...state.messages.slice(-499), msg] : [...state.messages, msg])
               : state.messages;
 
             const nextDrafts = { ...state.streamingDrafts };
@@ -2230,7 +2231,7 @@ export const useKinStore = create<KinState>((set, get) => ({
           set((state) => {
             const nextEvals = { ...state.agentEvaluations };
             const list = nextEvals[evalItem.agentId] || [];
-            nextEvals[evalItem.agentId] = [evalItem, ...list.filter((x) => x.id !== evalItem.id)];
+            nextEvals[evalItem.agentId] = [evalItem, ...list.filter((x) => x.id !== evalItem.id)].slice(0, 50);
             return { agentEvaluations: nextEvals };
           });
         } catch {}

@@ -14,8 +14,8 @@ export class WorkspaceRepository {
        VALUES (?, ?, ?, ?, ?, ?)`,
       ws.id,
       ws.name,
-      ws.rootPath,
-      ws.defaultAutonomyMode,
+      ws.rootPath ?? '',
+      ws.defaultAutonomyMode || 'AUTO',
       ws.createdAt,
       ws.updatedAt
     );
@@ -104,6 +104,28 @@ export class WorkspaceRepository {
       created_at: number;
       updated_at: number;
     }>('SELECT * FROM projects WHERE workspace_id = ? ORDER BY created_at ASC', workspaceId);
+
+    return rows.map((r) => ({
+      id: r.id,
+      workspaceId: r.workspace_id,
+      name: r.name,
+      repoPath: r.repo_path,
+      settings: safeJsonParseObject(r.settings_json, {}),
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    }));
+  }
+
+  public listAllProjects(): Project[] {
+    const rows = this.db.query<{
+      id: string;
+      workspace_id: string;
+      name: string;
+      repo_path: string;
+      settings_json: string;
+      created_at: number;
+      updated_at: number;
+    }>('SELECT * FROM projects ORDER BY created_at ASC');
 
     return rows.map((r) => ({
       id: r.id,

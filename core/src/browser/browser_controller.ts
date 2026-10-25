@@ -284,12 +284,25 @@ export class BrowserController {
     try {
       const parsed = new URL(formattedUrl);
       const host = parsed.hostname.toLowerCase();
+      const isIntegerIp = /^[0-9]+$/.test(host);
+      let decodedHost = host;
+      if (isIntegerIp) {
+        const num = parseInt(host, 10);
+        if (num >= 0 && num <= 0xffffffff) {
+          decodedHost = `${(num >>> 24) & 255}.${(num >>> 16) & 255}.${(num >>> 8) & 255}.${num & 255}`;
+        }
+      }
       if (
         host === '169.254.169.254' ||
+        decodedHost === '169.254.169.254' ||
+        host === '100.100.100.200' ||
+        decodedHost === '100.100.100.200' ||
+        host === 'fd00:ec2::254' ||
         host === 'metadata.google.internal' ||
         host === 'instance-data' ||
         host.endsWith('.metadata.google.internal') ||
-        host.startsWith('169.254.')
+        host.startsWith('169.254.') ||
+        decodedHost.startsWith('169.254.')
       ) {
         throw new Error(`ACCESS_DENIED: Navigation to cloud metadata service '${host}' is blocked for security.`);
       }
@@ -700,9 +713,15 @@ export class BrowserController {
   public async close(): Promise<void> {
     this.launchPromise = null;
     if (this.browser) {
+      const proc = typeof (this.browser as any).process === 'function' ? (this.browser as any).process() : null;
       try {
         await this.browser.close();
       } catch {}
+      if (proc && !proc.killed) {
+        try {
+          proc.kill('SIGKILL');
+        } catch {}
+      }
       this.browser = null;
       this.activePage = null;
     }

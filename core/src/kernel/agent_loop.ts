@@ -88,6 +88,7 @@ export interface AgentLoopResult {
   interrupted?: boolean;
   reason?: string;
   history?: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
+  maxTurnsReached?: boolean;
 }
 
 export class AgentLoopRunner {
@@ -1614,7 +1615,11 @@ To delegate or coordinate with another specialist:
       lower.includes('resource_exhausted') ||
       lower.includes('rate_limit') ||
       lower.includes('quota') ||
-      lower.includes('too many requests')
+      lower.includes('too many requests') ||
+      lower.includes('capacity exceeded') ||
+      lower.includes('overloaded') ||
+      lower.includes('tpm') ||
+      lower.includes('rpm')
     );
   }
 }

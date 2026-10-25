@@ -98,6 +98,17 @@ export class RecoveryEngine {
       }
     }
 
+    // 3b. Verify expected file mutation if specified
+    if (spec.expectedFileChange) {
+      if (postState.type === 'filesystem') {
+        if (!postState.hashOrSignature && !postState.domSnippet) {
+          discrepancies.push(`Expected file change '${spec.expectedFileChange}', but post-state had no file content or signature`);
+        } else if (preState.type === 'filesystem' && preState.hashOrSignature && postState.hashOrSignature && preState.hashOrSignature === postState.hashOrSignature) {
+          discrepancies.push(`Expected file mutation for '${spec.expectedFileChange}', but file content signature remained unchanged (${postState.hashOrSignature})`);
+        }
+      }
+    }
+
     // 4. Verify no disallowed error/modal patterns appeared
     if (spec.disallowedPatterns) {
       const combined = `${postState.title || ''} ${postState.domSnippet || ''} ${postState.windowTitle || ''}`;

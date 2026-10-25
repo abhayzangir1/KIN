@@ -563,6 +563,18 @@ export class Sentinel {
         /\bchmod\s+(-[a-z]*R|[0-7]{3,4})\b/i, // chmod -R or numeric chmod
         /\bnpm\s+publish\b/i, // npm publish
         /\b(shutdown|reboot)\b/i, // system shutdown or reboot
+        /\b(stop-computer|restart-computer)\b/i, // Windows system shutdown
+        /\bremove-item\b.*(-recurse|-r)\b/i, // PowerShell recursive deletion
+        /\bremove-item\b.*(-force|-f)\b/i, // PowerShell force deletion
+        /\bdel(\.exe)?\s+(\/[a-z]*s|\/[a-z]*q)/i, // Windows del /s /q
+        /\brmdir\s+(\/[a-z]*s|\/[a-z]*q)/i, // Windows rmdir /s /q
+        /\brd\s+(\/[a-z]*s|\/[a-z]*q)/i, // Windows rd /s /q
+        /\bclear-content\b/i, // PowerShell file truncation
+        /\bgit\s+branch\s+(-D|--delete\s+--force)\b/i, // git force delete branch
+        /\bgit\s+checkout\s+--\s+\./i, // git discard uncommitted changes
+        /\bgit\s+restore\s+(\.|--staged\s+\.)/i, // git discard working tree changes
+        /\bdelete\s+from\s+[a-z0-9_]+\s*(;|$|where\s+1\s*=\s*1)/i, // broad DELETE (accidental data loss prevention)
+        /\b(gsutil|gcloud\s+storage)\s+rm\b/i, // cloud storage destructive deletion
         // Database tampering & privilege escalation / audit log wiping
         /\bsqlite3?\b.*(update|delete|insert|drop|alter)\b/i,
         /\b(update|delete\s+from|insert\s+into)\s+(workspaces|agent_identities|approvals|event_journal|managed_credentials|vault_items)\b/i,

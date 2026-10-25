@@ -95,7 +95,7 @@ export class EventLedger {
 
       const recordHash = crypto
         .createHash('sha256')
-        .update(`${prevHash}:${params.eventType}:${params.entityType}:${params.entityId}:${params.runId || ''}:${payloadJson}:${now}`)
+        .update(`${prevHash}:${params.eventType}:${entityType}:${entityId}:${params.runId || ''}:${payloadJson}:${now}`)
         .digest('hex');
 
       const result = this.db.execute(

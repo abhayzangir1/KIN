@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "KIN Production Multi-Agent Architecture (18 Layers)",
+    "output": "docs/architecture/kin_production_architecture.html",
+    "visual_preset": "blueprint",
+    "animation": "trace",
+    "quality_profile": "showcase",
+    "engineering_profile": "deployment-ownership"
+  },
+  "components": [
+    { "id": "tauri_native", "type": "external", "label": "Tauri Rust Shell", "sublabel": "OS Job Objects & Safe Jails", "pos": [40, 320], "size": [150, 65], "tag": "Desktop" },
+    { "id": "react_ui", "type": "frontend", "label": "Zustand Desktop UI", "sublabel": "React + Vite / SSE Client", "pos": [220, 320], "size": [150, 65], "tag": "UI Layer" },
+    { "id": "ipc_boundary", "type": "security", "label": "IPC Auth & Sentinel", "sublabel": "HMAC Token + Zero-Trust", "pos": [400, 320], "size": [150, 65], "tag": "Perimeter" },
+    { "id": "core_server", "type": "backend", "label": "Core Daemon Server", "sublabel": "HTTP :54321 / Event Stream", "pos": [580, 320], "size": [160, 65], "tag": "Daemon" },
+    { "id": "agent_loop", "type": "backend", "label": "ReAct Multi-Turn Loop", "sublabel": "Steering & Self-Correction", "pos": [800, 230], "size": [160, 65], "tag": "Execution" },
+    { "id": "agent_kernel", "type": "backend", "label": "Agent Kernel", "sublabel": "Heartbeats & Quota Guard", "pos": [800, 410], "size": [160, 65], "tag": "Kernel" },
+    { "id": "model_gateway", "type": "cloud", "label": "Model Gateway", "sublabel": "BYOK + 429 Retry + Ollama", "pos": [800, 50], "size": [160, 65], "tag": "LLM Bridge" },
+    { "id": "tool_gateway", "type": "backend", "label": "Tool Gateway", "sublabel": "Project Jailing & Capabilities", "pos": [1020, 230], "size": [160, 65], "tag": "Tools" },
+    { "id": "recovery_engine", "type": "security", "label": "Recovery Engine", "sublabel": "Observe-Act-Verify Feedback", "pos": [1020, 370], "size": [160, 65], "tag": "Self-Healing" },
+    { "id": "mcp_supervisor", "type": "cloud", "label": "MCP Supervisor", "sublabel": "Process Isolation & Discovery", "pos": [1240, 230], "size": [160, 65], "tag": "Extensibility" },
+    { "id": "computer_use", "type": "backend", "label": "Computer & Browser", "sublabel": "Win32 DesktopLock & Puppeteer", "pos": [1240, 370], "size": [160, 65], "tag": "Automation" },
+    { "id": "sqlite_db", "type": "database", "label": "SQLite WAL Engine", "sublabel": "Durable Checkpoints & Runs", "pos": [800, 590], "size": [160, 65], "tag": "Persistence" },
+    { "id": "event_ledger", "type": "security", "label": "Event Ledger", "sublabel": "SHA-256 Merkle Audit Chain", "pos": [1020, 590], "size": [160, 65], "tag": "Audit" }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Local Host Process Boundary", "wraps": ["tauri_native", "react_ui", "ipc_boundary", "core_server", "agent_kernel", "agent_loop", "tool_gateway", "recovery_engine", "mcp_supervisor", "computer_use", "sqlite_db", "event_ledger"], "pad": 32 },
+    { "kind": "security-group", "label": "Sandboxed Execution Zone", "wraps": ["tool_gateway", "recovery_engine", "mcp_supervisor", "computer_use"], "pad": 16 },
+    { "kind": "security-group", "label": "Isolated Durable Persistence Subnet", "wraps": ["sqlite_db", "event_ledger"], "pad": 16 },
+    { "kind": "region", "label": "External LLM Providers", "wraps": ["model_gateway"], "pad": 16 }
+  ],
+  "connections": [
+    { "from": "tauri_native", "to": "react_ui", "label": "webview", "variant": "emphasis" },
+    { "from": "react_ui", "to": "ipc_boundary", "label": "HMAC request", "variant": "security" },
+    { "from": "ipc_boundary", "to": "core_server", "label": "authorized IPC", "variant": "emphasis" },
+    { "from": "core_server", "to": "agent_loop", "label": "execute turn", "variant": "emphasis" },
+    { "from": "core_server", "to": "agent_kernel", "label": "dispatch run", "variant": "emphasis" },
+    { "from": "agent_loop", "to": "model_gateway", "label": "inference", "variant": "dashed" },
+    { "from": "agent_loop", "to": "tool_gateway", "label": "tool call", "variant": "emphasis" },
+    { "from": "agent_loop", "to": "recovery_engine", "label": "verify state", "variant": "security" },
+    { "from": "tool_gateway", "to": "mcp_supervisor", "label": "mcp stdio", "variant": "emphasis" },
+    { "from": "tool_gateway", "to": "computer_use", "label": "desktop/web", "variant": "emphasis" },
+    { "from": "agent_kernel", "to": "sqlite_db", "label": "checkpoints", "variant": "emphasis" },
+    { "from": "agent_kernel", "to": "event_ledger", "label": "merkle append", "variant": "security" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Perimeter & Zero-Trust Defense", "items": ["100% path jailing blocks path traversal and sensitive files (.env, sqlite, ssh, kin)", "Job Objects kill orphan processes immediately upon exit", "Zero silent model fallback enforces strict operator control"] },
+    { "dot": "emerald", "title": "Observe-Act-Observe-Verify Self Healing", "items": ["RecoveryEngine verifies post-state mutations before advancing tasks", "Anti-loop guard detects and halts repetitive failing tool invocations", "Hardware memory governor dynamically limits concurrency under pressure"] },
+    { "dot": "violet", "title": "Durable Resilience & Quota Guard", "items": ["HTTP 429 quota pause auto-checkpoints turn context to SQLite", "Stale 15s heartbeat leases are automatically reclaimed on app restart", "SHA-256 EventLedger ensures tamper-evident cryptographic provenance"] }
+  ]
+}

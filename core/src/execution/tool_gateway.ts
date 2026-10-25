@@ -3590,8 +3590,38 @@ export class ToolGateway {
     }
 
     const targetBase = path.basename(sanitizedTarget).toLowerCase();
-    if (targetBase === 'ipc_auth.token' || targetBase === 'vault.key') {
-      throw new Error(`SECURITY JAIL VIOLATION: Access to internal security tokens or vault keys is prohibited: '${targetPath}'`);
+    const lowerTarget = sanitizedTarget.toLowerCase();
+    const isSensitivePattern = (p: string, base: string) => {
+      return (
+        base === 'ipc_auth.token' ||
+        base === 'vault.key' ||
+        base === '.env' ||
+        base.startsWith('.env.') ||
+        base === '.npmrc' ||
+        base === '.pypirc' ||
+        base === 'id_rsa' ||
+        base === 'id_ed25519' ||
+        base === 'id_ecdsa' ||
+        base === 'id_dsa' ||
+        base === 'kin_storage.sqlite' ||
+        base === 'kin_storage.sqlite-wal' ||
+        base === 'kin_storage.sqlite-shm' ||
+        base.endsWith('.sqlite') ||
+        base.endsWith('.sqlite3') ||
+        base.endsWith('.sqlite-wal') ||
+        base.endsWith('.sqlite-shm') ||
+        p.includes('/.git/config') ||
+        p === '.git/config' ||
+        p.includes('/.ssh/') ||
+        p.startsWith('.ssh/') ||
+        p.includes('/.aws/') ||
+        p.startsWith('.aws/') ||
+        ((p.startsWith('.kin/') || p.includes('/.kin/')) && !p.includes('/.kin/worktrees/'))
+      );
+    };
+
+    if (isSensitivePattern(lowerTarget, targetBase)) {
+      throw new Error(`SECURITY JAIL VIOLATION: Access to sensitive credential, database, or repository configuration files is prohibited: '${targetPath}'`);
     }
 
     const resolved = path.resolve(canonicalRoot, sanitizedTarget);
@@ -3610,6 +3640,14 @@ export class ToolGateway {
       if (!this.isPathWithinRoot(canonicalTarget, canonicalRoot)) {
         throw new Error(
           `SECURITY JAIL VIOLATION: Path '${targetPath}' escapes worktree root via symlink`
+        );
+      }
+
+      const canonicalBase = path.basename(canonicalTarget).toLowerCase();
+      const lowerCanonical = canonicalTarget.toLowerCase().replace(/\\/g, '/');
+      if (isSensitivePattern(lowerCanonical, canonicalBase)) {
+        throw new Error(
+          `SECURITY JAIL VIOLATION: Access to sensitive credential, database, or repository configuration files is prohibited: '${targetPath}'`
         );
       }
 

@@ -1371,7 +1371,7 @@ export class CoreServer {
       return resolvedDir;
     };
 
-    const registeredProjects = this.workspaceRepo.listProjects('ws-default');
+    const registeredProjects = this.workspaceRepo.listAllProjects ? this.workspaceRepo.listAllProjects() : this.workspaceRepo.listProjects('ws-default');
     const isAllowed = registeredProjects.some((p) => {
       const pNorm = resolveCanonical(p.repoPath);
       return normTarget === pNorm || (!path.relative(pNorm, normTarget).startsWith('..') && !path.isAbsolute(path.relative(pNorm, normTarget)));

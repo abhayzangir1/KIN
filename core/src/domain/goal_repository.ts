@@ -13,9 +13,9 @@ export class GoalRepository {
       `INSERT INTO goals (id, project_id, title, description, acceptance_criteria_json, status, deadline, check_in_policy, progress_summary, blocked_state, proposed_replanning_json, origin_channel_id, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       goal.id,
-      goal.projectId,
+      goal.projectId ?? null,
       goal.title,
-      goal.description,
+      goal.description ?? '',
       JSON.stringify(goal.acceptanceCriteria || []),
       goal.status,
       goal.deadline ?? null,

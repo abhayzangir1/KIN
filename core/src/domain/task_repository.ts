@@ -309,7 +309,12 @@ export class TaskRepository {
                    lease_expires_at = NULL,
                    retry_count = retry_count + 1,
                    updated_at = ?
-               WHERE id = ? AND status = 'running' AND claimed_by_run_id = ? AND (lease_expires_at IS NULL OR lease_expires_at < ?)`,
+               WHERE id = ? AND status = 'running' AND claimed_by_run_id = ?
+                 AND (
+                   lease_expires_at IS NULL
+                   OR lease_expires_at < ?
+                   OR (SELECT state FROM agent_runs WHERE id = tasks.claimed_by_run_id) IN ('completed', 'failed', 'cancelled')
+                 )`,
               nextStatus,
               now,
               row.id,

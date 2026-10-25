@@ -19,6 +19,7 @@ export interface SpawnRunParams {
   channelId?: string;
   triggerMessageId?: string;
   queueIfExceeded?: boolean;
+  modelId?: string;
 }
 
 export interface DelegationParams {
@@ -99,12 +100,13 @@ export class AgentKernel {
       heartbeatAt: now,
       allocatedTokens,
       usedTokens: 0,
+      modelId: params.modelId,
       createdAt: now,
     };
 
     this.db.execute(
-      `INSERT INTO agent_runs (id, agent_id, project_id, parent_run_id, task_id, channel_id, trigger_message_id, state, heartbeat_at, allocated_tokens, used_tokens, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO agent_runs (id, agent_id, project_id, parent_run_id, task_id, channel_id, trigger_message_id, state, heartbeat_at, allocated_tokens, used_tokens, model_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       run.id,
       run.agentId,
       run.projectId ?? null,
@@ -116,6 +118,7 @@ export class AgentKernel {
       run.heartbeatAt,
       run.allocatedTokens,
       run.usedTokens,
+      run.modelId ?? null,
       run.createdAt
     );
 
@@ -171,6 +174,7 @@ export class AgentKernel {
       used_tokens: number;
       quota_resets_at?: number | null;
       interrupted_turn?: number | null;
+      model_id?: string | null;
       created_at: number;
       completed_at: number | null;
     }>('SELECT * FROM agent_runs WHERE id = ?', id);
@@ -192,6 +196,7 @@ export class AgentKernel {
       usedTokens: row.used_tokens,
       quotaResetsAt: row.quota_resets_at !== undefined ? row.quota_resets_at : null,
       interruptedTurn: row.interrupted_turn !== undefined ? row.interrupted_turn : null,
+      modelId: row.model_id ?? undefined,
       createdAt: row.created_at,
       completedAt: row.completed_at ?? undefined,
     };
@@ -201,6 +206,12 @@ export class AgentKernel {
    * Transitions a run into quota_paused state with backoff reset timestamp.
    */
   public pauseForQuota(runId: string, resetWindowMs: number = 900000): void {
+    const run = this.getRun(runId);
+    if (!run) throw new Error(`Run '${runId}' not found.`);
+    if (run.state === 'completed' || run.state === 'failed' || run.state === 'cancelled') {
+      throw new Error(`Cannot pause terminal run '${runId}' (current state: ${run.state}).`);
+    }
+
     const now = Date.now();
     const quotaResetsAt = now + resetWindowMs;
 
@@ -222,6 +233,12 @@ export class AgentKernel {
    * Resumes an execution run from paused or quota_paused state.
    */
   public resumeRun(runId: string): void {
+    const run = this.getRun(runId);
+    if (!run) throw new Error(`Run '${runId}' not found.`);
+    if (run.state === 'completed' || run.state === 'failed' || run.state === 'cancelled') {
+      throw new Error(`Cannot resume terminal run '${runId}' (current state: ${run.state}).`);
+    }
+
     const now = Date.now();
 
     this.db.execute(
@@ -265,6 +282,10 @@ export class AgentKernel {
   public transitionState(runId: string, newState: RunState, reason?: string): void {
     const run = this.getRun(runId);
     if (!run) throw new Error(`Run '${runId}' not found.`);
+
+    if (run.state === newState) {
+      return; // Idempotent transition
+    }
 
     if (run.state === 'completed' || run.state === 'failed' || run.state === 'cancelled') {
       throw new Error(`Cannot transition run from terminal state '${run.state}' to '${newState}'.`);
@@ -377,6 +398,23 @@ export class AgentKernel {
 
   public recoverStaleRuns(staleThresholdMs: number = 45000): string[] {
     return this.recoverStaleRunsDetailed(staleThresholdMs).map((r) => r.id);
+  }
+
+  /**
+   * Retrieves runs currently in 'quota_paused' whose reset window has elapsed.
+   */
+  public getRunsReadyToResumeFromQuota(): Array<{ id: string; agentId: string; quotaResetsAt: number }> {
+    const now = Date.now();
+    const rows = this.db.query<{ id: string; agent_id: string; quota_resets_at: number }>(
+      `SELECT id, agent_id, quota_resets_at FROM agent_runs 
+       WHERE state = 'quota_paused' AND quota_resets_at IS NOT NULL AND quota_resets_at <= ?`,
+      now
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      agentId: r.agent_id,
+      quotaResetsAt: r.quota_resets_at,
+    }));
   }
 
   public getActiveRunCount(): number {

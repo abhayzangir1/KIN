@@ -261,6 +261,8 @@ export class ComputerSupervisor {
         this.masterBrowser.on('disconnected', () => {
           this.masterBrowser = null;
           this.agentSessions.clear();
+          this.agentControllers.clear();
+          this.pendingBrowserAllocations.clear();
         });
 
         return this.masterBrowser;
@@ -449,7 +451,26 @@ export class ComputerSupervisor {
     return this.desktopLockOwner;
   }
 
+  public isDesktopLockStale(maxHoldingMs: number = 60000): boolean {
+    if (!this.desktopLockOwner || !this.desktopLockAcquiredAt) return false;
+    return Date.now() - this.desktopLockAcquiredAt >= maxHoldingMs;
+  }
+
+  public reclaimStaleDesktopLock(maxHoldingMs: number = 60000): boolean {
+    if (this.isDesktopLockStale(maxHoldingMs)) {
+      console.warn(`[COMPUTER SUPERVISOR] Reclaiming stale DesktopLock held by '${this.desktopLockOwner}' for >${maxHoldingMs}ms`);
+      const staleOwner = this.desktopLockOwner!;
+      this.releaseDesktopLock(staleOwner);
+      return true;
+    }
+    return false;
+  }
+
   public async acquireDesktopLock(agentId: string, timeoutMs: number = 30000): Promise<boolean> {
+    if (this.desktopLockOwner && this.isDesktopLockStale(60000)) {
+      this.reclaimStaleDesktopLock(60000);
+    }
+
     if (this.desktopLockOwner === agentId) {
       return true; // Already holds lock
     }
