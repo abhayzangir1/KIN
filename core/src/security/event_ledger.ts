@@ -76,9 +76,11 @@ export class EventLedger {
    * Appends an authoritative, sanitized lifecycle event into event_journal.
    */
   public record(params: LedgerEventParams): number {
-    const sanitizedPayload = this.secretBroker.sanitizePayload(params.payload);
+    const sanitizedPayload = this.secretBroker.sanitizePayload(params.payload || {});
     const payloadJson = JSON.stringify(sanitizedPayload);
     const now = Date.now();
+    const entityType = params.entityType || 'system';
+    const entityId = params.entityId || 'kin-core';
 
     return this.db.transactionSync(() => {
       let prevHash = 'GENESIS_HASH_0000000000000000';
@@ -100,8 +102,8 @@ export class EventLedger {
         `INSERT INTO event_journal (event_type, entity_type, entity_id, run_id, payload_json, record_hash, prev_hash, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         params.eventType,
-        params.entityType,
-        params.entityId,
+        entityType,
+        entityId,
         params.runId || null,
         payloadJson,
         recordHash,
