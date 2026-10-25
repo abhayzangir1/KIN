@@ -8,6 +8,11 @@ echo  Chats • Projects • Agent Workflows
 echo =====================================================================
 echo.
 
+:: Parse argument: --dev for development Vite HMR server, default is production
+set "DEV_MODE=0"
+if "%1"=="--dev" set "DEV_MODE=1"
+if "%1"=="-d" set "DEV_MODE=1"
+
 :: 1. Verify Node.js
 where node >nul 2>nul
 if %ERRORLEVEL% neq 0 (
@@ -31,17 +36,26 @@ if not exist "node_modules" (
 )
 
 :: 3. Build workspaces if needed
-if not exist "core\dist\server\core_server.js" (
-    echo [2/3] Building KIN Core and UI packages...
-    call npm run build
+if not exist "core\dist\start_daemon.js" (
+    echo [2/3] Building KIN Core package...
+    call npm run build --workspace=core
     if %ERRORLEVEL% neq 0 (
-        echo [ERROR] Build failed.
+        echo [ERROR] Core build failed.
         pause
         exit /b 1
     )
-) else (
-    echo [2/3] Build verified.
 )
+
+if not exist "ui\dist\index.html" (
+    echo [2/3] Building KIN UI package...
+    call npm run build --workspace=ui
+    if %ERRORLEVEL% neq 0 (
+        echo [ERROR] UI build failed.
+        pause
+        exit /b 1
+    )
+)
+echo [2/3] Workspaces verified and ready.
 
 :: 4. Optional: Start Ollama if installed
 where ollama >nul 2>nul
@@ -53,21 +67,28 @@ if %ERRORLEVEL% equ 0 (
     )
 )
 
-:: 5. Launch KIN Core Daemon and Web UI
-echo [3/3] Launching KIN Platform...
-echo [*] Core IPC Server: http://127.0.0.1:54321
-echo [*] Web Workbench:   http://localhost:5173
-echo.
+:: 5. Launch KIN Platform
+if "%DEV_MODE%"=="1" (
+    echo [3/3] Launching KIN in Development Mode (Vite HMR)...
+    echo [*] Core IPC Server: http://127.0.0.1:54321
+    echo [*] Vite Dev Server: http://localhost:5173
+    echo.
 
-:: Start Core Daemon in background
-start "KIN Core Daemon" /B node core\dist\start_daemon.js
+    start "KIN Core Daemon" /B node core\dist\start_daemon.js
+    start "KIN UI Dev" /B npm run dev --workspace=ui
 
-:: Start Vite UI Dev Server
-start "KIN UI" /B npm run dev --workspace=ui
+    timeout /t 2 /nobreak >nul
+    start http://localhost:5173
+) else (
+    echo [3/3] Launching KIN in Production Mode...
+    echo [*] Application Server: http://127.0.0.1:54321
+    echo.
 
-:: Wait 2 seconds and open browser
-timeout /t 2 /nobreak >nul
-start http://localhost:5173
+    start "KIN Core Daemon" /B node core\dist\start_daemon.js
+
+    timeout /t 2 /nobreak >nul
+    start http://127.0.0.1:54321
+)
 
 echo =====================================================================
 echo  KIN is running! Press Ctrl+C in this terminal to shut down.

@@ -31,6 +31,7 @@ export const App: React.FC = () => {
     isInspectorOpen,
     setInspectorOpen,
     theme,
+    isConnected,
   } = useKinStore();
 
   const [windowWidth, setWindowWidth] = useState(
@@ -110,6 +111,27 @@ export const App: React.FC = () => {
       <div className={`flex flex-col h-screen w-screen overflow-hidden font-sans antialiased select-none ${theme === 'light' ? 'bg-[#f6f8fa] text-slate-800' : 'bg-[#0d1117] text-kin-text'}`}>
         {/* Top Application Header Bar */}
         <HeaderBar />
+
+        {/* Backend Offline / Connecting Banner */}
+        {!isConnected && (
+          <div className="bg-amber-500/10 border-b border-amber-500/30 text-amber-200 px-4 py-1.5 text-xs flex items-center justify-between z-30 transition-all shrink-0">
+            <div className="flex items-center space-x-2">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+              <span className="font-semibold text-amber-300">KIN Core Daemon Disconnected</span>
+              <span className="text-amber-400/70 text-[11px] hidden sm:inline">— Attempting automatic reconnection...</span>
+            </div>
+            <button
+              onClick={() => {
+                fetchState();
+                initSSE();
+              }}
+              className="px-2.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 border border-amber-500/40 text-[11px] font-medium transition cursor-pointer flex items-center space-x-1"
+              title="Manually retry connection to KIN Core Daemon"
+            >
+              <span>Reconnect Now</span>
+            </button>
+          </div>
+        )}
 
         {/* Main 3-Column Draggable & Resizable Workspace Layout */}
         <div className="flex flex-1 overflow-hidden min-h-0 relative">

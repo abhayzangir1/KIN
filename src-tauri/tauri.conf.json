@@ -7,7 +7,7 @@
     "frontendDist": "../ui/dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm run dev --workspace=ui",
-    "beforeBuildCommand": "npm run build --workspace=ui"
+    "beforeBuildCommand": "npm run build:prod"
   },
   "app": {
     "withGlobalTauri": true,

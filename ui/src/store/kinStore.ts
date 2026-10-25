@@ -1202,6 +1202,7 @@ interface KinState {
 let eventSourceInstance: EventSource | null = null;
 let sseReconnectTimer: any = null;
 let sseReconnectAttempts = 0;
+let fetchStateRetryTimer: any = null;
 
 export const useKinStore = create<KinState>((set, get) => ({
   projects: [],
@@ -1549,6 +1550,11 @@ export const useKinStore = create<KinState>((set, get) => ({
         isConnected: true,
       });
 
+      if (fetchStateRetryTimer) {
+        clearTimeout(fetchStateRetryTimer);
+        fetchStateRetryTimer = null;
+      }
+
       if (!chosenChannelId.startsWith('dm-')) {
         await get().fetchChannelMembers(chosenChannelId);
         await get().fetchQueuedMessages(chosenChannelId);
@@ -1569,6 +1575,12 @@ export const useKinStore = create<KinState>((set, get) => ({
     } catch (err) {
       console.warn('[KIN UI] Could not connect to Core IPC server, retrying...', err);
       set({ isConnected: false });
+      if (!fetchStateRetryTimer) {
+        fetchStateRetryTimer = setTimeout(() => {
+          fetchStateRetryTimer = null;
+          get().fetchState();
+        }, 3000);
+      }
     }
   },
 

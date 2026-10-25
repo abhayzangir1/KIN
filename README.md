@@ -13,7 +13,7 @@ Local-first execution • Hybrid model routing (Local Ollama & BYOK Cloud) • A
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org/)
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri)](https://tauri.app/)
 [![SQLite](https://img.shields.io/badge/SQLite-WAL%20Mode-003B57?logo=sqlite)](https://sqlite.org/)
-[![Tests](https://img.shields.io/badge/Tests-653%20Passed%20(100%25)-success)](docs/PROJECT_STATUS.md)
+[![Tests](https://img.shields.io/badge/Tests-669%20Passed-success)](docs/PROJECT_STATUS.md)
 
 [Overview](#-overview) •
 [Key Features](#-key-features) •
@@ -165,30 +165,57 @@ npm run build
 
 ### 3. Start KIN
 
-#### Option A: Development Mode (Browser UI + Daemon)
-Run the core daemon and Vite dev server in two separate terminals:
+#### Option A: One-Click Production Mode (Default)
+Run KIN directly in production mode without dev server overhead. The core daemon serves both the IPC APIs and the pre-compiled React workbench on port `54321`:
 
-**Terminal 1 (Core Daemon):**
-```bash
-npm run daemon --workspace=core
+**Windows:**
+```cmd
+start.bat
 ```
 
-**Terminal 2 (Frontend UI):**
+**macOS / Linux:**
 ```bash
-npm run dev --workspace=ui
+chmod +x start.sh
+./start.sh
 ```
-Open your browser at **`http://127.0.0.1:5173`**. The daemon runs on loopback port **`54321`** with automatic IPC token authentication.
+Or via npm:
+```bash
+npm run start:prod
+```
+Open your browser at **`http://127.0.0.1:54321`**.
 
-#### Option B: Desktop App (Tauri Shell)
+#### Option B: Development Mode (Vite HMR)
+Run with live Hot Module Replacement (HMR) for frontend development:
+
+**Windows:**
+```cmd
+start.bat --dev
+```
+
+**macOS / Linux:**
+```bash
+./start.sh --dev
+```
+Open your browser at **`http://127.0.0.1:5173`**.
+
+#### Option C: Native Desktop Application (Tauri Shell)
 Launch the unified native desktop shell:
 ```bash
 npm run tauri:dev
 ```
+To package the standalone desktop installer with freshly compiled Node SEA binary sidecars:
+```bash
+npm run package:desktop
+```
 
 ### 4. Run the Test Suite
-KIN maintains a comprehensive automated testing suite with **653 tests across 44 test suites (100% pass rate)**:
+KIN maintains a comprehensive automated testing suite with **669 tests across 45 test suites (all passing deterministically, 0 skipped, 0 failed)**:
 ```bash
 npm test --workspace=core
+```
+Typecheck the entire monorepo:
+```bash
+npm run typecheck
 ```
 
 ---

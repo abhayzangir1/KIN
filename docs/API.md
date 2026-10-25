@@ -20,10 +20,21 @@ Alternatively, clients can pass `X-IPC-Token: <token>` or `X-KIN-Auth: <token>`.
 ## 📡 1. System & Health
 
 ### `GET /api/health`
-Public health probe (exempt from token authentication).
+Public health probe (exempt from token authentication). Returns comprehensive system and storage status.
 - **Response `200`**:
   ```json
-  { "status": "ok", "timestamp": 1792216868000, "service": "kin-core" }
+  {
+    "status": "ok",
+    "uptime": 42.5,
+    "timestamp": 1792900000000,
+    "version": "0.1.0",
+    "database": { "connected": true, "integrity": "ok", "path": "..." },
+    "activeProject": { "id": "proj-kin", "name": "KIN" },
+    "autonomyMode": "AUTO",
+    "configuredProviders": ["ollama", "openrouter"],
+    "activeCredsCount": 2,
+    "memory": { "rssMb": 115, "heapUsedMb": 64 }
+  }
   ```
 
 ### `GET /api/state`

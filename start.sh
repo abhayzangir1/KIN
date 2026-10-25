@@ -11,6 +11,11 @@ echo " Chats • Projects • Agent Workflows"
 echo "====================================================================="
 echo ""
 
+DEV_MODE=0
+if [ "$1" == "--dev" ] || [ "$1" == "-d" ]; then
+    DEV_MODE=1
+fi
+
 # 1. Verify Node.js
 if ! command -v node &> /dev/null; then
     echo "[ERROR] Node.js is not installed or not in PATH."
@@ -27,12 +32,16 @@ else
 fi
 
 # 3. Build workspaces if needed
-if [ ! -f "core/dist/server/core_server.js" ]; then
-    echo "[2/3] Building KIN Core and UI packages..."
-    npm run build
-else
-    echo "[2/3] Build verified."
+if [ ! -f "core/dist/start_daemon.js" ]; then
+    echo "[2/3] Building KIN Core package..."
+    npm run build --workspace=core
 fi
+
+if [ ! -f "ui/dist/index.html" ]; then
+    echo "[2/3] Building KIN UI package..."
+    npm run build --workspace=ui
+fi
+echo "[2/3] Workspaces verified and ready."
 
 # 4. Optional: Start Ollama if installed
 if command -v ollama &> /dev/null; then
@@ -42,32 +51,53 @@ if command -v ollama &> /dev/null; then
     fi
 fi
 
-# 5. Launch KIN Core Daemon and Web UI
-echo "[3/3] Launching KIN Platform..."
-echo "[*] Core IPC Server: http://127.0.0.1:54321"
-echo "[*] Web Workbench:   http://localhost:5173"
-echo ""
+# 5. Launch KIN Platform
+if [ "$DEV_MODE" == "1" ]; then
+    echo "[3/3] Launching KIN in Development Mode (Vite HMR)..."
+    echo "[*] Core IPC Server: http://127.0.0.1:54321"
+    echo "[*] Vite Dev Server: http://localhost:5173"
+    echo ""
 
-# Start Core Daemon in background
-node core/dist/start_daemon.js &
-DAEMON_PID=$!
+    node core/dist/start_daemon.js &
+    DAEMON_PID=$!
 
-# Start Vite UI Dev Server
-npm run dev --workspace=ui &
-UI_PID=$!
+    npm run dev --workspace=ui &
+    UI_PID=$!
 
-trap "kill $DAEMON_PID $UI_PID 2>/dev/null || true" EXIT
+    trap "kill $DAEMON_PID $UI_PID 2>/dev/null || true" EXIT
 
-# Wait 2 seconds and open browser
-sleep 2
-if command -v open &> /dev/null; then
-    open http://localhost:5173
-elif command -v xdg-open &> /dev/null; then
-    xdg-open http://localhost:5173
+    sleep 2
+    if command -v open &> /dev/null; then
+        open http://localhost:5173
+    elif command -v xdg-open &> /dev/null; then
+        xdg-open http://localhost:5173
+    fi
+
+    echo "====================================================================="
+    echo " KIN is running in Development Mode! Press Ctrl+C to shut down."
+    echo "====================================================================="
+
+    wait
+else
+    echo "[3/3] Launching KIN in Production Mode..."
+    echo "[*] Application Server: http://127.0.0.1:54321"
+    echo ""
+
+    node core/dist/start_daemon.js &
+    DAEMON_PID=$!
+
+    trap "kill $DAEMON_PID 2>/dev/null || true" EXIT
+
+    sleep 2
+    if command -v open &> /dev/null; then
+        open http://127.0.0.1:54321
+    elif command -v xdg-open &> /dev/null; then
+        xdg-open http://127.0.0.1:54321
+    fi
+
+    echo "====================================================================="
+    echo " KIN is running in Production Mode! Press Ctrl+C to shut down."
+    echo "====================================================================="
+
+    wait
 fi
-
-echo "====================================================================="
-echo " KIN is running! Press Ctrl+C to shut down."
-echo "====================================================================="
-
-wait

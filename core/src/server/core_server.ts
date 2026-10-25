@@ -10,6 +10,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import * as childProcess from 'node:child_process';
 import * as crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { AgentDefinition, AgentIdentity, Channel, Goal, Task, TaskStatus, Decision, DecisionStatus, AgentEvaluation, ManagedCredential } from '../domain/types.js';
 import { KinDatabase } from '../storage/db.js';
 import { MigrationRunner } from '../storage/migration_runner.js';
@@ -2040,9 +2041,10 @@ export class CoreServer {
     const parsedUrl = new URL(req.url ?? '/', 'http://127.0.0.1');
     const pathname = parsedUrl.pathname;
 
-    // Enforce local loopback IPC token authentication when enabled (exempting public health probes)
+    // Enforce local loopback IPC token authentication when enabled (exempting public health probes and static frontend assets)
     const isHealthProbe = pathname === '/api/health' || pathname === '/health';
-    if (this.requireIpcAuth && this.ipcAuthToken && !isHealthProbe) {
+    const isPublicStatic = req.method === 'GET' && !pathname.startsWith('/api/');
+    if (this.requireIpcAuth && this.ipcAuthToken && !isHealthProbe && !isPublicStatic) {
       const authHeader = req.headers['authorization'] || '';
       const xIpcToken = (req.headers['x-ipc-token'] || req.headers['x-kin-auth']) as string;
       // Query token is only accepted for SSE endpoint (/api/events) where custom headers are unsupported by browser EventSource
@@ -2102,11 +2104,31 @@ export class CoreServer {
 
       // 1b. GET /api/health — System health check & uptime
       if (req.method === 'GET' && (pathname === '/api/health' || pathname === '/health')) {
+        const sqliteIntegrity = this.db.queryOne<{ integrity_check: string }>('PRAGMA integrity_check(1);');
+        const activeProject = this.workspaceRepo.getProject(this.activeProjectId);
+        const { configuredProviders, activeCredsCount } = this.getConfiguredProviders();
+        const mem = process.memoryUsage();
         return this.sendJson(res, 200, {
           status: 'ok',
           uptime: process.uptime(),
           timestamp: Date.now(),
-          version: '1.0.0',
+          version: '0.1.0',
+          database: {
+            connected: true,
+            integrity: sqliteIntegrity?.integrity_check || 'unknown',
+            path: this.dbPath,
+          },
+          activeProject: {
+            id: this.activeProjectId,
+            name: activeProject?.name || 'KIN Workspace',
+          },
+          autonomyMode: this.getEffectiveAutonomyMode(),
+          configuredProviders: Array.from(configuredProviders),
+          activeCredsCount,
+          memory: {
+            rssMb: Math.round(mem.rss / (1024 * 1024)),
+            heapUsedMb: Math.round(mem.heapUsed / (1024 * 1024)),
+          },
         });
       }
 
@@ -10069,11 +10091,130 @@ Format strictly as JSON:
         });
       }
 
+      // Fallback: In production mode, serve pre-compiled frontend assets from ui/dist
+      if (req.method === 'GET' && !pathname.startsWith('/api/')) {
+        const handled = this.tryServeStatic(req, res, pathname);
+        if (handled) return;
+      }
+
       return this.sendJson(res, 404, { error: 'Route not found' });
     } catch (err: any) {
       console.error('[KIN CORE SERVER ERROR]', err);
       return this.sendJson(res, 500, { error: err?.message || 'Internal Server Error' });
     }
+  }
+
+  private resolveUiDistDir(): string | null {
+    let moduleDir = '';
+    try {
+      moduleDir = path.dirname(fileURLToPath(import.meta.url));
+    } catch {}
+    const candidates = [
+      moduleDir ? path.resolve(moduleDir, '..', '..', '..', 'ui', 'dist') : '',
+      moduleDir ? path.resolve(moduleDir, '..', '..', 'ui', 'dist') : '',
+      moduleDir ? path.resolve(moduleDir, '..', 'ui', 'dist') : '',
+      moduleDir ? path.resolve(moduleDir, 'ui', 'dist') : '',
+      path.resolve(process.cwd(), '..', 'ui', 'dist'),
+      path.resolve(process.cwd(), 'ui', 'dist'),
+      path.resolve(process.cwd(), 'dist'),
+      path.resolve(path.dirname(process.execPath), 'ui', 'dist'),
+    ].filter(Boolean);
+    for (const cand of candidates) {
+      try {
+        if (fs.existsSync(cand) && fs.statSync(cand).isDirectory() && fs.existsSync(path.join(cand, 'index.html'))) {
+          return cand;
+        }
+      } catch {}
+    }
+    return null;
+  }
+
+  private tryServeStatic(req: http.IncomingMessage, res: http.ServerResponse, pathname: string): boolean {
+    const uiDistDir = this.resolveUiDistDir();
+    if (!uiDistDir) {
+      return false;
+    }
+
+    const mimeTypes: Record<string, string> = {
+      '.html': 'text/html; charset=utf-8',
+      '.js': 'application/javascript; charset=utf-8',
+      '.mjs': 'application/javascript; charset=utf-8',
+      '.css': 'text/css; charset=utf-8',
+      '.json': 'application/json; charset=utf-8',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.svg': 'image/svg+xml',
+      '.ico': 'image/x-icon',
+      '.woff': 'font/woff',
+      '.woff2': 'font/woff2',
+      '.ttf': 'font/ttf',
+      '.webp': 'image/webp',
+      '.wasm': 'application/wasm',
+    };
+
+    let safeRelPath = decodeURIComponent(pathname.replace(/^\/+/, ''));
+    if (!safeRelPath || safeRelPath === '') {
+      safeRelPath = 'index.html';
+    }
+
+    const targetPath = path.resolve(uiDistDir, safeRelPath);
+
+    // Canonical path traversal security check
+    if (!targetPath.startsWith(uiDistDir)) {
+      this.sendJson(res, 403, { error: 'Forbidden: Path traversal outside static directory' }, req);
+      return true;
+    }
+
+    // Direct file match
+    if (fs.existsSync(targetPath)) {
+      try {
+        const stat = fs.statSync(targetPath);
+        if (stat.isFile()) {
+          const ext = path.extname(targetPath).toLowerCase();
+          const contentType = mimeTypes[ext] || 'application/octet-stream';
+          const isAsset = safeRelPath.startsWith('assets/');
+          const cacheControl = isAsset ? 'public, max-age=31536000, immutable' : 'no-cache';
+
+          this.handleCors(res, req);
+          res.writeHead(200, {
+            'Content-Type': contentType,
+            'Content-Length': stat.size,
+            'Cache-Control': cacheControl,
+          });
+          fs.createReadStream(targetPath).pipe(res);
+          return true;
+        }
+      } catch (err) {
+        console.warn('[KIN CORE] Static serve read error:', err);
+      }
+    }
+
+    // SPA fallback: If requesting a route without file extension (e.g. /settings, /channels/chan-general)
+    // fallback to serving index.html
+    const hasExtension = path.extname(safeRelPath) !== '';
+    if (!hasExtension) {
+      const indexPath = path.join(uiDistDir, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        try {
+          const stat = fs.statSync(indexPath);
+          this.handleCors(res, req);
+          res.writeHead(200, {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Content-Length': stat.size,
+            'Cache-Control': 'no-cache',
+          });
+          fs.createReadStream(indexPath).pipe(res);
+          return true;
+        } catch {}
+      }
+    }
+
+    // Missing asset with file extension -> return 404 text
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Asset Not Found');
+    return true;
   }
 
   private async handleOrchestratorAction(

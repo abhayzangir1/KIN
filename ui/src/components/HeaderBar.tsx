@@ -64,7 +64,10 @@ export const HeaderBar: React.FC = () => {
       {/* Left: Brand & Project Switcher */}
       <div className="flex items-center space-x-2.5">
         <div className="flex items-center space-x-1.5 font-bold tracking-wide text-kin-text">
-          <span className="w-2 h-2 rounded-full bg-emerald-400" />
+          <span
+            className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`}
+            title={isConnected ? 'KIN Core Connected (WAL Mode)' : 'KIN Core Offline / Connecting...'}
+          />
           <span className="text-sm font-semibold tracking-wider text-kin-text">KIN</span>
         </div>
 
@@ -138,8 +141,11 @@ export const HeaderBar: React.FC = () => {
         {/* Consolidated System Health Capsule (SQLite WAL & Progress) */}
         <div className="flex items-center space-x-2 px-2.5 py-0.5 rounded-md bg-kin-card border border-kin-border text-kin-muted">
           {/* Real DB Status */}
-          <div className="flex items-center space-x-1 text-emerald-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          <div
+            className={`flex items-center space-x-1 ${isConnected ? 'text-emerald-400' : 'text-amber-400'}`}
+            title={isConnected ? 'SQLite 3 WAL Engine Active' : 'Connecting to Core Daemon...'}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
             <span>DB: {isConnected ? 'WAL' : 'Connecting...'}</span>
           </div>
 

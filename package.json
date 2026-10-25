@@ -9,12 +9,17 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces",
+    "build:binary": "node core/scripts/package_binary.js",
+    "build:prod": "npm run build --workspaces && npm run build:binary",
+    "start:prod": "node core/dist/start_daemon.js",
+    "typecheck": "tsc --noEmit -p core/tsconfig.json && tsc --noEmit -p ui/tsconfig.json",
     "test": "npm run test --workspace=core",
     "test:foundation": "npm run test:foundation --workspace=core",
     "core:dev": "npm run dev --workspace=core",
     "ui:dev": "npm run dev --workspace=ui",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "package:desktop": "npm run build:prod && tauri build"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.1",

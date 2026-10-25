@@ -19,7 +19,7 @@ This manual provides authoritative operational guidelines for running, configuri
 
 ## 2. Booting the Runtime Services
 
-KIN operates as a modular local monolith consisting of a TypeScript Core Daemon and a React / Vite desktop UI.
+KIN operates as a modular local architecture consisting of a TypeScript Core Daemon and a React desktop UI.
 
 ### Step 1: Install Dependencies & Build Workspace
 ```bash
@@ -29,28 +29,44 @@ npm install
 npm run build
 ```
 
-### Step 2: Launch the Core Daemon
-In your primary service terminal:
+### Step 2: Launch KIN
+
+**Option A: One-Click Production Mode (Default)**
+Run KIN directly in production mode. The Core Daemon serves both the backend IPC APIs and the pre-compiled React workbench on `http://127.0.0.1:54321`:
 ```bash
-npm run daemon --workspace=core
+# Windows
+start.bat
+
+# macOS / Linux
+chmod +x start.sh && ./start.sh
+
+# Or via npm
+npm run start:prod
 ```
 - **Default Listener**: `http://127.0.0.1:54321`
-- **Database Initialization**: Automatically runs SQLite migrations on `kin_storage.sqlite`.
-- **Health Check**: `GET http://127.0.0.1:54321/api/health` returns `{"status":"ok"}`.
+- **Database Initialization**: Automatically executes SQLite migrations on `kin_storage.sqlite`.
+- **Health Check**: `GET http://127.0.0.1:54321/api/health` returns comprehensive system diagnostics.
 
-### Step 3: Launch the Frontend Interface
-
-**Option A: Browser Development Mode (Fastest for Development)**
+**Option B: Browser Development Mode (Vite HMR)**
+Run with live Hot Module Replacement (HMR) for frontend development:
 ```bash
-npm run dev --workspace=ui
+# Windows
+start.bat --dev
+
+# macOS / Linux
+./start.sh --dev
 ```
 Opens the web workbench at `http://127.0.0.1:5173`.
 
-**Option B: Tauri Native Desktop Shell**
+**Option C: Tauri Native Desktop Shell**
+Launch the unified native desktop shell:
 ```bash
-npm run tauri dev
+npm run tauri:dev
 ```
-Launches the native desktop window with native window menus, dock/system tray integration, and window state persistence.
+To package the standalone desktop installer with freshly compiled Node SEA binary sidecars:
+```bash
+npm run package:desktop
+```
 
 ---
 

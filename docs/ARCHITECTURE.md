@@ -83,8 +83,8 @@ flowchart TD
 | **L14 (Recovery & Self-Healing)** | RecoveryEngine | `core/src/recovery/` | Observation verification, pre/post-action state checks, turn checkpointing, and startup crash/timeout self-healing. |
 | **L15 (Desktop Automation)** | DesktopController | `core/src/computer/` | Desktop window controller, host desktop input automation, installed application launcher, and screen capture. |
 | **L16 (Browser Automation)** | BrowserController | `core/src/browser/` | Persistent browser context, Playwright/Puppeteer driver, DOM inspection, and navigation history. |
-| **L17 (Networking & IPC Server)** | CoreServer | `core/src/server/core_server.ts` | Core HTTP REST and SSE server, loopback IPC token authentication, strict CORS origin filtering, canonical symlink checks (`fs.realpathSync`), and git protected path guards. |
-| **L18 (Frontend UI/UX)** | React 18, Zustand, Tauri Shell | `ui/src/`, `src-tauri/` | 4-pane collaborative workbench (`ui/src/`), Zustand reactive store (`kinStore.ts`), Tailwind CSS, DAG task dependency selector (`CreateTaskModal.tsx`), and Tauri Rust desktop shell. |
+| **L17 (Networking & IPC Server)** | CoreServer | `core/src/server/core_server.ts` | Core HTTP REST and SSE server, loopback IPC token authentication, strict CORS origin filtering, embedded static asset serving for `ui/dist` with SPA routing and cache headers, canonical symlink checks (`fs.realpathSync`), and git protected path guards. |
+| **L18 (Frontend UI/UX)** | React 18, Zustand, Tauri Shell | `ui/src/`, `src-tauri/` | 4-pane collaborative workbench (`ui/src/`), Zustand reactive store (`kinStore.ts`), Tailwind CSS, connection health banner with automatic exponential backoff retry, DAG task dependency selector (`CreateTaskModal.tsx`), and Tauri Rust desktop shell with Node SEA sidecar binary execution. |
 
 ---
 

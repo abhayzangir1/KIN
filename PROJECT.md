@@ -61,7 +61,8 @@ KIN is a local-first, multi-agent AI engineering harness and workspace orchestra
 | 3 | Core Concurrency & Facade Remediation (R1, R2, R4) | Atomic CAS approval resolution, transactional EventLedger append, DM INSERT OR IGNORE, lease reclamation TOCTOU fix, deterministic message order, ReAct lease check, dependency validation, schedules route consolidation | M1, M2 | DONE (worker_m3: 653 tests, 44 suites pass) |
 | 4 | Frontend UI/UX State & Contract Alignment (R2, R4) | Goal status enum alignment, DAG dependency parameter wiring in store & modal, dead auth guard removal | M3 | DONE (worker_m4: UI build clean code 0) |
 | 5 | Documentation & Architecture Alignment (R5) | Full documentation sync across `README.md` and `docs/` for all 18 harness layers, security posture, and operational guidelines | M2, M3, M4 | DONE |
-| 6 | Full Verification, Forensic Audit & Release Git Commit (R6) | 653 tests passing across 44 test suites (100% pass rate) on `npm test`, clean `npm run build` (0 errors), forensic integrity audit (CLEAN), and atomic release git commit | M1, M2, M3, M4, M5 | DONE |
+| 6 | Full Verification, Forensic Audit & Release Git Commit (R6) | 653 tests passing across 44 test suites on `npm test`, clean `npm run build` (0 errors), forensic integrity audit (CLEAN), and atomic release git commit | M1, M2, M3, M4, M5 | DONE |
+| 7 | Production Release Pipeline, Embedded Web Serving & Sidecar Hardening (R7) | CoreServer embedded static asset serving for `ui/dist` with SPA routing and cache headers, Node SEA desktop sidecar packaging (`build:binary`), UI connection banner with exponential backoff retry, production health check `/api/health`, release scripts, and 669 tests across 45 suites | M1 - M6 | DONE (669 tests passing across 45 suites) |
 
 ---
 
