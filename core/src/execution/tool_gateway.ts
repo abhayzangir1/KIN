@@ -825,6 +825,32 @@ export class ToolGateway {
         },
       },
       {
+        name: 'delete_skill',
+        description: 'Delete or remove a skill or disposable tool by its name or ID.',
+        parameters: {
+          type: 'object',
+          properties: {
+            skillId: { type: 'string', description: 'ID or name of the skill to delete' },
+            skillName: { type: 'string', description: 'Optional alias: name of the skill to delete' },
+            name: { type: 'string', description: 'Optional alias: name or identifier to delete' },
+            target: { type: 'string', description: 'Optional alias: target identifier to delete' },
+          },
+        },
+      },
+      {
+        name: 'dispose_tool',
+        description: 'Dispose or deregister a dynamically created disposable tool or skill by name or ID.',
+        parameters: {
+          type: 'object',
+          properties: {
+            toolName: { type: 'string', description: 'Name or ID of the disposable tool to deregister' },
+            skillId: { type: 'string', description: 'Optional alias: ID or name of the skill/tool to delete' },
+            name: { type: 'string', description: 'Optional alias: name of the tool to dispose' },
+            tool: { type: 'string', description: 'Optional alias: tool name to dispose' },
+          },
+        },
+      },
+      {
         name: 'read_spill',
         description: 'Read a bounded excerpt of a spilled large observation file from disk.',
         parameters: {
@@ -1027,9 +1053,13 @@ export class ToolGateway {
       toolName === 'import_skill' ||
       toolName === 'importSkill' ||
       toolName === 'execute_skill' ||
-      toolName === 'executeSkill'
+      toolName === 'executeSkill' ||
+      toolName === 'delete_skill' ||
+      toolName === 'deleteSkill' ||
+      toolName === 'dispose_tool' ||
+      toolName === 'disposeTool'
     ) {
-      return { primary: 'skills:manage', aliases: ['skills:manage', 'skills', 'skill', 'agent:coordinate', 'create_skill', 'createSkill', 'import_skill', 'importSkill', 'execute_skill', 'executeSkill', toolName, '*'] };
+      return { primary: 'skills:manage', aliases: ['skills:manage', 'skills', 'skill', 'agent:coordinate', 'create_skill', 'createSkill', 'import_skill', 'importSkill', 'execute_skill', 'executeSkill', 'delete_skill', 'deleteSkill', 'dispose_tool', 'disposeTool', toolName, '*'] };
     }
 
     switch (toolName) {
@@ -1039,7 +1069,11 @@ export class ToolGateway {
       case 'importSkill':
       case 'execute_skill':
       case 'executeSkill':
-        return { primary: 'skills:manage', aliases: ['skills:manage', 'skills', 'skill', 'agent:coordinate', 'create_skill', 'createSkill', 'import_skill', 'importSkill', 'execute_skill', 'executeSkill', '*'] };
+      case 'delete_skill':
+      case 'deleteSkill':
+      case 'dispose_tool':
+      case 'disposeTool':
+        return { primary: 'skills:manage', aliases: ['skills:manage', 'skills', 'skill', 'agent:coordinate', 'create_skill', 'createSkill', 'import_skill', 'importSkill', 'execute_skill', 'executeSkill', 'delete_skill', 'deleteSkill', 'dispose_tool', 'disposeTool', '*'] };
 
       case 'read_spill':
       case 'readSpill':
@@ -1553,6 +1587,42 @@ export class ToolGateway {
           } else {
             throw new Error("import_skill requires either 'directoryPath' or 'bundleJson'");
           }
+        }
+
+        case 'delete_skill':
+        case 'deleteSkill':
+        case 'dispose_tool':
+        case 'disposeTool': {
+          if (!this.skillEngine) {
+            throw new Error('SkillEngine is not configured in ToolGateway.');
+          }
+          const rawTarget = params.skillId || params.toolName || params.skillName || params.name || params.id || params.tool || params.target;
+          if (!rawTarget || typeof rawTarget !== 'string') {
+            throw new Error("delete_skill / dispose_tool requires 'skillId', 'toolName', or 'name'.");
+          }
+          const trimmed = rawTarget.trim();
+          const normalized = trimmed.replace(/^skill[-_]{1,2}/, '').trim();
+          const targetSkill = this.skillEngine.getSkill(trimmed) || this.skillEngine.getSkill(normalized);
+          if (!targetSkill) {
+            return {
+              success: false,
+              error: `Skill or disposable tool '${rawTarget}' not found.`,
+              riskLevel: risk,
+            };
+          }
+          if (targetSkill.isBuiltIn) {
+            throw new Error(`Cannot delete or dispose built-in system skill '${targetSkill.name}'.`);
+          }
+          const deleted = this.skillEngine.deleteSkill(targetSkill.id);
+          return {
+            success: deleted,
+            output: {
+              skillId: targetSkill.id,
+              name: targetSkill.name,
+              message: `Skill / disposable tool '${targetSkill.name}' successfully deleted/disposed.`,
+            } as T,
+            riskLevel: risk,
+          };
         }
 
         // Spilled Output Reader

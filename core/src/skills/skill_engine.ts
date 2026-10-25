@@ -9,9 +9,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vm from 'node:vm';
 import { Worker } from 'node:worker_threads';
+import { createRequire } from 'node:module';
 import { KinDatabase } from '../storage/db.js';
 import { MigrationRunner } from '../storage/migration_runner.js';
 import { v4 as uuidv4 } from 'uuid';
+
+const esmRequire = createRequire(import.meta.url);
 
 export interface Skill {
   id: string;
@@ -533,7 +536,7 @@ export class SkillEngine {
 
     const transpileSkillCode = (code: string): string => {
       try {
-        const ts = require('typescript');
+        const ts = esmRequire('typescript');
         return ts.transpileModule(code, {
           compilerOptions: {
             module: ts.ModuleKind.CommonJS,
@@ -554,8 +557,17 @@ export class SkillEngine {
         if (typeof module !== 'undefined' && typeof module.exports === 'function') {
           return await module.exports(params, executionContext);
         }
+        if (typeof module !== 'undefined' && typeof module.exports?.default === 'function') {
+          return await module.exports.default(params, executionContext);
+        }
+        if (typeof exports !== 'undefined' && typeof exports.default === 'function') {
+          return await exports.default(params, executionContext);
+        }
         if (typeof module !== 'undefined' && typeof module.exports?.run === 'function') {
           return await module.exports.run(params, executionContext);
+        }
+        if (typeof exports !== 'undefined' && typeof exports.run === 'function') {
+          return await exports.run(params, executionContext);
         }
         if (typeof run === 'function') {
           return await run(params, executionContext);
@@ -569,13 +581,22 @@ export class SkillEngine {
         if (typeof exports !== 'undefined' && typeof exports.execute === 'function') {
           return await exports.execute(params, executionContext);
         }
+        if (typeof main === 'function') {
+          return await main(params, executionContext);
+        }
+        if (typeof module !== 'undefined' && typeof module.exports?.main === 'function') {
+          return await module.exports.main(params, executionContext);
+        }
+        if (typeof exports !== 'undefined' && typeof exports.main === 'function') {
+          return await exports.main(params, executionContext);
+        }
         return typeof result !== 'undefined' ? result : (typeof module !== 'undefined' && module.exports && Object.keys(module.exports).length > 0 ? module.exports : { executed: true });
       })()
     `;
 
     const workerScript = `
-      const { parentPort, workerData } = require('node:worker_threads');
-      const vm = require('node:vm');
+      import { parentPort, workerData } from 'node:worker_threads';
+      import vm from 'node:vm';
 
       const sanitizeObjectForSandbox = (val, seen = new WeakSet()) => {
         if (val === null || val === undefined) return val;
@@ -922,19 +943,27 @@ export class SkillEngine {
 
   /**
    * Deletes a custom (non-built-in) skill from SQLite and removes its disk file.
+   * Supports lookup by ID, bare name, or stripped candidate name.
    */
-  public deleteSkill(id: string): boolean {
-    const row = this.db.queryOne<{ id: string; name: string; is_built_in: number }>('SELECT id, name, is_built_in FROM skills WHERE id = ?', id);
-    if (!row) return false;
-    if (row.is_built_in) {
+  public deleteSkill(identifier: string): boolean {
+    if (!identifier || !this.db || (this.db as any).closed) return false;
+    const stripped = identifier.replace(/^skill[-_]{1,2}/, '').trim();
+
+    const existing = this.getSkill(identifier) || this.getSkill(stripped);
+    if (!existing) return false;
+
+    if (existing.isBuiltIn) {
       throw new Error('Cannot delete built-in system skill');
     }
 
-    this.db.execute('DELETE FROM skills WHERE id = ?', id);
+    try {
+      this.db.execute('DELETE FROM skill_versions WHERE skill_id = ?', existing.id);
+    } catch (_) {}
+    this.db.execute('DELETE FROM skills WHERE id = ?', existing.id);
 
     // Remove from disk if exists safely without path traversal or directory root wiping
     try {
-      const folderName = row.name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase().replace(/^-+|-+$/g, '');
+      const folderName = existing.name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase().replace(/^-+|-+$/g, '');
       if (folderName && folderName !== '.' && folderName !== '..') {
         const skillPath = path.resolve(this.skillsDir, folderName);
         const resolvedSkillsDir = path.resolve(this.skillsDir);

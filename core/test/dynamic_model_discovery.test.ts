@@ -11,8 +11,25 @@ describe('KIN Dynamic Model Discovery & User Custom Model Registration', { timeo
   let modelGateway: ModelGateway;
   let server: CoreServer;
   let port: number;
+  let originalEnv: NodeJS.ProcessEnv;
+  const PROVIDER_ENV_KEYS = [
+    'OPENROUTER_API_KEY',
+    'OPENAI_API_KEY',
+    'ANTHROPIC_API_KEY',
+    'DEEPSEEK_API_KEY',
+    'GEMINI_API_KEY',
+    'GOOGLE_API_KEY',
+    'GROQ_API_KEY',
+    'XAI_API_KEY',
+    'MISTRAL_API_KEY',
+    'OLLAMA_API_KEY',
+  ];
 
   beforeAll(async () => {
+    originalEnv = { ...process.env };
+    for (const key of PROVIDER_ENV_KEYS) {
+      delete process.env[key];
+    }
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kin-models-server-test-'));
     tempDbPath = path.join(tempDir, 'kin_models_test.sqlite');
 
@@ -26,6 +43,16 @@ describe('KIN Dynamic Model Discovery & User Custom Model Registration', { timeo
     try {
       fs.rmSync(tempDir, { recursive: true, force: true });
     } catch {}
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) {
+        delete process.env[key];
+      }
+    }
+    for (const [key, val] of Object.entries(originalEnv)) {
+      if (val !== undefined) {
+        process.env[key] = val;
+      }
+    }
   });
 
   it('fetchProviderModels returns structured models for all supported providers', async () => {

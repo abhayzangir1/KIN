@@ -170,8 +170,21 @@ export class Sentinel {
       return { primary: 'mcp:call', aliases: ['mcp:call', 'mcp', toolName, '*'] };
     }
 
-    if (toolName.startsWith('skill__') || toolName.startsWith('skill_')) {
-      return { primary: 'skills:manage', aliases: ['skills:manage', 'skills', 'skill', 'agent:coordinate', 'create_skill', 'createSkill', 'import_skill', 'importSkill', 'execute_skill', 'executeSkill', toolName, '*'] };
+    if (
+      toolName.startsWith('skill__') ||
+      toolName.startsWith('skill_') ||
+      toolName === 'create_skill' ||
+      toolName === 'createSkill' ||
+      toolName === 'import_skill' ||
+      toolName === 'importSkill' ||
+      toolName === 'execute_skill' ||
+      toolName === 'executeSkill' ||
+      toolName === 'delete_skill' ||
+      toolName === 'deleteSkill' ||
+      toolName === 'dispose_tool' ||
+      toolName === 'disposeTool'
+    ) {
+      return { primary: 'skills:manage', aliases: ['skills:manage', 'skills', 'skill', 'agent:coordinate', 'create_skill', 'createSkill', 'import_skill', 'importSkill', 'execute_skill', 'executeSkill', 'delete_skill', 'deleteSkill', 'dispose_tool', 'disposeTool', toolName, '*'] };
     }
 
     switch (toolName) {
@@ -181,7 +194,11 @@ export class Sentinel {
       case 'importSkill':
       case 'execute_skill':
       case 'executeSkill':
-        return { primary: 'skills:manage', aliases: ['skills:manage', 'skills', 'skill', 'agent:coordinate', 'create_skill', 'createSkill', 'import_skill', 'importSkill', 'execute_skill', 'executeSkill', '*'] };
+      case 'delete_skill':
+      case 'deleteSkill':
+      case 'dispose_tool':
+      case 'disposeTool':
+        return { primary: 'skills:manage', aliases: ['skills:manage', 'skills', 'skill', 'agent:coordinate', 'create_skill', 'createSkill', 'import_skill', 'importSkill', 'execute_skill', 'executeSkill', 'delete_skill', 'deleteSkill', 'dispose_tool', 'disposeTool', '*'] };
 
       case 'read_spill':
       case 'readSpill':
@@ -466,6 +483,12 @@ export class Sentinel {
       toolName === 'createSkill' ||
       toolName === 'import_skill' ||
       toolName === 'importSkill' ||
+      toolName === 'execute_skill' ||
+      toolName === 'executeSkill' ||
+      toolName === 'delete_skill' ||
+      toolName === 'deleteSkill' ||
+      toolName === 'dispose_tool' ||
+      toolName === 'disposeTool' ||
       toolName === 'hireSpecialist' ||
       toolName === 'hire_specialist' ||
       toolName === 'hireAgent' ||
@@ -527,6 +550,15 @@ export class Sentinel {
    */
   public isDestructiveAction(toolName: string, params: Record<string, any>): { isDestructive: boolean; reason?: string } {
     const lowerTool = toolName.toLowerCase();
+
+    // Exempt skill/tool deletion & disposal from operator confirmation gates
+    const normalizedTool = lowerTool.replace(/[-_]/g, '');
+    if (
+      normalizedTool === 'deleteskill' ||
+      normalizedTool === 'disposetool'
+    ) {
+      return { isDestructive: false };
+    }
 
     // 1. Explicit destructive tool names
     if (

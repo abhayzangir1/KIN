@@ -38,7 +38,7 @@ import { DesktopController } from '../computer/desktop_controller.js';
 import { BrowserController } from '../browser/browser_controller.js';
 import { RecoveryEngine } from '../recovery/recovery_engine.js';
 import { FinancialSafetyShield } from '../policy/financial_safety.js';
-import { MemoryRepository } from '../domain/memory_repository.js';
+import { MemoryRepository, OCCConflictError } from '../domain/memory_repository.js';
 import { ComputerSupervisor } from '../computer/computer_supervisor.js';
 import { SecretVault } from '../security/secret_vault.js';
 import { SecretBroker } from '../security/secret_broker.js';
@@ -140,7 +140,8 @@ export class CoreServer {
     : [];
 
   constructor(options: CoreServerOptions = {}) {
-    if (!process.env.OPENROUTER_API_KEY) {
+    const isTestEnv = Boolean(process.env.VITEST) || process.env.NODE_ENV === 'test';
+    if (!process.env.OPENROUTER_API_KEY && !isTestEnv) {
       const envCandidates = [
         path.resolve(process.cwd(), '.env'),
         path.resolve(process.cwd(), '..', '.env'),
@@ -5329,6 +5330,83 @@ export class CoreServer {
               return;
             }
 
+            // Subcommand: /skills delete <idOrName> or /skills remove <idOrName>
+            if (rawSub === 'delete' || rawSub.startsWith('delete ') || rawSub === 'remove' || rawSub.startsWith('remove ')) {
+              const target = rawSub.replace(/^(delete|remove)\s*/i, '').trim();
+              if (!target) {
+                const helpMsg = this.channelService.sendMessage({
+                  channelId,
+                  senderId: boss.id,
+                  senderType: 'agent',
+                  content: `💡 **Usage**: \`/skills delete <idOrName>\` or \`/skills remove <idOrName>\`\n\n*Example*: \`/skills delete paper-summarizer\``,
+                  productivityScore: 100,
+                });
+                this.broadcastEvent('message:created', {
+                  id: helpMsg.id,
+                  channelId: helpMsg.channelId,
+                  senderId: helpMsg.senderId,
+                  senderName: boss.displayName.replace(/^@/, ''),
+                  senderType: 'agent',
+                  content: helpMsg.content,
+                  createdAt: helpMsg.createdAt,
+                  productivityScore: helpMsg.productivityScore,
+                });
+                return;
+              }
+
+              try {
+                const targetSkill = this.skillEngine.getSkill(target) || this.skillEngine.getSkill(target.replace(/^skill[-_]{1,2}/, '').trim());
+                if (!targetSkill) {
+                  throw new Error(`Skill '${target}' not found.`);
+                }
+                if (targetSkill.isBuiltIn) {
+                  throw new Error(`Cannot delete built-in system skill '${targetSkill.name}'.`);
+                }
+                const deleted = this.skillEngine.deleteSkill(targetSkill.id);
+                if (!deleted) {
+                  throw new Error(`Failed to delete skill '${target}'.`);
+                }
+                this.broadcastEvent('skill:deleted', { skillId: targetSkill.id, name: targetSkill.name });
+
+                const reply = this.channelService.sendMessage({
+                  channelId,
+                  senderId: boss.id,
+                  senderType: 'agent',
+                  content: `🗑️ **Skill Deleted**: "${targetSkill.name}" (\`${targetSkill.id}\`) has been removed from persistent storage.`,
+                  productivityScore: 100,
+                });
+                this.broadcastEvent('message:created', {
+                  id: reply.id,
+                  channelId: reply.channelId,
+                  senderId: reply.senderId,
+                  senderName: boss.displayName.replace(/^@/, ''),
+                  senderType: 'agent',
+                  content: reply.content,
+                  createdAt: reply.createdAt,
+                  productivityScore: reply.productivityScore,
+                });
+              } catch (err: any) {
+                const errReply = this.channelService.sendMessage({
+                  channelId,
+                  senderId: boss.id,
+                  senderType: 'agent',
+                  content: `❌ **Failed to delete skill**: ${err.message}`,
+                  productivityScore: 100,
+                });
+                this.broadcastEvent('message:created', {
+                  id: errReply.id,
+                  channelId: errReply.channelId,
+                  senderId: errReply.senderId,
+                  senderName: boss.displayName.replace(/^@/, ''),
+                  senderType: 'agent',
+                  content: errReply.content,
+                  createdAt: errReply.createdAt,
+                  productivityScore: errReply.productivityScore,
+                });
+              }
+              return;
+            }
+
             // Subcommand: /skill <name> [instructions] or /skill:<name> [instructions]
             if (rawSub.length > 0) {
               const allSkills = this.skillEngine.listSkills('all');
@@ -5399,7 +5477,7 @@ export class CoreServer {
                 }
               }
             }
-            skillsText += `\n💡 *Commands*: \`/skills create <name> | <desc> | <instructions>\` • \`/skills import <path/bundle>\` • \`/skill:<name> <task>\``;
+            skillsText += `\n💡 *Commands*: \`/skills create <name> | <desc> | <instructions>\` • \`/skills delete <name>\` • \`/skills import <path/bundle>\` • \`/skill:<name> <task>\``;
 
             const reply = this.channelService.sendMessage({
               channelId,
@@ -8464,17 +8542,31 @@ Format strictly as JSON:
           }
         }
 
-        const memory = this.memoryRepo.setMemory({
-          scope,
-          scopeId,
-          type: body.type || 'procedural',
-          key: body.key,
-          value: body.value,
-          expectedVersion: body.expectedVersion,
-          evidenceRef: body.evidenceRef,
-        });
-        this.broadcastEvent('memory:updated', memory);
-        return this.sendJson(res, 201, { memory });
+        try {
+          const memory = this.memoryRepo.setMemory({
+            scope,
+            scopeId,
+            type: body.type || 'procedural',
+            key: body.key,
+            value: body.value,
+            expectedVersion: body.expectedVersion,
+            evidenceRef: body.evidenceRef,
+          });
+          this.broadcastEvent('memory:updated', memory);
+          return this.sendJson(res, 201, { memory });
+        } catch (err: any) {
+          if (err instanceof OCCConflictError || err?.code === 'OCC_CONFLICT' || err?.name === 'OCCConflictError') {
+            return this.sendJson(res, 409, {
+              error: err.message,
+              code: 'OCC_CONFLICT',
+              scope,
+              scopeId,
+              key: body.key,
+              expectedVersion: body.expectedVersion,
+            });
+          }
+          throw err;
+        }
       }
 
       // 32-c9. DELETE /api/memories/:id — Delete memory
