@@ -79,6 +79,7 @@ jobs:
             echo "ERROR: Standalone sidecar binary not found!"
             exit 1
           fi
+          chmod +x "$BINARY_PATH" || true
           echo "Launching packaged daemon: $BINARY_PATH"
           $BINARY_PATH &
           DAEMON_PID=$!

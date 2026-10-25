@@ -14,7 +14,19 @@ import { KinDatabase } from '../storage/db.js';
 import { MigrationRunner } from '../storage/migration_runner.js';
 import { v4 as uuidv4 } from 'uuid';
 
-const esmRequire = createRequire(import.meta.url);
+function getRuntimeRequire(): NodeRequire {
+  if (typeof require === 'function') {
+    return require;
+  }
+  try {
+    const getMetaUrl = new Function('return typeof import.meta !== "undefined" && import.meta ? import.meta.url : undefined');
+    const metaUrl = getMetaUrl();
+    if (metaUrl) {
+      return createRequire(metaUrl);
+    }
+  } catch {}
+  return createRequire(path.resolve(process.cwd(), 'index.js'));
+}
 
 export interface Skill {
   id: string;
@@ -536,7 +548,8 @@ export class SkillEngine {
 
     const transpileSkillCode = (code: string): string => {
       try {
-        const ts = esmRequire('typescript');
+        const req = getRuntimeRequire();
+        const ts = req('typescript');
         return ts.transpileModule(code, {
           compilerOptions: {
             module: ts.ModuleKind.CommonJS,

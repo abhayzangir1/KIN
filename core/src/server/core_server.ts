@@ -5685,7 +5685,7 @@ export class CoreServer {
               const title = parts[0] || 'Architectural Decision';
               const rationale = parts[1] || 'Decided via team coordination';
               const alternatives = parts[2] ? parts[2].split(',').map((a) => a.trim()).filter(Boolean) : [];
-              const decId = `dec-${Date.now()}`;
+              const decId = `dec-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
               const newDec: Decision = {
                 id: decId,
                 projectId: targetProjectId,
@@ -5721,7 +5721,7 @@ export class CoreServer {
 
             if (rawParams.startsWith('choose ') || rawParams.startsWith('select ')) {
               const choiceText = rawParams.replace(/^(choose|select)\s*/i, '').trim();
-              const decId = `dec-choice-${Date.now()}`;
+              const decId = `dec-choice-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
               const newDec: Decision = {
                 id: decId,
                 projectId: targetProjectId,
@@ -5814,7 +5814,7 @@ export class CoreServer {
           const grillingAgent = routing.targetAgents[0] || boss;
 
           if (grillingAgent) {
-            const sessionId = `grill-${Date.now()}`;
+            const sessionId = `grill-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
             let questions: Array<{ id: string; question: string; prompt: string; options: string[]; recommended: string }> = [];
             try {
               let canQueryModel = false;
@@ -7183,7 +7183,7 @@ Format strictly as JSON:
           return this.sendJson(res, 400, { error: 'Goal title is required' });
         }
 
-        const id = `goal-${Date.now()}`;
+        const id = `goal-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
         const now = Date.now();
         const goal: Goal = {
           id,
@@ -7394,7 +7394,7 @@ Format strictly as JSON:
           return this.sendJson(res, 400, { error: 'Task title is required' });
         }
 
-        const id = `task-${Date.now()}`;
+        const id = `task-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
         const now = Date.now();
         const hasDependencies = Array.isArray(body.dependsOnTaskIds) && body.dependsOnTaskIds.length > 0;
         let initialStatus: TaskStatus = 'ready';
@@ -11902,7 +11902,7 @@ Format strictly as JSON:
           params: { reason: loopResult.reason || loopResult.finalContent },
           riskLevel: 'HIGH',
         };
-        const approvalId = `appr-${Date.now()}`;
+        const approvalId = `appr-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
         const now = Date.now();
         const sanitizedParams = SecretBroker.getInstance().sanitizePayload(details.params || {});
         if (worktreeInfo) {
