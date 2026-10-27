@@ -502,3 +502,157 @@ List files uploaded to the project.
 
 ### `POST /api/projects/:id/uploads`
 Upload a file attachment to the project.
+
+---
+
+## 🛠️ 12. Dynamic Tools & Custom Tools (`ToolEngine`)
+
+### `GET /api/custom-tools`
+List registered dynamic machine-executable tools for a project.
+- **Query Parameters**:
+  - `projectId` (string, required): Active project identifier.
+  - `status` (string, optional): Filter by tool status (`'active'`, `'pending_approval'`, `'disabled'`).
+- **Response `200`**:
+  ```json
+  {
+    "tools": [
+      {
+        "id": "tool-uuid-1",
+        "projectId": "proj-kin",
+        "name": "parse_csv_columns",
+        "description": "Extract column headers and row count from CSV files.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": { "path": { "type": "string" } },
+          "required": ["path"]
+        },
+        "status": "active",
+        "creatorAgentId": "agent-boss-proj-kin",
+        "createdAt": 1792900000000,
+        "updatedAt": 1792900000000
+      }
+    ]
+  }
+  ```
+
+### `POST /api/custom-tools`
+Register or synthesize a new dynamic machine-executable tool. Runs tokenized Jaccard similarity checks against existing tools.
+- **Request Body**:
+  ```json
+  {
+    "projectId": "proj-kin",
+    "name": "parse_csv_columns",
+    "description": "Extract column headers and row count from CSV files.",
+    "parametersSchema": {
+      "type": "object",
+      "properties": { "path": { "type": "string" } },
+      "required": ["path"]
+    },
+    "code": "module.exports = async function(args) { return { ok: true }; };",
+    "creatorAgentId": "agent-boss-proj-kin",
+    "forceCreation": false
+  }
+  ```
+- **Response `200` (Direct Active in FULL_ACCESS)**:
+  ```json
+  {
+    "tool": { "id": "tool-uuid-1", "name": "parse_csv_columns", "status": "active" },
+    "status": "active"
+  }
+  ```
+- **Response `200` (Duplicate Advisory if $\ge 75\%$ similarity)**:
+  ```json
+  {
+    "status": "duplicate_advisory",
+    "existingTool": "read_csv_header",
+    "similarity": 0.82,
+    "message": "Similar tool already registered. Invoke existing tool or pass forceCreation: true."
+  }
+  ```
+- **Response `200` (Pending Approval in AUTO / Supervised)**:
+  ```json
+  {
+    "tool": { "id": "tool-uuid-1", "name": "parse_csv_columns", "status": "pending_approval" },
+    "status": "pending_approval",
+    "approvalId": "appr-uuid-1"
+  }
+  ```
+
+### `POST /api/custom-tools/:id/test`
+Dry-run execute a dynamic tool in an isolated worker thread (128MB RAM limit, timeoutMs).
+- **Request Body**:
+  ```json
+  {
+    "parameters": { "path": "data/sample.csv" }
+  }
+  ```
+- **Response `200`**:
+  ```json
+  {
+    "success": true,
+    "result": { "headers": ["id", "name", "email"], "rowCount": 42 },
+    "executionTimeMs": 18
+  }
+  ```
+
+### `DELETE /api/custom-tools/:id`
+Deactivate and delete a custom tool. Emits SSE event `custom_tool:deleted`.
+- **Response `200`**:
+  ```json
+  {
+    "success": true,
+    "deletedToolId": "tool-uuid-1"
+  }
+  ```
+
+---
+
+## 🧬 13. Harness² Domain Adaptations & Cross-Task Library
+
+### `GET /api/harness-improvements`
+List cross-task recursive adaptations and proven failure mitigations.
+- **Query Parameters**:
+  - `projectId` (string, required): Active project identifier.
+  - `domain` (string, optional): Target problem domain filter (e.g. `sqlite_concurrency`, `network_timeout`).
+- **Response `200`**:
+  ```json
+  {
+    "improvements": [
+      {
+        "id": "imp-uuid-1",
+        "projectId": "proj-kin",
+        "domain": "sqlite_concurrency",
+        "problemSignature": "database_is_locked",
+        "improvementType": "retry_backoff",
+        "patchDescription": "Apply exponential jitter retry on SQLITE_BUSY before re-querying.",
+        "verified": true,
+        "createdAt": 1792900000000
+      }
+    ]
+  }
+  ```
+
+### `POST /api/harness-improvements`
+Record a verified cross-task adaptation or domain lesson into the Harness² improvement library.
+- **Request Body**:
+  ```json
+  {
+    "projectId": "proj-kin",
+    "domain": "sqlite_concurrency",
+    "problemSignature": "database_is_locked",
+    "improvementType": "retry_backoff",
+    "patchDescription": "Apply exponential jitter retry on SQLITE_BUSY before re-querying.",
+    "sourceTaskId": "task-uuid-42"
+  }
+  ```
+- **Response `200`**:
+  ```json
+  {
+    "success": true,
+    "improvement": {
+      "id": "imp-uuid-1",
+      "problemSignature": "database_is_locked",
+      "verified": true
+    }
+  }
+  ```

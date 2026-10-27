@@ -36,9 +36,11 @@ describe('Embedded Schema Packaging & Migration Fallback', () => {
     'file_revisions',
     'agent_evaluations',
     'managed_credentials',
+    'custom_tools',
+    'harness_improvements',
   ];
 
-  it('EMBEDDED_SCHEMA_SQL contains authoritative definitions for all 29 tables', () => {
+  it('EMBEDDED_SCHEMA_SQL contains authoritative definitions for all 31 tables', () => {
     expect(EMBEDDED_SCHEMA_SQL).toBeDefined();
     expect(EMBEDDED_SCHEMA_SQL.length).toBeGreaterThan(1000);
 
@@ -61,7 +63,7 @@ describe('Embedded Schema Packaging & Migration Fallback', () => {
     expect(EMBEDDED_SCHEMA_SQL).toMatch(/provider_type.*openrouter/i);
   });
 
-  it('MigrationRunner initializes a fresh database with all 29 tables and passes integrity check', () => {
+  it('MigrationRunner initializes a fresh database with all 31 tables and passes integrity check', () => {
     const db = new KinDatabase(':memory:');
     try {
       const runner = new MigrationRunner(db);
@@ -69,7 +71,7 @@ describe('Embedded Schema Packaging & Migration Fallback', () => {
 
       expect(report.success).toBe(true);
       expect(report.integrityCheck).toBe('ok');
-      expect(report.tablesVerified.length).toBe(29);
+      expect(report.tablesVerified.length).toBe(31);
 
       // Verify all tables exist via sqlite_master
       const tables = db
@@ -104,7 +106,7 @@ describe('Embedded Schema Packaging & Migration Fallback', () => {
 
       expect(report.success).toBe(true);
       expect(report.integrityCheck).toBe('ok');
-      expect(report.tablesVerified.length).toBe(29);
+      expect(report.tablesVerified.length).toBe(31);
 
       // Verify all 29 tables exist via sqlite_master
       const tables = db
@@ -130,7 +132,7 @@ describe('Embedded Schema Packaging & Migration Fallback', () => {
       const report2 = runner.runMigrations();
       expect(report2.success).toBe(true);
       expect(report2.integrityCheck).toBe('ok');
-      expect(report2.tablesVerified.length).toBe(29);
+      expect(report2.tablesVerified.length).toBe(31);
     } finally {
       db.close();
     }

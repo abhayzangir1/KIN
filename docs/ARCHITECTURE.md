@@ -70,12 +70,12 @@ flowchart TD
 | **L1 (Domain Repositories)** | Domain Repositories | `core/src/domain/` | Workspace, Agent, Task, Goal, and Memory repositories with resilient fallback parsing. |
 | **L2 (Governance & Policy)** | Policy Engine & Autonomy | `core/src/policy/` | Autonomy modes (`AUTO`, `ALWAYS_ASK`, `FULL_ACCESS`), capability attenuation, financial safety gates, and action risk tiers. |
 | **L3 (Security & Perimeter)** | Sentinel & EventLedger | `core/src/security/` | Sentinel fail-closed barrier, single-use approval tokens, AES-256-GCM vault, secret broker redaction, and transactional HMAC/SHA-256 event ledger. |
-| **L4 (Execution & Tool Gateway)** | ToolGateway | `core/src/execution/tool_gateway.ts` | Dynamic tool registration, schema introspection, permission checking, parameters validation, and filesystem jail confinement. |
-| **L5 (Worktree & Git Isolation)** | WorktreeManager | `core/src/execution/worktree_manager.ts` | Isolated Git worktrees, branch lifecycle, diff calculation, merge mutex, and canonical path containment (`fs.realpathSync`). |
+| **L4 (Execution & Tool Gateway)** | ToolGateway & ToolEngine | `core/src/execution/tool_gateway.ts`, `core/src/execution/tool_engine.ts` | Dynamic tool registration, schema introspection, dedicated `ToolEngine` Node.js `worker_threads` sandboxing (128MB RAM limit, configurable timeouts), tokenized Jaccard duplicate detection (75% advisory), operator pre-approval non-blocking gating, dynamic `custom__*` injection, and filesystem jail confinement. |
+| **L5 (Worktree & Git Isolation)** | WorktreeManager | `core/src/execution/worktree_manager.ts` | Isolated Git worktrees, branch lifecycle, diff calculation, merge mutex, canonical path containment (`fs.realpathSync`), and `probeWorktree<T>()` candidate evaluation. |
 | **L6 (Model Gateway & Routing)** | ModelGateway | `core/src/execution/model_gateway.ts` | Multi-provider LLM gateway (Ollama, OpenRouter, OpenAI, Anthropic, Gemini, DeepSeek, Groq), token quota budgeting, key rotation, and upstream error secret redaction. |
 | **L7 (Context Compilation)** | ContextCompiler | `core/src/context/context_compiler.ts` | Sliding token budgets, 5-block prompt compilation, quote-reply thread trees, output spiller, and compaction engine. |
 | **L8 (MCP Integration)** | McpClientManager | `core/src/execution/mcp_client.ts` | Model Context Protocol client supervisor with binary allowlists, dangerous environment stripping, clean process teardown, and live discovery. |
-| **L9 (Skills Engine & Sandbox)** | SkillEngine | `core/src/skills/skill_engine.ts` | Procedural skills registry, isolated VM sandbox execution with numeric timer handles, fail-closed prototype freezing, and lesson harvesting. |
+| **L9 (Skills Engine & Sandbox)** | SkillEngine | `core/src/skills/skill_engine.ts` | Procedural skills registry, isolated VM sandbox execution with numeric timer handles, fail-closed prototype freezing, and lesson harvesting (distinct from machine-executable `ToolEngine`). |
 | **L10 (Kernel & Autonomous Loop)** | AgentLoopRunner & Kernel | `core/src/kernel/` | Multi-turn ReAct agent loop, lease renewal watchdogs, turn timeouts, state transitions, and coalesced wakeup queue. |
 | **L11 (Orchestration & DAG Scheduling)** | Task DAG & Scheduling | `core/src/domain/task_repository.ts`, `core/src/kernel/` | Task dependency DAG, cycle detection (`wouldCreateCycle`), dependency existence validation, task backlog promotion, and workforce coordination. |
 | **L12 (Automation & Cron)** | SchedulerService | `core/src/automation/scheduler.ts` | 5-field cron parsing, one-shot timer schedules, iteration limits, and proactive routine execution. |
@@ -210,6 +210,52 @@ stateDiagram-v2
 
 ---
 
+### 4. Dynamic Machine-Executable Tools & Harness² Recursive Upgrades Subsystem
+
+Grounded in Google Research Harness² recursive harness principles, KIN decouples human-readable procedural instructions from high-performance, machine-executable dynamic tools created at runtime:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Agent as Agent (ReAct Turn)
+    participant Gateway as ToolGateway (L4)
+    participant Engine as ToolEngine (L4)
+    participant SQLite as SQLite DB (custom_tools)
+    participant Operator as Operator / UI
+    participant Worker as Worker Thread Sandbox
+
+    Agent->>Gateway: create_tool(name, parametersSchema, code)
+    Gateway->>Engine: registerTool(name, schema, code, creatorAgentId)
+    Note over Engine: Tokenize & compute Jaccard similarity<br/>If >= 75% duplicate: return advisory (unless forceCreation=true)
+    Engine->>SQLite: Insert tool with status = 'pending_approval'
+    Engine->>Operator: approval:requested event
+    alt Operator Denies
+        Operator->>Engine: POST /api/approvals/:id/resolve (denied)
+        Engine-->>Agent: Deliver graceful fallback observation (run continues)
+    else Operator Approves
+        Operator->>Engine: POST /api/approvals/:id/resolve (approved)
+        Engine->>SQLite: UPDATE custom_tools SET status = 'active'
+        Note over Engine: Injected into ContextCompiler Block 3 swarm-wide
+    end
+    Agent->>Gateway: executeTool("custom__name", args)
+    Gateway->>Engine: executeCustomTool(name, args, context)
+    Engine->>Worker: Spawn worker thread (128MB RAM, timeoutMs)
+    Note over Worker: Canonical path jail confinement<br/>Frozen prototypes (fail-closed)
+    Worker-->>Engine: Execution result
+    Engine-->>Agent: Tool observation
+```
+
+#### Dynamic Tool & Harness² Invariants:
+1. **Clean-Break Execution Architecture**: `SkillEngine` (`core/src/skills/skill_engine.ts`) manages procedural natural language prompts, YAML frontmatter, and VM sandboxing. `ToolEngine` (`core/src/execution/tool_engine.ts`) executes machine-executable TypeScript/JavaScript within isolated Node.js `worker_threads`.
+2. **Worker Thread Resource Jailing**: Dynamic worker processes are capped at 128MB memory ceiling and enforced by configurable timeouts (`executionContext.timeoutMs`, default 15s).
+3. **Tokenized Duplicate Interception**: Tool synthesis checks incoming code and schema against registered tools using tokenized Jaccard similarity. Tools with $\ge 75\%$ similarity return a `duplicate_advisory` to avoid tool bloat. Agents can pass `forceCreation: true` to bypass directly to operator review and prevent infinite debating loops.
+4. **Non-Blocking Approval Gating**: In supervised or AUTO mode, unapproved tools require operator pre-approval. If denied, the agent receives an explanatory observation rather than terminating the run, allowing graceful fallback to alternate strategies.
+5. **Swarm-Wide Tool Distribution**: Approved custom tools are dynamically exposed via `ToolGateway` (prefixed as `custom__<name>`) and injected into `ContextCompiler` Block 3 across all agents in the project.
+6. **Isolated Candidate Evaluation (`probeWorktree`)**: Agents can test code changes and tooling patches inside isolated Git worktrees via `WorktreeManager.probeWorktree<T>()`, capturing execution success, test output, and return results without modifying the working tree.
+7. **Cross-Task Improvement Library**: Grounded in Harness² domain adaptation, recurring failure patterns and self-healing fixes are cataloged in `harness_improvements` (`recordImprovement`, `findImprovements`) and surfaced during context compilation.
+
+---
+
 ## Runtime overview
 
 ```mermaid
@@ -307,7 +353,8 @@ Treat model output, browser content, MCP responses, imported skills, project fil
 | Domain persistence | `core/src/domain/` |
 | SQLite schema and migrations | `core/src/storage/` |
 | Model providers | `core/src/execution/model_gateway.ts` |
-| Tools and MCP | `core/src/execution/` |
+| Tools, ToolEngine, and MCP | `core/src/execution/tool_gateway.ts`, `core/src/execution/tool_engine.ts`, `core/src/execution/mcp_client.ts` |
+| Git worktree isolation and candidate probing | `core/src/execution/worktree_manager.ts` |
 | Authorization and secrets | `core/src/security/` |
 | Scheduler | `core/src/automation/` |
 | Skills | `core/src/skills/` |

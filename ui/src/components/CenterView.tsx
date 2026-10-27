@@ -1491,9 +1491,34 @@ export const CenterView: React.FC = () => {
                   </span>
                 </div>
 
-                <div className="p-2 rounded bg-black/60 font-mono text-[11px] text-[#e2e8f0] break-all border border-[#1e293b]">
-                  {appr.actionSummary}
-                </div>
+                {appr.toolName === 'create_tool' || appr.toolName === 'createTool' ? (
+                  <div className="space-y-2 p-2.5 rounded bg-black/60 border border-blue-500/30 text-xs">
+                    <div className="flex items-center justify-between text-blue-300 font-semibold font-mono">
+                      <span>✨ Dynamic Tool Proposal: {appr.parameters?.name || 'custom_tool'}</span>
+                      <span className="text-[10px] text-kin-muted">Worker Sandbox Isolated</span>
+                    </div>
+                    {appr.parameters?.description && (
+                      <p className="text-[11px] text-[#94a3b8]">{appr.parameters.description}</p>
+                    )}
+                    {appr.parameters?.rationale && (
+                      <div className="text-[11px] text-amber-300/90 font-mono">
+                        <span className="font-bold">Rationale:</span> {appr.parameters.rationale}
+                      </div>
+                    )}
+                    {appr.parameters?.handlerCode && (
+                      <div className="mt-1">
+                        <span className="text-[10px] text-[#64748b] font-mono">Sandboxed Code Preview:</span>
+                        <pre className="p-2 rounded bg-black/80 font-mono text-[10px] text-emerald-300 overflow-x-auto max-h-36 border border-[#1e293b]">
+                          {appr.parameters.handlerCode}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-2 rounded bg-black/60 font-mono text-[11px] text-[#e2e8f0] break-all border border-[#1e293b]">
+                    {appr.actionSummary}
+                  </div>
+                )}
 
                 <div className="flex items-center justify-end space-x-2 pt-1">
                   <button

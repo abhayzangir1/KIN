@@ -23,6 +23,7 @@ import { ToolDefinitionSchema } from '../context/context_compiler.js';
 import { KinDatabase } from '../storage/db.js';
 import { ComputerSupervisor } from '../computer/computer_supervisor.js';
 import { SkillEngine } from '../skills/skill_engine.js';
+import { ToolEngine } from './tool_engine.js';
 import { McpClientManager } from './mcp_client.js';
 import { Sentinel } from '../security/sentinel.js';
 import { SecretBroker } from '../security/secret_broker.js';
@@ -128,6 +129,7 @@ export class ToolGateway {
   private db?: KinDatabase;
   private computerSupervisor?: ComputerSupervisor;
   private skillEngine?: SkillEngine;
+  private toolEngine?: ToolEngine;
   private mcpClient?: McpClientManager;
   private memoryRepo?: MemoryRepository;
   private agentRepo?: AgentRepository;
@@ -235,6 +237,7 @@ export class ToolGateway {
     db?: KinDatabase;
     computerSupervisor?: ComputerSupervisor;
     skillEngine?: SkillEngine;
+    toolEngine?: ToolEngine;
     policyEngine?: PolicyEngine;
     mcpClient?: McpClientManager;
     memoryRepo?: MemoryRepository;
@@ -248,9 +251,18 @@ export class ToolGateway {
     this.db = options?.db;
     this.computerSupervisor = options?.computerSupervisor;
     this.skillEngine = options?.skillEngine;
+    this.toolEngine = options?.toolEngine ?? (this.db ? new ToolEngine(this.db) : undefined);
     this.mcpClient = options?.mcpClient;
     this.memoryRepo = options?.memoryRepo ?? (this.db ? new MemoryRepository(this.db) : undefined);
     this.agentRepo = options?.agentRepo ?? (this.db ? new AgentRepository(this.db) : undefined);
+  }
+
+  public setToolEngine(toolEngine: ToolEngine): void {
+    this.toolEngine = toolEngine;
+  }
+
+  public getToolEngine(): ToolEngine | undefined {
+    return this.toolEngine;
   }
 
   public setPolicyEngine(policyEngine: PolicyEngine): void {
@@ -851,6 +863,56 @@ export class ToolGateway {
         },
       },
       {
+        name: 'create_tool',
+        description: 'Dynamically synthesize and register a custom executable tool with worker-thread isolation, duplicate similarity check, and operator pre-approval.',
+        parameters: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Unique identifier or slug for the custom tool (e.g. csv_timeseries_parser)' },
+            description: { type: 'string', description: 'Clear summary of what the tool does, input expectations, and return format' },
+            handlerCode: { type: 'string', description: 'JavaScript/TypeScript async execution code (module.exports = async (params, context) => { ... })' },
+            parametersSchema: { type: 'object', description: 'JSON Schema object defining tool input properties and types' },
+            forceCreation: { type: 'boolean', description: 'Set to true to bypass duplicate similarity advisory if existing tools are genuinely insufficient' },
+            rationale: { type: 'string', description: 'Explanation of why this custom tool is required' },
+          },
+          required: ['name', 'description', 'handlerCode'],
+        },
+      },
+      {
+        name: 'execute_custom_tool',
+        description: 'Execute an approved custom dynamic tool in an isolated worker thread.',
+        parameters: {
+          type: 'object',
+          properties: {
+            toolName: { type: 'string', description: 'Name or ID of the custom tool to execute' },
+            params: { type: 'object', description: 'Arguments and parameters conforming to the tool schema' },
+          },
+          required: ['toolName'],
+        },
+      },
+      {
+        name: 'search_tools',
+        description: 'Search the custom tool vault and built-in tools for existing capabilities matching a query.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Keywords or search phrase to match against tool names and descriptions' },
+          },
+          required: ['query'],
+        },
+      },
+      {
+        name: 'delete_custom_tool',
+        description: 'Delete or archive a custom tool by name or ID.',
+        parameters: {
+          type: 'object',
+          properties: {
+            toolName: { type: 'string', description: 'Name or ID of the custom tool to delete' },
+          },
+          required: ['toolName'],
+        },
+      },
+      {
         name: 'read_spill',
         description: 'Read a bounded excerpt of a spilled large observation file from disk.',
         parameters: {
@@ -1024,6 +1086,20 @@ export class ToolGateway {
       }
     }
 
+    if (this.toolEngine) {
+      try {
+        const activeCustomTools = this.toolEngine.listTools(undefined, 'active');
+        for (const ct of activeCustomTools) {
+          const safeName = ct.name.replace(/[^a-zA-Z0-9_]/g, '_');
+          schemas.push({
+            name: `custom__${safeName}`,
+            description: `[Custom Tool: ${ct.name}] ${ct.description}`,
+            parameters: (ct.parametersSchema as any) || { type: 'object', properties: {} },
+          });
+        }
+      } catch {}
+    }
+
     return schemas;
   }
 
@@ -1043,6 +1119,24 @@ export class ToolGateway {
 
     if (toolName === 'mcp:call' || toolName === 'mcp_call' || toolName === 'mcpCall') {
       return { primary: 'mcp:call', aliases: ['mcp:call', 'mcp', toolName, '*'] };
+    }
+
+    if (
+      toolName.startsWith('custom__') ||
+      toolName.startsWith('tool__') ||
+      toolName === 'create_tool' ||
+      toolName === 'createTool' ||
+      toolName === 'execute_custom_tool' ||
+      toolName === 'executeCustomTool' ||
+      toolName === 'search_tools' ||
+      toolName === 'searchTools' ||
+      toolName === 'delete_custom_tool' ||
+      toolName === 'deleteCustomTool'
+    ) {
+      return {
+        primary: 'tools:manage',
+        aliases: ['tools:manage', 'tools', 'tool', 'skills:manage', 'skills', 'agent:coordinate', toolName, '*'],
+      };
     }
 
     if (
@@ -1474,12 +1568,44 @@ export class ToolGateway {
       };
     }
 
+    // Dynamic Custom Tool Invocation (custom__ prefix or tool__ prefix)
+    if (toolName.startsWith('custom__') || toolName.startsWith('tool__')) {
+      if (!this.toolEngine) {
+        throw new Error('ToolEngine is not configured in ToolGateway.');
+      }
+      const rawCustomName = toolName.replace(/^custom__|^tool__/, '');
+      const cRes = await this.toolEngine.executeCustomTool(rawCustomName, params, {
+        runId: context.runId,
+        agentId: context.agentId,
+        worktreeRoot: context.worktreeRoot,
+      });
+      return {
+        success: cRes.success,
+        output: cRes.output as T,
+        error: cRes.error,
+        riskLevel: risk,
+      };
+    }
+
     // Dynamic Executable Skill Tool Invocation (skill__<name> or skill_<name>)
     if (toolName.startsWith('skill__') || toolName.startsWith('skill_')) {
+      const rawSkillName = toolName.startsWith('skill__') ? toolName.slice(7) : toolName.slice(6);
+      if (this.toolEngine?.getTool(rawSkillName)) {
+        const cRes = await this.toolEngine.executeCustomTool(rawSkillName, params, {
+          runId: context.runId,
+          agentId: context.agentId,
+          worktreeRoot: context.worktreeRoot,
+        });
+        return {
+          success: cRes.success,
+          output: cRes.output as T,
+          error: cRes.error,
+          riskLevel: risk,
+        };
+      }
       if (!this.skillEngine) {
         throw new Error('SkillEngine is not configured in ToolGateway.');
       }
-      const rawSkillName = toolName.startsWith('skill__') ? toolName.slice(7) : toolName.slice(6);
       const sRes = await this.skillEngine.executeSkill(rawSkillName, params);
       return {
         success: sRes.success,
@@ -1490,6 +1616,104 @@ export class ToolGateway {
     }
 
     switch (toolName) {
+        // Dedicated Dynamic ToolEngine Handlers
+        case 'create_tool':
+        case 'createTool': {
+          if (!this.toolEngine) {
+            throw new Error('ToolEngine is not configured in ToolGateway.');
+          }
+          const res = this.toolEngine.createTool(
+            {
+              name: params.name,
+              description: params.description,
+              parametersSchema: params.parametersSchema || params.parameters,
+              handlerCode: params.handlerCode || params.code,
+              forceCreation: Boolean(params.forceCreation),
+              rationale: params.rationale,
+              agentId: context.agentId,
+              runId: context.runId,
+            },
+            this.getToolSchemas()
+          );
+
+          if (res.status === 'duplicate_advisory') {
+            return {
+              success: false,
+              output: {
+                status: res.status,
+                existingSimilarTool: res.existingSimilarTool,
+                similarityScore: res.similarityScore,
+                message: res.message,
+              } as T,
+              error: res.message,
+              riskLevel: risk,
+            };
+          }
+
+          return {
+            success: res.success,
+            output: res as T,
+            error: res.error,
+            riskLevel: risk,
+          };
+        }
+
+        case 'execute_custom_tool':
+        case 'executeCustomTool': {
+          if (!this.toolEngine) {
+            throw new Error('ToolEngine is not configured in ToolGateway.');
+          }
+          const targetTool = params.toolName || params.name || params.id;
+          const toolArgs = params.params || params.arguments || params.input || {};
+          const cRes = await this.toolEngine.executeCustomTool(targetTool, toolArgs, {
+            runId: context.runId,
+            agentId: context.agentId,
+            worktreeRoot: context.worktreeRoot,
+          });
+          return {
+            success: cRes.success,
+            output: cRes.output as T,
+            error: cRes.error,
+            riskLevel: risk,
+          };
+        }
+
+        case 'search_tools':
+        case 'searchTools': {
+          const q = (params.query || '').toLowerCase();
+          const allTools = this.getToolSchemas();
+          const matched = allTools.filter(
+            (t) => t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q)
+          );
+          return {
+            success: true,
+            output: {
+              query: params.query,
+              matchCount: matched.length,
+              tools: matched.map((m) => ({ name: m.name, description: m.description, parameters: m.parameters })),
+            } as T,
+            riskLevel: risk,
+          };
+        }
+
+        case 'delete_custom_tool':
+        case 'deleteCustomTool': {
+          if (!this.toolEngine) {
+            throw new Error('ToolEngine is not configured in ToolGateway.');
+          }
+          const toolName = params.toolName || params.name || params.id;
+          const deleted = this.toolEngine.deleteTool(toolName);
+          return {
+            success: deleted,
+            output: {
+              toolName,
+              message: deleted ? `Custom tool '${toolName}' successfully deleted.` : `Custom tool '${toolName}' not found.`,
+            } as T,
+            error: deleted ? undefined : `Custom tool '${toolName}' not found.`,
+            riskLevel: risk,
+          };
+        }
+
         case 'execute_skill':
         case 'executeSkill': {
           if (!this.skillEngine) {
@@ -1528,6 +1752,21 @@ export class ToolGateway {
             skillType: params.skillType,
             enabled: params.enabled,
           });
+          if (this.toolEngine && params.handlerCode) {
+            try {
+              this.toolEngine.createTool(
+                {
+                  id: params.id,
+                  name: params.name,
+                  description: params.description || '',
+                  parametersSchema: params.parameters,
+                  handlerCode: params.handlerCode,
+                  requireApproval: false, // Legacy create_skill with handlerCode defaults to active for backward compatibility
+                },
+                this.getToolSchemas()
+              );
+            } catch {}
+          }
           return {
             success: true,
             output: {
@@ -1604,6 +1843,19 @@ export class ToolGateway {
           const normalized = trimmed.replace(/^skill[-_]{1,2}/, '').trim();
           const targetSkill = this.skillEngine.getSkill(trimmed) || this.skillEngine.getSkill(normalized);
           if (!targetSkill) {
+            const targetCustomTool = this.toolEngine?.getTool(trimmed) || this.toolEngine?.getTool(normalized);
+            if (targetCustomTool) {
+              const deleted = this.toolEngine!.deleteTool(targetCustomTool.id);
+              return {
+                success: deleted,
+                output: {
+                  skillId: targetCustomTool.id,
+                  name: targetCustomTool.name,
+                  message: `Disposable tool '${targetCustomTool.name}' successfully deleted/disposed.`,
+                } as T,
+                riskLevel: risk,
+              };
+            }
             return {
               success: false,
               error: `Skill or disposable tool '${rawTarget}' not found.`,

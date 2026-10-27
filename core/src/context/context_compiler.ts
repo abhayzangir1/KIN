@@ -86,6 +86,8 @@ export interface ContextCompileInput {
   dmContext?: Tier4DirectMessageMemory;
   goalAncestry?: GoalAncestryChain;
   reportingLine?: { manager?: string; subordinates?: string[] };
+  customTools?: Array<{ name: string; description: string; usageCount?: number; successCount?: number }>;
+  harnessImprovements?: Array<{ domain: string; componentType: string; verifiedAdaptation: string }>;
 }
 
 export interface CompiledContextBlocks {
@@ -306,6 +308,15 @@ export class ContextCompiler {
         `### TIER 4: PRIVATE DIRECT MESSAGE ISOLATION:`,
         `Privacy Invariant: This conversation is strictly confidential between the participating members (${input.dmContext.participants.join(', ')}). Its contents and transcript are completely excluded from cross-channel summaries and non-member agents.`
       );
+    }
+
+    if (input.customTools && input.customTools.length > 0) {
+      const customToolsText = input.customTools.map((t) => `- custom__${t.name}: ${t.description} (Usage: ${t.usageCount || 0}, Success: ${t.successCount || 0})`).join('\n');
+      block3Sections.push(`### ACTIVE DYNAMIC TOOLS (Swarm Created & Operator Approved):\n${customToolsText}`);
+    }
+    if (input.harnessImprovements && input.harnessImprovements.length > 0) {
+      const adaptationsText = input.harnessImprovements.map((imp) => `- [${imp.domain} / ${imp.componentType}]: ${imp.verifiedAdaptation}`).join('\n');
+      block3Sections.push(`### HARNESS² PROVEN DOMAIN ADAPTATIONS:\n${adaptationsText}`);
     }
 
     const block3 = block3Sections.join('\n\n');

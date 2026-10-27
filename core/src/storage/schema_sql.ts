@@ -429,4 +429,41 @@ CREATE INDEX IF NOT EXISTS idx_agent_runs_project ON agent_runs(project_id);
 CREATE INDEX IF NOT EXISTS idx_messages_parent ON messages(parent_message_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_task ON evidence(task_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_run ON evidence(run_id);
+
+-- Dynamic Custom Tools Registry
+CREATE TABLE IF NOT EXISTS custom_tools (
+    id TEXT PRIMARY KEY,
+    project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL COLLATE NOCASE,
+    description TEXT NOT NULL,
+    parameters_schema TEXT NOT NULL,
+    handler_code TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('candidate', 'active', 'denied', 'archived')),
+    approval_id TEXT REFERENCES approvals(id) ON DELETE SET NULL,
+    created_by_agent_id TEXT REFERENCES agent_identities(id) ON DELETE SET NULL,
+    usage_count INTEGER NOT NULL DEFAULT 0,
+    success_count INTEGER NOT NULL DEFAULT 0,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE(project_id, name COLLATE NOCASE)
+);
+CREATE INDEX IF NOT EXISTS idx_custom_tools_project ON custom_tools(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_custom_tools_name ON custom_tools(name COLLATE NOCASE);
+
+-- Google Research Harness² Persistent Cross-Task Improvement Library
+CREATE TABLE IF NOT EXISTS harness_improvements (
+    id TEXT PRIMARY KEY,
+    project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+    domain TEXT NOT NULL,
+    component_type TEXT NOT NULL CHECK (component_type IN ('tool', 'prompt_guidance', 'subagent_role', 'skill_recipe')),
+    problem_signature TEXT NOT NULL,
+    verified_adaptation TEXT NOT NULL,
+    evidence_metrics_json TEXT NOT NULL DEFAULT '{}',
+    success_runs INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_harness_improvements_domain ON harness_improvements(domain, component_type);
+CREATE INDEX IF NOT EXISTS idx_harness_improvements_sig ON harness_improvements(problem_signature);
 `;

@@ -6,8 +6,8 @@ KIN is a local-first, multi-agent AI engineering harness and workspace orchestra
 - **L1 (Domain Repositories)**: Workspace, Agent, Task, Goal, and Memory repositories (`core/src/domain/`).
 - **L2 (Governance & Policy)**: Policy engine, autonomy modes, capability attenuation, financial safety gates (`core/src/policy/`).
 - **L3 (Security & Perimeter)**: Sentinel fail-closed barrier, single-use approval tokens, AES-256-GCM vault, secret broker redaction, HMAC event ledger (`core/src/security/`).
-- **L4 (Execution & Tool Gateway)**: Built-in tools, parameters validation, filesystem jail confinement, process execution (`core/src/execution/tool_gateway.ts`).
-- **L5 (Worktree & Git Isolation)**: Isolated worktree manager, branch lifecycle, diff calculation, merge mutex (`core/src/execution/worktree_manager.ts`).
+- **L4 (Execution & Tool Gateway)**: Built-in tools, parameters validation, dedicated `ToolEngine` Node.js `worker_threads` sandboxing (128MB RAM limit, configurable timeouts), Jaccard duplicate detection (75% advisory), operator pre-approval non-blocking gating, dynamic `custom__*` injection, filesystem jail confinement (`core/src/execution/tool_gateway.ts`, `core/src/execution/tool_engine.ts`).
+- **L5 (Worktree & Git Isolation)**: Isolated worktree manager, branch lifecycle, diff calculation, merge mutex, `probeWorktree<T>()` candidate patch evaluation (`core/src/execution/worktree_manager.ts`).
 - **L6 (Model Gateway & Routing)**: Multi-provider LLM gateway, token quota budgeting, key rotation (`core/src/execution/model_gateway.ts`).
 - **L7 (Context Compilation)**: Context compiler, output spiller, compaction engine (`core/src/context/`).
 - **L8 (MCP Integration)**: Model Context Protocol client, stdio/SSE transports, environment sanitization (`core/src/execution/mcp_client.ts`).
@@ -50,6 +50,9 @@ KIN is a local-first, multi-agent AI engineering harness and workspace orchestra
 | 21 | Documentation Alignment Across 18 Layers | Update `README.md` and `docs/` (`ARCHITECTURE.md`, `PRD.md`, `TRD.md`, `API.md`) reflecting all 18 layers, security posture, and latest operational commands | M5 | Survey (Explorer 2 & 3) |
 | 22 | Monorepo Test & Build Verification | Verify 100% test pass rate (600+ tests) and 0 errors on `npm run build` | M6 | Survey (Explorer 3) |
 | 23 | Forensic Integrity Verification & Release Commit | Binary audit verification by `teamwork_preview_auditor` followed by clean release git commit | M6 | Survey |
+| 24 | Dedicated ToolEngine Worker Sandboxing | Node.js `worker_threads` sandbox with 128MB RAM limit, configurable execution timeout, canonical path jailing, tokenized Jaccard duplicate advisory, and dynamic `custom__*` injection | M8 | Stage 1 Harness² Upgrade |
+| 25 | Google Research Harness² Recursive Upgrades | `probeWorktree<T>()` candidate patch testing in isolated worktrees and cross-task domain adaptation library (`harness_improvements` table) | M8 | Stage 1 Harness² Upgrade |
+| 26 | Adversarial Tool Engine Test Suite | Comprehensive adversarial verification (`core/test/tool_engine_adversarial.test.ts`) covering 7 execution threat vectors, worktree probe isolation, and domain adaptation | M8 | Stage 2 Production Verification |
 
 ---
 
@@ -63,6 +66,7 @@ KIN is a local-first, multi-agent AI engineering harness and workspace orchestra
 | 5 | Documentation & Architecture Alignment (R5) | Full documentation sync across `README.md` and `docs/` for all 18 harness layers, security posture, and operational guidelines | M2, M3, M4 | DONE |
 | 6 | Full Verification, Forensic Audit & Release Git Commit (R6) | 653 tests passing across 44 test suites on `npm test`, clean `npm run build` (0 errors), forensic integrity audit (CLEAN), and atomic release git commit | M1, M2, M3, M4, M5 | DONE |
 | 7 | Production Release Pipeline, Embedded Web Serving & Sidecar Hardening (R7) | CoreServer embedded static asset serving for `ui/dist` with SPA routing and cache headers, Node SEA desktop sidecar packaging (`build:binary`), UI connection banner with exponential backoff retry, production health check `/api/health`, release scripts, and 669 tests across 45 suites | M1 - M6 | DONE (669 tests passing across 45 suites) |
+| 8 | Production Readiness Hardening, Dynamic Tool Engine & Harness² Upgrades (R8) | Clean-break `ToolEngine` Node.js worker sandboxing (128MB RAM), tokenized Jaccard duplicate advisory (75%), non-blocking operator gating with graceful fallback, Harness² `probeWorktree<T>()` and `harness_improvements` (31 tables), Archify 93/93 route wiring, Ponytail zero dead-code scan, and 747 tests across 53 test suites passing (100% green) | M1 - M7 | DONE (747 tests passing across 53 suites) |
 
 ---
 
@@ -106,9 +110,13 @@ KIN is a local-first, multi-agent AI engineering harness and workspace orchestra
 - `core/src/communication/channel_service.ts`: Message persistence and deterministic ordering.
 - `core/src/kernel/agent_loop.ts`: ReAct autonomous loop and active lease renewal check.
 - `core/src/execution/model_gateway.ts`: LLM provider routing and error message secret redaction.
+- `core/src/execution/tool_gateway.ts`: Unified tool schema registration, routing, dynamic custom tool injection.
+- `core/src/execution/tool_engine.ts`: Dedicated worker thread sandboxing (128MB RAM), tokenized Jaccard duplicate advisory, non-blocking approvals, and Harness² cross-task improvement library.
+- `core/src/execution/worktree_manager.ts`: Git worktree path-jailing, merge mutex, and probeWorktree isolated candidate evaluation.
 - `core/src/server/core_server.ts`: REST endpoints, approval resolution CAS, symlink jail checks, terminal env sanitization, CORS.
 - `ui/src/store/kinStore.ts`: Frontend Zustand state store, goal status enums, task creation DAG params.
 - `ui/src/components/CreateTaskModal.tsx`: Task creation modal with dependency selection.
 - `core/test/adversarial_r1_concurrency_stress.test.ts`: Adversarial stress and concurrency test suite.
+- `core/test/tool_engine_adversarial.test.ts`: Adversarial tool engine test suite (timeouts, memory limits, prototype freezing, duplicate detection, approval gates, worktree probing).
 - `docs/`: Technical references, PRD, TRD, ARCHITECTURE alignment.
 - `README.md`: Root project overview and operational guide.

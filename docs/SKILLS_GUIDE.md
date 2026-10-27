@@ -112,3 +112,41 @@ You can manage skills programmatically via KIN's REST API:
 ## 5. Security & Isolation Considerations
 - **Execution Trust**: Handlers execute with the same privileges as the KIN daemon. Never import untrusted skill bundles without reviewing their source code and tool requirements.
 - **Capability Scoping**: Skills only gain access to tools explicitly declared in `required_tools` and permitted by the agent's definition and the active project security policy.
+
+---
+
+## 6. Procedural Skills vs. Dynamic Machine-Executable Tools (Clean-Break Architecture)
+
+KIN maintains a strict architectural separation between **Procedural Skills** (human-readable natural language workflows) and **Dynamic Machine-Executable Tools** (sandboxed runtime code synthesized by agents):
+
+| Attribute | Procedural Skills (`SkillEngine`) | Dynamic Machine Tools (`ToolEngine`) |
+|---|---|---|
+| **Primary File** | `core/src/skills/skill_engine.ts` | `core/src/execution/tool_engine.ts` |
+| **SQLite Storage** | `skills` table | `custom_tools` table |
+| **Purpose** | Domain recipes, guidelines, and prompt directives | Programmatic, high-throughput data processing & automation |
+| **Format** | YAML frontmatter + Markdown (`SKILL.md`) | JavaScript / TypeScript executable functions |
+| **Execution Realm** | Node.js `node:vm` context (numeric timer handles) | Node.js `worker_threads` (128MB RAM, configurable timeout) |
+| **Prompt Injection** | Injected into ContextCompiler Block 5 (Guidance) | Injected into ContextCompiler Block 3 (Available Tools) |
+| **Duplicate Prevention** | Keyword & regex trigger matching | Tokenized Jaccard similarity ($\ge 75\%$ duplicate advisory) |
+| **Loop Mitigation** | Static trigger priority | `forceCreation: true` anti-loop bypass |
+| **Approval Flow** | Static registration | Operator non-blocking pre-approval with graceful fallback |
+| **Cross-Task Learning** | Lesson harvesting | Harness² adaptation library (`harness_improvements`) & `probeWorktree` |
+
+### Authoring Dynamic Tools Programmatically
+Agents invoke `create_tool` through `ToolGateway`:
+```json
+{
+  "name": "calculate_hash",
+  "description": "Calculate SHA-256 hash of a file or string buffer",
+  "parametersSchema": {
+    "type": "object",
+    "properties": {
+      "data": { "type": "string" }
+    },
+    "required": ["data"]
+  },
+  "code": "const crypto = require('crypto');\nmodule.exports = async function(args) {\n  return { hash: crypto.createHash('sha256').update(args.data).digest('hex') };\n};",
+  "forceCreation": false
+}
+```
+If an operator denies approval, the agent receives a non-fatal observation (`"Tool creation denied: ... Please use existing tools."`) and continues its task without interruption. Once approved, the tool is callable swarm-wide by all coworkers as `custom__calculate_hash`.

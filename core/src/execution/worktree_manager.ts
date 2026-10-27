@@ -316,6 +316,34 @@ export class WorktreeManager {
   }
 
   /**
+   * Google Research Harness² Propose-Probe-Compose:
+   * Provisions an ephemeral probe worktree, executes an isolated candidate action,
+   * captures result/error, and safely prunes the worktree afterwards without leaking changes.
+   */
+  public async probeWorktree<T>(
+    runId: string,
+    candidateFn: (worktreePath: string) => Promise<T>
+  ): Promise<{ success: boolean; result?: T; output?: T; error?: string }> {
+    const probeSlug = `probe-${Date.now().toString(36)}`;
+    let worktreePath = '';
+    try {
+      const provision = await this.provisionWorktree(runId, probeSlug);
+      worktreePath = provision.worktreePath;
+      const result = await candidateFn(worktreePath);
+      return { success: true, result, output: result };
+    } catch (err: any) {
+      return { success: false, error: err?.message || String(err) };
+    } finally {
+      if (worktreePath) {
+        try {
+          await this.removeWorktree(worktreePath);
+          await this.deleteBranch(`feat/kin-${runId}-${probeSlug}`);
+        } catch {}
+      }
+    }
+  }
+
+  /**
    * Safely deletes a git branch.
    */
   public async deleteBranch(branchName: string): Promise<void> {

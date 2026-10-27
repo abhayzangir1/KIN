@@ -334,6 +334,7 @@ export interface ApprovalItem {
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   createdAt: number;
   projectId?: string;
+  parameters?: Record<string, any>;
 }
 
 export interface OllamaStatus {
@@ -836,6 +837,10 @@ interface KinState {
   isSkillsModalOpen: boolean;
   isLoadingSkills: boolean;
 
+  // Dynamic Custom Tools State
+  customTools: any[];
+  isLoadingCustomTools: boolean;
+
   // MCP Connectors State
   mcpServers: McpServerItem[];
   mcpTools: McpToolItem[];
@@ -1146,6 +1151,10 @@ interface KinState {
   fetchSkillVersions: (skillId: string) => Promise<SkillVersionItem[]>;
   rollbackSkill: (skillId: string, versionId: string) => Promise<{ success: boolean; skill?: SkillItem; error?: string }>;
 
+  // Dynamic Custom Tools Actions
+  fetchCustomTools: () => Promise<void>;
+  deleteCustomTool: (id: string) => Promise<boolean>;
+
   // MCP Connector Actions
   fetchMcpData: () => Promise<void>;
   reloadMcpServers: () => Promise<{ success: boolean; toolsCount?: number; error?: string }>;
@@ -1429,6 +1438,10 @@ export const useKinStore = create<KinState>((set, get) => ({
   isSkillsModalOpen: false,
   isLoadingSkills: false,
 
+  // Dynamic Custom Tools State
+  customTools: [],
+  isLoadingCustomTools: false,
+
   // MCP Connectors State
   mcpServers: [],
   mcpTools: [],
@@ -1565,6 +1578,7 @@ export const useKinStore = create<KinState>((set, get) => ({
       await get().fetchUploads(data.activeProject?.id || targetProj);
       await get().fetchSchedules(data.activeProject?.id || targetProj);
       await get().fetchSkills();
+      await get().fetchCustomTools();
       await get().fetchRoutines(data.activeProject?.id || targetProj);
       await get().fetchBrowserStatus();
       await get().fetchActiveRuns();
@@ -2888,6 +2902,25 @@ export const useKinStore = create<KinState>((set, get) => ({
         } catch {}
       });
 
+      // Custom Tools Dynamic Updates
+      sse.addEventListener('custom_tool:created', (e) => {
+        try {
+          const tool = JSON.parse(e.data);
+          set((state) => ({
+            customTools: [...state.customTools.filter((t) => t.id !== tool.id), tool],
+          }));
+        } catch {}
+      });
+
+      sse.addEventListener('custom_tool:deleted', (e) => {
+        try {
+          const { id } = JSON.parse(e.data);
+          set((state) => ({
+            customTools: state.customTools.filter((t) => t.id !== id),
+          }));
+        } catch {}
+      });
+
       // MCP Connectors Updates
       sse.addEventListener('mcp:connectors_updated', () => {
         get().fetchMcpConnectors().catch(() => {});
@@ -3963,6 +3996,7 @@ export const useKinStore = create<KinState>((set, get) => ({
       const data = await res.json();
       if (res.ok) {
         await get().fetchSkills();
+      await get().fetchCustomTools();
         return { success: true, skill: data.skill, count: data.imported };
       }
       return { success: false, error: data.error || 'Failed to import skill bundle' };
@@ -4017,6 +4051,7 @@ export const useKinStore = create<KinState>((set, get) => ({
       const data = await res.json();
       if (res.ok) {
         await get().fetchSkills();
+      await get().fetchCustomTools();
         await get().fetchCandidates();
         return { success: true, message: data.message };
       }
@@ -4075,6 +4110,7 @@ export const useKinStore = create<KinState>((set, get) => ({
       const data = await res.json();
       if (res.ok) {
         await get().fetchSkills();
+        await get().fetchCustomTools();
         await get().fetchSkillVersions(skillId);
         return { success: true, skill: data.skill };
       }
@@ -4082,6 +4118,38 @@ export const useKinStore = create<KinState>((set, get) => ({
     } catch (err: any) {
       console.error('[KIN UI] Failed to rollback skill:', err);
       return { success: false, error: err?.message || 'Network error' };
+    }
+  },
+
+  // Dynamic Custom Tools Actions
+  fetchCustomTools: async () => {
+    set({ isLoadingCustomTools: true });
+    try {
+      const projId = get().activeProjectId;
+      const res = await fetch(`/api/custom-tools?status=all${projId ? `&projectId=${projId}` : ''}`);
+      if (res.ok) {
+        const data = await res.json();
+        set({ customTools: data.tools || [], isLoadingCustomTools: false });
+      } else {
+        set({ isLoadingCustomTools: false });
+      }
+    } catch (err) {
+      console.error('[KIN UI] Failed to fetch custom tools:', err);
+      set({ isLoadingCustomTools: false });
+    }
+  },
+
+  deleteCustomTool: async (id: string) => {
+    try {
+      const res = await fetch(`/api/custom-tools/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (res.ok) {
+        set((state) => ({ customTools: state.customTools.filter((t) => t.id !== id) }));
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('[KIN UI] Failed to delete custom tool:', err);
+      return false;
     }
   },
 

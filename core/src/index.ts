@@ -17,6 +17,7 @@ export * from './communication/channel_service.js';
 export * from './communication/loop_breaker.js';
 export * from './communication/activation_engine.js';
 export * from './execution/worktree_manager.js';
+export * from './execution/tool_engine.js';
 export * from './execution/tool_gateway.js';
 export * from './kernel/agent_kernel.js';
 export * from './kernel/agent_loop.js';

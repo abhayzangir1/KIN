@@ -29,6 +29,7 @@ import { ModelGateway, separateThinkingAndContent } from '../execution/model_gat
 import { ContextCompiler } from '../context/context_compiler.js';
 import { ContextCompactor } from '../context/context_compactor.js';
 import { ToolGateway, hasDirectMessageCompletionToken } from '../execution/tool_gateway.js';
+import { ToolEngine } from '../execution/tool_engine.js';
 import { SchedulerService } from '../automation/scheduler.js';
 import { SkillEngine } from '../skills/skill_engine.js';
 import { McpClientManager } from '../execution/mcp_client.js';
@@ -71,6 +72,7 @@ export class CoreServer {
   private modelGateway: ModelGateway;
   private contextCompiler: ContextCompiler;
   private toolGateway: ToolGateway;
+  private toolEngine: ToolEngine;
   private scheduler: SchedulerService;
   private skillEngine: SkillEngine;
   private mcpClient: McpClientManager;
@@ -356,13 +358,16 @@ export class CoreServer {
     this.contextCompiler = new ContextCompiler();
     this.scheduler = new SchedulerService(this.db);
     this.computerSupervisor = new ComputerSupervisor();
+    this.toolEngine = new ToolEngine(this.db);
     this.toolGateway = new ToolGateway({
       scheduler: this.scheduler,
       db: this.db,
       computerSupervisor: this.computerSupervisor,
       memoryRepo: this.memoryRepo,
       agentRepo: this.agentRepo,
+      toolEngine: this.toolEngine,
     });
+    this.toolGateway.setToolEngine(this.toolEngine);
     this.toolGateway.setMemoryRepository(this.memoryRepo);
     this.toolGateway.setAgentRepository(this.agentRepo);
     this.toolGateway.setOperatorNotificationCallback((notif) => {
@@ -1763,6 +1768,10 @@ export class CoreServer {
 
   public getToolGateway(): ToolGateway {
     return this.toolGateway;
+  }
+
+  public getToolEngine(): ToolEngine {
+    return this.toolEngine;
   }
 
   public getScheduler(): SchedulerService {
@@ -3531,10 +3540,11 @@ export class CoreServer {
             runId: a.run_id,
             agentName: agent?.displayName ?? '@Boss',
             toolName: a.tool_name,
-            actionSummary: payload?.command || JSON.stringify(payload),
+            actionSummary: payload?.command || (payload?.name ? `Create dynamic tool '${payload.name}': ${payload.description || ''}` : JSON.stringify(payload)),
             riskLevel: a.risk_level,
             createdAt: a.created_at,
             projectId: a.project_id || currentProjectId,
+            parameters: payload,
           };
         });
 
@@ -6871,6 +6881,13 @@ Format strictly as JSON:
           return this.sendJson(res, 409, { error: 'Approval was already resolved by another request.' });
         }
 
+        // If this was a custom tool proposal, synchronize ToolEngine status
+        try {
+          this.toolEngine?.resolveToolApproval(approvalId, isApproved ? 'approved' : 'denied');
+        } catch (toolResErr) {
+          console.warn('[KIN CORE] Notice synchronizing ToolEngine on approval resolution:', toolResErr);
+        }
+
         try {
           EventLedger.getInstance().record({
             eventType: isApproved ? 'approval.granted' : 'approval.rejected',
@@ -6918,80 +6935,103 @@ Format strictly as JSON:
             let safeOutput = '';
             let toolError: string | undefined;
 
-            try {
-              if (targetWorktree || run?.worktreePath) {
-                const expectedPath = targetWorktree || run?.worktreePath;
-                if (!expectedPath || !fs.existsSync(expectedPath)) {
-                  throw new Error(`SECURITY_ABORT: Worktree path '${expectedPath}' no longer exists on disk. Aborting execution to protect the project root.`);
-                }
-                const boundaryCheck = this.validateProjectBoundary(expectedPath);
-                if (!boundaryCheck.valid) {
-                  throw new Error(`SECURITY_DENIAL: Approval worktree path '${expectedPath}' is outside project boundary.`);
-                }
-                worktreeRoot = expectedPath;
-              } else {
-                worktreeRoot = projectRoot;
-              }
-              const approvalToken = this.toolGateway.generateApprovalToken(
-                approvalRow.tool_name,
-                approvalRow.run_id,
-                60000,
-                cleanPayload
-              );
-              toolExecutionResult = await this.toolGateway.executeTool(
-                approvalRow.tool_name,
-                cleanPayload,
-                {
-                  runId: approvalRow.run_id,
-                  agentId: approvalRow.agent_id,
-                  projectId: projId,
-                  worktreeRoot,
-                  autonomyMode: 'FULL_ACCESS', // Explicit operator authorization overrides gate
-                  allowedCapabilities: ['*'],
-                  approvalToken,
-                }
-              );
-              if (toolExecutionResult && toolExecutionResult.success === false) {
-                throw new Error(toolExecutionResult.error || `Execution failed for tool ${approvalRow.tool_name}`);
-              }
+            if (approvalRow.tool_name === 'create_tool' || approvalRow.tool_name === 'createTool') {
+              const toolName = payload.name || cleanPayload.name || 'custom_tool';
               toolSuccess = true;
-              toolOutput = toolExecutionResult?.output !== undefined ? toolExecutionResult.output : toolExecutionResult;
-
+              toolOutput = {
+                success: true,
+                status: 'active',
+                toolName,
+                message: `Tool '${toolName}' approved and activated for the swarm. Any agent can now invoke it via 'custom__${toolName}' or 'execute_custom_tool'.`,
+              };
+              safeOutput = JSON.stringify(toolOutput, null, 2);
+              toolExecutionResult = toolOutput;
               if (run) {
-                this.kernel.transitionState(approvalRow.run_id, 'running', `Action ${approvalRow.tool_name} approved and executed by operator.`);
+                this.kernel.transitionState(approvalRow.run_id, 'running', `Action ${approvalRow.tool_name} approved and tool '${toolName}' activated by operator.`);
               }
-
-              const sanitizedToolOutput = SecretBroker.getInstance().sanitizePayload(toolOutput);
-              const outputStr = typeof sanitizedToolOutput === 'string' ? sanitizedToolOutput : JSON.stringify(sanitizedToolOutput, null, 2);
-              const safeOutput = outputStr.length > 50000 ? outputStr.slice(0, 50000) + '\n...[TRUNCATED]' : outputStr;
-
               this.channelService.sendMessage({
                 channelId: targetChanId,
                 senderId: approvalRow.agent_id,
                 senderType: 'system',
-                content: `✅ **OPERATOR AUTHORIZED & EXECUTED**\nTool: \`${approvalRow.tool_name}\`\nOutput:\n\`\`\`json\n${safeOutput}\n\`\`\``,
+                content: `✅ **OPERATOR AUTHORIZED & ACTIVATED TOOL**\nTool: \`${toolName}\`\nStatus: \`active\`\nRationale: ${cleanPayload.rationale || 'Specialized task execution'}\nThe custom tool is now live and available across the agent swarm.`,
                 productivityScore: 100,
               });
-            } catch (execErr: any) {
-              this.preservedWorktrees.delete(approvalRow.run_id);
+            } else {
               try {
-                this.db.execute(`UPDATE approvals SET status = 'failed', decided_at = ? WHERE id = ?`, Date.now(), approvalId);
-              } catch {}
-              toolSuccess = false;
-              toolError = execErr.message || String(execErr);
-              toolExecutionResult = { success: false, error: toolError };
+                if (targetWorktree || run?.worktreePath) {
+                  const expectedPath = targetWorktree || run?.worktreePath;
+                  if (!expectedPath || !fs.existsSync(expectedPath)) {
+                    throw new Error(`SECURITY_ABORT: Worktree path '${expectedPath}' no longer exists on disk. Aborting execution to protect the project root.`);
+                  }
+                  const boundaryCheck = this.validateProjectBoundary(expectedPath);
+                  if (!boundaryCheck.valid) {
+                    throw new Error(`SECURITY_DENIAL: Approval worktree path '${expectedPath}' is outside project boundary.`);
+                  }
+                  worktreeRoot = expectedPath;
+                } else {
+                  worktreeRoot = projectRoot;
+                }
+                const approvalToken = this.toolGateway.generateApprovalToken(
+                  approvalRow.tool_name,
+                  approvalRow.run_id,
+                  60000,
+                  cleanPayload
+                );
+                toolExecutionResult = await this.toolGateway.executeTool(
+                  approvalRow.tool_name,
+                  cleanPayload,
+                  {
+                    runId: approvalRow.run_id,
+                    agentId: approvalRow.agent_id,
+                    projectId: projId,
+                    worktreeRoot,
+                    autonomyMode: 'FULL_ACCESS', // Explicit operator authorization overrides gate
+                    allowedCapabilities: ['*'],
+                    approvalToken,
+                  }
+                );
+                if (toolExecutionResult && toolExecutionResult.success === false) {
+                  throw new Error(toolExecutionResult.error || `Execution failed for tool ${approvalRow.tool_name}`);
+                }
+                toolSuccess = true;
+                toolOutput = toolExecutionResult?.output !== undefined ? toolExecutionResult.output : toolExecutionResult;
 
-              if (run) {
-                this.kernel.transitionState(approvalRow.run_id, 'running', `Approved action ${approvalRow.tool_name} returned error: ${toolError}. Resuming agent loop for self-correction.`);
+                if (run) {
+                  this.kernel.transitionState(approvalRow.run_id, 'running', `Action ${approvalRow.tool_name} approved and executed by operator.`);
+                }
+
+                const sanitizedToolOutput = SecretBroker.getInstance().sanitizePayload(toolOutput);
+                const outputStr = typeof sanitizedToolOutput === 'string' ? sanitizedToolOutput : JSON.stringify(sanitizedToolOutput, null, 2);
+                safeOutput = outputStr.length > 50000 ? outputStr.slice(0, 50000) + '\n...[TRUNCATED]' : outputStr;
+
+                this.channelService.sendMessage({
+                  channelId: targetChanId,
+                  senderId: approvalRow.agent_id,
+                  senderType: 'system',
+                  content: `✅ **OPERATOR AUTHORIZED & EXECUTED**\nTool: \`${approvalRow.tool_name}\`\nOutput:\n\`\`\`json\n${safeOutput}\n\`\`\``,
+                  productivityScore: 100,
+                });
+              } catch (execErr: any) {
+                this.preservedWorktrees.delete(approvalRow.run_id);
+                try {
+                  this.db.execute(`UPDATE approvals SET status = 'failed', decided_at = ? WHERE id = ?`, Date.now(), approvalId);
+                } catch {}
+                toolSuccess = false;
+                toolError = execErr.message || String(execErr);
+                toolExecutionResult = { success: false, error: toolError };
+
+                if (run) {
+                  this.kernel.transitionState(approvalRow.run_id, 'running', `Approved action ${approvalRow.tool_name} returned error: ${toolError}. Resuming agent loop for self-correction.`);
+                }
+
+                this.channelService.sendMessage({
+                  channelId: targetChanId,
+                  senderId: approvalRow.agent_id,
+                  senderType: 'system',
+                  content: `⚠️ **EXECUTION ERROR ON OPERATOR APPROVAL**\nTool: \`${approvalRow.tool_name}\` failed: ${toolError}`,
+                  productivityScore: 0,
+                });
               }
-
-              this.channelService.sendMessage({
-                channelId: targetChanId,
-                senderId: approvalRow.agent_id,
-                senderType: 'system',
-                content: `⚠️ **EXECUTION ERROR ON OPERATOR APPROVAL**\nTool: \`${approvalRow.tool_name}\` failed: ${toolError}`,
-                productivityScore: 0,
-              });
             }
 
             // Resume agent execution with the tool observation (success or error)
@@ -7029,25 +7069,59 @@ Format strictly as JSON:
               this.preservedWorktrees.delete(approvalId);
               this.preservedWorktrees.delete(approvalRow.run_id);
             }
-            if (run) {
-              this.kernel.transitionState(approvalRow.run_id, 'cancelled', `Action ${approvalRow.tool_name} rejected by operator.`);
-              if (run.taskId) {
-                try {
-                  this.taskRepo.releaseTaskLease(run.taskId, run.id, false);
-                  this.taskRepo.updateTaskStatus(run.taskId, 'blocked');
-                  this.broadcastEvent('task:updated', { taskId: run.taskId, status: 'blocked', reason: `Action ${approvalRow.tool_name} rejected by operator.` });
-                } catch (tErr) {
-                  console.warn('[KIN CORE] Notice releasing task lease on approval reject:', tErr);
+
+            if (approvalRow.tool_name === 'create_tool' || approvalRow.tool_name === 'createTool') {
+              const toolName = payload.name || cleanPayload.name || 'custom_tool';
+              if (run) {
+                this.kernel.transitionState(approvalRow.run_id, 'running', `Action ${approvalRow.tool_name} rejected by operator. Resuming agent loop with graceful fallback.`);
+              }
+              this.channelService.sendMessage({
+                channelId: targetChanId,
+                senderId: approvalRow.agent_id,
+                senderType: 'system',
+                content: `🛑 **TOOL PROPOSAL DENIED**\nOperator declined creation of custom tool \`${toolName}\`. Agent will gracefully continue using existing built-in tools.`,
+                productivityScore: 50,
+              });
+
+              if (agentIdentity) {
+                const observationTrigger = {
+                  id: `approval-denied-${Date.now()}`,
+                  channelId: targetChanId,
+                  senderId: 'system',
+                  senderType: 'system' as const,
+                  content: `[OPERATOR TOOL PROPOSAL DENIED]: Operator rejected the creation of custom tool '${toolName}'. Please gracefully fall back to existing built-in tools (execute_command, run_node_code, write_file) to accomplish your objective without halting.`,
+                  taskId: run?.taskId,
+                  createdAt: Date.now(),
+                };
+                this.enqueueChannelExecution(targetChanId, () =>
+                  this.enqueueAgentExecution(agentIdentity.id, () =>
+                    this.executeAgentResponse(agentIdentity, targetChanId, observationTrigger, 0, undefined, approvalRow.run_id)
+                  )
+                ).catch((resumeErr) => {
+                  console.error('[KIN CORE] Error resuming agent response after tool denial:', resumeErr);
+                });
+              }
+            } else {
+              if (run) {
+                this.kernel.transitionState(approvalRow.run_id, 'cancelled', `Action ${approvalRow.tool_name} rejected by operator.`);
+                if (run.taskId) {
+                  try {
+                    this.taskRepo.releaseTaskLease(run.taskId, run.id, false);
+                    this.taskRepo.updateTaskStatus(run.taskId, 'blocked');
+                    this.broadcastEvent('task:updated', { taskId: run.taskId, status: 'blocked', reason: `Action ${approvalRow.tool_name} rejected by operator.` });
+                  } catch (tErr) {
+                    console.warn('[KIN CORE] Notice releasing task lease on approval reject:', tErr);
+                  }
                 }
               }
+              this.channelService.sendMessage({
+                channelId: targetChanId,
+                senderId: approvalRow.agent_id,
+                senderType: 'system',
+                content: `🛑 **OPERATOR REJECTED**\nAction \`${approvalRow.tool_name}\` was explicitly denied by human operator. Execution halted.`,
+                productivityScore: 50,
+              });
             }
-            this.channelService.sendMessage({
-              channelId: targetChanId,
-              senderId: approvalRow.agent_id,
-              senderType: 'system',
-              content: `🛑 **OPERATOR REJECTED**\nAction \`${approvalRow.tool_name}\` was explicitly denied by human operator. Execution halted.`,
-              productivityScore: 50,
-            });
           }
         }
 
@@ -8715,6 +8789,105 @@ Format strictly as JSON:
       if (req.method === 'GET' && pathname === '/api/skills/export-all') {
         const bundle = this.skillEngine.exportAllSkills();
         return this.sendJson(res, 200, { bundle: JSON.parse(bundle) });
+      }
+
+      // 34d. Dynamic Custom Tools REST API
+      // GET /api/custom-tools (supports ?projectId=...&status=all|active|candidate|denied)
+      if (req.method === 'GET' && pathname === '/api/custom-tools') {
+        const statusParam = (parsedUrl.searchParams.get('status') as any) || 'active';
+        const projParam = parsedUrl.searchParams.get('projectId') || undefined;
+        const tools = this.toolEngine.listTools(statusParam, projParam);
+        return this.sendJson(res, 200, { tools });
+      }
+
+      // POST /api/custom-tools - Propose or create custom tool
+      if (req.method === 'POST' && pathname === '/api/custom-tools') {
+        const body = await this.parseJsonBody<any>(req);
+        if (!body || !body.name || !body.handlerCode) {
+          return this.sendJson(res, 400, { error: 'Name and handlerCode are required' });
+        }
+        const builtInSchemas = this.toolGateway.getToolSchemas();
+        const result = this.toolEngine.createTool(
+          {
+            name: body.name,
+            description: body.description || '',
+            parametersSchema: body.parametersSchema,
+            handlerCode: body.handlerCode,
+            forceCreation: Boolean(body.forceCreation),
+            rationale: body.rationale,
+            requireApproval: body.requireApproval,
+            projectId: body.projectId || this.activeProjectId,
+            agentId: body.agentId,
+            runId: body.runId,
+          },
+          builtInSchemas
+        );
+        if (!result.success) {
+          return this.sendJson(res, result.status === 'duplicate_advisory' ? 409 : 400, result);
+        }
+        this.broadcastEvent('custom_tool:created', result.tool);
+        return this.sendJson(res, 201, result);
+      }
+
+      // POST /api/custom-tools/:id/test - Execute custom tool in sandboxed worker thread
+      const toolTestMatch = pathname.match(/^\/api\/custom-tools\/([^/]+)\/test$/);
+      if (req.method === 'POST' && toolTestMatch) {
+        const toolId = toolTestMatch[1];
+        const body = await this.parseJsonBody<any>(req).catch(() => ({}));
+        const projId = body?.projectId || this.activeProjectId;
+        const proj = this.workspaceRepo.getProject(projId);
+        const worktreeRoot = proj?.repoPath || process.cwd();
+        const execResult = await this.toolEngine.executeTool(
+          toolId,
+          body?.params || {},
+          {
+            runId: `test-${Date.now()}`,
+            agentId: 'operator',
+            worktreeRoot,
+            projectId: projId,
+            timeoutMs: body?.timeoutMs || 15000,
+          }
+        );
+        return this.sendJson(res, 200, execResult);
+      }
+
+      // DELETE /api/custom-tools/:id - Delete custom tool
+      const toolDeleteMatch = pathname.match(/^\/api\/custom-tools\/([^/]+)$/);
+      if (req.method === 'DELETE' && toolDeleteMatch) {
+        const toolId = toolDeleteMatch[1];
+        const deleted = this.toolEngine.deleteTool(toolId);
+        if (!deleted) {
+          return this.sendJson(res, 404, { error: 'Custom tool not found' });
+        }
+        this.broadcastEvent('custom_tool:deleted', { id: toolId });
+        return this.sendJson(res, 200, { success: true });
+      }
+
+      // 34e. Harness² Cross-Task Improvement Library REST API
+      // GET /api/harness-improvements (supports ?projectId=...&domain=...&componentType=...)
+      if (req.method === 'GET' && pathname === '/api/harness-improvements') {
+        const projParam = parsedUrl.searchParams.get('projectId') || undefined;
+        const domainParam = parsedUrl.searchParams.get('domain') || undefined;
+        const compParam = parsedUrl.searchParams.get('componentType') || undefined;
+        const improvements = this.toolEngine.findImprovements(projParam, domainParam, compParam);
+        return this.sendJson(res, 200, { improvements });
+      }
+
+      // POST /api/harness-improvements - Record verified domain adaptation
+      if (req.method === 'POST' && pathname === '/api/harness-improvements') {
+        const body = await this.parseJsonBody<any>(req);
+        if (!body || !body.domain || !body.componentType || !body.problemSignature || !body.verifiedAdaptation) {
+          return this.sendJson(res, 400, { error: 'domain, componentType, problemSignature, and verifiedAdaptation are required' });
+        }
+        const recordId = this.toolEngine.recordImprovement({
+          projectId: body.projectId || this.activeProjectId,
+          domain: body.domain,
+          componentType: body.componentType,
+          problemSignature: body.problemSignature,
+          verifiedAdaptation: body.verifiedAdaptation,
+          evidenceMetrics: body.evidenceMetrics || {},
+        });
+        return this.sendJson(res, 201, { success: true, id: recordId });
       }
 
       // 34c. POST /api/supervisor/recover — Force supervisor self-healing scan
@@ -11266,6 +11439,17 @@ Format strictly as JSON:
         agentPrivateMemories,
         dmContext,
         goalAncestry: goalAncestryChain,
+        customTools: this.toolEngine ? this.toolEngine.listTools('active', targetProjectId).map((t) => ({
+          name: t.name,
+          description: t.description,
+          usageCount: t.usageCount,
+          successCount: t.successCount,
+        })) : undefined,
+        harnessImprovements: this.toolEngine ? this.toolEngine.findImprovements(targetProjectId).map((imp) => ({
+          domain: imp.domain,
+          componentType: imp.componentType,
+          verifiedAdaptation: imp.verifiedAdaptation,
+        })) : undefined,
       });
 
       // 4. Construct complete trajectory messages for model invocation

@@ -13,7 +13,7 @@ Local-first execution • Hybrid model routing (Local Ollama & BYOK Cloud) • A
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org/)
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri)](https://tauri.app/)
 [![SQLite](https://img.shields.io/badge/SQLite-WAL%20Mode-003B57?logo=sqlite)](https://sqlite.org/)
-[![Tests](https://img.shields.io/badge/Tests-738%20Passed-success)](docs/PROJECT_STATUS.md)
+[![Tests](https://img.shields.io/badge/Tests-747%20Passed-success)](docs/PROJECT_STATUS.md)
 
 [Overview](#-overview) •
 [Key Features](#-key-features) •
@@ -53,8 +53,8 @@ KIN implements a comprehensive 18-layer agent harness designed for mission-criti
 | **L1 (Domain Repositories)** | Domain Repositories | Workspace, Agent, Task, Goal, and Memory repositories with resilient fallback parsing (`core/src/domain/`). |
 | **L2 (Governance & Policy)** | Policy Engine & Autonomy | Autonomy modes (`AUTO`, `ALWAYS_ASK`, `FULL_ACCESS`), capability attenuation, financial safety gates, and action risk tiers (`core/src/policy/`). |
 | **L3 (Security & Perimeter)** | Sentinel & EventLedger | Sentinel fail-closed barrier, single-use approval tokens, AES-256-GCM vault, secret broker redaction, and transactional HMAC/SHA-256 event ledger (`core/src/security/`). |
-| **L4 (Execution & Tool Gateway)** | ToolGateway | Dynamic tool registration, schema introspection, permission checking, parameters validation, and filesystem jail confinement (`core/src/execution/tool_gateway.ts`). |
-| **L5 (Worktree & Git Isolation)** | WorktreeManager | Isolated Git worktrees, branch lifecycle, diff calculation, merge mutex, and canonical path containment (`core/src/execution/worktree_manager.ts`). |
+| **L4 (Execution & Tool Gateway)** | ToolGateway & ToolEngine | Dynamic tool registration, schema introspection, dedicated `ToolEngine` Node.js `worker_threads` sandboxing (128MB RAM limit, configurable timeouts), tokenized Jaccard similarity checks, operator pre-approval non-blocking gating, dynamic `custom__*` injection, and filesystem jail confinement (`core/src/execution/tool_gateway.ts`, `core/src/execution/tool_engine.ts`). |
+| **L5 (Worktree & Git Isolation)** | WorktreeManager | Isolated Git worktrees, branch lifecycle, diff calculation, merge mutex, canonical path containment (`fs.realpathSync`), and `probeWorktree<T>()` candidate patch testing (`core/src/execution/worktree_manager.ts`). |
 | **L6 (Model Gateway & Routing)** | ModelGateway | Multi-provider LLM gateway (Ollama, OpenRouter, OpenAI, Anthropic, Gemini, DeepSeek, Groq), token quota budgeting, key rotation, and upstream error secret redaction (`core/src/execution/model_gateway.ts`). |
 | **L7 (Context Compilation)** | ContextCompiler | Sliding token budgets, 5-block prompt compilation, quote-reply thread trees, output spiller, and compaction engine (`core/src/context/`). |
 | **L8 (MCP Integration)** | McpClientManager | Model Context Protocol client supervisor with binary allowlists, dangerous environment stripping, clean process teardown, and live discovery (`core/src/execution/mcp_client.ts`). |
@@ -128,11 +128,13 @@ State and context are strictly layered across seven privacy boundaries with Opti
 6. **Agent Private Memory (`rememberPrivate`)**: Confidential specialist scratchpads, personal lessons, and tool histories guarded by caller identity validation.
 7. **Task Memory**: Transient task-level evidence and scratchpads.
 
-### 🛠️ Ephemeral Skills & Disposable Tools Lifecycle
-- **Autonomous Tool Creation**: Agents can synthesize custom disposable tools at runtime via `create_skill` (`skillType: 'tool_extension'`).
-- **Sandboxed Worker Execution**: Dynamic tools execute within an isolated Node.js ESM worker thread with frozen prototypes (`Object.freeze(Object.prototype)`), timeout enforcement, and support for TypeScript `export default` and `main` functions.
-- **Autonomous Disposal**: Agents can cleanly destroy disposable tools when tasks complete via `dispose_tool` or `delete_skill` (supporting bare names, UUIDs, or projected `skill__<name>` identifiers) without operator confirmation gates.
-- **Chat Management**: Operators can manage skills directly from chat using `/skills list`, `/skills create`, and `/skills delete <idOrName>`.
+### 🛠️ Ephemeral Skills & Disposable Dynamic Tools Lifecycle
+- **Clean-Break Execution Architecture**: KIN strictly separates natural language procedural instructions (`SkillEngine` - YAML frontmatter, markdown procedures, VM sandbox) from machine-executable programmatic tools (`ToolEngine` - Node.js `worker_threads`).
+- **Autonomous Tool Creation & Sandboxed Execution**: Agents can synthesize custom dynamic tools at runtime via `create_tool` (`core/src/execution/tool_engine.ts`). Tools execute inside isolated Node.js worker threads restricted to 128MB RAM, configurable execution timeouts (`executionContext.timeoutMs`), canonical path confinement, and frozen global prototypes.
+- **Tokenized Duplicate Interception**: Tool synthesis checks incoming specifications against existing tools using tokenized Jaccard similarity. Tools with $\ge 75\%$ similarity return an advisory duplicate warning with instructions to invoke the existing tool. To prevent infinite model debating loops, agents can pass `forceCreation: true` to bypass the similarity advisory directly to operator approval.
+- **Non-Blocking Pre-Approval & Graceful Fallback**: In `AUTO` or supervised modes, dynamic tool creation creates a pending approval record. If an operator denies creation, the agent receives a descriptive denial observation without crashing or halting the active ReAct loop. On approval, the tool activates swarm-wide and is injected into ContextCompiler Block 3 across all agents in the project.
+- **Harness² Recursive Upgrades & Cross-Task Library**: Grounded in Google Research Harness² principles, agents record proven domain adaptations and self-healing fixes in the `harness_improvements` table (`recordImprovement`, `findImprovements`) and can test prospective code patches within isolated git worktrees via `probeWorktree<T>()`.
+- **Autonomous Disposal & Chat Management**: Agents can destroy disposable tools via `delete_custom_tool` or `dispose_tool` without blocking gates. Operators can manage skills and tools via `/skills list`, `/skills create`, and `/skills delete <idOrName>`.
 
 ### 🔀 Hybrid Model Gateway & Instant Switching
 - **Local Ollama Integration**: Auto-detects local Ollama instances on `127.0.0.1:11434`, pulling local tags (`gemma4:e2b`, `qwen2.5-coder:3b`, `nomic-embed-text`) with zero API costs.
@@ -182,7 +184,7 @@ npm run build
   - Packaging installer: `npm run package:desktop`
 
 ### 4. Run the Test Suite
-KIN maintains a comprehensive automated testing suite with **738 tests across 52 test suites (100% passing deterministically, 0 skipped, 0 failed)**:
+KIN maintains a comprehensive automated testing suite with **747 tests across 53 test suites (100% passing deterministically, 0 skipped, 0 failed)**:
 ```bash
 npm test --workspace=core
 ```
@@ -217,7 +219,7 @@ Comprehensive guides, technical references, and tutorials are available in the [
 - **[REST & IPC API Reference](docs/API.md)**: Full endpoint specification covering Channels, Messages, Agents, Models, Desktop, Browser, and Automations.
 - **[Product Requirements Document (PRD)](docs/PRD.md)**: Product vision, user personas, UX architecture, and functional requirements.
 - **[Technical Requirements Document (TRD)](docs/TRD.md)**: Non-functional requirements, security model, and performance boundaries.
-- **[Project Status & Verification Audit](docs/PROJECT_STATUS.md)**: Live verification status of all 653 tests, audit remediations, and roadmap.
+- **[Project Status & Verification Audit](docs/PROJECT_STATUS.md)**: Live verification status of all 747 tests, audit remediations, and roadmap.
 - **[Tutorials & Guides](docs/TUTORIALS.md)**:
   - [01: Assembling a Research Swarm](docs/TUTORIALS/01-research-swarm.md)
   - [02: Automating Daily Proactive Routines](docs/TUTORIALS/02-daily-routines.md)

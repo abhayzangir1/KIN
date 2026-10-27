@@ -50,7 +50,11 @@ const port = parseInt(process.env.KIN_PORT || '54321', 10);
 const server = new CoreServer({ port, dbPath });
 
 process.on('uncaughtException', async (err) => {
-  console.error('[KIN CORE UNCAUGHT EXCEPTION]', err);
+  const msg = `[${new Date().toISOString()}] [KIN CORE UNCAUGHT EXCEPTION] ${err?.stack || err}\n`;
+  console.error(msg);
+  try {
+    fs.appendFileSync(path.resolve(process.cwd(), 'daemon_error.log'), msg);
+  } catch {}
   try {
     await server.stop();
   } catch {}
@@ -58,7 +62,11 @@ process.on('uncaughtException', async (err) => {
 });
 
 process.on('unhandledRejection', (reason) => {
-  console.error('[KIN CORE UNHANDLED REJECTION]', reason);
+  const msg = `[${new Date().toISOString()}] [KIN CORE UNHANDLED REJECTION] ${(reason as any)?.stack || reason}\n`;
+  console.error(msg);
+  try {
+    fs.appendFileSync(path.resolve(process.cwd(), 'daemon_error.log'), msg);
+  } catch {}
 });
 
 server.start().then((actualPort) => {
