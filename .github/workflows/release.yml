@@ -69,7 +69,7 @@ jobs:
             
             ### Verified Capabilities:
             - **Local-first Multi-Agent Harness**: Autonomous swarm coordination (@Boss, @Coder, @Tester).
-            - **Hybrid LLM Routing**: 100% offline local Ollama and OpenRouter (470+ models with Free Tier discovery).
+            - **Hybrid LLM Routing**: Fully offline local Ollama and OpenRouter (470+ models with Free Tier discovery).
             - **7 Scoped Memory Fabrics**: Global, workspace, project, team, channel, agent_private, and task scopes with OCC versioning.
             - **Disposable & Ephemeral Tools**: Dynamic tool synthesis, sandboxed ESM execution, and autonomous disposal.
             - **Cross-Platform Security**: Hardened filesystem path jailing with zero symlink escape vectors.

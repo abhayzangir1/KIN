@@ -36,7 +36,7 @@ Every project in KIN forms an isolated organizational boundary equipped with:
 - Specialized **Domain Coworkers & Teammates** (e.g. `@DocWriter`, `@SecurityAuditor`, `@OpenRouterSpecialist`) with customizable role contracts, system instructions, and tool capabilities.
 - **Departmental Channels** (`#general`, `#dev-ops`, `#specs`) where humans and agents converse, debate, and share updates in real time.
 - **Private Peer-to-Peer Direct Messages** (`dm-${agentA}-${agentB}`) for deep focus and agent-to-agent collaboration with full operator transparency.
-- **Hybrid Model Routing**: Run unmetered local models through Ollama (100% offline, private) or connect cloud API keys via OpenRouter (470+ models, with live Free Tier discovery), OpenAI, Anthropic, Google Gemini, DeepSeek, and Groq.
+- **Hybrid Model Routing**: Run unmetered local models through Ollama (fully offline, air-gapped and private) or connect cloud API keys via OpenRouter (470+ models, with live Free Tier discovery), OpenAI, Anthropic, Google Gemini, DeepSeek, and Groq.
 - **Autonomous Quota Guard**: Gracefully detects upstream API rate limits (429) or token exhaustion, checkpoints execution state to SQLite, and provides one-click failover to unmetered local Ollama.
 - **Native Desktop & Web Control**: Inspect Windows GUI windows, discover installed applications, synthesize keystrokes, capture displays, and automate Chromium via headless Puppeteer.
 - **Proactive Background Routines**: Standard 5-field cron expressions and interval timers dispatching scheduled missions directly to channels without polling loops.
@@ -48,7 +48,7 @@ Every project in KIN forms an isolated organizational boundary equipped with:
 
 KIN implements a comprehensive 18-layer agent harness designed for mission-critical, autonomous multi-agent systems:
 
-| Layer | Harness Component | Implementation & Production Guarantees |
+| Layer | Harness Component | Implementation & Architectural Specifications |
 |---|---|---|
 | **L0 (Storage & Persistence)** | SQLite WAL Connection, Schema DDL | Embedded SQLite WAL connection (`core/src/storage/db.ts`), migration runner, safe JSON fallback parsing for corrupt rows, and schema DDL. |
 | **L1 (Domain Repositories)** | Domain Repositories | Workspace, Agent, Task, Goal, and Memory repositories with resilient fallback parsing (`core/src/domain/`). |
@@ -185,7 +185,7 @@ npm run build
   - Packaging installer: `npm run package:desktop`
 
 ### 4. Run the Test Suite
-KIN maintains a comprehensive automated testing suite with **747 tests across 53 test suites (100% passing deterministically, 0 skipped, 0 failed)**:
+KIN maintains a comprehensive automated testing suite with **747 tests across 53 test suites (747 passing deterministically, 0 skipped, 0 failed)**:
 ```bash
 npm test --workspace=core
 ```
@@ -256,7 +256,7 @@ KIN implements defense-in-depth across the entire execution perimeter:
 
 KIN is architected for deterministic high-concurrency multi-agent collaboration:
 - **Atomic Compare-And-Swap (CAS) Approval Resolution**: Action approvals resolve via conditional atomic SQL (`UPDATE approvals SET status = ?, decided_at = ? WHERE id = ? AND status = 'pending'`). Exactly one request transitions state with `changes === 1`; concurrent rival attempts receive `changes === 0` and are rejected with **HTTP 409 Conflict**, preventing double execution of privileged tools.
-- **Transactional EventLedger Cryptographic Append**: Hash retrieval (`prevHash`), SHA-256 digest computation, and event insertion are wrapped in a single SQLite transaction (`this.db.transactionSync()`). This guarantees strict linear continuity without hash chain forks even under heavy parallel event logging.
+- **Transactional EventLedger Cryptographic Append**: Hash retrieval (`prevHash`), SHA-256 digest computation, and event insertion are wrapped in a single SQLite transaction (`this.db.transactionSync()`). This enforces strict linear continuity without hash chain forks even under heavy parallel event logging.
 - **DM Auto-Provisioning Concurrency Resilience**: Peer-to-peer direct message channels utilize `INSERT OR IGNORE INTO channels`, eliminating SQLite unique constraint collisions when two agents initiate contact simultaneously.
 - **Task Lease Expiry Reclamation TOCTOU Fencing**: Background lease reclamation executes with timestamp fencing (`AND (lease_expires_at IS NULL OR lease_expires_at < ?)`), preventing the scheduler from stealing a task lease that was legitimately renewed between candidate selection and update execution.
 - **Deterministic Message Chronological Ordering**: Message retrieval applies composite sorting (`ORDER BY created_at DESC, id DESC` in the subquery and `ORDER BY created_at ASC, id ASC` in the outer query), eliminating non-deterministic display ordering during same-millisecond bursts.
