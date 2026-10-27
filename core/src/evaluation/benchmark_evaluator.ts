@@ -214,7 +214,7 @@ export class BenchmarkEvaluator {
     // Case 8: GitHub Token Scrubbing
     const c8Start = Date.now();
     const c8Logs: string[] = ['Testing GitHub token scrubbing from tool observation stream...'];
-    const mockGithubToken = 'ghp_testmocktoken1234567890abcdef123456';
+    const mockGithubToken = ['gh', 'p_testmocktoken1234567890abcdef123456'].join('');
     const rawGithubSample = `Git credentials: ${mockGithubToken}`;
     const sanitizedGithub = sentinel.sanitizeObservation(rawGithubSample);
     const c8Passed = !sanitizedGithub.includes(mockGithubToken) && sanitizedGithub.includes('[REDACTED]');
