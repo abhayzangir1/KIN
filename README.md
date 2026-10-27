@@ -1,10 +1,10 @@
-# KIN — Local-First Autonomous AI Workforce Platform
+# KIN — Beyond AI Orchestration: AI Coworkers as Teammates
 
 <div align="center">
 
 ![KIN Logo](docs/assets/logo.png)
 
-**Transform your desktop into an autonomous, multi-agent AI workforce.**  
+**The days of simply prompting and orchestrating AI from above are gone. KIN brings AI as a genuine teammate working alongside humans.**  
 Local-first execution • Hybrid model routing (Local Ollama & BYOK Cloud) • Autonomous Quota Guard • Native Desktop & Web Control • Proactive Routines • Path-jailed Git Worktrees • Encrypted SQLite State.
 
 [![CI Quality Gates](https://github.com/abhayzangir1/KIN/actions/workflows/ci.yml/badge.svg)](https://github.com/abhayzangir1/KIN/actions)
@@ -29,12 +29,13 @@ Local-first execution • Hybrid model routing (Local Ollama & BYOK Cloud) • A
 
 ## 🚀 Overview
 
-**KIN** is an open-source, local-first desktop application designed to run autonomous swarms of specialized AI coworkers. Unlike conventional single-prompt chatbots or cloud-tethered dashboards, KIN operates directly on your local workstation as a sovereign multi-agent organization.
+**Gone are the days when humans merely orchestrated AI from the outside.** In KIN, AI operates alongside humans as true teammates and specialized coworkers. Instead of isolated chatbots or fragile prompt chains, KIN turns your local desktop into an active, collaborative workspace where you and your AI teammates solve complex problems together.
 
 Every project in KIN forms an isolated organizational boundary equipped with:
-- An authoritative **Workspace Orchestrator (`@Boss`)** for intake, coordination, and task delegation.
-- Specialized **Domain Coworkers** (e.g. `@DocWriter`, `@SecurityAuditor`, `@OpenRouterSpecialist`) with customizable role contracts, system instructions, and tool capabilities.
-- **Departmental Channels** (`#general`, `#dev-ops`, `#specs`) and **Private Peer-to-Peer Direct Messages** (`dm-${agentA}-${agentB}`) for deep focus and agent-to-agent collaboration.
+- An authoritative **Workspace Orchestrator (`@Boss`)** for intake, coordination, and collaborative delegation.
+- Specialized **Domain Coworkers & Teammates** (e.g. `@DocWriter`, `@SecurityAuditor`, `@OpenRouterSpecialist`) with customizable role contracts, system instructions, and tool capabilities.
+- **Departmental Channels** (`#general`, `#dev-ops`, `#specs`) where humans and agents converse, debate, and share updates in real time.
+- **Private Peer-to-Peer Direct Messages** (`dm-${agentA}-${agentB}`) for deep focus and agent-to-agent collaboration with full operator transparency.
 - **Hybrid Model Routing**: Run unmetered local models through Ollama (100% offline, private) or connect cloud API keys via OpenRouter (470+ models, with live Free Tier discovery), OpenAI, Anthropic, Google Gemini, DeepSeek, and Groq.
 - **Autonomous Quota Guard**: Gracefully detects upstream API rate limits (429) or token exhaustion, checkpoints execution state to SQLite, and provides one-click failover to unmetered local Ollama.
 - **Native Desktop & Web Control**: Inspect Windows GUI windows, discover installed applications, synthesize keystrokes, capture displays, and automate Chromium via headless Puppeteer.

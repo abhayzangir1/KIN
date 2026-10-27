@@ -1,7 +1,7 @@
-# Project: KIN Autonomous Multi-Agent AI Harness & Local Workspace Orchestrator
+# Project: KIN — AI Teammates Collaborating Alongside Humans (Local-First Workspace)
 
 ## Architecture
-KIN is a local-first, multi-agent AI engineering harness and workspace orchestrator organized into 18 architectural layers across `@kin/core` and `@kin/ui`:
+KIN is a local-first engineering workspace where AI coworkers collaborate alongside humans as genuine teammates across 18 architectural layers in `@kin/core` and `@kin/ui`:
 - **L0 (Storage & Persistence)**: Embedded SQLite WAL connection (`core/src/storage/db.ts`), migration runner, safe JSON fallback helpers, schema DDL.
 - **L1 (Domain Repositories)**: Workspace, Agent, Task, Goal, and Memory repositories (`core/src/domain/`).
 - **L2 (Governance & Policy)**: Policy engine, autonomy modes, capability attenuation, financial safety gates (`core/src/policy/`).

@@ -4,7 +4,7 @@
 **Date:** 2026-10-17
 **Status:** Production Product Specification — Synchronized with KIN v1.0 Codebase
 **Product:** KIN
-**Intended category:** Local-first AI workspace with multi-agent workforce orchestration
+**Intended category:** Local-first collaborative workspace for AI teammates working alongside humans
 **Platforms:** Windows, macOS, Linux
 **Distribution:** Open source (MIT License)
 **Primary UX:** Message-first collaborative workspace with Antigravity-Style Timed Autonomy
