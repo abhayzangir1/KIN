@@ -1433,7 +1433,7 @@ export const CenterView: React.FC = () => {
             </div>
             <div className="flex items-center justify-between text-xs font-mono p-2 rounded-lg bg-[#0b0616] border border-purple-900/40">
               <div className="text-[#cbd5e1] text-[11px] truncate mr-2">
-                Agent <strong className="text-purple-300">{quotaPauseState.agentName || 'Agent'}</strong> on provider <strong className="text-purple-300">{quotaPauseState.provider || 'frontier API'}</strong> hit token rate limits. State preserved atomically in SQLite.
+                Agent <strong className="text-purple-300">{quotaPauseState.agentName ? (quotaPauseState.agentName.startsWith('@') ? quotaPauseState.agentName : `@${quotaPauseState.agentName}`) : 'specialist'}</strong> on provider <strong className="text-purple-300">{quotaPauseState.provider || 'frontier API'}</strong> hit token rate limits. State preserved atomically in SQLite.
               </div>
               <div className="flex items-center space-x-1.5 shrink-0">
                 <select

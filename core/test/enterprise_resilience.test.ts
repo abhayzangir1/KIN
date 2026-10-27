@@ -461,6 +461,18 @@ describe('KIN Enterprise Resilience: CoreServer API & Slash Commands', () => {
     expect(data.runId).toBe('test-run-123');
   });
 
+  it('POST /api/system/recovery/resume-all supports modelOverride in request body', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/api/system/recovery/resume-all`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modelOverride: 'openai/gpt-4o' }),
+    });
+    expect(res.status).toBe(200);
+    const data: any = await res.json();
+    expect(data.success).toBe(true);
+    expect(data.model).toBe('openai/gpt-4o');
+  });
+
   it('POST & GET /api/settings/credentials manages BYOK keys', async () => {
     // 1. Create credential
     const createRes = await fetch(`http://127.0.0.1:${port}/api/settings/credentials`, {

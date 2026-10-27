@@ -912,12 +912,24 @@ export class CoreServer {
     // Transition run to running
     this.kernel.transitionState(runId, 'running');
     if (modelOverride) {
-      this.db.execute('UPDATE agent_runs SET model_id = ? WHERE id = ?', modelOverride, runId);
+      this.db.execute('UPDATE agent_runs SET model_id = ?, quota_resets_at = NULL WHERE id = ?', modelOverride, runId);
       if (runRow.agent_id) {
         this.agentRepo.updateAgentModelConfig(runRow.agent_id, modelOverride);
+        if (runRow.channel_id && !runRow.channel_id.startsWith('dm-')) {
+          this.memoryRepo.setMemory({
+            scope: 'channel',
+            scopeId: runRow.channel_id,
+            key: `agent_model:${runRow.agent_id}`,
+            type: 'preference',
+            value: modelOverride,
+          });
+        }
         this.broadcastEvent('agent:updated', { agentId: runRow.agent_id, activeModelId: modelOverride });
       }
+    } else {
+      this.db.execute('UPDATE agent_runs SET quota_resets_at = NULL WHERE id = ?', runId);
     }
+    this.broadcastEvent('quota:resumed', { runId });
 
     // Retrieve latest checkpoint
     const checkpointRow = this.db.queryOne<any>(
@@ -9809,13 +9821,18 @@ Format strictly as JSON:
 
       // 63. POST /api/system/recovery/resume-all — Resume all interrupted runs
       if (req.method === 'POST' && pathname === '/api/system/recovery/resume-all') {
+        let body: any = {};
+        try {
+          body = await this.parseJsonBody<any>(req);
+        } catch {}
+        const modelOverride = body?.modelOverride || body?.targetModelId;
         const toResume = [...this.pendingRecoveries];
         let resumed = 0;
         for (const item of toResume) {
-          const ok = await this.resumeInterruptedRun(item.id);
+          const ok = await this.resumeInterruptedRun(item.id, modelOverride);
           if (ok) resumed++;
         }
-        return this.sendJson(res, 200, { success: true, count: resumed });
+        return this.sendJson(res, 200, { success: true, count: resumed, model: modelOverride });
       }
 
       // 64. POST /api/system/recovery/discard — Discard interrupted run states
@@ -11737,13 +11754,17 @@ Format strictly as JSON:
               timestamp: Date.now(),
             });
             this.kernel.pauseForQuota(run.id, Math.max(10000, resetAt - Date.now()));
+            const activeModel = freshIdentity.activeModelId || 'frontier API';
+            const modelProvider = activeModel.includes('/') ? activeModel.split('/')[0] : 'local';
             this.broadcastEvent('quota:paused', {
               runId: run.id,
               agentId: freshIdentity.id,
+              agentName: freshIdentity.displayName || freshIdentity.name || freshIdentity.id,
               channelId,
               turn,
               quotaResetsAt: resetAt,
-              modelId: freshIdentity.activeModelId,
+              modelId: activeModel,
+              provider: modelProvider,
             });
           } catch (qErr) {
             console.warn('[KIN RUN] Failed to pause for quota:', qErr);
@@ -11768,7 +11789,7 @@ Format strictly as JSON:
           const chanOverride = (channelId && !channelId.startsWith('dm-'))
             ? (this.memoryRepo.getMemory('channel', channelId, `agent_model:${freshIdentity.id}`)?.value as string | undefined)
             : undefined;
-          return chanOverride || this.agentRepo.getIdentity(freshIdentity.id)?.activeModelId || freshIdentity.activeModelId;
+          return modelOverride || chanOverride || this.agentRepo.getIdentity(freshIdentity.id)?.activeModelId || freshIdentity.activeModelId;
         },
         getSteerDirectives: () => {
           const matchingSteers = this.pendingSteers.filter((s) => {
@@ -11905,7 +11926,7 @@ Format strictly as JSON:
           channelId,
           senderId: agent.id,
           senderType: 'agent',
-          content: `⏸️ **Autonomous Quota Guard Paused**: API rate limit or quota exceeded for \`${freshIdentity.activeModelId}\` at turn ${loopResult.interruptedTurn || 1}.\n\nState checkpoint has been safely persisted to SQLite. Scheduled to auto-resume at **${resetTimeStr}**. You can also click **"Resume Now"** or **"Switch to Ollama"** in the recovery banner above.`,
+          content: `⏸️ **Autonomous Quota Guard Paused**: API rate limit or quota exceeded for \`${freshIdentity.activeModelId}\` at turn ${loopResult.interruptedTurn || 1}.\n\nState checkpoint has been safely persisted to SQLite. Scheduled to auto-resume at **${resetTimeStr}**. You can also click **"Resume Now"** or select another model and click **"Switch & Resume"** in the recovery banner above.`,
           productivityScore: 80,
         });
         this.broadcastEvent('message:created', {

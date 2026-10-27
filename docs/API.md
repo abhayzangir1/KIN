@@ -472,7 +472,7 @@ Execute JavaScript expression in the browser DOM.
 Inspect crash recovery queue and interrupted runs.
 
 ### `POST /api/system/recovery/resume-all`
-Resume all interrupted runs from their latest SQLite checkpoints.
+Resume all interrupted runs from their latest SQLite checkpoints, optionally passing `{ "modelOverride": "..." }` in the JSON body to resume all runs on a specified model.
 
 ### `POST /api/system/recovery/resume-run/:runId`
 Resume a specific interrupted run, optionally passing `{ "modelOverride": "..." }` in the JSON body to switch model upon resuming.

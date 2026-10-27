@@ -1248,13 +1248,13 @@ The following are reference sources, not mandatory dependencies:
 - **Docked Recovery Surface:** A dedicated UI banner surfaces interrupted agent operations with one-click actions:
   - `Resume All`: Resumes all interrupted runs from their exact last recorded checkpoint turn.
   - `Discard`: Acknowledges and dismisses the interrupted sessions without re-running.
-  - Per-Run Actions: Granular controls to resume individual runs or route them to local fallback models (e.g., Ollama).
+  - Per-Run Actions: Granular controls to resume individual runs or switch them dynamically to any configured or fallback LLM (OpenRouter, Gemini, Anthropic, OpenAI, DeepSeek, Groq, Ollama).
 - **Context Preservation Invariant:** Restores full conversation context, tool state history, and execution parameters, avoiding duplicate tool invocations and wasted model inference.
 
 ### 31.2 HTTP 429 Quota Guard & Quota-Paused Run State
 - **Proactive Quota Handling:** Runtime intercepts HTTP 429 and `RESOURCE_EXHAUSTED` responses from LLM providers (Anthropic, OpenAI, Gemini).
 - **Non-Destructive Pause:** Rather than failing the task, runs transition to `RunState = 'quota_paused'` with `quotaResetsAt` computed from HTTP `Retry-After` headers or intelligent exponential backoff.
-- **Automated Resume Timer:** A docked Quota Pause Banner presents a live countdown timer until quota reset, an instant `Resume Now` override, and a `Switch to Ollama` one-click fallback for offline/local execution.
+- **Automated Resume Timer:** A docked Quota Pause Banner presents a live countdown timer until quota reset, an instant `Resume Now` override, and a `Switch & Resume` universal model selector to switch to any other LLM immediately.
 
 ### 31.3 Atomic Distributed Task Leases & TOCTOU Reclamation
 - **Distributed Concurrency Control:** Extends the `tasks` schema with `claimed_by_run_id`, `lease_expires_at`, and `retry_count`.

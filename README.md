@@ -89,8 +89,8 @@ Inspect any agent's active contract, filter models by Free Tier, configure custo
 
 ![Agent Inspector & Contracts](docs/assets/screenshots/04_agent_inspector_teamwork.png)
 
-### 4. Autonomous Quota Guard & 1-Click Failover
-When upstream cloud APIs exceed quotas or hit rate limits, KIN checkpoints turn memory to SQLite and presents an unmetered "Switch to Ollama" recovery banner.
+### 4. Autonomous Quota Guard & Universal Model Failover
+When upstream cloud APIs exceed quotas or hit rate limits, KIN checkpoints turn memory to SQLite and presents a universal model selector to switch to any other LLM (OpenRouter, Gemini, Anthropic, OpenAI, DeepSeek, Groq, or Ollama) and resume execution immediately without losing state.
 
 ![Autonomous Quota Guard](docs/assets/screenshots/06_quota_pause_banner.png)
 

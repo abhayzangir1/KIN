@@ -914,7 +914,7 @@ interface KinState {
   credentials: ManagedCredentialItem[];
   grillMeSession: GrillMeSession | null;
   fetchRecoveryState: () => Promise<void>;
-  resumeAllRecoveries: () => Promise<{ success: boolean; count?: number }>;
+  resumeAllRecoveries: (modelOverride?: string) => Promise<{ success: boolean; count?: number }>;
   discardRecoveries: () => Promise<{ success: boolean }>;
   resumeRun: (runId: string, modelOverride?: string) => Promise<{ success: boolean }>;
   switchRunToModel: (runId: string, targetModelId: string) => Promise<{ success: boolean; model?: string }>;
@@ -2226,17 +2226,33 @@ export const useKinStore = create<KinState>((set, get) => ({
       sse.addEventListener('quota:paused', (e) => {
         try {
           const data = JSON.parse(e.data);
-          set({
-            quotaPauseState: {
-              isPaused: true,
-              runId: data.runId,
-              agentId: data.agentId,
-              channelId: data.channelId,
-              turn: data.turn,
-              quotaResetsAt: data.quotaResetsAt,
-              modelId: data.modelId,
-            },
+          set((state) => {
+            const foundAgent = state.agents.find((a) => a.id === data.agentId);
+            const agentName = data.agentName || foundAgent?.displayName || data.agentId;
+            const provider = data.provider || (data.modelId?.includes('/') ? data.modelId.split('/')[0] : 'frontier API');
+            return {
+              quotaPauseState: {
+                isPaused: true,
+                runId: data.runId,
+                agentId: data.agentId,
+                agentName,
+                provider,
+                channelId: data.channelId,
+                turn: data.turn,
+                quotaResetsAt: data.quotaResetsAt,
+                modelId: data.modelId,
+              },
+            };
           });
+        } catch {}
+      });
+
+      sse.addEventListener('quota:resumed', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          set((state) => ({
+            quotaPauseState: state.quotaPauseState?.runId === data.runId ? null : state.quotaPauseState,
+          }));
         } catch {}
       });
 
@@ -4516,9 +4532,13 @@ export const useKinStore = create<KinState>((set, get) => ({
     }
   },
 
-  resumeAllRecoveries: async () => {
+  resumeAllRecoveries: async (modelOverride?: string) => {
     try {
-      const res = await fetch('/api/system/recovery/resume-all', { method: 'POST' });
+      const res = await fetch('/api/system/recovery/resume-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelOverride }),
+      });
       if (res.ok) {
         const data = await res.json();
         set({ pendingRecoveries: [] });
