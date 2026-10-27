@@ -1211,7 +1211,7 @@ import { DatabaseSync } from 'node:sqlite';
 const TOOLS = [
   {
     name: 'get_system_info',
-    description: 'Retrieves operating system details, CPU count, memory usage, and runtime environment.',
+    description: 'Retrieves host environment details, CPU count, memory usage, and runtime environment.',
     inputSchema: { type: 'object', properties: {}, required: [] }
   },
   {

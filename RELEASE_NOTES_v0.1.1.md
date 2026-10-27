@@ -1,7 +1,7 @@
 # KIN v0.1.1 — Production Multi-Agent Workforce Release
 
 ## 🚀 Overview
-KIN v0.1.1 is the production-ready release of the local-first multi-agent autonomous workforce platform. This release delivers complete end-to-end verification of the 18-layer AI agent harness, 100% deterministic test pass rates across Windows, macOS, and Linux, autonomous ephemeral tool lifecycles, and one-click installers.
+KIN v0.1.1 is the production-ready release of the local-first multi-agent autonomous workforce platform. This release delivers complete end-to-end verification of the 18-layer AI agent harness, deterministic test pass rates across Windows, macOS, and Linux, autonomous ephemeral tool lifecycles, and one-click installers.
 
 ---
 
@@ -43,7 +43,7 @@ KIN v0.1.1 is the production-ready release of the local-first multi-agent autono
 ---
 
 ## 🧪 Verification & Audit Stats
-- **Test Suites**: 52 passed (100%)
-- **Tests**: 738 passed (100%)
+- **Test Suites**: 52 passed
+- **Tests**: 738 passed
 - **Platforms Verified**: Windows 11, Ubuntu 24.04 LTS, macOS 14/15
 - **SQLite Engine**: WAL mode with synchronous PRAGMAs, foreign key enforcement, and concurrent multi-worker resilience.

@@ -3,7 +3,7 @@
 ## Test Philosophy
 - Requirement-driven, adversarial, and opaque-box validation.
 - Methodology: High-concurrency race condition simulation, Category-Partition, Boundary Value Analysis, and Cryptographic Invariant Testing.
-- Target: 100% deterministic test execution under SQLite WAL mode with zero flaky tests and sequential suite execution (`fileParallelism: false`).
+- Target: Deterministic test execution under SQLite WAL mode with zero flaky tests and sequential suite execution (`fileParallelism: false`).
 
 ## Feature Inventory & Test Coverage
 | # | Feature Under Test | Source Requirement | Tier 1 (Feature) | Tier 2 (Boundary & Race) | Tier 3 (Cross-Feature) |
@@ -20,7 +20,7 @@
 ## Test Architecture
 - **Test Runner**: Vitest v3.0.7 running via `npm test` (`npm run test --workspace=core`).
 - **Invocation**: `npm test` runs all suites sequentially (`fileParallelism: false`).
-- **Pass/Fail Semantics**: 100% pass rate required. Zero failed tests, zero skipped tests, zero unhandled errors.
+- **Pass/Fail Semantics**: Full pass rate required. Zero failed tests, zero skipped tests, zero unhandled errors.
 - **Suite Location**:
   - Existing: `core/test/` (39 suites, 585 tests).
   - New Adversarial Suite: `core/test/adversarial_r1_concurrency_stress.test.ts`.
@@ -37,4 +37,4 @@
 
 ## Coverage Thresholds
 - Baseline: 585 tests across 39 suites.
-- Target: 600+ tests across 40+ suites, 100% pass rate.
+- Target: 600+ tests across 40+ suites, full pass rate.

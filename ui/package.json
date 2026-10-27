@@ -23,5 +23,6 @@
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.2",
     "vite": "^6.2.0"
-  }
+  },
+  "description": "KIN UI — React and Vite desktop frontend for human-AI workforce collaboration"
 }

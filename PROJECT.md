@@ -17,7 +17,7 @@ KIN is a local-first engineering workspace where AI coworkers collaborate alongs
 - **L12 (Automation & Cron)**: 5-field cron parsing, one-shot timer schedules, routine execution (`core/src/automation/scheduler.ts`).
 - **L13 (Communication & Channels)**: Multi-agent channels, direct messages, loop breaker, activation engine (`core/src/communication/`).
 - **L14 (Recovery & Self-Healing)**: Observation verification, pre/post-action state checks, crash/timeout self-healing (`core/src/recovery/`).
-- **L15 (Desktop Automation)**: Desktop window controller, OS input automation, lock management (`core/src/computer/`).
+- **L15 (Desktop Automation)**: Desktop window controller, desktop input automation, lock management (`core/src/computer/`).
 - **L16 (Browser Automation)**: Persistent browser context, Playwright/Puppeteer driver, DOM inspection (`core/src/browser/`).
 - **L17 (Networking & IPC Server)**: Core HTTP/SSE server, loopback IPC token authentication, CORS origin filtering, jail checks (`core/src/server/core_server.ts`).
 - **L18 (Frontend UI/UX)**: React 18 SPA (`ui/src/`), Zustand reactive store (`kinStore.ts`), Tailwind CSS, Tauri Rust desktop shell (`src-tauri/`).
@@ -48,7 +48,7 @@ KIN is a local-first engineering workspace where AI coworkers collaborate alongs
 | 19 | Wire DAG Dependency Selection in UI | Expose and pass `dependsOnTaskIds` in `kinStore.ts` `createTask` and `CreateTaskModal.tsx` | M4 | Survey (Explorer 2 F2.5) |
 | 20 | Strip Dead Auth Guard in Fetch Interceptor | Remove obsolete `!url.includes('/api/auth/token')` check in `kinStore.ts` and clean unused `createSandboxContext` in `skill_engine.ts` | M4 | Survey (Explorer 2 F2.6) |
 | 21 | Documentation Alignment Across 18 Layers | Update `README.md` and `docs/` (`ARCHITECTURE.md`, `PRD.md`, `TRD.md`, `API.md`) reflecting all 18 layers, security posture, and latest operational commands | M5 | Survey (Explorer 2 & 3) |
-| 22 | Monorepo Test & Build Verification | Verify 100% test pass rate (600+ tests) and 0 errors on `npm run build` | M6 | Survey (Explorer 3) |
+| 22 | Monorepo Test & Build Verification | Verify full test pass rate (600+ tests) and 0 errors on `npm run build` | M6 | Survey (Explorer 3) |
 | 23 | Forensic Integrity Verification & Release Commit | Binary audit verification by `teamwork_preview_auditor` followed by clean release git commit | M6 | Survey |
 | 24 | Dedicated ToolEngine Worker Sandboxing | Node.js `worker_threads` sandbox with 128MB RAM limit, configurable execution timeout, canonical path jailing, tokenized Jaccard duplicate advisory, and dynamic `custom__*` injection | M8 | Stage 1 Harness² Upgrade |
 | 25 | Google Research Harness² Recursive Upgrades | `probeWorktree<T>()` candidate patch testing in isolated worktrees and cross-task domain adaptation library (`harness_improvements` table) | M8 | Stage 1 Harness² Upgrade |
@@ -66,7 +66,7 @@ KIN is a local-first engineering workspace where AI coworkers collaborate alongs
 | 5 | Documentation & Architecture Alignment (R5) | Full documentation sync across `README.md` and `docs/` for all 18 harness layers, security posture, and operational guidelines | M2, M3, M4 | DONE |
 | 6 | Full Verification, Forensic Audit & Release Git Commit (R6) | 653 tests passing across 44 test suites on `npm test`, clean `npm run build` (0 errors), forensic integrity audit (CLEAN), and atomic release git commit | M1, M2, M3, M4, M5 | DONE |
 | 7 | Production Release Pipeline, Embedded Web Serving & Sidecar Hardening (R7) | CoreServer embedded static asset serving for `ui/dist` with SPA routing and cache headers, Node SEA desktop sidecar packaging (`build:binary`), UI connection banner with exponential backoff retry, production health check `/api/health`, release scripts, and 669 tests across 45 suites | M1 - M6 | DONE (669 tests passing across 45 suites) |
-| 8 | Production Readiness Hardening, Dynamic Tool Engine & Harness² Upgrades (R8) | Clean-break `ToolEngine` Node.js worker sandboxing (128MB RAM), tokenized Jaccard duplicate advisory (75%), non-blocking operator gating with graceful fallback, Harness² `probeWorktree<T>()` and `harness_improvements` (31 tables), Archify 93/93 route wiring, Ponytail zero dead-code scan, and 747 tests across 53 test suites passing (100% green) | M1 - M7 | DONE (747 tests passing across 53 suites) |
+| 8 | Production Readiness Hardening, Dynamic Tool Engine & Harness² Upgrades (R8) | Clean-break `ToolEngine` Node.js worker sandboxing (128MB RAM), tokenized Jaccard duplicate advisory (75%), non-blocking operator gating with graceful fallback, Harness² `probeWorktree<T>()` and `harness_improvements` (31 tables), Archify 93/93 route wiring, Ponytail zero dead-code scan, and 750 tests across 53 test suites passing (all green) | M1 - M7 | DONE (750 tests passing across 53 suites) |
 
 ---
 
@@ -82,7 +82,7 @@ KIN is a local-first engineering workspace where AI coworkers collaborate alongs
 ### EventLedger Cryptographic Append Interface
 - `EventLedger.record(params: LedgerEventParams): number`
   - Enclosed within `this.db.transactionSync(() => { ... })`.
-  - Guarantees sequential reads of `prevHash` and atomic insertion of `recordHash`, preserving linear chain integrity under multi-worker/process concurrency.
+  - Enforces sequential reads of `prevHash` and atomic insertion of `recordHash`, preserving linear chain integrity under multi-worker/process concurrency.
 
 ### Approval Resolution Atomic CAS Interface
 - `POST /api/approvals/:approvalId/resolve`

@@ -41,7 +41,7 @@ function resolveEffectiveSignal(signal?: AbortSignal, timeoutMs: number = 120000
 
 /**
  * Strips raw thinking / chain-of-thought tags, reasoning blocks, and raw tool syntax
- * so channel & DM messages remain 100% clean, crisp, and user-facing.
+ * so channel & DM messages remain clean, crisp, and user-facing.
  */
 export function separateThinkingAndContent(
   rawContent: string,

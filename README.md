@@ -13,7 +13,7 @@ Local-first execution • Hybrid model routing (Local Ollama & BYOK Cloud) • A
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org/)
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri)](https://tauri.app/)
 [![SQLite](https://img.shields.io/badge/SQLite-WAL%20Mode-003B57?logo=sqlite)](https://sqlite.org/)
-[![Tests](https://img.shields.io/badge/Tests-747%20Passed-success)](docs/PROJECT_STATUS.md)
+[![Tests](https://img.shields.io/badge/Tests-750%20Passed-success)](docs/PROJECT_STATUS.md)
 
 [Overview](#-overview) •
 [Key Features](#-key-features) •
@@ -185,7 +185,7 @@ npm run build
   - Packaging installer: `npm run package:desktop`
 
 ### 4. Run the Test Suite
-KIN maintains a comprehensive automated testing suite with **747 tests across 53 test suites (747 passing deterministically, 0 skipped, 0 failed)**:
+KIN maintains a comprehensive automated testing suite with **750 tests across 53 test suites (750 passing deterministically, 0 skipped, 0 failed)**:
 ```bash
 npm test --workspace=core
 ```

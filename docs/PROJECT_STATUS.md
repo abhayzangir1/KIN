@@ -66,7 +66,7 @@ KIN is organized into three production workspaces backed by 31 authoritative SQL
 ### Automated Test Suite
 - **Core Test Suite (`npm test --workspace=core`)**:
   - **53 Test Suites**: All 53 passed.
-  - **747 Tests**: 747 tests passing across 53 test suites (all passed deterministically) (0 failed, 0 skipped, all green).
+  - **750 Tests**: 750 tests passing across 53 test suites (all passed deterministically) (0 failed, 0 skipped, all green).
   - Concurrency, adversarial & production test suites (`e2e_production_harness.test.ts`, `adversarial_r1_concurrency_stress.test.ts`, `adversarial_storage_resilience.test.ts`, `adversarial_storage_stress.test.ts`, `dynamic_skills_disposable_tools.test.ts`, `tool_engine_adversarial.test.ts`) verify cold boot, health telemetry, static asset serving, task lease contention, message ingestion fencing, atomic CAS approval gates, SHA-256 EventLedger cryptographic integrity, and dynamic tool engine security under multi-worker loads.
   - `tool_engine_adversarial.test.ts` (9/9 passed) explicitly verifies:
     1. Infinite loop and CPU starvation timeouts (`executionContext.timeoutMs`).

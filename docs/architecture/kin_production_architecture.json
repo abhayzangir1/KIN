@@ -45,7 +45,7 @@
     { "from": "agent_kernel", "to": "event_ledger", "label": "merkle append", "variant": "security" }
   ],
   "cards": [
-    { "dot": "cyan", "title": "Perimeter & Zero-Trust Defense", "items": ["100% path jailing blocks path traversal and sensitive files (.env, sqlite, ssh, kin)", "Job Objects kill orphan processes immediately upon exit", "Zero silent model fallback enforces strict operator control"] },
+    { "dot": "cyan", "title": "Perimeter & Zero-Trust Defense", "items": ["Canonical path jailing blocks path traversal and sensitive files (.env, sqlite, ssh, kin)", "Job Objects kill orphan processes immediately upon exit", "Zero silent model fallback enforces strict operator control"] },
     { "dot": "emerald", "title": "Observe-Act-Observe-Verify Self Healing", "items": ["RecoveryEngine verifies post-state mutations before advancing tasks", "Anti-loop guard detects and halts repetitive failing tool invocations", "Hardware memory governor dynamically limits concurrency under pressure"] },
     { "dot": "violet", "title": "Durable Resilience & Quota Guard", "items": ["HTTP 429 quota pause auto-checkpoints turn context to SQLite", "Stale 15s heartbeat leases are automatically reclaimed on app restart", "SHA-256 EventLedger ensures tamper-evident cryptographic provenance"] }
   ]
