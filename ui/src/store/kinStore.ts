@@ -916,7 +916,8 @@ interface KinState {
   fetchRecoveryState: () => Promise<void>;
   resumeAllRecoveries: () => Promise<{ success: boolean; count?: number }>;
   discardRecoveries: () => Promise<{ success: boolean }>;
-  resumeRun: (runId: string) => Promise<{ success: boolean }>;
+  resumeRun: (runId: string, modelOverride?: string) => Promise<{ success: boolean }>;
+  switchRunToModel: (runId: string, targetModelId: string) => Promise<{ success: boolean; model?: string }>;
   switchRunToOllama: (runId: string) => Promise<{ success: boolean; model?: string }>;
   fetchEvaluations: (agentId: string) => Promise<void>;
   evaluationsLoading?: boolean;
@@ -4544,9 +4545,13 @@ export const useKinStore = create<KinState>((set, get) => ({
     }
   },
 
-  resumeRun: async (runId: string) => {
+  resumeRun: async (runId: string, modelOverride?: string) => {
     try {
-      const res = await fetch(`/api/system/recovery/resume-run/${encodeURIComponent(runId)}`, { method: 'POST' });
+      const res = await fetch(`/api/system/recovery/resume-run/${encodeURIComponent(runId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelOverride }),
+      });
       if (res.ok) {
         set((state) => ({
           pendingRecoveries: state.pendingRecoveries.filter((r) => r.id !== runId),
@@ -4557,6 +4562,28 @@ export const useKinStore = create<KinState>((set, get) => ({
       return { success: false };
     } catch (err) {
       console.error('[KIN UI] Failed to resume run:', err);
+      return { success: false };
+    }
+  },
+
+  switchRunToModel: async (runId: string, targetModelId: string) => {
+    try {
+      const res = await fetch(`/api/system/recovery/switch-model/${encodeURIComponent(runId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetModelId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        set((state) => ({
+          pendingRecoveries: state.pendingRecoveries.filter((r) => r.id !== runId),
+          quotaPauseState: state.quotaPauseState?.runId === runId ? null : state.quotaPauseState,
+        }));
+        return { success: true, model: data.model };
+      }
+      return { success: false };
+    } catch (err) {
+      console.error('[KIN UI] Failed to switch run model:', err);
       return { success: false };
     }
   },

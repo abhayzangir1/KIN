@@ -428,6 +428,39 @@ describe('KIN Enterprise Resilience: CoreServer API & Slash Commands', () => {
     expect(Array.isArray(data.pendingRecoveries)).toBe(true);
   });
 
+  it('POST /api/system/recovery/switch-model/:runId validates payload and initiates model switch', async () => {
+    // 1. Missing targetModelId returns 400
+    const badRes = await fetch(`http://127.0.0.1:${port}/api/system/recovery/switch-model/test-run-123`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    expect(badRes.status).toBe(400);
+
+    // 2. Valid targetModelId calls recovery
+    const res = await fetch(`http://127.0.0.1:${port}/api/system/recovery/switch-model/test-run-123`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetModelId: 'gemini/gemini-2.5-flash' }),
+    });
+    expect(res.status).toBe(200);
+    const data: any = await res.json();
+    expect(data.model).toBe('gemini/gemini-2.5-flash');
+    expect(data.runId).toBe('test-run-123');
+  });
+
+  it('POST /api/system/recovery/resume-run/:runId supports modelOverride in request body', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/api/system/recovery/resume-run/test-run-123`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modelOverride: 'openrouter/deepseek/deepseek-r1:free' }),
+    });
+    expect(res.status).toBe(200);
+    const data: any = await res.json();
+    expect(data.model).toBe('openrouter/deepseek/deepseek-r1:free');
+    expect(data.runId).toBe('test-run-123');
+  });
+
   it('POST & GET /api/settings/credentials manages BYOK keys', async () => {
     // 1. Create credential
     const createRes = await fetch(`http://127.0.0.1:${port}/api/settings/credentials`, {

@@ -9833,8 +9833,29 @@ Format strictly as JSON:
       const resumeRunMatch = pathname.match(/^\/api\/system\/recovery\/resume-run\/([^/]+)$/);
       if (req.method === 'POST' && resumeRunMatch) {
         const runId = resumeRunMatch[1];
-        const ok = await this.resumeInterruptedRun(runId);
-        return this.sendJson(res, 200, { success: ok, runId });
+        let body: any = {};
+        try {
+          body = await this.parseJsonBody<any>(req);
+        } catch {}
+        const modelOverride = body?.modelOverride || body?.targetModelId;
+        const ok = await this.resumeInterruptedRun(runId, modelOverride);
+        return this.sendJson(res, 200, { success: ok, runId, model: modelOverride });
+      }
+
+      // 65b. POST /api/system/recovery/switch-model/:runId — Switch model and resume interrupted run
+      const switchModelMatch = pathname.match(/^\/api\/system\/recovery\/switch-model\/([^/]+)$/);
+      if (req.method === 'POST' && switchModelMatch) {
+        const runId = switchModelMatch[1];
+        let body: any = {};
+        try {
+          body = await this.parseJsonBody<any>(req);
+        } catch {}
+        const targetModel = body?.targetModelId || body?.modelOverride;
+        if (!targetModel) {
+          return this.sendJson(res, 400, { error: 'targetModelId or modelOverride is required' });
+        }
+        const ok = await this.resumeInterruptedRun(runId, targetModel);
+        return this.sendJson(res, 200, { success: ok, runId, model: targetModel });
       }
 
       // 66. POST /api/system/recovery/switch-to-ollama/:runId — Failover interrupted run to local Ollama

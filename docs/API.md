@@ -475,7 +475,14 @@ Inspect crash recovery queue and interrupted runs.
 Resume all interrupted runs from their latest SQLite checkpoints.
 
 ### `POST /api/system/recovery/resume-run/:runId`
-Resume a specific interrupted run.
+Resume a specific interrupted run, optionally passing `{ "modelOverride": "..." }` in the JSON body to switch model upon resuming.
+
+### `POST /api/system/recovery/switch-model/:runId`
+Failover an interrupted or quota-paused run to any configured LLM (e.g. OpenRouter, Gemini, Anthropic, OpenAI, DeepSeek, Groq, Ollama) and resume execution from checkpoint.
+- **Request Body**:
+  ```json
+  { "targetModelId": "openrouter/google/gemini-2.0-flash-001" }
+  ```
 
 ### `POST /api/system/recovery/switch-to-ollama/:runId`
 Failover an interrupted or quota-paused run to local unmetered Ollama and update the agent identity.

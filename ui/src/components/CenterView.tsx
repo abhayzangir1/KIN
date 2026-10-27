@@ -86,7 +86,7 @@ export const CenterView: React.FC = () => {
     resumeAllRecoveries,
     discardRecoveries,
     resumeRun,
-    switchRunToOllama,
+    switchRunToModel,
     submitGrillMeAnswers,
     dismissGrillMe,
     clearQuotaPause,
@@ -179,6 +179,47 @@ export const CenterView: React.FC = () => {
   const [dismissedRoutingChannels, setDismissedRoutingChannels] = useState<Record<string, boolean>>({});
   const [grillMeAnswers, setGrillMeAnswers] = useState<Record<string, string>>({});
   const [inspectingRecovery, setInspectingRecovery] = useState<any | null>(null);
+  const [selectedRecoveryModels, setSelectedRecoveryModels] = useState<Record<string, string>>({});
+  const [selectedQuotaModel, setSelectedQuotaModel] = useState<string>('');
+
+  const selectableModels = React.useMemo(() => {
+    const list: { id: string; name: string; provider: string }[] = [];
+    const seen = new Set<string>();
+
+    for (const m of availableModels || []) {
+      if (m?.id && !seen.has(m.id)) {
+        list.push({ id: m.id, name: m.name || m.id, provider: m.provider || 'custom' });
+        seen.add(m.id);
+      }
+    }
+
+    const standardFallbacks = [
+      { id: 'openrouter/auto', name: 'OpenRouter Auto (Best Available)', provider: 'openrouter' },
+      { id: 'openrouter/google/gemini-2.0-flash-001', name: 'OpenRouter Gemini 2.0 Flash', provider: 'openrouter' },
+      { id: 'openrouter/meta-llama/llama-3.3-70b-instruct:free', name: 'OpenRouter Llama 3.3 70B (Free)', provider: 'openrouter' },
+      { id: 'openrouter/deepseek/deepseek-r1:free', name: 'OpenRouter DeepSeek R1 (Free)', provider: 'openrouter' },
+      { id: 'gemini/gemini-2.5-flash', name: 'Google Gemini 2.5 Flash', provider: 'gemini' },
+      { id: 'gemini/gemini-2.5-pro', name: 'Google Gemini 2.5 Pro', provider: 'gemini' },
+      { id: 'openai/gpt-4o', name: 'OpenAI GPT-4o', provider: 'openai' },
+      { id: 'openai/gpt-4o-mini', name: 'OpenAI GPT-4o Mini', provider: 'openai' },
+      { id: 'anthropic/claude-3-7-sonnet', name: 'Anthropic Claude 3.7 Sonnet', provider: 'anthropic' },
+      { id: 'anthropic/claude-3-5-haiku', name: 'Anthropic Claude 3.5 Haiku', provider: 'anthropic' },
+      { id: 'deepseek/deepseek-chat', name: 'DeepSeek Chat (V3)', provider: 'deepseek' },
+      { id: 'deepseek/deepseek-reasoner', name: 'DeepSeek Reasoner (R1)', provider: 'deepseek' },
+      { id: 'groq/llama-3.3-70b-versatile', name: 'Groq Llama 3.3 70B', provider: 'groq' },
+      { id: 'ollama/llama3', name: 'Ollama Llama 3 (Local)', provider: 'ollama' },
+      { id: 'ollama/qwen2.5-coder', name: 'Ollama Qwen 2.5 Coder (Local)', provider: 'ollama' },
+    ];
+
+    for (const fb of standardFallbacks) {
+      if (!seen.has(fb.id)) {
+        list.push(fb);
+        seen.add(fb.id);
+      }
+    }
+
+    return list;
+  }, [availableModels]);
   const [sendError, setSendError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const isSteeringRef = useRef(false);
@@ -1241,13 +1282,31 @@ export const CenterView: React.FC = () => {
                     >
                       Inspect
                     </button>
+                    <select
+                      value={selectedRecoveryModels[rec.runId || rec.id] || rec.model || selectableModels[0]?.id || 'openrouter/google/gemini-2.0-flash-001'}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSelectedRecoveryModels((prev) => ({ ...prev, [rec.runId || rec.id]: val }));
+                      }}
+                      className="bg-black/60 border border-amber-500/40 text-amber-200 text-[10px] rounded px-1.5 py-0.5 max-w-[130px] sm:max-w-[170px] truncate focus:outline-none focus:border-amber-400 cursor-pointer"
+                      title="Select target model for failover/resume"
+                    >
+                      {selectableModels.map((m) => (
+                        <option key={m.id} value={m.id} className="bg-[#121212] text-white">
+                          {m.name} ({m.provider})
+                        </option>
+                      ))}
+                    </select>
                     <button
                       type="button"
-                      onClick={() => switchRunToOllama(rec.runId || rec.id)}
-                      className="px-2 py-0.5 rounded bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 text-[10px] transition cursor-pointer whitespace-nowrap"
-                      title="Switch to local Ollama fallback and resume"
+                      onClick={() => {
+                        const targetModel = selectedRecoveryModels[rec.runId || rec.id] || rec.model || selectableModels[0]?.id || 'openrouter/google/gemini-2.0-flash-001';
+                        switchRunToModel(rec.runId || rec.id, targetModel);
+                      }}
+                      className="px-2 py-0.5 rounded bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-200 border border-cyan-500/40 text-[10px] font-bold transition cursor-pointer whitespace-nowrap"
+                      title="Switch to selected LLM and resume from checkpoint"
                     >
-                      Fallback Ollama
+                      Switch & Resume
                     </button>
                     <button
                       type="button"
@@ -1305,12 +1364,32 @@ export const CenterView: React.FC = () => {
                   </div>
                 )}
                 <div className="flex items-center justify-end space-x-2 pt-1 border-t border-amber-900/30">
+                  <select
+                    value={selectedRecoveryModels[inspectingRecovery.runId || inspectingRecovery.id] || inspectingRecovery.model || selectableModels[0]?.id || 'openrouter/google/gemini-2.0-flash-001'}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSelectedRecoveryModels((prev) => ({ ...prev, [inspectingRecovery.runId || inspectingRecovery.id]: val }));
+                    }}
+                    className="bg-black/60 border border-amber-500/40 text-amber-200 text-[10px] rounded px-2 py-1 max-w-[190px] truncate focus:outline-none focus:border-amber-400 cursor-pointer"
+                    title="Select target model for failover"
+                  >
+                    {selectableModels.map((m) => (
+                      <option key={m.id} value={m.id} className="bg-[#121212] text-white">
+                        {m.name} ({m.provider})
+                      </option>
+                    ))}
+                  </select>
                   <button
                     type="button"
-                    onClick={() => switchRunToOllama(inspectingRecovery.runId || inspectingRecovery.id)}
-                    className="px-2.5 py-1 rounded bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-200 border border-cyan-500/40 text-[10px] font-bold cursor-pointer"
+                    onClick={() => {
+                      const targetModel = selectedRecoveryModels[inspectingRecovery.runId || inspectingRecovery.id] || inspectingRecovery.model || selectableModels[0]?.id || 'openrouter/google/gemini-2.0-flash-001';
+                      switchRunToModel(inspectingRecovery.runId || inspectingRecovery.id, targetModel);
+                      setInspectingRecovery(null);
+                    }}
+                    className="px-2.5 py-1 rounded bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-200 border border-cyan-500/40 text-[10px] font-bold cursor-pointer whitespace-nowrap"
+                    title="Switch to selected LLM and resume"
                   >
-                    Switch to Ollama
+                    Switch & Resume
                   </button>
                   <button
                     type="button"
@@ -1357,13 +1436,28 @@ export const CenterView: React.FC = () => {
                 Agent <strong className="text-purple-300">{quotaPauseState.agentName || 'Agent'}</strong> on provider <strong className="text-purple-300">{quotaPauseState.provider || 'frontier API'}</strong> hit token rate limits. State preserved atomically in SQLite.
               </div>
               <div className="flex items-center space-x-1.5 shrink-0">
+                <select
+                  value={selectedQuotaModel || 'openrouter/google/gemini-2.0-flash-001'}
+                  onChange={(e) => setSelectedQuotaModel(e.target.value)}
+                  className="bg-black/60 border border-purple-500/40 text-purple-200 text-[10px] rounded px-2 py-1 max-w-[180px] truncate focus:outline-none focus:border-purple-400 cursor-pointer font-mono"
+                  title="Select alternative model to resume immediately"
+                >
+                  {selectableModels.map((m) => (
+                    <option key={m.id} value={m.id} className="bg-[#121212] text-white">
+                      {m.name} ({m.provider})
+                    </option>
+                  ))}
+                </select>
                 <button
                   type="button"
-                  onClick={() => switchRunToOllama(quotaPauseState.runId || '')}
-                  className="px-2.5 py-1 rounded bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-200 border border-cyan-500/40 text-[10px] font-bold transition cursor-pointer"
-                  title="Failover to local unmetered Ollama model"
+                  onClick={() => {
+                    const target = selectedQuotaModel || 'openrouter/google/gemini-2.0-flash-001';
+                    switchRunToModel(quotaPauseState.runId || '', target);
+                  }}
+                  className="px-2.5 py-1 rounded bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-200 border border-cyan-500/40 text-[10px] font-bold transition cursor-pointer whitespace-nowrap"
+                  title="Switch to selected LLM and resume execution immediately"
                 >
-                  🦙 Switch to Ollama
+                  ⚡ Switch & Resume
                 </button>
                 <button
                   type="button"

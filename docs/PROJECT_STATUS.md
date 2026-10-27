@@ -36,7 +36,7 @@ KIN is organized into three production workspaces backed by 31 authoritative SQL
 ### 3. Autonomous Quota Guard & Recovery
 - **Upstream Rate Limit Interception**: Intercepts 429 rate limit exceptions and token exhaustion gracefully without process crashes.
 - **Turn Checkpointing**: Turn memories and execution states are persisted to SQLite.
-- **1-Click Ollama Failover**: Allows instant failover to local unmetered Ollama (`POST /api/system/recovery/switch-to-ollama/:runId`), permanently updating the agent identity for future turns.
+- **1-Click Dynamic Model Switching & Failover**: Allows instant switching to any configured LLM (OpenRouter, Gemini, Anthropic, OpenAI, DeepSeek, Groq, Ollama) on interrupted or quota-paused runs (`POST /api/system/recovery/switch-model/:runId`), seamlessly continuing from SQLite checkpoints.
 
 ### 4. Native Desktop & Browser Control
 - **Application Discovery**: Enumerates installed executables from registry and Start Menu shortcuts (`GET /api/system/apps`).
