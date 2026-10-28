@@ -695,6 +695,11 @@ export class CoreServer {
 
     // Startup Crash Recovery Sweep: detect interrupted runs from prior PC shutdown
     try {
+      this.db.execute(`
+        UPDATE agent_runs 
+        SET state = 'cancelled', quota_resets_at = NULL 
+        WHERE state = 'quota_paused' AND (quota_resets_at IS NULL OR quota_resets_at <= ?)
+      `, Date.now());
       this.runSupervisorSelfHealing();
       this.dispatchQueuedRunsStartup();
     } catch (recErr) {
@@ -898,6 +903,37 @@ export class CoreServer {
           }
         }
       }
+
+      // Quota Auto-Resume & Cleanup Sweep:
+      try {
+        const readyQuotaRuns = this.kernel.getRunsReadyToResumeFromQuota();
+        if (readyQuotaRuns && readyQuotaRuns.length > 0) {
+          console.log(`[KIN SUPERVISOR] Self-healing found ${readyQuotaRuns.length} quota-paused run(s) ready to resume.`);
+          for (const qItem of readyQuotaRuns) {
+            const runRow = this.db.queryOne<any>('SELECT * FROM agent_runs WHERE id = ?', qItem.id);
+            if (!runRow) continue;
+            const now = Date.now();
+            const elapsedSincePause = now - (runRow.heartbeat_at || runRow.created_at || now);
+            // If ancient (> 15 minutes), cleanly cancel and restore agent to idle
+            if (elapsedSincePause > 15 * 60 * 1000) {
+              console.log(`[KIN SUPERVISOR] Cleanly resetting ancient quota-paused run ${qItem.id}.`);
+              this.kernel.transitionState(qItem.id, 'cancelled');
+              this.db.execute('UPDATE agent_runs SET quota_resets_at = NULL WHERE id = ?', qItem.id);
+              this.activeAgentExecutions.delete(qItem.agentId);
+              this.broadcastEvent('quota:resumed', { runId: qItem.id });
+              this.broadcastEvent('agent:state', { agentId: qItem.agentId, status: 'idle' });
+            } else {
+              console.log(`[KIN SUPERVISOR] Auto-resuming quota-paused run ${qItem.id} (reset window elapsed).`);
+              this.resumeInterruptedRun(qItem.id).catch((err) => {
+                console.warn(`[KIN SUPERVISOR] Failed to auto-resume quota run ${qItem.id}:`, err);
+              });
+            }
+          }
+        }
+      } catch (qErr) {
+        console.warn('[KIN SUPERVISOR] Quota auto-resume check notice:', qErr);
+      }
+
       return recovered;
     } catch (err) {
       console.error('[KIN SUPERVISOR] Error during runSupervisorSelfHealing:', err);
@@ -9885,6 +9921,20 @@ Format strictly as JSON:
           : 'ollama/llama3';
         const ok = await this.resumeInterruptedRun(runId, selectedModel);
         return this.sendJson(res, 200, { success: ok, runId, model: selectedModel });
+      }
+
+      // 66b. POST /api/system/recovery/clear-quota — Reset all quota pauses and restore agents to idle
+      if (req.method === 'POST' && pathname === '/api/system/recovery/clear-quota') {
+        const cleared = this.db.query<{ id: string; agent_id: string }>(
+          "SELECT id, agent_id FROM agent_runs WHERE state = 'quota_paused'"
+        );
+        this.db.execute("UPDATE agent_runs SET state = 'cancelled', quota_resets_at = NULL WHERE state = 'quota_paused'");
+        for (const c of cleared) {
+          this.activeAgentExecutions.delete(c.agent_id);
+          this.broadcastEvent('agent:state', { agentId: c.agent_id, status: 'idle' });
+        }
+        this.broadcastEvent('quota:resumed', { runId: 'all' });
+        return this.sendJson(res, 200, { success: true, count: cleared.length });
       }
 
       // 67. GET /api/agents/:id/evaluations — Agent benchmark evaluations history

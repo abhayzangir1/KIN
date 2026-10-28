@@ -2251,7 +2251,7 @@ export const useKinStore = create<KinState>((set, get) => ({
         try {
           const data = JSON.parse(e.data);
           set((state) => ({
-            quotaPauseState: state.quotaPauseState?.runId === data.runId ? null : state.quotaPauseState,
+            quotaPauseState: (!data.runId || data.runId === 'all' || state.quotaPauseState?.runId === data.runId) ? null : state.quotaPauseState,
           }));
         } catch {}
       });
@@ -4920,7 +4920,10 @@ export const useKinStore = create<KinState>((set, get) => ({
   },
 
   dismissGrillMe: () => set({ grillMeSession: null }),
-  clearQuotaPause: () => set({ quotaPauseState: null }),
+  clearQuotaPause: () => {
+    set({ quotaPauseState: null });
+    fetch('/api/system/recovery/clear-quota', { method: 'POST' }).catch(() => {});
+  },
 
   clearTerminalHistory: () => set({ terminalHistory: [] }),
 }));

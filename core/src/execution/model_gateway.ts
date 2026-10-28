@@ -2142,13 +2142,29 @@ export class ModelGateway {
         }
       }
       // Live 429 rate limit backoff retry
-      if (retryCount < 2) {
+      if (retryCount < 3) {
         const retryAfterHeader = res.headers.get('retry-after');
-        const retryAfterSec = retryAfterHeader ? parseInt(retryAfterHeader, 10) : 1;
-        const backoffMs = (isNaN(retryAfterSec) ? 1 : retryAfterSec) * 1000 * (retryCount + 1);
+        const retryAfterSec = retryAfterHeader ? parseInt(retryAfterHeader, 10) : 3;
+        const backoffMs = Math.max(2500, (isNaN(retryAfterSec) ? 3 : retryAfterSec) * 1000) * (retryCount + 1);
+        console.warn(`[KIN MODEL GATEWAY] 429 rate limit for "${modelName}". Backing off ${backoffMs}ms (attempt ${retryCount + 1}/3)...`);
         await new Promise((resolve) => setTimeout(resolve, backoffMs));
         return this.invokeOpenRouter(modelName, params, startTime, retryCount + 1, apiKey, attemptedKeys);
       }
+
+      // If a free tier model hit rate limits after retries, seamlessly fallback to a resilient alternative free model
+      if (modelName.endsWith(':free')) {
+        const freeFallbacks = [
+          'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+          'nvidia/nemotron-3.5-lightning:free',
+          'nvidia/nemotron-3.5-super-vl:free',
+        ];
+        const nextFallback = freeFallbacks.find((m) => m !== modelName);
+        if (nextFallback) {
+          console.warn(`[KIN MODEL GATEWAY] 429 rate limit on "${modelName}". Seamlessly failing over to resilient free tier model "${nextFallback}".`);
+          return this.invokeOpenRouter(nextFallback, params, startTime, 0, apiKey, attemptedKeys);
+        }
+      }
+
       throw new Error(`OpenRouter 429 Rate Limit exceeded after retries for model "${modelName}".`);
     }
 

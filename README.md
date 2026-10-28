@@ -91,10 +91,10 @@ Inspect any agent's active contract, filter models by Free Tier, configure custo
 
 ![Agent Inspector & Contracts](docs/assets/screenshots/04_agent_inspector_teamwork.png)
 
-### 4. Autonomous Quota Guard & Universal Model Failover
-When upstream cloud APIs exceed quotas or hit rate limits, KIN checkpoints turn memory to SQLite and presents a universal model selector to switch to any other LLM (OpenRouter, Gemini, Anthropic, OpenAI, DeepSeek, Groq, or Ollama) and resume execution immediately without losing state.
+### 4. Verified Multi-Agent Collaboration & Resilient Routing
+Agents collaborate across organizational channels with automatic routing and failover across verified providers. When upstream models encounter rate limits or temporary provider hiccups, KIN transparently retries with backoff and automatically routes requests to available verified models or local Ollama instances, ensuring unbroken turn execution.
 
-![Autonomous Quota Guard](docs/assets/screenshots/06_quota_pause_banner.png)
+![Verified Multi-Agent Collaboration](docs/assets/screenshots/09_verified_runtime_multi_agent_chat.png)
 
 ### 5. Native Desktop & Browser Control
 Enumerate installed desktop apps, inspect top-level GUI windows, review active Puppeteer browser sessions, and trigger human takeover gates for sensitive operations.

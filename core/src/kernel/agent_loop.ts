@@ -722,7 +722,7 @@ export class AgentLoopRunner {
           continue;
         }
         // No tool call requested — agent has reached clean final response
-        finalContent = separateThinkingAndContent(content, response.thinking, { stripToolCalls: true }).cleanContent.trim();
+        const sepFinal = separateThinkingAndContent(content, response.thinking, { stripToolCalls: true }); finalContent = sepFinal.cleanContent.trim() || (sepFinal.thinking || response.thinking || '').trim();
         if (options.onTurnCheckpoint) {
           try {
             await options.onTurnCheckpoint(currentTurn, conversationHistory, actions);
@@ -1199,7 +1199,7 @@ export class AgentLoopRunner {
       if (actions.length > 0) {
         finalContent = `Execution completed after ${actions.length} action(s).`;
       } else {
-        finalContent = 'Task finished without additional tool actions.';
+        const lastAssistantMsg = conversationHistory.filter((m) => m.role === 'assistant').pop(); finalContent = (lastAssistantMsg?.content || '').trim() || 'Task finished without additional tool actions.';
       }
     }
 
