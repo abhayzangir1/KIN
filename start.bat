@@ -68,6 +68,15 @@ if %ERRORLEVEL% equ 0 (
 )
 
 :: 5. Launch KIN Platform
+if not defined KIN_DATA_DIR (
+    if defined APPDATA (
+        set "KIN_DATA_DIR=%APPDATA%\kin"
+    )
+)
+if defined KIN_DATA_DIR (
+    if not exist "%KIN_DATA_DIR%" mkdir "%KIN_DATA_DIR%" 2>nul
+)
+
 if "%DEV_MODE%"=="1" (
     echo [3/3] Launching KIN in Development Mode (Vite HMR)...
     echo [*] Core IPC Server: http://127.0.0.1:54321
@@ -79,7 +88,10 @@ if "%DEV_MODE%"=="1" (
 
     timeout /t 2 /nobreak >nul
     set "IPC_TOKEN="
-    if exist ".kin\ipc_auth.token" set /p IPC_TOKEN=<".kin\ipc_auth.token"
+    if defined KIN_DATA_DIR if exist "%KIN_DATA_DIR%\ipc_auth.token" set /p IPC_TOKEN=<"%KIN_DATA_DIR%\ipc_auth.token"
+    if not defined IPC_TOKEN if defined APPDATA if exist "%APPDATA%\kin\ipc_auth.token" set /p IPC_TOKEN=<"%APPDATA%\kin\ipc_auth.token"
+    if not defined IPC_TOKEN if defined APPDATA if exist "%APPDATA%\kin\.kin\ipc_auth.token" set /p IPC_TOKEN=<"%APPDATA%\kin\.kin\ipc_auth.token"
+    if not defined IPC_TOKEN if exist ".kin\ipc_auth.token" set /p IPC_TOKEN=<".kin\ipc_auth.token"
     if defined IPC_TOKEN (
         start http://localhost:5173/?token=%IPC_TOKEN%
     ) else (
@@ -94,7 +106,10 @@ if "%DEV_MODE%"=="1" (
 
     timeout /t 2 /nobreak >nul
     set "IPC_TOKEN="
-    if exist ".kin\ipc_auth.token" set /p IPC_TOKEN=<".kin\ipc_auth.token"
+    if defined KIN_DATA_DIR if exist "%KIN_DATA_DIR%\ipc_auth.token" set /p IPC_TOKEN=<"%KIN_DATA_DIR%\ipc_auth.token"
+    if not defined IPC_TOKEN if defined APPDATA if exist "%APPDATA%\kin\ipc_auth.token" set /p IPC_TOKEN=<"%APPDATA%\kin\ipc_auth.token"
+    if not defined IPC_TOKEN if defined APPDATA if exist "%APPDATA%\kin\.kin\ipc_auth.token" set /p IPC_TOKEN=<"%APPDATA%\kin\.kin\ipc_auth.token"
+    if not defined IPC_TOKEN if exist ".kin\ipc_auth.token" set /p IPC_TOKEN=<".kin\ipc_auth.token"
     if defined IPC_TOKEN (
         start http://127.0.0.1:54321/?token=%IPC_TOKEN%
     ) else (

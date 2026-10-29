@@ -23,30 +23,11 @@ export function getDataDirectory(): string {
     return customDir;
   }
 
-  // 2. Development repository workspace check
-  try {
-    const cwd = process.cwd();
-    const isDevRepo =
-      (fs.existsSync(path.resolve(cwd, 'package.json')) &&
-        (fs.existsSync(path.resolve(cwd, 'core')) || fs.existsSync(path.resolve(cwd, 'src')))) ||
-      fs.existsSync(path.resolve(cwd, '..', 'core', 'package.json'));
-
-    if (isDevRepo) {
-      // Test write permissions
-      const testFile = path.resolve(cwd, `.kin_perm_probe_${Date.now()}`);
-      try {
-        fs.writeFileSync(testFile, 'probe');
-        fs.unlinkSync(testFile);
-        return cwd;
-      } catch {}
-    }
-  } catch {}
-
-  // 3. User profile application data directory per host platform
+  // 2. User profile application data directory per host platform (aligned with ProcessSupervisor::resolve_data_dir())
   let baseDir: string;
   const platform = process.platform;
   if (platform === 'win32') {
-    baseDir = process.env.APPDATA || path.join(homedir(), 'AppData', 'Roaming');
+    baseDir = process.env.APPDATA || (process.env.USERPROFILE ? path.join(process.env.USERPROFILE, 'AppData', 'Roaming') : path.join(homedir(), 'AppData', 'Roaming'));
   } else if (platform === 'darwin') {
     baseDir = path.join(homedir(), 'Library', 'Application Support');
   } else {

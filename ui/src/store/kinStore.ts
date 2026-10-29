@@ -12,19 +12,22 @@ const nativeFetch = typeof window !== 'undefined' && typeof window.fetch === 'fu
 export async function getIpcToken(): Promise<string | null> {
   if (cachedIpcToken) return cachedIpcToken;
   if (typeof window !== 'undefined') {
-    if ('__TAURI__' in window) {
-      try {
-        const tauri = (window as any).__TAURI__;
-        const invoke = tauri?.core?.invoke || tauri?.tauri?.invoke || tauri?.invoke;
-        if (typeof invoke === 'function') {
-          const token = await invoke('get_ipc_token');
-          if (token && typeof token === 'string') {
-            cachedIpcToken = token.trim();
-            return cachedIpcToken;
-          }
+    try {
+      const tauri = (window as any).__TAURI__;
+      const tauriInternals = (window as any).__TAURI_INTERNALS__;
+      const invoke =
+        tauri?.core?.invoke ||
+        tauri?.tauri?.invoke ||
+        tauri?.invoke ||
+        tauriInternals?.invoke;
+      if (typeof invoke === 'function') {
+        const token = await invoke('get_ipc_token');
+        if (token && typeof token === 'string') {
+          cachedIpcToken = token.trim();
+          return cachedIpcToken;
         }
-      } catch {}
-    }
+      }
+    } catch {}
     try {
       const searchParams = new URLSearchParams(window.location.search);
       const urlToken = searchParams.get('token');

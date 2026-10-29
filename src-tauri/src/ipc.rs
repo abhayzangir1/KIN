@@ -53,7 +53,7 @@ pub fn pick_folder() -> Result<Option<String>, String> {
                 "-NoProfile",
                 "-STA",
                 "-Command",
-                "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Select Project or Repository Folder'; $f.ShowNewFolderButton = $true; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }",
+                "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Select Project or Repository Folder'; $f.ShowNewFolderButton = $true; $topMost = New-Object System.Windows.Forms.Form; $topMost.TopMost = $true; if ($f.ShowDialog($topMost) -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }",
             ])
             .output()
             .map_err(|e| e.to_string())?;

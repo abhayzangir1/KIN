@@ -161,34 +161,60 @@ export class CoreServer {
     }
     this.port = options.port ?? 54321;
     this.requireIpcAuth = options.requireIpcAuth ?? (this.port === 54321);
-    this.dbPath = options.dbPath ?? './kin_storage.sqlite';
+    const dataDir = getDataDirectory();
+    this.dbPath = options.dbPath ?? (process.env.KIN_DB_PATH ? path.resolve(process.env.KIN_DB_PATH) : path.resolve(dataDir, 'kin_storage.sqlite'));
     this.db = new KinDatabase({ dbPath: this.dbPath });
 
     if (this.requireIpcAuth) {
       try {
-        let kinDir = path.resolve(process.cwd(), '.kin');
-        if (process.env.KIN_DATA_DIR && process.env.KIN_DATA_DIR.trim().length > 0) {
-          const custom = path.resolve(process.env.KIN_DATA_DIR.trim());
-          if (fs.existsSync(path.join(custom, 'ipc_auth.token'))) {
-            kinDir = custom;
-          } else {
-            kinDir = custom.endsWith('.kin') ? custom : path.join(custom, '.kin');
+        if (!fs.existsSync(dataDir)) {
+          fs.mkdirSync(dataDir, { recursive: true });
+        }
+        const candidateTokenPaths = [
+          path.join(dataDir, 'ipc_auth.token'),
+          path.join(dataDir, '.kin', 'ipc_auth.token'),
+          path.resolve(process.cwd(), '.kin', 'ipc_auth.token'),
+        ];
+        let foundToken = '';
+        for (const cp of candidateTokenPaths) {
+          if (fs.existsSync(cp)) {
+            const token = fs.readFileSync(cp, 'utf-8').trim();
+            if (token) {
+              foundToken = token;
+              break;
+            }
           }
         }
-        if (!fs.existsSync(kinDir)) {
-          fs.mkdirSync(kinDir, { recursive: true });
-        }
-        const tokenPath = path.join(kinDir, 'ipc_auth.token');
-        if (fs.existsSync(tokenPath)) {
-          this.ipcAuthToken = fs.readFileSync(tokenPath, 'utf-8').trim();
+        if (foundToken) {
+          this.ipcAuthToken = foundToken;
         } else {
           this.ipcAuthToken = crypto.randomBytes(32).toString('hex');
+          const tokenPath = path.join(dataDir, 'ipc_auth.token');
           try {
             fs.writeFileSync(tokenPath, this.ipcAuthToken, { encoding: 'utf-8', mode: 0o600 });
           } catch {
             fs.writeFileSync(tokenPath, this.ipcAuthToken, 'utf-8');
           }
         }
+
+        // Keep authoritative dataDir/ipc_auth.token, dataDir/.kin/ipc_auth.token, and cwd/.kin/ipc_auth.token in sync
+        const primaryTokenPath = path.join(dataDir, 'ipc_auth.token');
+        if (!fs.existsSync(primaryTokenPath)) {
+          try { fs.writeFileSync(primaryTokenPath, this.ipcAuthToken, 'utf-8'); } catch {}
+        }
+        const dotKinDir = path.join(dataDir, '.kin');
+        if (!fs.existsSync(dotKinDir)) {
+          try { fs.mkdirSync(dotKinDir, { recursive: true }); } catch {}
+        }
+        const subTokenPath = path.join(dotKinDir, 'ipc_auth.token');
+        if (!fs.existsSync(subTokenPath)) {
+          try { fs.writeFileSync(subTokenPath, this.ipcAuthToken, 'utf-8'); } catch {}
+        }
+        try {
+          const cwdKin = path.resolve(process.cwd(), '.kin');
+          if (!fs.existsSync(cwdKin)) fs.mkdirSync(cwdKin, { recursive: true });
+          fs.writeFileSync(path.join(cwdKin, 'ipc_auth.token'), this.ipcAuthToken, 'utf-8');
+        } catch {}
       } catch (tokenErr) {
         console.warn('[KIN CORE] IPC auth token setup notice:', tokenErr);
       }
@@ -2000,9 +2026,34 @@ export class CoreServer {
     }
   }
 
-  private isAllowedOrigin(origin?: string): boolean {
+  private hasValidIpcToken(req?: http.IncomingMessage): boolean {
+    if (!this.ipcAuthToken) return true;
+    if (!req) return false;
+    const authHeader = req.headers['authorization'] || '';
+    const xIpcToken = (req.headers['x-ipc-token'] || req.headers['x-kin-auth']) as string;
+    const parsedUrl = req.url ? new URL(req.url, 'http://127.0.0.1') : undefined;
+    const queryToken = parsedUrl ? parsedUrl.searchParams.get('token') : null;
+    const bearerToken = typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+    const providedToken = bearerToken || xIpcToken || queryToken;
+    if (!providedToken || typeof providedToken !== 'string') return false;
+    const provBuf = Buffer.from(providedToken);
+    const authBuf = Buffer.from(this.ipcAuthToken);
+    return provBuf.length === authBuf.length && crypto.timingSafeEqual(provBuf, authBuf);
+  }
+
+  private isAllowedOrigin(origin?: string, req?: http.IncomingMessage): boolean {
     if (!origin) return true;
     if (!this.requireIpcAuth && this.port !== 54321) return true;
+    if (origin === 'null') {
+      if (req) {
+        const remoteIp = req.socket?.remoteAddress;
+        const isLoopback = remoteIp === '127.0.0.1' || remoteIp === '::1' || remoteIp === '::ffff:127.0.0.1' || remoteIp === undefined;
+        if (isLoopback) return true;
+        if (this.hasValidIpcToken(req)) return true;
+        return false;
+      }
+      return true;
+    }
     try {
       const u = new URL(origin);
       if (u.protocol === 'tauri:' && u.hostname === 'localhost') return true;
@@ -2031,16 +2082,22 @@ export class CoreServer {
   private handleCors(res: http.ServerResponse, req?: http.IncomingMessage): void {
     if (res.headersSent) return;
     const origin = req?.headers?.origin;
-    if (this.requireIpcAuth || this.port === 54321) {
-      if (origin && this.isAllowedOrigin(origin)) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
-      } else if (!origin) {
-        res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5173');
-      }
+    if (res.hasHeader('Access-Control-Allow-Origin') && !origin) {
+      // Never overwrite an existing Access-Control-Allow-Origin if it was already set and req?.headers?.origin is missing
     } else {
-      res.setHeader('Access-Control-Allow-Origin', origin || '*');
+      if (this.requireIpcAuth || this.port === 54321) {
+        if (origin && this.isAllowedOrigin(origin, req)) {
+          res.setHeader('Access-Control-Allow-Origin', origin);
+        } else if (!origin && !res.hasHeader('Access-Control-Allow-Origin')) {
+          res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5173');
+        }
+      } else {
+        if (origin || !res.hasHeader('Access-Control-Allow-Origin')) {
+          res.setHeader('Access-Control-Allow-Origin', origin || '*');
+        }
+      }
     }
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     res.setHeader(
       'Access-Control-Allow-Headers',
       'Content-Type, Authorization, X-IPC-Token, X-Kin-Auth, X-Kin-Auth-Token, X-Kin-Operator-Signature, X-Kin-Operator-Id, X-Kin-Approval-Token, X-Caller-Agent-Id, X-Agent-Id'
@@ -2049,7 +2106,9 @@ export class CoreServer {
 
   private sendJson(res: http.ServerResponse, statusCode: number, data: any, req?: http.IncomingMessage): void {
     if (res.headersSent || res.writableEnded || res.destroyed) return;
-    this.handleCors(res, req);
+    if (!res.hasHeader('Access-Control-Allow-Origin')) {
+      this.handleCors(res, req);
+    }
     res.writeHead(statusCode, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(data));
   }
@@ -2103,14 +2162,14 @@ export class CoreServer {
     const isPublicStatic = req.method === 'GET' && !pathname.startsWith('/api/');
 
     const origin = req.headers.origin;
-    if (origin && !this.isAllowedOrigin(origin)) {
+    if (origin && !this.isAllowedOrigin(origin, req)) {
       this.sendJson(res, 403, { error: 'Forbidden: Untrusted cross-origin request rejected' }, req);
       return;
     }
 
     const secFetchSite = req.headers['sec-fetch-site'];
     if (secFetchSite === 'cross-site' && !isHealthProbe && !isPublicStatic) {
-      const allowedByOrigin = origin ? this.isAllowedOrigin(origin) : false;
+      const allowedByOrigin = origin ? this.isAllowedOrigin(origin, req) : false;
       if (!allowedByOrigin) {
         const authHeader = req.headers['authorization'] || '';
         const xIpcToken = (req.headers['x-ipc-token'] || req.headers['x-kin-auth']) as string;
@@ -2171,7 +2230,7 @@ export class CoreServer {
       // 1. SSE Stream
       if (req.method === 'GET' && pathname === '/api/events') {
         const sseOrigin = (this.requireIpcAuth || this.port === 54321)
-          ? (req.headers.origin && this.isAllowedOrigin(req.headers.origin) ? req.headers.origin : 'http://localhost:5173')
+          ? (req.headers.origin && this.isAllowedOrigin(req.headers.origin, req) ? req.headers.origin : 'http://localhost:5173')
           : (req.headers.origin || '*');
         res.writeHead(200, {
           'Content-Type': 'text/event-stream',
@@ -2821,14 +2880,14 @@ export class CoreServer {
       if (req.method === 'POST' && pathname === '/api/projects') {
         const body = await this.parseJsonBody<{ name: string; repoPath?: string; activate?: boolean }>(req);
         if (!body.name || !body.name.trim()) {
-          return this.sendJson(res, 400, { error: 'Project name is required' });
+          return this.sendJson(res, 400, { error: 'Project name is required' }, req);
         }
 
         const rawRepoPath = body.repoPath?.trim();
         if (rawRepoPath) {
           const trimmed = rawRepoPath.replace(/\\/g, '/');
           if (trimmed === '/' || /^[a-zA-Z]:\/?$/.test(trimmed)) {
-            return this.sendJson(res, 400, { error: 'Repository path cannot be the root filesystem.' });
+            return this.sendJson(res, 400, { error: 'Repository path cannot be the root filesystem.' }, req);
           }
         }
 
@@ -2857,9 +2916,30 @@ export class CoreServer {
           }
         } catch {}
 
+        const workspaceId = 'ws-default';
+        const existingProjects = typeof (this.workspaceRepo as any).getProjects === 'function'
+          ? (this.workspaceRepo as any).getProjects(workspaceId)
+          : this.workspaceRepo.listProjects(workspaceId);
+
+        const targetName = body.name.trim().toLowerCase();
+        const targetRepoPath = path.resolve(repoPath).toLowerCase();
+
+        const existingProject = existingProjects.find((p: any) =>
+          p.name.trim().toLowerCase() === targetName ||
+          path.resolve(p.repoPath).toLowerCase() === targetRepoPath
+        );
+
+        if (existingProject) {
+          if (body.activate !== false) {
+            this.activeProjectId = existingProject.id;
+          }
+          const channels = this.workspaceRepo.listChannels(existingProject.id);
+          const channelId = channels.length > 0 ? channels[0].id : `chan-${existingProject.id}`;
+          return this.sendJson(res, 200, { project: existingProject, channelId }, req);
+        }
+
         const id = `proj-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
         const now = Date.now();
-        const workspaceId = 'ws-default';
         const project = {
           id,
           workspaceId,
@@ -2894,7 +2974,7 @@ export class CoreServer {
         }
 
         this.broadcastEvent('project:created', project);
-        return this.sendJson(res, 201, { project, channelId });
+        return this.sendJson(res, 201, { project, channelId }, req);
       }
 
       // 7. DELETE /api/projects/:id — Remove project
@@ -9229,7 +9309,7 @@ Format strictly as JSON:
       if (req.method === 'POST' && pathname === '/api/system/dialog/browse-folder') {
         try {
           if (process.platform === 'win32') {
-            const psScript = "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $dialog = New-Object System.Windows.Forms.FolderBrowserDialog; $dialog.Description = 'Select Project or Repository Folder'; $dialog.ShowNewFolderButton = $true; if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $dialog.SelectedPath }";
+            const psScript = "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $dialog = New-Object System.Windows.Forms.FolderBrowserDialog; $dialog.Description = 'Select Project or Repository Folder'; $dialog.ShowNewFolderButton = $true; $topMost = New-Object System.Windows.Forms.Form; $topMost.TopMost = $true; if ($dialog.ShowDialog($topMost) -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $dialog.SelectedPath }";
             const picked = childProcess.execSync(
               `powershell -NoProfile -STA -Command "${psScript}"`,
               { encoding: 'utf-8', timeout: 120000 }

@@ -94,6 +94,10 @@ export class WorkspaceRepository {
     };
   }
 
+  public getProjects(workspaceId: string = 'ws-default'): Project[] {
+    return this.listProjects(workspaceId);
+  }
+
   public listProjects(workspaceId: string = 'ws-default'): Project[] {
     const rows = this.db.query<{
       id: string;

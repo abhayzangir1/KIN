@@ -30,17 +30,6 @@ function resolveDbPath(): string {
     return path.resolve(process.env.KIN_DB_PATH);
   }
   const dataDir = getDataDirectory();
-  const candidates = [
-    path.resolve(dataDir, 'kin_storage.sqlite'),
-    path.resolve(process.cwd(), 'kin_storage.sqlite'),
-    path.resolve(process.cwd(), '..', 'kin_storage.sqlite'),
-    path.resolve(process.cwd(), 'core', 'kin_storage.sqlite'),
-  ];
-  for (const c of candidates) {
-    if (fs.existsSync(c)) {
-      return c;
-    }
-  }
   return path.resolve(dataDir, 'kin_storage.sqlite');
 }
 
