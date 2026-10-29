@@ -144,7 +144,7 @@ describe('KIN Production Readiness & End-to-End Verification Harness', () => {
       const data = res.json();
 
       expect(data.status).toBe('ok');
-      expect(data.version).toBe('0.1.0');
+      expect(data.version).toBe('0.1.4');
       expect(typeof data.uptime).toBe('number');
       expect(data.database.connected).toBe(true);
       expect(data.database.integrity).toBe('ok');

@@ -148,11 +148,16 @@ export class CoreServer {
   constructor(options: CoreServerOptions = {}) {
     const isTestEnv = Boolean(process.env.VITEST) || process.env.NODE_ENV === 'test';
     if (!process.env.OPENROUTER_API_KEY && !isTestEnv) {
+      const moduleDir = typeof import.meta !== 'undefined' && (import.meta as any)?.url
+        ? path.dirname(fileURLToPath((import.meta as any).url))
+        : (typeof __dirname !== 'undefined' ? __dirname : process.cwd());
+
       const envCandidates = [
         path.resolve(process.cwd(), '.env'),
         path.resolve(process.cwd(), '..', '.env'),
+        path.resolve(moduleDir, '../../../.env'),
+        path.resolve(moduleDir, '../../.env'),
         path.resolve(getDataDirectory(), '.env'),
-        'D:\\KIN\\.env',
       ];
       for (const envPath of envCandidates) {
         if (fs.existsSync(envPath)) {

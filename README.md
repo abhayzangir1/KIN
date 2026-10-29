@@ -8,14 +8,14 @@
 Local-first execution • Hybrid model routing (Local Ollama & BYOK Cloud) • Autonomous Quota Guard • Native Desktop & Web Control • Proactive Routines • Path-jailed Git Worktrees • Encrypted SQLite State.
 
 [![CI Quality Gates](https://github.com/abhayzangir1/KIN/actions/workflows/ci.yml/badge.svg)](https://github.com/abhayzangir1/KIN/actions)
-[![Download Windows Installer](https://img.shields.io/badge/Download%20Installer-.exe%20(Setup)-2ea44f?logo=windows&logoColor=white)](https://github.com/abhayzangir1/KIN/releases/download/v0.1.2/KIN_0.1.2_x64-setup.exe)
-[![Download MSI Package](https://img.shields.io/badge/Enterprise%20Package-.msi-blue?logo=windows&logoColor=white)](https://github.com/abhayzangir1/KIN/releases/download/v0.1.2/KIN_0.1.2_x64_en-US.msi)
+[![Download Windows Installer](https://img.shields.io/badge/Download%20Installer-.exe%20(Setup)-2ea44f?logo=windows&logoColor=white)](https://github.com/abhayzangir1/KIN/releases/download/v0.1.4/KIN_0.1.4_x64-setup.exe)
+[![Download MSI Package](https://img.shields.io/badge/Enterprise%20Package-.msi-blue?logo=windows&logoColor=white)](https://github.com/abhayzangir1/KIN/releases/download/v0.1.4/KIN_0.1.4_x64_en-US.msi)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node Version](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-339933?logo=node.js)](https://nodejs.org/)
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org/)
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri)](https://tauri.app/)
 [![SQLite](https://img.shields.io/badge/SQLite-WAL%20Mode-003B57?logo=sqlite)](https://sqlite.org/)
-[![Tests](https://img.shields.io/badge/Tests-750%20Passed-success)](docs/PROJECT_STATUS.md)
+[![Tests](https://img.shields.io/badge/Tests-754%20Passed-success)](docs/PROJECT_STATUS.md)
 
 [Overview](#-overview) •
 [Key Features](#-key-features) •
@@ -161,9 +161,9 @@ State and context are strictly layered across seven privacy boundaries with Opti
 ### Option 1: Native Windows Setup (.exe / .msi) — One-Click Install
 
 Download the native installer directly from GitHub Releases:
-- 🚀 **[Download Windows Setup Installer (`KIN_0.1.0_x64-setup.exe`)](https://github.com/abhayzangir1/KIN/releases/download/v0.1.1/KIN_0.1.0_x64-setup.exe)** — Standard one-click installer. Sets up KIN, creates desktop shortcuts, registers start menu entries, and starts the desktop app.
-- 📦 **[Download Windows MSI Package (`KIN_0.1.0_x64_en-US.msi`)](https://github.com/abhayzangir1/KIN/releases/download/v0.1.1/KIN_0.1.0_x64_en-US.msi)** — Enterprise MSI package.
-- 📁 **[Download Portable Windows Bundle (`.zip`)](https://github.com/abhayzangir1/KIN/releases/download/v0.1.1/KIN-v0.1.1-windows-x64.zip)** — Standalone portable bundle with `kin-core.exe` sidecar.
+- 🚀 **[Download Windows Setup Installer (`KIN_0.1.4_x64-setup.exe`)](https://github.com/abhayzangir1/KIN/releases/download/v0.1.4/KIN_0.1.4_x64-setup.exe)** — Standard one-click installer. Sets up KIN, creates desktop shortcuts, registers start menu entries, and starts the desktop app.
+- 📦 **[Download Windows MSI Package (`KIN_0.1.4_x64_en-US.msi`)](https://github.com/abhayzangir1/KIN/releases/download/v0.1.4/KIN_0.1.4_x64_en-US.msi)** — Enterprise MSI package.
+- 📁 **[Download Portable Windows Bundle (`.zip`)](https://github.com/abhayzangir1/KIN/releases/download/v0.1.4/KIN-v0.1.4-windows-x64.zip)** — Standalone portable bundle with `kin-core.exe` sidecar.
 
 ### Option 2: Automated Script Install
 - **Windows:** Double-click [`install.bat`](install.bat) (or run in Command Prompt). It automatically checks Node.js, installs dependencies, builds all workspaces, packages the sidecar binary, generates a desktop shortcut, and offers to launch KIN.
@@ -192,7 +192,7 @@ npm run build
   - Packaging installer: `npm run package:desktop`
 
 ### Option 5: Run the Test Suite
-KIN maintains a comprehensive automated testing suite with **750 tests across 53 test suites (750 passing deterministically, 0 skipped, 0 failed)**:
+KIN maintains a comprehensive automated testing suite with **754 tests across 54 test files (754 passing deterministically, 0 skipped, 0 failed)**:
 ```bash
 npm test --workspace=core
 ```

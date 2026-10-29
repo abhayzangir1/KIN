@@ -30,7 +30,7 @@ export class SystemController extends BaseController {
           status: 'ok',
           uptime: process.uptime(),
           timestamp: Date.now(),
-          version: '0.1.0',
+          version: '0.1.4',
           database: {
             connected: true,
             integrity: sqliteIntegrity?.integrity_check || 'unknown',
@@ -1130,30 +1130,6 @@ export class SystemController extends BaseController {
         const threshold = typeof body?.staleThresholdMs === 'number' ? body.staleThresholdMs : 0;
         const recovered = this.runSupervisorSelfHealing(threshold);
         return this.sendJson(res, 200, { ok: true, recoveredCount: recovered.length, recovered });
-      }
-
-      // 35b. POST /api/system/dialog/browse-folder — Open native OS folder browser dialog
-      if (req.method === 'POST' && pathname === '/api/system/dialog/browse-folder') {
-        try {
-          if (process.platform === 'win32') {
-            const psScript = "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $dialog = New-Object System.Windows.Forms.FolderBrowserDialog; $dialog.Description = 'Select Project or Repository Folder'; $dialog.ShowNewFolderButton = $true; $topMost = New-Object System.Windows.Forms.Form; $topMost.TopMost = $true; if ($dialog.ShowDialog($topMost) -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $dialog.SelectedPath }";
-            const picked = childProcess.execSync(
-              `powershell -NoProfile -STA -Command "${psScript}"`,
-              { encoding: 'utf-8', timeout: 120000 }
-            ).trim();
-
-            if (picked && fs.existsSync(picked)) {
-              return this.sendJson(res, 200, {
-                path: path.resolve(picked),
-                name: path.basename(picked),
-                canceled: false
-              });
-            }
-          }
-          return this.sendJson(res, 200, { canceled: true });
-        } catch (err: any) {
-          return this.sendJson(res, 200, { canceled: true, error: err?.message });
-        }
       }
 
       // 36. GET /api/system/apps — Discover installed desktop applications
@@ -2285,66 +2261,6 @@ export class SystemController extends BaseController {
         return this.sendJson(res, 200, { success: true, ...authData });
       }
 
-      // 72. POST /api/system/dialog/browse-folder — Open native OS folder browser dialog (Cross-platform)
-      if (req.method === 'POST' && pathname === '/api/system/dialog/browse-folder') {
-        try {
-          if (process.platform === 'win32') {
-            const psScript = "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $dialog = New-Object System.Windows.Forms.FolderBrowserDialog; $dialog.Description = 'Select Project or Repository Folder'; $dialog.ShowNewFolderButton = $true; $topMost = New-Object System.Windows.Forms.Form; $topMost.TopMost = $true; if ($dialog.ShowDialog($topMost) -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $dialog.SelectedPath }";
-            const picked = childProcess.execSync(
-              `powershell -NoProfile -STA -Command "${psScript}"`,
-              { encoding: 'utf-8', timeout: 120000 }
-            ).trim();
-
-            if (picked && fs.existsSync(picked)) {
-              return this.sendJson(res, 200, {
-                path: path.resolve(picked),
-                name: path.basename(picked),
-                canceled: false
-              });
-            }
-          } else if (process.platform === 'darwin') {
-            const picked = childProcess.execSync(
-              `osascript -e 'POSIX path of (choose folder with prompt "Select Project Folder")'`,
-              { encoding: 'utf-8', timeout: 120000 }
-            ).trim();
-
-            if (picked && fs.existsSync(picked)) {
-              return this.sendJson(res, 200, {
-                path: path.resolve(picked),
-                name: path.basename(picked),
-                canceled: false
-              });
-            }
-          } else if (process.platform === 'linux') {
-            let picked = '';
-            try {
-              picked = childProcess.execSync(
-                `zenity --file-selection --directory --title="Select Project Folder"`,
-                { encoding: 'utf-8', timeout: 120000 }
-              ).trim();
-            } catch {
-              try {
-                picked = childProcess.execSync(
-                  `kdialog --getexistingdirectory .`,
-                  { encoding: 'utf-8', timeout: 120000 }
-                ).trim();
-              } catch {}
-            }
-
-            if (picked && fs.existsSync(picked)) {
-              return this.sendJson(res, 200, {
-                path: path.resolve(picked),
-                name: path.basename(picked),
-                canceled: false
-              });
-            }
-          }
-          return this.sendJson(res, 200, { canceled: true });
-        } catch (err: any) {
-          return this.sendJson(res, 200, { canceled: true, error: err?.message });
-        }
-      }
-
       // 73. GET /api/system/apps — Discover installed desktop applications
       if (req.method === 'GET' && pathname === '/api/system/apps') {
         const apps = await this.desktopController.discoverInstalledApps();
@@ -2414,7 +2330,11 @@ export class SystemController extends BaseController {
           }
 
           if (selectedPath) {
-            return this.sendJson(res, 200, { path: selectedPath, canceled: false });
+            return this.sendJson(res, 200, {
+              path: path.resolve(selectedPath),
+              name: path.basename(selectedPath),
+              canceled: false,
+            });
           } else {
             return this.sendJson(res, 200, { path: null, canceled: true });
           }

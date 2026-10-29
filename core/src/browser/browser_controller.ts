@@ -119,6 +119,16 @@ export class BrowserController {
    * Finds the best installed Chromium-based browser executable on the host.
    */
   public findBrowserExecutable(): string | undefined {
+    // 0. Explicit environment variable overrides
+    const envOverrides = [
+      process.env.KIN_BROWSER_PATH,
+      process.env.PUPPETEER_EXECUTABLE_PATH,
+      process.env.CHROME_BIN,
+    ];
+    for (const p of envOverrides) {
+      if (p && fs.existsSync(p)) return p;
+    }
+
     const isWindows = process.platform === 'win32';
 
     if (isWindows) {
@@ -141,8 +151,10 @@ export class BrowserController {
         '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
         '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
         '/usr/bin/google-chrome',
+        '/usr/bin/google-chrome-stable',
         '/usr/bin/chromium-browser',
         '/usr/bin/chromium',
+        '/snap/bin/chromium',
       ];
       for (const p of macLinuxCandidates) {
         if (fs.existsSync(p)) return p;
@@ -229,7 +241,15 @@ export class BrowserController {
           '--window-size=1280,800',
           '--remote-debugging-port=9222',
         ];
-        if (process.env.KIN_BROWSER_NO_SANDBOX === 'true') {
+        const isContainerizedLinux = process.platform === 'linux' && (
+          process.env.CI === 'true' ||
+          process.env.CONTAINER === 'true' ||
+          fs.existsSync('/.dockerenv') ||
+          fs.existsSync('/run/.containerenv') ||
+          (typeof process.getuid === 'function' && process.getuid() === 0)
+        );
+
+        if (process.env.KIN_BROWSER_NO_SANDBOX === 'true' || isContainerizedLinux) {
           launchArgs.push('--no-sandbox', '--disable-setuid-sandbox');
         }
 

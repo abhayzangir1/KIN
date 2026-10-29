@@ -6,14 +6,20 @@
 import { CoreServer } from './server/core_server.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { getDataDirectory } from './storage/data_directory.js';
+
+const moduleDir = typeof import.meta !== 'undefined' && (import.meta as any)?.url
+  ? path.dirname(fileURLToPath((import.meta as any).url))
+  : (typeof __dirname !== 'undefined' ? __dirname : process.cwd());
 
 // Automatically load .env if available
 const envCandidates = [
   path.resolve(process.cwd(), '.env'),
   path.resolve(process.cwd(), '..', '.env'),
+  path.resolve(moduleDir, '../../.env'),
+  path.resolve(moduleDir, '../.env'),
   path.resolve(getDataDirectory(), '.env'),
-  'D:\\KIN\\.env',
 ];
 for (const envPath of envCandidates) {
   if (fs.existsSync(envPath)) {

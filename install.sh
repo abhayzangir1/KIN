@@ -54,8 +54,10 @@ echo ""
 echo " To start KIN:"
 echo "   ./start.sh"
 echo ""
-read -p "Would you like to launch KIN now? (Y/n): " -n 1 -r
-echo ""
-if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-    ./start.sh
+if [ -t 0 ]; then
+    read -p "Would you like to launch KIN now? (Y/n): " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+        ./start.sh
+    fi
 fi

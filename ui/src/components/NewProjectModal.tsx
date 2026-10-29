@@ -95,7 +95,7 @@ export const NewProjectModal: React.FC = () => {
           if (dirHandle?.name) {
             if (!name) setName(dirHandle.name);
             // Default to Windows drive path if on Windows environment
-            const defaultBase = navigator.platform.includes('Win') ? 'D:\\' : '/';
+            const defaultBase = navigator.platform.includes('Win') ? 'C:\\' : '/';
             setRepoPath(`${defaultBase}${dirHandle.name}`);
           }
         } catch {

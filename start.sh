@@ -67,10 +67,28 @@ if [ "$DEV_MODE" == "1" ]; then
     trap "kill $DAEMON_PID $UI_PID 2>/dev/null || true" EXIT
 
     sleep 2
+    IPC_TOKEN=""
+    if [ -n "$KIN_DATA_DIR" ] && [ -f "$KIN_DATA_DIR/ipc_auth.token" ]; then
+        IPC_TOKEN=$(cat "$KIN_DATA_DIR/ipc_auth.token" 2>/dev/null || true)
+    elif [ -f "$HOME/.kin/ipc_auth.token" ]; then
+        IPC_TOKEN=$(cat "$HOME/.kin/ipc_auth.token" 2>/dev/null || true)
+    elif [ -f "$HOME/.local/share/kin/ipc_auth.token" ]; then
+        IPC_TOKEN=$(cat "$HOME/.local/share/kin/ipc_auth.token" 2>/dev/null || true)
+    elif [ -f "$HOME/Library/Application Support/kin/ipc_auth.token" ]; then
+        IPC_TOKEN=$(cat "$HOME/Library/Application Support/kin/ipc_auth.token" 2>/dev/null || true)
+    elif [ -f ".kin/ipc_auth.token" ]; then
+        IPC_TOKEN=$(cat ".kin/ipc_auth.token" 2>/dev/null || true)
+    fi
+
+    LAUNCH_URL="http://localhost:5173"
+    if [ -n "$IPC_TOKEN" ]; then
+        LAUNCH_URL="http://localhost:5173/?token=${IPC_TOKEN}"
+    fi
+
     if command -v open &> /dev/null; then
-        open http://localhost:5173
+        open "$LAUNCH_URL"
     elif command -v xdg-open &> /dev/null; then
-        xdg-open http://localhost:5173
+        xdg-open "$LAUNCH_URL"
     fi
 
     echo "====================================================================="
@@ -89,10 +107,28 @@ else
     trap "kill $DAEMON_PID 2>/dev/null || true" EXIT
 
     sleep 2
+    IPC_TOKEN=""
+    if [ -n "$KIN_DATA_DIR" ] && [ -f "$KIN_DATA_DIR/ipc_auth.token" ]; then
+        IPC_TOKEN=$(cat "$KIN_DATA_DIR/ipc_auth.token" 2>/dev/null || true)
+    elif [ -f "$HOME/.kin/ipc_auth.token" ]; then
+        IPC_TOKEN=$(cat "$HOME/.kin/ipc_auth.token" 2>/dev/null || true)
+    elif [ -f "$HOME/.local/share/kin/ipc_auth.token" ]; then
+        IPC_TOKEN=$(cat "$HOME/.local/share/kin/ipc_auth.token" 2>/dev/null || true)
+    elif [ -f "$HOME/Library/Application Support/kin/ipc_auth.token" ]; then
+        IPC_TOKEN=$(cat "$HOME/Library/Application Support/kin/ipc_auth.token" 2>/dev/null || true)
+    elif [ -f ".kin/ipc_auth.token" ]; then
+        IPC_TOKEN=$(cat ".kin/ipc_auth.token" 2>/dev/null || true)
+    fi
+
+    LAUNCH_URL="http://127.0.0.1:54321"
+    if [ -n "$IPC_TOKEN" ]; then
+        LAUNCH_URL="http://127.0.0.1:54321/?token=${IPC_TOKEN}"
+    fi
+
     if command -v open &> /dev/null; then
-        open http://127.0.0.1:54321
+        open "$LAUNCH_URL"
     elif command -v xdg-open &> /dev/null; then
-        xdg-open http://127.0.0.1:54321
+        xdg-open "$LAUNCH_URL"
     fi
 
     echo "====================================================================="

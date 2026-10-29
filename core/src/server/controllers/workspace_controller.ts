@@ -40,12 +40,7 @@ export class WorkspaceController extends BaseController {
           if (isWinDrive) {
             repoPath = rawRepoPath;
           } else if (!path.isAbsolute(rawRepoPath)) {
-            const driveCandidate = `D:\\${rawRepoPath}`;
-            if (process.platform === 'win32' && fs.existsSync(driveCandidate)) {
-              repoPath = driveCandidate;
-            } else {
-              repoPath = path.resolve(process.cwd(), rawRepoPath);
-            }
+            repoPath = path.resolve(process.cwd(), rawRepoPath);
           } else {
             repoPath = path.resolve(rawRepoPath);
           }

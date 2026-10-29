@@ -214,7 +214,7 @@ export class DesktopController {
             pid: child.pid,
           },
         };
-      } else {
+      } else if (process.platform === 'darwin') {
         const child = childProcess.spawn('open', ['-a', targetPath, ...args], {
           detached: true,
           stdio: 'ignore',
@@ -224,7 +224,43 @@ export class DesktopController {
         return {
           success: true,
           action: 'launchApp',
-          details: { executablePath: targetPath, pid: child.pid },
+          details: {
+            appName: path.basename(targetPath, path.extname(targetPath)),
+            executablePath: targetPath,
+            pid: child.pid,
+          },
+        };
+      } else {
+        // Linux / Unix: spawn targetPath directly, or use xdg-open for desktop entries / URLs
+        let child: childProcess.ChildProcess;
+        if (targetPath.endsWith('.desktop') || targetPath.startsWith('http://') || targetPath.startsWith('https://')) {
+          child = childProcess.spawn('xdg-open', [targetPath, ...args], {
+            detached: true,
+            stdio: 'ignore',
+          });
+        } else {
+          try {
+            child = childProcess.spawn(targetPath, args, {
+              detached: true,
+              stdio: 'ignore',
+            });
+          } catch {
+            child = childProcess.spawn('xdg-open', [targetPath, ...args], {
+              detached: true,
+              stdio: 'ignore',
+            });
+          }
+        }
+        child.unref();
+
+        return {
+          success: true,
+          action: 'launchApp',
+          details: {
+            appName: path.basename(targetPath, path.extname(targetPath)),
+            executablePath: targetPath,
+            pid: child.pid,
+          },
         };
       }
     } catch (err: any) {

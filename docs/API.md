@@ -2,7 +2,7 @@
 
 The KIN Core Daemon runs locally on `http://127.0.0.1:54321` and provides a comprehensive REST API and Server-Sent Events (SSE) stream for desktop shells, web interfaces, and automated clients.
 
-All handlers are implemented in [`core/src/server/core_server.ts`](../core/src/server/core_server.ts) and backed by SQLite WAL storage in `kin_storage.sqlite`.
+Route handlers are organized into domain controllers under [`core/src/server/controllers/`](../core/src/server/controllers/) (`system_controller.ts`, `workspace_controller.ts`, `communication_controller.ts`, `execution_controller.ts`, `git_controller.ts`, `skills_controller.ts`, `model_controller.ts`, `storage_controller.ts`) orchestrated by [`core/src/server/core_server.ts`](../core/src/server/core_server.ts) and backed by SQLite WAL storage in `kin_storage.sqlite`.
 
 ---
 
@@ -27,7 +27,7 @@ Public health probe (exempt from token authentication). Returns comprehensive sy
     "status": "ok",
     "uptime": 42.5,
     "timestamp": 1792900000000,
-    "version": "0.1.0",
+    "version": "0.1.4",
     "database": { "connected": true, "integrity": "ok", "path": "..." },
     "activeProject": { "id": "proj-kin", "name": "KIN" },
     "autonomyMode": "AUTO",
