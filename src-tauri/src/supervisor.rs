@@ -401,6 +401,13 @@ impl ProcessSupervisor {
             let kin_data_dir = Self::resolve_data_dir();
             let _ = std::fs::create_dir_all(&kin_data_dir);
             command.env("KIN_DATA_DIR", kin_data_dir.to_string_lossy().to_string());
+            let log_file_path = kin_data_dir.join("kin-core.log");
+            if let Ok(file) = std::fs::OpenOptions::new().create(true).append(true).open(&log_file_path) {
+                if let Ok(err_file) = file.try_clone() {
+                    command.stdout(file);
+                    command.stderr(err_file);
+                }
+            }
             if let Some(parent) = sidecar_path.parent() {
                 command.current_dir(parent);
             }
