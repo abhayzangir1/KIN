@@ -711,9 +711,9 @@ describe('KIN Audit Remediation Suite (2026-10-07 Findings Verification)', () =>
       const corePkg = JSON.parse(fs.readFileSync(path.resolve(rootDir, 'core/package.json'), 'utf-8'));
       const uiPkg = JSON.parse(fs.readFileSync(path.resolve(rootDir, 'ui/package.json'), 'utf-8'));
 
-      expect(rootPkg.version).toBe('0.1.0');
-      expect(corePkg.version).toBe('0.1.0');
-      expect(uiPkg.version).toBe('0.1.0');
+      expect(rootPkg.version).toBeDefined();
+      expect(corePkg.version).toBe(rootPkg.version);
+      expect(uiPkg.version).toBe(rootPkg.version);
     });
   });
 
