@@ -19,7 +19,9 @@
         "minWidth": 1000,
         "minHeight": 650,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "label": "main",
+        "url": "index.html"
       }
     ],
     "security": {

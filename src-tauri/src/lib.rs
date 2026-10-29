@@ -45,8 +45,8 @@ pub fn run() {
         log_diagnostic("[KIN CORE] Native Process Supervisor initialized successfully.");
     }
 
-    // 2. Build and run Tauri application
-    let tauri_result = tauri::Builder::default()
+    // 2. Build Tauri application
+    let builder = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             get_ipc_token,
             pick_folder
@@ -66,13 +66,39 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
-                log_diagnostic(&format!("[KIN SHELL] Window close requested: {}", window.label()));
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    log_diagnostic(&format!("[KIN SHELL] Window close requested: {}", window.label()));
+                }
+                tauri::WindowEvent::Destroyed => {
+                    log_diagnostic(&format!("[KIN SHELL] Window destroyed: {}", window.label()));
+                }
+                _ => {}
             }
-        })
-        .run(tauri::generate_context!());
+        });
 
-    if let Err(e) = tauri_result {
-        log_diagnostic(&format!("[KIN CRITICAL] Tauri application run error: {:?}", e));
-    }
+    let app = match builder.build(tauri::generate_context!()) {
+        Ok(a) => a,
+        Err(e) => {
+            log_diagnostic(&format!("[KIN CRITICAL] Failed to build Tauri app: {:?}", e));
+            return;
+        }
+    };
+
+    log_diagnostic("[KIN SHELL] Entering Tauri run loop...");
+    app.run(|_app_handle, event| {
+        match event {
+            tauri::RunEvent::ExitRequested { api, .. } => {
+                log_diagnostic("[KIN SHELL] RunEvent::ExitRequested received.");
+            }
+            tauri::RunEvent::Exit => {
+                log_diagnostic("[KIN SHELL] RunEvent::Exit received.");
+            }
+            tauri::RunEvent::Ready => {
+                log_diagnostic("[KIN SHELL] RunEvent::Ready received.");
+            }
+            _ => {}
+        }
+    });
+    log_diagnostic("[KIN SHELL] Tauri run loop exited.");
 }

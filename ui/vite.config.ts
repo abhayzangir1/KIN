@@ -21,6 +21,7 @@ function getIpcToken(): string | null {
 }
 
 export default defineConfig({
+  base: './',
   plugins: [
     react(),
     {
