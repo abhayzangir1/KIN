@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, Suspense } from 'react';
 import { HeaderBar } from './components/HeaderBar.js';
 import { Sidebar } from './components/Sidebar.js';
 import { CenterView } from './components/CenterView.js';
@@ -6,22 +6,24 @@ import { AgentInspector } from './components/AgentInspector.js';
 import { NewProjectModal } from './components/NewProjectModal.js';
 import { CreateChannelModal } from './components/CreateChannelModal.js';
 import { AddAgentModal } from './components/AddAgentModal.js';
-import { SwarmMap } from './components/SwarmMap.js';
-import { SkillsModal } from './components/SkillsModal.js';
-import { DesktopControlModal } from './components/DesktopControlModal.js';
 import { CreateGoalModal } from './components/CreateGoalModal.js';
 import { CreateTaskModal } from './components/CreateTaskModal.js';
-import { DecisionsModal } from './components/DecisionsModal.js';
-import { SettingsModal } from './components/SettingsModal.js';
-import { ConnectorsModal } from './components/ConnectorsModal.js';
-import { AutomationsModal } from './components/AutomationsModal.js';
 import { ModelSelectorModal } from './components/ModelSelectorModal.js';
 import { AddProviderModal } from './components/AddProviderModal.js';
 import { ModelUnavailablePromptModal } from './components/ModelUnavailablePromptModal.js';
-import { AgentSettingsModal } from './components/AgentSettingsModal.js';
 import { ToastContainer } from './components/ToastContainer.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { useKinStore } from './store/kinStore.js';
+
+// Lazy-loaded heavy modals to eliminate background hook overhead and optimize initial bundle
+const SettingsModal = React.lazy(() => import('./components/SettingsModal.js').then(m => ({ default: m.SettingsModal })));
+const SwarmMap = React.lazy(() => import('./components/SwarmMap.js').then(m => ({ default: m.SwarmMap })));
+const SkillsModal = React.lazy(() => import('./components/SkillsModal.js').then(m => ({ default: m.SkillsModal })));
+const ConnectorsModal = React.lazy(() => import('./components/ConnectorsModal.js').then(m => ({ default: m.ConnectorsModal })));
+const AutomationsModal = React.lazy(() => import('./components/AutomationsModal.js').then(m => ({ default: m.AutomationsModal })));
+const DesktopControlModal = React.lazy(() => import('./components/DesktopControlModal.js').then(m => ({ default: m.DesktopControlModal })));
+const DecisionsModal = React.lazy(() => import('./components/DecisionsModal.js').then(m => ({ default: m.DecisionsModal })));
+const AgentSettingsModal = React.lazy(() => import('./components/AgentSettingsModal.js').then(m => ({ default: m.AgentSettingsModal })));
 
 export const App: React.FC = () => {
   const {
@@ -34,6 +36,14 @@ export const App: React.FC = () => {
     setInspectorOpen,
     theme,
     isConnected,
+    isSettingsModalOpen,
+    isSwarmMapOpen,
+    isSkillsModalOpen,
+    isConnectorsModalOpen,
+    isAutomationsModalOpen,
+    isDesktopControlModalOpen,
+    isDecisionsModalOpen,
+    isAgentSettingsModalOpen,
   } = useKinStore();
 
   const [windowWidth, setWindowWidth] = useState(
@@ -225,19 +235,51 @@ export const App: React.FC = () => {
           <NewProjectModal />
           <CreateChannelModal />
           <AddAgentModal />
-          <SwarmMap />
-          <SkillsModal />
-          <DesktopControlModal />
+          {isSwarmMapOpen && (
+            <Suspense fallback={null}>
+              <SwarmMap />
+            </Suspense>
+          )}
+          {isSkillsModalOpen && (
+            <Suspense fallback={null}>
+              <SkillsModal />
+            </Suspense>
+          )}
+          {isDesktopControlModalOpen && (
+            <Suspense fallback={null}>
+              <DesktopControlModal />
+            </Suspense>
+          )}
+          {isDecisionsModalOpen && (
+            <Suspense fallback={null}>
+              <DecisionsModal />
+            </Suspense>
+          )}
+          {isSettingsModalOpen && (
+            <Suspense fallback={null}>
+              <SettingsModal />
+            </Suspense>
+          )}
+          {isConnectorsModalOpen && (
+            <Suspense fallback={null}>
+              <ConnectorsModal />
+            </Suspense>
+          )}
+          {isAutomationsModalOpen && (
+            <Suspense fallback={null}>
+              <AutomationsModal />
+            </Suspense>
+          )}
           <CreateGoalModal />
           <CreateTaskModal />
-          <DecisionsModal />
-          <SettingsModal />
-          <ConnectorsModal />
-          <AutomationsModal />
           <ModelSelectorModal />
           <AddProviderModal />
           <ModelUnavailablePromptModal />
-          <AgentSettingsModal />
+          {isAgentSettingsModalOpen && (
+            <Suspense fallback={null}>
+              <AgentSettingsModal />
+            </Suspense>
+          )}
           <ToastContainer />
         </ErrorBoundary>
       </div>

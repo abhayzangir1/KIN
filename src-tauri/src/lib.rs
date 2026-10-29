@@ -67,7 +67,7 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             match event {
-                tauri::WindowEvent::CloseRequested { api, .. } => {
+                tauri::WindowEvent::CloseRequested { api: _, .. } => {
                     log_diagnostic(&format!("[KIN SHELL] Window close requested: {}", window.label()));
                 }
                 tauri::WindowEvent::Destroyed => {
@@ -88,7 +88,7 @@ pub fn run() {
     log_diagnostic("[KIN SHELL] Entering Tauri run loop...");
     app.run(|_app_handle, event| {
         match event {
-            tauri::RunEvent::ExitRequested { api, .. } => {
+            tauri::RunEvent::ExitRequested { api: _, .. } => {
                 log_diagnostic("[KIN SHELL] RunEvent::ExitRequested received.");
             }
             tauri::RunEvent::Exit => {

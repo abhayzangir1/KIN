@@ -3095,7 +3095,10 @@ export const useKinStore = create<KinState>((set, get) => ({
         if (sseReconnectTimer) {
           clearTimeout(sseReconnectTimer);
         }
-        const delay = Math.min(15000, 1000 * Math.pow(1.5, sseReconnectAttempts++)) + Math.floor(Math.random() * 500);
+        const delay = sseReconnectAttempts < 3
+          ? 400 + Math.floor(Math.random() * 200)
+          : Math.min(15000, 1000 * Math.pow(1.5, sseReconnectAttempts)) + Math.floor(Math.random() * 500);
+        sseReconnectAttempts++;
         sseReconnectTimer = setTimeout(() => {
           sseReconnectTimer = null;
           console.log(`[KIN UI] EventSource connection error or disconnect, auto-reconnecting (attempt ${sseReconnectAttempts}, delay ${delay}ms)...`);

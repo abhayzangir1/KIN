@@ -130,6 +130,10 @@ export const NewProjectModal: React.FC = () => {
     try {
       setIsSubmitting(true);
       setError('');
+      // If not yet connected, attempt a rapid reconnect check
+      if (!isConnected) {
+        await fetchState().catch(() => {});
+      }
       await createProject(name.trim(), finalRepoPath || undefined);
       addToast({
         title: 'Workspace Created',
@@ -139,7 +143,14 @@ export const NewProjectModal: React.FC = () => {
       setName('');
       setRepoPath('');
     } catch (err: any) {
-      setError(err?.message || 'Failed to create project');
+      const msg = err?.message || 'Failed to create project';
+      if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+        setError('Core daemon is initializing. Reconnecting automatically... please retry in a second.');
+        fetchState().catch(() => {});
+        initSSE();
+      } else {
+        setError(msg);
+      }
     } finally {
       setIsSubmitting(false);
     }

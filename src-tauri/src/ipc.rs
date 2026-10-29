@@ -64,7 +64,47 @@ pub fn pick_folder() -> Result<Option<String>, String> {
         }
         Ok(None)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        let output = Command::new("osascript")
+            .args(&["-e", "POSIX path of (choose folder with prompt \"Select Project Folder\")"])
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !result.is_empty() {
+            return Ok(Some(result));
+        }
+        Ok(None)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use std::process::Command;
+        let zenity = Command::new("zenity")
+            .args(&["--file-selection", "--directory", "--title=Select Project Folder"])
+            .output();
+
+        if let Ok(output) = zenity {
+            let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !result.is_empty() {
+                return Ok(Some(result));
+            }
+        }
+
+        let kdialog = Command::new("kdialog")
+            .args(&["--getexistingdirectory", "."])
+            .output();
+
+        if let Ok(output) = kdialog {
+            let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !result.is_empty() {
+                return Ok(Some(result));
+            }
+        }
+        Ok(None)
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     {
         Ok(None)
     }
