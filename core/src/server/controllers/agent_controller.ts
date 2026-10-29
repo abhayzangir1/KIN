@@ -122,10 +122,32 @@ export class AgentController extends BaseController {
 
         // Reassign any assigned tasks back to orchestrator @Boss or reset to ready
         const boss = this.agentRepo.getBossIdentityForProject(agent.projectId);
+        const now = Date.now();
         if (boss) {
-          this.db.execute("UPDATE tasks SET assigned_agent_id = ? WHERE assigned_agent_id = ?", boss.id, agentId);
+          this.db.execute(
+            `UPDATE tasks
+             SET assigned_agent_id = ?,
+                 status = CASE WHEN status = 'running' THEN 'ready' ELSE status END,
+                 claimed_by_run_id = NULL,
+                 lease_expires_at = NULL,
+                 updated_at = ?
+             WHERE assigned_agent_id = ?`,
+            boss.id,
+            now,
+            agentId
+          );
         } else {
-          this.db.execute("UPDATE tasks SET assigned_agent_id = NULL, status = 'ready' WHERE assigned_agent_id = ?", agentId);
+          this.db.execute(
+            `UPDATE tasks
+             SET assigned_agent_id = NULL,
+                 status = 'ready',
+                 claimed_by_run_id = NULL,
+                 lease_expires_at = NULL,
+                 updated_at = ?
+             WHERE assigned_agent_id = ?`,
+            now,
+            agentId
+          );
         }
 
         // Remove from all channel memberships

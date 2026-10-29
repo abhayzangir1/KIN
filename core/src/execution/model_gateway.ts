@@ -108,6 +108,11 @@ async function readChunkWithTimeout(reader: any, timeoutMs = 30000): Promise<{ d
   let timer: NodeJS.Timeout | undefined;
   const timeoutPromise = new Promise<{ done: boolean; value?: any }>((_, reject) => {
     timer = setTimeout(() => {
+      try {
+        if (reader && typeof reader.cancel === 'function') {
+          reader.cancel().catch?.(() => {});
+        }
+      } catch {}
       reject(new Error(`Model stream stalled: no chunk received within ${timeoutMs}ms idle timeout.`));
     }, timeoutMs);
   });

@@ -794,6 +794,7 @@ export class AgentLoopRunner {
           requiresApproval: true,
           interruptedTurn: currentTurn,
           pendingApprovalDetails: { toolName: toolCall.name, params: toolCall.params, riskLevel: 'CRITICAL', reasons: finCheck.reasons },
+          history: conversationHistory,
         };
       }
 
@@ -1002,6 +1003,7 @@ export class AgentLoopRunner {
             requiresApproval: true,
             interruptedTurn: currentTurn,
             pendingApprovalDetails: { toolName: toolCall.name, params: toolCall.params, riskLevel: res.riskLevel },
+            history: conversationHistory,
           };
         }
 
@@ -1056,6 +1058,7 @@ export class AgentLoopRunner {
                   authProtocol: true,
                   promptInstructions: authCheck.promptInstructions,
                 },
+                history: conversationHistory,
               };
             }
           } else if (toolCall.name.startsWith('desktop')) {

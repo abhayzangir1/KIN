@@ -3998,6 +3998,7 @@ export class CoreServer {
               turnCount: loopResult.turnCount,
               agentId: freshIdentity.id,
               channelId,
+              conversationHistory: loopResult.history,
             }),
             worktreeCommitSha,
             Date.now()
@@ -4113,8 +4114,21 @@ export class CoreServer {
             const currentTask = this.taskRepo.getTask(activeTaskId);
             const retryCount = (currentTask?.retryCount ?? 0) + 1;
             const nextStatus = retryCount >= 5 ? 'failed' : 'ready';
-            this.taskRepo.updateTaskStatus(activeTaskId, nextStatus);
-            this.taskRepo.releaseTaskLease(activeTaskId, run.id, true);
+            this.db.execute(
+              `UPDATE tasks
+               SET status = ?,
+                   assigned_agent_id = CASE WHEN ? = 'ready' THEN NULL ELSE assigned_agent_id END,
+                   claimed_by_run_id = NULL,
+                   lease_expires_at = NULL,
+                   retry_count = ?,
+                   updated_at = ?
+               WHERE id = ?`,
+              nextStatus,
+              nextStatus,
+              retryCount,
+              Date.now(),
+              activeTaskId
+            );
             EventLedger.getInstance().record({
               eventType: 'TASK_TURN_EXHAUSTION',
               entityType: 'task',

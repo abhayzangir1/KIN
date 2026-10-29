@@ -452,15 +452,7 @@ export class ToolEngine {
             }
           };
 
-          // Safe Buffer wrapper without constructor prototype chain escape
-          const safeBuffer = Object.create(null);
-          safeBuffer.from = (...args) => Buffer.from(...args);
-          safeBuffer.alloc = (...args) => Buffer.alloc(...args);
-          safeBuffer.concat = (...args) => Buffer.concat(...args);
-          safeBuffer.isBuffer = (obj) => Buffer.isBuffer(obj);
-          Object.freeze(safeBuffer);
-
-          // Build sandboxed context with restricted globals
+          // Build sandboxed context with restricted globals (no host Buffer or host constructors)
           const context = vm.createContext({
             params: Object.freeze(JSON.parse(JSON.stringify(cleanParams))),
             context: Object.freeze(JSON.parse(JSON.stringify(cleanContext))),
@@ -477,7 +469,6 @@ export class ToolEngine {
               warn: () => {},
               error: () => {}
             },
-            Buffer: safeBuffer,
             JSON,
             Math,
             Date,
@@ -488,7 +479,38 @@ export class ToolEngine {
           });
 
           // Prevent prototype pollution or constructor escapes inside guest context
-          vm.runInContext("Object.freeze(Object); Object.freeze(Array);", context);
+          vm.runInContext(
+            "globalThis.Buffer = Object.freeze({" +
+            "  from: function(input) {" +
+            "    if (typeof input === 'string') {" +
+            "      var arr = new Uint8Array(input.length);" +
+            "      for (var i = 0; i < input.length; i++) arr[i] = input.charCodeAt(i) & 0xff;" +
+            "      return arr;" +
+            "    }" +
+            "    if (Array.isArray(input) || (input && input.constructor && input.constructor.name === 'Uint8Array')) {" +
+            "      return new Uint8Array(input);" +
+            "    }" +
+            "    return new Uint8Array(0);" +
+            "  }," +
+            "  alloc: function(size) { return new Uint8Array(typeof size === 'number' ? size : 0); }," +
+            "  isBuffer: function(obj) { return !!(obj && obj.constructor && obj.constructor.name === 'Uint8Array'); }," +
+            "  concat: function(list) {" +
+            "    if (!Array.isArray(list)) return new Uint8Array(0);" +
+            "    var total = list.reduce(function(acc, c) { return acc + (c ? (c.length || 0) : 0); }, 0);" +
+            "    var out = new Uint8Array(total);" +
+            "    var offset = 0;" +
+            "    for (var i = 0; i < list.length; i++) {" +
+            "      var item = list[i];" +
+            "      if (item && item.length) { out.set(item, offset); offset += item.length; }" +
+            "    }" +
+            "    return out;" +
+            "  }" +
+            "});" +
+            "Object.freeze(Object.prototype);" +
+            "Object.freeze(Object);" +
+            "Object.freeze(Array);",
+            context
+          );
 
           const wrapped = "(async () => {\\n" +
             "  const module = { exports: {} };\\n" +

@@ -76,17 +76,13 @@ export class KinDatabase {
 
   public exec(sql: string): void {
     if (this.isClosed) throw new Error('Database connection is closed.');
-    const maxRetries = 10;
-    let delay = 10;
+    const maxRetries = 3;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         this.db.exec(sql);
         return;
       } catch (err: unknown) {
         if (this.isBusyError(err) && attempt < maxRetries) {
-          const end = Date.now() + delay;
-          while (Date.now() < end) {}
-          delay = Math.min(delay * 2, 200);
           continue;
         }
         throw err;
@@ -115,17 +111,13 @@ export class KinDatabase {
 
   public execute(sql: string, ...params: (string | number | bigint | Buffer | null)[]): RunResult {
     if (this.isClosed) throw new Error('Database connection is closed.');
-    const maxRetries = 10;
-    let delay = 10;
+    const maxRetries = 3;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const stmt = this.db.prepare(sql);
         return stmt.run(...params);
       } catch (err: unknown) {
         if (this.isBusyError(err) && attempt < maxRetries) {
-          const end = Date.now() + delay;
-          while (Date.now() < end) {}
-          delay = Math.min(delay * 2, 200);
           continue;
         }
         throw err;
@@ -289,16 +281,12 @@ export class KinDatabase {
     return this.txContext.run(context, () => {
       this.syncTxDepth++;
       try {
-        let delay = 10;
-        for (let attempt = 1; attempt <= 10; attempt++) {
+        for (let attempt = 1; attempt <= 3; attempt++) {
           try {
             this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
             break;
           } catch (err) {
-            if (this.isBusyError(err) && attempt < 10) {
-              const end = Date.now() + delay;
-              while (Date.now() < end) {}
-              delay = Math.min(delay * 2, 200);
+            if (this.isBusyError(err) && attempt < 3) {
               continue;
             }
             throw err;

@@ -3075,6 +3075,8 @@ export const useKinStore = create<KinState>((set, get) => ({
         sseReconnectAttempts = 0;
         set({ isConnected: true });
         get().fetchState();
+        get().fetchActiveRuns();
+        get().fetchSystemHealth();
         const activeChan = get().activeChannelId;
         if (activeChan) {
           fetch(`/api/channels/${activeChan}/messages`)

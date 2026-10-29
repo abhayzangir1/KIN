@@ -326,13 +326,21 @@ export class AgentKernel {
    * Retrieves the latest turn checkpoint snapshot for a run.
    */
   public getLatestCheckpoint(runId: string): any {
-    const row = this.db.queryOne<{ snapshot_json: string }>(
-      'SELECT snapshot_json FROM checkpoints WHERE run_id = ? ORDER BY created_at DESC LIMIT 1',
+    const rows = this.db.query<{ snapshot_json: string }>(
+      'SELECT snapshot_json FROM checkpoints WHERE run_id = ? ORDER BY created_at DESC',
       runId
     );
-    if (!row) return undefined;
+    if (!rows || rows.length === 0) return undefined;
+    for (const row of rows) {
+      try {
+        const parsed = JSON.parse(row.snapshot_json);
+        if (parsed && Array.isArray(parsed.conversationHistory) && parsed.conversationHistory.length > 0) {
+          return parsed;
+        }
+      } catch {}
+    }
     try {
-      return JSON.parse(row.snapshot_json);
+      return JSON.parse(rows[0].snapshot_json);
     } catch {
       return undefined;
     }
