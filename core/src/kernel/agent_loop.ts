@@ -1195,6 +1195,18 @@ export class AgentLoopRunner {
       throw err;
     }
 
+    if (!finalContent && currentTurn >= maxTurns) {
+      finalContent = `Execution halted: Turn limit of ${maxTurns} reached before task completion.`;
+      return {
+        finalContent,
+        turnCount: currentTurn,
+        actions,
+        success: false,
+        maxTurnsReached: true,
+        reason: `Turn limit of ${maxTurns} reached without task completion.`,
+      };
+    }
+
     if (!finalContent) {
       if (actions.length > 0) {
         finalContent = `Execution completed after ${actions.length} action(s).`;

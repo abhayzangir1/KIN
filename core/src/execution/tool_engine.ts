@@ -452,10 +452,18 @@ export class ToolEngine {
             }
           };
 
+          // Safe Buffer wrapper without constructor prototype chain escape
+          const safeBuffer = Object.create(null);
+          safeBuffer.from = (...args) => Buffer.from(...args);
+          safeBuffer.alloc = (...args) => Buffer.alloc(...args);
+          safeBuffer.concat = (...args) => Buffer.concat(...args);
+          safeBuffer.isBuffer = (obj) => Buffer.isBuffer(obj);
+          Object.freeze(safeBuffer);
+
           // Build sandboxed context with restricted globals
           const context = vm.createContext({
-            params: cleanParams,
-            context: cleanContext,
+            params: Object.freeze(JSON.parse(JSON.stringify(cleanParams))),
+            context: Object.freeze(JSON.parse(JSON.stringify(cleanContext))),
             fs: jailedFs,
             path: {
               join: path.join,
@@ -469,7 +477,7 @@ export class ToolEngine {
               warn: () => {},
               error: () => {}
             },
-            Buffer,
+            Buffer: safeBuffer,
             JSON,
             Math,
             Date,
@@ -479,9 +487,8 @@ export class ToolEngine {
             module: { exports: {} }
           });
 
-          // Prevent prototype pollution or constructor escapes
-          Object.freeze(context.Object);
-          Object.freeze(context.Array);
+          // Prevent prototype pollution or constructor escapes inside guest context
+          vm.runInContext("Object.freeze(Object); Object.freeze(Array);", context);
 
           const wrapped = "(async () => {\\n" +
             "  const module = { exports: {} };\\n" +

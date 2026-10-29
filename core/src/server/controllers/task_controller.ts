@@ -258,9 +258,10 @@ export class TaskController extends BaseController {
                 taskId: run?.taskId,
                 createdAt: Date.now(),
               };
+              const latestCheckpoint = this.checkpointRepo.getLatestCheckpoint(approvalRow.run_id);
               this.enqueueChannelExecution(targetChanId, () =>
                 this.enqueueAgentExecution(agentIdentity.id, () =>
-                  this.executeAgentResponse(agentIdentity, targetChanId, observationTrigger, 0, undefined, approvalRow.run_id)
+                  this.executeAgentResponse(agentIdentity, targetChanId, observationTrigger, 0, latestCheckpoint, approvalRow.run_id)
                 )
               ).catch((resumeErr) => {
                 this.preservedWorktrees.delete(approvalRow.run_id);
@@ -304,9 +305,10 @@ export class TaskController extends BaseController {
                   taskId: run?.taskId,
                   createdAt: Date.now(),
                 };
+                const latestCheckpoint = this.checkpointRepo.getLatestCheckpoint(approvalRow.run_id);
                 this.enqueueChannelExecution(targetChanId, () =>
                   this.enqueueAgentExecution(agentIdentity.id, () =>
-                    this.executeAgentResponse(agentIdentity, targetChanId, observationTrigger, 0, undefined, approvalRow.run_id)
+                    this.executeAgentResponse(agentIdentity, targetChanId, observationTrigger, 0, latestCheckpoint, approvalRow.run_id)
                   )
                 ).catch((resumeErr) => {
                   console.error('[KIN CORE] Error resuming agent response after tool denial:', resumeErr);

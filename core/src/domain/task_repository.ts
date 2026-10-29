@@ -305,6 +305,7 @@ export class TaskRepository {
           ? this.db.execute(
               `UPDATE tasks
                SET status = ?,
+                   assigned_agent_id = CASE WHEN ? = 'ready' THEN NULL ELSE assigned_agent_id END,
                    claimed_by_run_id = NULL,
                    lease_expires_at = NULL,
                    retry_count = retry_count + 1,
@@ -316,6 +317,7 @@ export class TaskRepository {
                    OR (SELECT state FROM agent_runs WHERE id = tasks.claimed_by_run_id) IN ('completed', 'failed', 'cancelled')
                  )`,
               nextStatus,
+              nextStatus,
               now,
               row.id,
               row.claimed_by_run_id!,
@@ -324,11 +326,13 @@ export class TaskRepository {
           : this.db.execute(
               `UPDATE tasks
                SET status = ?,
+                   assigned_agent_id = CASE WHEN ? = 'ready' THEN NULL ELSE assigned_agent_id END,
                    claimed_by_run_id = NULL,
                    lease_expires_at = NULL,
                    retry_count = retry_count + 1,
                    updated_at = ?
                WHERE id = ? AND status = 'running' AND claimed_by_run_id IS NULL AND (lease_expires_at IS NULL OR lease_expires_at < ?)`,
+              nextStatus,
               nextStatus,
               now,
               row.id,

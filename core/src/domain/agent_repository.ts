@@ -338,6 +338,11 @@ export class AgentRepository {
     });
   }
 
+  public getBossIdentityForProject(projectId: string): AgentIdentity | undefined {
+    const identities = this.listIdentitiesByProject(projectId);
+    return identities.find((a) => a.isOrchestrator);
+  }
+
   public listSubordinates(parentAgentId: string): AgentIdentity[] {
     const rows = this.db.query<{
       id: string;

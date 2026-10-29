@@ -197,46 +197,15 @@ pub mod unix_impl {
 
         /// Signal-safe cleanup invoked directly from signal handlers
         pub fn cleanup_signal_safe() {
-            let mut pgids = [0i32; MAX_ATOMIC_PGIDS];
-            let mut count = 0;
-
-            if let Ok(mut lock) = get_child_pgids().try_lock() {
-                for &pgid in lock.iter() {
-                    if pgid > 1 && count < MAX_ATOMIC_PGIDS {
-                        pgids[count] = pgid;
-                        count += 1;
-                    }
-                }
-                lock.clear();
-            } else {
-                for slot in &ATOMIC_PGIDS {
-                    let pgid = slot.load(Ordering::SeqCst);
-                    if pgid > 1 && count < MAX_ATOMIC_PGIDS {
-                        pgids[count] = pgid;
-                        count += 1;
-                    }
-                }
-            }
-
-            // Phase 1: SIGTERM to process groups
-            for i in 0..count {
-                unsafe {
-                    libc::kill(-pgids[i], libc::SIGTERM);
-                }
-            }
-
-            // Grace period
-            std::thread::sleep(Duration::from_millis(200));
-
-            // Phase 2: SIGKILL on retained process group IDs
-            for i in 0..count {
-                unsafe {
-                    libc::kill(-pgids[i], libc::SIGKILL);
-                }
-            }
-
+            // Async-signal-safe: Only atomic operations and libc::kill.
+            // No mutex locking, no thread::sleep, no heap allocations.
             for slot in &ATOMIC_PGIDS {
-                slot.store(0, Ordering::SeqCst);
+                let pgid = slot.swap(0, Ordering::SeqCst);
+                if pgid > 1 {
+                    unsafe {
+                        libc::kill(-pgid, libc::SIGKILL);
+                    }
+                }
             }
         }
     }

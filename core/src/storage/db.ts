@@ -1,6 +1,7 @@
 import { DatabaseSync, StatementSync } from 'node:sqlite';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 export interface DatabaseConfig {
   dbPath?: string; // If undefined or ':memory:', runs in memory
@@ -12,12 +13,18 @@ export interface RunResult {
   lastInsertRowid: number | bigint;
 }
 
+interface TransactionContext {
+  transactionId: string;
+  savepointLevel: number;
+}
+
 export class KinDatabase {
   private db: DatabaseSync;
   private readonly dbPath: string;
   private isClosed: boolean = false;
   private writeLock: Promise<void> = Promise.resolve();
-  private isTransactionActive: boolean = false;
+  private txContext = new AsyncLocalStorage<TransactionContext>();
+  private syncTxDepth: number = 0;
 
   constructor(config: DatabaseConfig | string = {}) {
     const rawPath = typeof config === 'string' ? config : (config.dbPath || ':memory:');
@@ -49,17 +56,8 @@ export class KinDatabase {
     this.db.exec('PRAGMA foreign_keys = ON;');
   }
 
-  private sleepBuffer = new Int32Array(new SharedArrayBuffer(4));
-
-  private sleepSync(ms: number): void {
-    try {
-      Atomics.wait(this.sleepBuffer, 0, 0, ms);
-    } catch {
-      const end = Date.now() + ms;
-      while (Date.now() < end) {
-        // Fallback spin wait if Atomics is unavailable
-      }
-    }
+  public get isTransactionActive(): boolean {
+    return this.txContext.getStore() !== undefined || this.syncTxDepth > 0;
   }
 
   private isBusyError(err: unknown): boolean {
@@ -86,8 +84,8 @@ export class KinDatabase {
         return;
       } catch (err: unknown) {
         if (this.isBusyError(err) && attempt < maxRetries) {
-          const jitter = Math.floor(Math.random() * 15);
-          this.sleepSync(delay + jitter);
+          const end = Date.now() + delay;
+          while (Date.now() < end) {}
           delay = Math.min(delay * 2, 200);
           continue;
         }
@@ -125,8 +123,8 @@ export class KinDatabase {
         return stmt.run(...params);
       } catch (err: unknown) {
         if (this.isBusyError(err) && attempt < maxRetries) {
-          const jitter = Math.floor(Math.random() * 15);
-          this.sleepSync(delay + jitter);
+          const end = Date.now() + delay;
+          while (Date.now() < end) {}
           delay = Math.min(delay * 2, 200);
           continue;
         }
@@ -137,18 +135,49 @@ export class KinDatabase {
   }
 
   /**
+   * Asynchronous execute with non-blocking backoff.
+   * Completely avoids blocking the Node.js event loop during SQLITE_BUSY contention.
+   */
+  public async executeAsync(
+    sql: string,
+    ...params: (string | number | bigint | Buffer | null)[]
+  ): Promise<RunResult> {
+    if (this.isClosed) throw new Error('Database connection is closed.');
+    const maxRetries = 10;
+    let delay = 10;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const stmt = this.db.prepare(sql);
+        return stmt.run(...params);
+      } catch (err: unknown) {
+        if (this.isBusyError(err) && attempt < maxRetries) {
+          const jitter = Math.floor(Math.random() * 15);
+          await new Promise((resolve) => setTimeout(resolve, delay + jitter));
+          delay = Math.min(delay * 2, 200);
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error('Database executeAsync failed after busy retries.');
+  }
+
+  /**
    * Serialized transaction runner.
-   * Ensures that concurrent in-process write calls are queued sequentially,
-   * completely avoiding SQLITE_BUSY deadlocks.
+   * Uses AsyncLocalStorage to track transaction context per asynchronous execution flow.
+   * Top-level transactions are queued sequentially across async tasks via writeLock.
+   * Nested calls within the same async context create isolated SQLite SAVEPOINTs.
    */
   public async transactionAsync<T>(fn: () => T | Promise<T>): Promise<T> {
     if (this.isClosed) throw new Error('Database connection is closed.');
 
-    if (this.isTransactionActive) {
-      // Nested transaction inside an active transaction.
+    const currentTx = this.txContext.getStore();
+    if (currentTx) {
+      // Nested transaction inside an active async execution flow.
       // Use SQLite SAVEPOINT to provide nested transactional isolation without deadlock
       // or attempting an illegal nested BEGIN TRANSACTION.
-      const savepointName = `sp_async_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      currentTx.savepointLevel++;
+      const savepointName = `sp_async_${currentTx.transactionId}_${currentTx.savepointLevel}`;
       this.db.exec(`SAVEPOINT ${savepointName};`);
       try {
         const result = await fn();
@@ -162,10 +191,12 @@ export class KinDatabase {
           // Ignore rollback error
         }
         throw error;
+      } finally {
+        currentTx.savepointLevel--;
       }
     }
 
-    // Chain onto the write lock promise
+    // Top-level async transaction: serialize with writeLock
     let releaseLock: () => void = () => {};
     const nextLock = new Promise<void>((resolve) => {
       releaseLock = resolve;
@@ -177,52 +208,56 @@ export class KinDatabase {
     // Always await previous lock safely, even if previous transaction failed
     await previousLock.catch(() => {});
 
-    this.isTransactionActive = true;
+    const txId = `tx_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const context: TransactionContext = {
+      transactionId: txId,
+      savepointLevel: 0,
+    };
 
-    try {
-      let delay = 10;
-      for (let attempt = 1; attempt <= 10; attempt++) {
-        try {
-          this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
-          break;
-        } catch (err) {
-          if (this.isBusyError(err) && attempt < 10) {
-            await new Promise((r) => setTimeout(r, delay + Math.floor(Math.random() * 15)));
-            delay = Math.min(delay * 2, 200);
-            continue;
-          }
-          throw err;
-        }
-      }
-      const result = await fn();
-      this.db.exec('COMMIT;');
-      return result;
-    } catch (error) {
+    return this.txContext.run(context, async () => {
       try {
-        this.db.exec('ROLLBACK;');
-      } catch {
-        // Rollback error ignored if transaction was already aborted
+        let delay = 10;
+        for (let attempt = 1; attempt <= 10; attempt++) {
+          try {
+            this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
+            break;
+          } catch (err) {
+            if (this.isBusyError(err) && attempt < 10) {
+              await new Promise((r) => setTimeout(r, delay + Math.floor(Math.random() * 15)));
+              delay = Math.min(delay * 2, 200);
+              continue;
+            }
+            throw err;
+          }
+        }
+        const result = await fn();
+        this.db.exec('COMMIT;');
+        return result;
+      } catch (error) {
+        try {
+          this.db.exec('ROLLBACK;');
+        } catch {
+          // Rollback error ignored if transaction was already aborted
+        }
+        throw error;
+      } finally {
+        releaseLock();
       }
-      throw error;
-    } finally {
-      this.isTransactionActive = false;
-      releaseLock();
-    }
+    });
   }
 
   /**
    * Synchronous transaction for immediate synchronous batches.
-   * Uses SAVEPOINT if an outer transaction is already active to prevent illegal nested BEGIN
-   * or single-threaded event loop deadlocks.
+   * Uses SAVEPOINT if an outer transaction is already active to prevent illegal nested BEGIN.
    */
   public transactionSync<T>(fn: () => T): T {
     if (this.isClosed) throw new Error('Database connection is closed.');
 
-    if (this.isTransactionActive) {
-      // An outer transaction (either async or sync) is already active on this connection.
-      // Use SQLite SAVEPOINT to provide nested transactional isolation without deadlock
-      // or attempting an illegal nested BEGIN TRANSACTION.
-      const savepointName = `sp_sync_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const currentTx = this.txContext.getStore();
+    if (currentTx || this.syncTxDepth > 0) {
+      const txId = currentTx ? currentTx.transactionId : 'sync';
+      const level = currentTx ? ++currentTx.savepointLevel : ++this.syncTxDepth;
+      const savepointName = `sp_sync_${txId}_${level}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       this.db.exec(`SAVEPOINT ${savepointName};`);
       try {
         const result = fn();
@@ -236,41 +271,55 @@ export class KinDatabase {
           // Ignore rollback error
         }
         throw error;
+      } finally {
+        if (currentTx) {
+          currentTx.savepointLevel--;
+        } else {
+          this.syncTxDepth--;
+        }
       }
     }
 
-    this.isTransactionActive = true;
+    const txId = `tx_sync_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const context: TransactionContext = {
+      transactionId: txId,
+      savepointLevel: 0,
+    };
 
-    try {
-      let delay = 10;
-      for (let attempt = 1; attempt <= 10; attempt++) {
-        try {
-          this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
-          break;
-        } catch (err) {
-          if (this.isBusyError(err) && attempt < 10) {
-            this.sleepSync(delay + Math.floor(Math.random() * 10));
-            delay = Math.min(delay * 2, 200);
-            continue;
-          }
-          throw err;
-        }
-      }
+    return this.txContext.run(context, () => {
+      this.syncTxDepth++;
       try {
-        const result = fn();
-        this.db.exec('COMMIT;');
-        return result;
-      } catch (error) {
-        try {
-          this.db.exec('ROLLBACK;');
-        } catch {
-          // Rollback error ignored
+        let delay = 10;
+        for (let attempt = 1; attempt <= 10; attempt++) {
+          try {
+            this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
+            break;
+          } catch (err) {
+            if (this.isBusyError(err) && attempt < 10) {
+              const end = Date.now() + delay;
+              while (Date.now() < end) {}
+              delay = Math.min(delay * 2, 200);
+              continue;
+            }
+            throw err;
+          }
         }
-        throw error;
+        try {
+          const result = fn();
+          this.db.exec('COMMIT;');
+          return result;
+        } catch (error) {
+          try {
+            this.db.exec('ROLLBACK;');
+          } catch {
+            // Rollback error ignored
+          }
+          throw error;
+        }
+      } finally {
+        this.syncTxDepth--;
       }
-    } finally {
-      this.isTransactionActive = false;
-    }
+    });
   }
 
   public close(): void {

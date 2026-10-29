@@ -1164,21 +1164,28 @@ export const CenterView: React.FC = () => {
         )}
 
         {/* Live In-Flight Streaming Token Draft Bubble */}
-        {streamingDrafts && streamingDrafts[activeChannelId] && stripThoughtsAndToolSyntax(streamingDrafts[activeChannelId]) && (
-          <div className="p-3.5 rounded-2xl bg-blue-50/90 dark:bg-gradient-to-r dark:from-[#091122]/90 dark:to-[#0c1830]/90 border border-blue-400/40 shadow-xl space-y-2 animate-fadeIn backdrop-blur-md">
-            <div className="flex items-center justify-between text-xs text-blue-700 dark:text-blue-300 font-mono">
-              <div className="flex items-center space-x-2">
-                <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                <span className="font-bold">Streaming Response...</span>
+        {streamingDrafts && Object.entries(streamingDrafts)
+          .filter(([key, val]) => (key === activeChannelId || key.startsWith(`${activeChannelId}:`)) && stripThoughtsAndToolSyntax(val))
+          .map(([draftKey, draftContent]) => {
+            const agentIdInKey = draftKey.includes(':') ? draftKey.split(':')[1] : undefined;
+            const draftingAgent = agentIdInKey ? agents.find((a) => a.id === agentIdInKey) : undefined;
+            const agentLabel = draftingAgent?.displayName ? `${draftingAgent.displayName} streaming...` : 'Streaming Response...';
+            return (
+              <div key={draftKey} className="p-3.5 rounded-2xl bg-blue-50/90 dark:bg-gradient-to-r dark:from-[#091122]/90 dark:to-[#0c1830]/90 border border-blue-400/40 shadow-xl space-y-2 animate-fadeIn backdrop-blur-md">
+                <div className="flex items-center justify-between text-xs text-blue-700 dark:text-blue-300 font-mono">
+                  <div className="flex items-center space-x-2">
+                    <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                    <span className="font-bold">{agentLabel}</span>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20">Live</span>
+                </div>
+                <div className="font-mono text-xs text-slate-800 dark:text-[#cbd5e1] whitespace-pre-wrap leading-relaxed">
+                  {stripThoughtsAndToolSyntax(draftContent)}
+                  <span className="inline-block w-1.5 h-3.5 bg-blue-500 ml-1 animate-pulse align-middle" />
+                </div>
               </div>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20">Live</span>
-            </div>
-            <div className="font-mono text-xs text-slate-800 dark:text-[#cbd5e1] whitespace-pre-wrap leading-relaxed">
-              {stripThoughtsAndToolSyntax(streamingDrafts[activeChannelId])}
-              <span className="inline-block w-1.5 h-3.5 bg-blue-500 ml-1 animate-pulse align-middle" />
-            </div>
-          </div>
-        )}
+            );
+          })}
 
         <div ref={messagesEndRef} />
         </div>

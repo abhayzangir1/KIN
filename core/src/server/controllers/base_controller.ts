@@ -55,6 +55,11 @@ export abstract class BaseController {
   public get financialSafety(): FinancialSafetyShield { return this.server.financialSafety; }
   public get wakeupQueue(): WakeupQueue { return this.server.wakeupQueue; }
   public get nativeRunnerAdapter(): TypedRunnerAdapter { return this.server.nativeRunnerAdapter; }
+  public get checkpointRepo() {
+    return {
+      getLatestCheckpoint: (runId: string) => this.kernel.getLatestCheckpoint(runId),
+    };
+  }
 
   public get activeProjectId(): string { return this.server.activeProjectId; }
   public set activeProjectId(v: string) { this.server.activeProjectId = v; }

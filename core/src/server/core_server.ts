@@ -169,7 +169,7 @@ export class CoreServer {
       }
     }
     this.port = options.port ?? 54321;
-    this.requireIpcAuth = options.requireIpcAuth ?? (this.port === 54321);
+    this.requireIpcAuth = options.requireIpcAuth ?? (this.port !== 0);
     const dataDir = getDataDirectory();
     this.dbPath = options.dbPath ?? (process.env.KIN_DB_PATH ? path.resolve(process.env.KIN_DB_PATH) : path.resolve(dataDir, 'kin_storage.sqlite'));
     this.db = new KinDatabase({ dbPath: this.dbPath });
@@ -899,11 +899,11 @@ export class CoreServer {
                   const retryCount = (currentTask.retryCount ?? 0) + 1;
                   if (retryCount >= 5) {
                     this.taskRepo.updateTaskStatus(item.taskId, 'review');
-                    this.db.execute('UPDATE tasks SET retry_count = ?, updated_at = ? WHERE id = ?', retryCount, Date.now(), item.taskId);
+                    this.db.execute('UPDATE tasks SET retry_count = ?, claimed_by_run_id = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ?', retryCount, Date.now(), item.taskId);
                     this.broadcastEvent('task:updated', { taskId: item.taskId, status: 'review' });
                   } else {
                     this.taskRepo.updateTaskStatus(item.taskId, 'ready');
-                    this.db.execute('UPDATE tasks SET retry_count = ?, updated_at = ? WHERE id = ?', retryCount, Date.now(), item.taskId);
+                    this.db.execute('UPDATE tasks SET retry_count = ?, claimed_by_run_id = NULL, lease_expires_at = NULL, assigned_agent_id = NULL, updated_at = ? WHERE id = ?', retryCount, Date.now(), item.taskId);
                     this.broadcastEvent('task:updated', { taskId: item.taskId, status: 'ready' });
                   }
                 }
@@ -2053,7 +2053,7 @@ export class CoreServer {
 
   private isAllowedOrigin(origin?: string, req?: http.IncomingMessage): boolean {
     if (!origin) return true;
-    if (!this.requireIpcAuth && this.port !== 54321) return true;
+    if (!this.requireIpcAuth) return true;
     if (origin === 'null') {
       if (req) {
         const remoteIp = req.socket?.remoteAddress;
@@ -2095,7 +2095,7 @@ export class CoreServer {
     if (res.hasHeader('Access-Control-Allow-Origin') && !origin) {
       // Never overwrite an existing Access-Control-Allow-Origin if it was already set and req?.headers?.origin is missing
     } else {
-      if (this.requireIpcAuth || this.port === 54321) {
+      if (this.requireIpcAuth) {
         if (origin && this.isAllowedOrigin(origin, req)) {
           res.setHeader('Access-Control-Allow-Origin', origin);
         } else if (!origin && !res.hasHeader('Access-Control-Allow-Origin')) {
@@ -2258,7 +2258,7 @@ export class CoreServer {
     try {
       // 1. SSE Stream
       if (req.method === 'GET' && pathname === '/api/events') {
-        const sseOrigin = (this.requireIpcAuth || this.port === 54321)
+        const sseOrigin = this.requireIpcAuth
           ? (req.headers.origin && this.isAllowedOrigin(req.headers.origin, req) ? req.headers.origin : 'http://localhost:5173')
           : (req.headers.origin || '*');
         res.writeHead(200, {
@@ -2367,7 +2367,8 @@ export class CoreServer {
     const targetPath = path.resolve(uiDistDir, safeRelPath);
 
     // Canonical path traversal security check
-    if (!targetPath.startsWith(uiDistDir)) {
+    const distPrefix = uiDistDir.endsWith(path.sep) ? uiDistDir : uiDistDir + path.sep;
+    if (targetPath !== uiDistDir && !targetPath.startsWith(distPrefix)) {
       this.sendJson(res, 403, { error: 'Forbidden: Path traversal outside static directory' }, req);
       return true;
     }
@@ -4103,6 +4104,31 @@ export class CoreServer {
         this.activeAgentExecutions.delete(agent.id);
         this.broadcastEvent('agent:state', { agentId: agent.id, channelId, status: 'idle' });
         return;
+      } else if (loopResult.maxTurnsReached || (loopResult.success === false && loopResult.maxTurnsReached)) {
+        const failMsg = loopResult.reason || `Turn limit of ${loopResult.turnCount} reached without task completion.`;
+        this.kernel.transitionState(run.id, 'failed', failMsg);
+        const activeTaskId = triggerMsg?.taskId || run?.taskId;
+        if (activeTaskId) {
+          try {
+            const currentTask = this.taskRepo.getTask(activeTaskId);
+            const retryCount = (currentTask?.retryCount ?? 0) + 1;
+            const nextStatus = retryCount >= 5 ? 'failed' : 'ready';
+            this.taskRepo.updateTaskStatus(activeTaskId, nextStatus);
+            this.taskRepo.releaseTaskLease(activeTaskId, run.id, true);
+            EventLedger.getInstance().record({
+              eventType: 'TASK_TURN_EXHAUSTION',
+              entityType: 'task',
+              entityId: activeTaskId,
+              payload: { runId: run.id, reason: failMsg, status: nextStatus },
+            });
+            this.broadcastEvent('task:updated', { taskId: activeTaskId, status: nextStatus, reason: failMsg });
+          } catch (tErr) {
+            console.warn('[KIN CORE] Notice updating task status on turn exhaustion:', tErr);
+          }
+        }
+        this.activeAgentExecutions.delete(agent.id);
+        this.broadcastEvent('agent:state', { agentId: agent.id, channelId, status: 'idle' });
+        return;
       } else {
         // Pre-completion steer check: evaluate remaining steers BEFORE marking run/task complete
         const remainingSteers = this.pendingSteers.filter((s) => {
@@ -4667,6 +4693,7 @@ export class CoreServer {
     } finally {
       if (run?.id) {
         this.runAbortControllers.delete(run.id);
+        this.takeoverStates.delete(run.id);
       }
       this.activeAgentExecutions.delete(agent.id);
       if (triggerMsg?.id) {

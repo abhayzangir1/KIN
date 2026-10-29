@@ -280,7 +280,9 @@ export class ChannelController extends BaseController {
       if (req.method === 'GET' && channelMessagesMatch) {
         const channelId = channelMessagesMatch[1];
         const messages = this.channelService.getMessages(channelId, 100);
-        const agents = this.agentRepo.listIdentitiesByProject(this.activeProjectId);
+        const targetChannel = this.workspaceRepo.getChannel(channelId);
+        const targetProjectId = targetChannel?.projectId || this.activeProjectId;
+        const agents = this.agentRepo.listIdentitiesByProject(targetProjectId);
 
         return this.sendJson(res, 200, {
           messages: messages.map((m) => {

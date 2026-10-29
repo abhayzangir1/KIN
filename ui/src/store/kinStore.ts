@@ -1595,7 +1595,7 @@ export const useKinStore = create<KinState>((set, get) => ({
       };
       const activeMessages = isViewingStateChannel
         ? (data.messages || [])
-        : (nextCache[chosenChannelId] || get().messages);
+        : (nextCache[chosenChannelId] || []);
 
       const rememberedAgentId = (() => {
         try {
@@ -2159,6 +2159,9 @@ export const useKinStore = create<KinState>((set, get) => ({
             if (msg.channelId) {
               delete nextDrafts[msg.channelId];
               delete nextThinking[msg.channelId];
+              if (msg.senderId) {
+                delete nextDrafts[`${msg.channelId}:${msg.senderId}`];
+              }
             }
 
             return {
@@ -2176,12 +2179,13 @@ export const useKinStore = create<KinState>((set, get) => ({
 
       sse.addEventListener('agent:token', (e) => {
         try {
-          const { channelId, token } = JSON.parse(e.data);
+          const { agentId, channelId, token } = JSON.parse(e.data);
           if (channelId && token) {
+            const draftKey = agentId ? `${channelId}:${agentId}` : channelId;
             set((state) => ({
               streamingDrafts: {
                 ...state.streamingDrafts,
-                [channelId]: (state.streamingDrafts[channelId] || '') + token,
+                [draftKey]: (state.streamingDrafts[draftKey] || '') + token,
               },
             }));
           }
@@ -2266,6 +2270,7 @@ export const useKinStore = create<KinState>((set, get) => ({
               delete nextLiveTools[agentId];
               if (channelId) {
                 delete nextDrafts[channelId];
+                delete nextDrafts[`${channelId}:${agentId}`];
                 delete nextThinking[channelId];
               }
             }

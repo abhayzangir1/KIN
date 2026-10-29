@@ -120,8 +120,13 @@ export class AgentController extends BaseController {
           return this.sendJson(res, 400, { error: 'Cannot decommission lead orchestrator @Boss' });
         }
 
-        // Reassign any assigned tasks back to orchestrator @Boss
-        this.db.execute("UPDATE tasks SET assigned_agent_id = 'agent-boss' WHERE assigned_agent_id = ?", agentId);
+        // Reassign any assigned tasks back to orchestrator @Boss or reset to ready
+        const boss = this.agentRepo.getBossIdentityForProject(agent.projectId);
+        if (boss) {
+          this.db.execute("UPDATE tasks SET assigned_agent_id = ? WHERE assigned_agent_id = ?", boss.id, agentId);
+        } else {
+          this.db.execute("UPDATE tasks SET assigned_agent_id = NULL, status = 'ready' WHERE assigned_agent_id = ?", agentId);
+        }
 
         // Remove from all channel memberships
         this.db.execute("DELETE FROM channel_members WHERE agent_id = ?", agentId);
@@ -627,7 +632,7 @@ export class AgentController extends BaseController {
               }
             }
           }
-          const validCaps = new Set(['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate', 'mcp:call', 'browser:read', 'browser:interact', 'desktop:read', 'desktop:interact', 'memory:read', 'memory:write', 'net:fetch']);
+          const validCaps = new Set(['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate', 'mcp:call', 'browser:read', 'browser:interact', 'desktop:read', 'desktop:interact', 'memory:read', 'memory:write', 'net:fetch', 'web:browse', 'gui:desktop', 'schedule:cron']);
           const sanitizedCaps = body.capabilities.filter(c => validCaps.has(c));
           this.db.execute(
             `UPDATE agent_definitions SET capabilities_json = ? WHERE id = ?`,
@@ -697,7 +702,7 @@ export class AgentController extends BaseController {
               }
             }
           }
-          const validCaps = new Set(['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate', 'mcp:call', 'browser:read', 'browser:interact', 'desktop:read', 'desktop:interact', 'memory:read', 'memory:write', 'net:fetch']);
+          const validCaps = new Set(['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate', 'mcp:call', 'browser:read', 'browser:interact', 'desktop:read', 'desktop:interact', 'memory:read', 'memory:write', 'net:fetch', 'web:browse', 'gui:desktop', 'schedule:cron']);
           const sanitizedCaps = (body as any).capabilities.filter((c: string) => validCaps.has(c));
           this.db.execute(
             `UPDATE agent_definitions SET capabilities_json = ? WHERE id = ?`,

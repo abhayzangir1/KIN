@@ -104,6 +104,23 @@ export function separateThinkingAndContent(
   };
 }
 
+async function readChunkWithTimeout(reader: any, timeoutMs = 30000): Promise<{ done: boolean; value?: any }> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<{ done: boolean; value?: any }>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`Model stream stalled: no chunk received within ${timeoutMs}ms idle timeout.`));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([
+      reader.read(),
+      timeoutPromise,
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export interface ModelInvocationResult {
   content: string;
   thinking?: string;
@@ -2153,6 +2170,9 @@ export class ModelGateway {
 
       // If a free tier model hit rate limits after retries, seamlessly fallback to a resilient alternative free model
       if (modelName.endsWith(':free')) {
+        if (params.disableFallback) {
+          throw new Error(`OpenRouter 429 Rate Limit exceeded after retries for model "${modelName}" (fallback disabled).`);
+        }
         const freeFallbacks = [
           'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
           'nvidia/nemotron-3.5-lightning:free',
@@ -2187,7 +2207,7 @@ export class ModelGateway {
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
       while (true) {
-        const { done, value } = await reader.read();
+        const { done, value } = await readChunkWithTimeout(reader, 30000);
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
@@ -2403,7 +2423,7 @@ export class ModelGateway {
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
       while (true) {
-        const { done, value } = await reader.read();
+        const { done, value } = await readChunkWithTimeout(reader, 30000);
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
@@ -2630,7 +2650,7 @@ export class ModelGateway {
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
       while (true) {
-        const { done, value } = await reader.read();
+        const { done, value } = await readChunkWithTimeout(reader, 30000);
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');

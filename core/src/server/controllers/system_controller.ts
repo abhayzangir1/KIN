@@ -2298,34 +2298,50 @@ export class SystemController extends BaseController {
           const platform = process.platform;
           let selectedPath = '';
 
+          const runDialogProcess = (cmd: string, args: string[], options?: childProcess.SpawnOptions): Promise<string> => {
+            return new Promise((resolve) => {
+              try {
+                const proc = childProcess.spawn(cmd, args, {
+                  windowsHide: true,
+                  ...options,
+                });
+                let stdout = '';
+                let timedOut = false;
+                const timer = setTimeout(() => {
+                  timedOut = true;
+                  try { proc.kill(); } catch {}
+                  resolve('');
+                }, 60000);
+
+                proc.stdout?.on('data', (d) => {
+                  stdout += d.toString('utf8');
+                });
+                proc.on('error', () => {
+                  clearTimeout(timer);
+                  resolve('');
+                });
+                proc.on('close', () => {
+                  clearTimeout(timer);
+                  if (!timedOut) resolve(stdout.trim());
+                });
+              } catch {
+                resolve('');
+              }
+            });
+          };
+
           if (platform === 'win32') {
             const script = `[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Select Project or Repository Folder'; $f.ShowNewFolderButton = $true; $topMost = New-Object System.Windows.Forms.Form; $topMost.TopMost = $true; if ($f.ShowDialog($topMost) -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }`;
-            const out = childProcess.spawnSync('powershell.exe', ['-NoProfile', '-STA', '-Command', script], {
-              encoding: 'utf8',
-              windowsHide: true,
-              timeout: 60000,
-            });
-            selectedPath = (out.stdout || '').trim();
+            selectedPath = await runDialogProcess('powershell.exe', ['-NoProfile', '-STA', '-Command', script]);
           } else if (platform === 'darwin') {
             const script = 'POSIX path of (choose folder with prompt "Select Project Folder")';
-            const out = childProcess.spawnSync('osascript', ['-e', script], {
-              encoding: 'utf8',
-              timeout: 60000,
-            });
-            selectedPath = (out.stdout || '').trim();
+            selectedPath = await runDialogProcess('osascript', ['-e', script]);
           } else {
             // Linux: Try zenity, fallback to kdialog if zenity is not installed
-            let out = childProcess.spawnSync('zenity', ['--file-selection', '--directory', '--title=Select Project Folder'], {
-              encoding: 'utf8',
-              timeout: 60000,
-            });
-            if (out.error) {
-              out = childProcess.spawnSync('kdialog', ['--getexistingdirectory', '.'], {
-                encoding: 'utf8',
-                timeout: 60000,
-              });
+            selectedPath = await runDialogProcess('zenity', ['--file-selection', '--directory', '--title=Select Project Folder']);
+            if (!selectedPath) {
+              selectedPath = await runDialogProcess('kdialog', ['--getexistingdirectory', '.']);
             }
-            selectedPath = (out.stdout || '').trim();
           }
 
           if (selectedPath) {

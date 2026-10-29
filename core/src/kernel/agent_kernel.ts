@@ -323,6 +323,22 @@ export class AgentKernel {
   }
 
   /**
+   * Retrieves the latest turn checkpoint snapshot for a run.
+   */
+  public getLatestCheckpoint(runId: string): any {
+    const row = this.db.queryOne<{ snapshot_json: string }>(
+      'SELECT snapshot_json FROM checkpoints WHERE run_id = ? ORDER BY created_at DESC LIMIT 1',
+      runId
+    );
+    if (!row) return undefined;
+    try {
+      return JSON.parse(row.snapshot_json);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
    * Stale lease recovery on application restart or watchdog inspection.
    * Finds runs that were 'running' when the app terminated or crashed and transitions them to 'recovering'.
    * Retrieves the latest turn checkpoint snapshot if available.
