@@ -2006,12 +2006,20 @@ export class CoreServer {
     try {
       const u = new URL(origin);
       if (u.protocol === 'tauri:' && u.hostname === 'localhost') return true;
-      if (u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '::1' || u.hostname === 'tauri.localhost') return true;
+      if (u.protocol === 'asset:' && u.hostname === 'localhost') return true;
+      if (
+        u.hostname === 'localhost' ||
+        u.hostname === '127.0.0.1' ||
+        u.hostname === '::1' ||
+        u.hostname === 'tauri.localhost'
+      ) return true;
       return false;
     } catch {
       return (
         origin === 'tauri://localhost' ||
+        origin === 'asset://localhost' ||
         origin === 'http://tauri.localhost' ||
+        origin === 'https://tauri.localhost' ||
         origin === 'http://localhost' ||
         origin.startsWith('http://localhost:') ||
         origin === 'http://127.0.0.1' ||
@@ -2089,6 +2097,11 @@ export class CoreServer {
       return;
     }
 
+    const parsedUrl = new URL(req.url ?? '/', 'http://127.0.0.1');
+    const pathname = parsedUrl.pathname;
+    const isHealthProbe = pathname === '/api/health' || pathname === '/health';
+    const isPublicStatic = req.method === 'GET' && !pathname.startsWith('/api/');
+
     const origin = req.headers.origin;
     if (origin && !this.isAllowedOrigin(origin)) {
       this.sendJson(res, 403, { error: 'Forbidden: Untrusted cross-origin request rejected' }, req);
@@ -2096,9 +2109,26 @@ export class CoreServer {
     }
 
     const secFetchSite = req.headers['sec-fetch-site'];
-    if (secFetchSite === 'cross-site') {
-      this.sendJson(res, 403, { error: 'Forbidden: Cross-site request rejected' }, req);
-      return;
+    if (secFetchSite === 'cross-site' && !isHealthProbe && !isPublicStatic) {
+      const allowedByOrigin = origin ? this.isAllowedOrigin(origin) : false;
+      if (!allowedByOrigin) {
+        const authHeader = req.headers['authorization'] || '';
+        const xIpcToken = (req.headers['x-ipc-token'] || req.headers['x-kin-auth']) as string;
+        const queryToken = pathname === '/api/events' ? parsedUrl.searchParams.get('token') : null;
+        const bearerToken = typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+        const providedToken = bearerToken || xIpcToken || queryToken;
+        const hasValidToken = Boolean(
+          this.ipcAuthToken &&
+          providedToken &&
+          typeof providedToken === 'string' &&
+          providedToken.length === this.ipcAuthToken.length &&
+          crypto.timingSafeEqual(Buffer.from(providedToken), Buffer.from(this.ipcAuthToken))
+        );
+        if (!hasValidToken) {
+          this.sendJson(res, 403, { error: 'Forbidden: Cross-site request rejected' }, req);
+          return;
+        }
+      }
     }
 
     // Content-Type validation on state-changing requests to prevent CORS simple-request bypass
@@ -2113,12 +2143,7 @@ export class CoreServer {
       }
     }
 
-    const parsedUrl = new URL(req.url ?? '/', 'http://127.0.0.1');
-    const pathname = parsedUrl.pathname;
-
     // Enforce local loopback IPC token authentication when enabled (exempting public health probes and static frontend assets)
-    const isHealthProbe = pathname === '/api/health' || pathname === '/health';
-    const isPublicStatic = req.method === 'GET' && !pathname.startsWith('/api/');
     if (this.requireIpcAuth && this.ipcAuthToken && !isHealthProbe && !isPublicStatic) {
       const authHeader = req.headers['authorization'] || '';
       const xIpcToken = (req.headers['x-ipc-token'] || req.headers['x-kin-auth']) as string;

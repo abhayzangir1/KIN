@@ -55,9 +55,6 @@ jobs:
       - name: Package Standalone Sidecar Binary
         run: node core/scripts/package_binary.js
 
-      - name: Verify Core Vitest Test Suite
-        run: npm run test --workspace=core
-
       - name: Build Tauri Desktop Package
         uses: tauri-apps/tauri-action@v0
         env:

@@ -45,8 +45,10 @@ pub fn get_ipc_token() -> Result<String, String> {
 pub fn pick_folder() -> Result<Option<String>, String> {
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
         use std::process::Command;
         let output = Command::new("powershell")
+            .creation_flags(0x08000000)
             .args(&[
                 "-NoProfile",
                 "-STA",

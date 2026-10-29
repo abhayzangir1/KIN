@@ -51,8 +51,20 @@ export async function getIpcToken(): Promise<string | null> {
   return null;
 }
 
+export function isDesktopApp(): boolean {
+  if (typeof window === 'undefined') return false;
+  return Boolean(
+    '__TAURI__' in window ||
+    '__TAURI_INTERNALS__' in window ||
+    window.location?.hostname === 'tauri.localhost' ||
+    window.location?.protocol === 'tauri:' ||
+    window.location?.protocol === 'asset:' ||
+    (window.location?.port !== '54321' && window.location?.port !== '5173')
+  );
+}
+
 export function getApiBaseUrl(): string {
-  if (typeof window !== 'undefined' && '__TAURI__' in window) {
+  if (isDesktopApp()) {
     return 'http://127.0.0.1:54321';
   }
   return '';
@@ -181,8 +193,7 @@ export async function computeTaskSignature(token: string, taskId: string): Promi
 if (typeof window !== 'undefined' && typeof window.fetch === 'function' && nativeFetch) {
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     let url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
-    const isTauri = '__TAURI__' in window;
-    if (isTauri && url.startsWith('/api/')) {
+    if (isDesktopApp() && url.startsWith('/api/')) {
       url = `http://127.0.0.1:54321${url}`;
     }
 
