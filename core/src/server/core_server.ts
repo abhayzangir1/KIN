@@ -2809,9 +2809,12 @@ export class CoreServer {
 
         let repoPath = '';
         if (rawRepoPath) {
-          if (!path.isAbsolute(rawRepoPath)) {
+          const isWinDrive = /^[A-Za-z]:[\\/]/.test(rawRepoPath);
+          if (isWinDrive) {
+            repoPath = rawRepoPath;
+          } else if (!path.isAbsolute(rawRepoPath)) {
             const driveCandidate = `D:\\${rawRepoPath}`;
-            if (fs.existsSync(driveCandidate)) {
+            if (process.platform === 'win32' && fs.existsSync(driveCandidate)) {
               repoPath = driveCandidate;
             } else {
               repoPath = path.resolve(process.cwd(), rawRepoPath);
