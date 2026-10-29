@@ -1,6 +1,6 @@
 {
   "name": "@kin/core",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "private": true,
   "description": "KIN Core — Local service for chats, projects, and agent workflows",
   "type": "module",

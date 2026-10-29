@@ -1,6 +1,6 @@
 [package]
 name = "kin-desktop"
-version = "0.1.0"
+version = "0.1.2"
 description = "KIN — Local-first workspace for AI chats, projects, and agent workflows"
 authors = ["KIN Team"]
 license = "Apache-2.0"

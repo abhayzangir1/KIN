@@ -8,8 +8,8 @@
 Local-first execution • Hybrid model routing (Local Ollama & BYOK Cloud) • Autonomous Quota Guard • Native Desktop & Web Control • Proactive Routines • Path-jailed Git Worktrees • Encrypted SQLite State.
 
 [![CI Quality Gates](https://github.com/abhayzangir1/KIN/actions/workflows/ci.yml/badge.svg)](https://github.com/abhayzangir1/KIN/actions)
-[![Download Windows Installer](https://img.shields.io/badge/Download%20Installer-.exe%20(Setup)-2ea44f?logo=windows&logoColor=white)](https://github.com/abhayzangir1/KIN/releases/download/v0.1.1/KIN_0.1.0_x64-setup.exe)
-[![Download MSI Package](https://img.shields.io/badge/Enterprise%20Package-.msi-blue?logo=windows&logoColor=white)](https://github.com/abhayzangir1/KIN/releases/download/v0.1.1/KIN_0.1.0_x64_en-US.msi)
+[![Download Windows Installer](https://img.shields.io/badge/Download%20Installer-.exe%20(Setup)-2ea44f?logo=windows&logoColor=white)](https://github.com/abhayzangir1/KIN/releases/download/v0.1.2/KIN_0.1.2_x64-setup.exe)
+[![Download MSI Package](https://img.shields.io/badge/Enterprise%20Package-.msi-blue?logo=windows&logoColor=white)](https://github.com/abhayzangir1/KIN/releases/download/v0.1.2/KIN_0.1.2_x64_en-US.msi)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node Version](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-339933?logo=node.js)](https://nodejs.org/)
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org/)
