@@ -62,20 +62,11 @@ if %ERRORLEVEL% neq 0 (
     echo       Standalone binary sidecar ready.
 )
 
-:: 5. Create Desktop Shortcut
+:: 5. Create Desktop & Start Menu Shortcuts
 echo.
-echo [5/5] Creating Windows Desktop Shortcut...
-set "SHORTCUT_PATH=%USERPROFILE%\Desktop\KIN — Local AI Workspace.lnk"
-set "TARGET_BAT=%~dp0start.bat"
-set "ICON_PATH=%~dp0src-tauri\icons\icon.ico"
-set "WORKING_DIR=%~dp0"
-
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%SHORTCUT_PATH%'); $s.TargetPath = '%TARGET_BAT%'; $s.WorkingDirectory = '%WORKING_DIR%'; if (Test-Path '%ICON_PATH%') { $s.IconLocation = '%ICON_PATH%' }; $s.Description = 'KIN — Autonomous Multi-Agent AI Workforce Platform'; $s.Save()" >nul 2>nul
-if exist "%SHORTCUT_PATH%" (
-    echo       Desktop shortcut created: "KIN — Local AI Workspace"
-) else (
-    echo       Note: Shortcut creation skipped (permissions). You can launch directly via start.bat.
-)
+echo [5/5] Creating Windows Desktop and Start Menu Shortcuts...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $d = [Environment]::GetFolderPath('Desktop'); $p = [Environment]::GetFolderPath('Programs'); $ico = '%~dp0src-tauri\icons\icon.ico'; if (Test-Path 'D:\KIN-App\kin-desktop.exe') { $s1 = $ws.CreateShortcut(\"$d\KIN.lnk\"); $s1.TargetPath = 'D:\KIN-App\kin-desktop.exe'; $s1.WorkingDirectory = 'D:\KIN-App'; if (Test-Path $ico) { $s1.IconLocation = $ico }; $s1.Description = 'KIN — Autonomous Multi-Agent AI Workforce Platform'; $s1.Save(); $s2 = $ws.CreateShortcut(\"$p\KIN.lnk\"); $s2.TargetPath = 'D:\KIN-App\kin-desktop.exe'; $s2.WorkingDirectory = 'D:\KIN-App'; if (Test-Path $ico) { $s2.IconLocation = $ico }; $s2.Description = 'KIN — Autonomous Multi-Agent AI Workforce Platform'; $s2.Save(); }; $s3 = $ws.CreateShortcut(\"$d\KIN (Workspace Launcher).lnk\"); $s3.TargetPath = '%~dp0start.bat'; $s3.WorkingDirectory = '%~dp0'; if (Test-Path $ico) { $s3.IconLocation = $ico }; $s3.Description = 'KIN — One-Click Workspace Launcher'; $s3.Save();" >nul 2>nul
+echo       Desktop and Start Menu shortcuts created.
 
 echo.
 echo =====================================================================

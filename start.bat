@@ -78,7 +78,13 @@ if "%DEV_MODE%"=="1" (
     start "KIN UI Dev" /B npm run dev --workspace=ui
 
     timeout /t 2 /nobreak >nul
-    start http://localhost:5173
+    set "IPC_TOKEN="
+    if exist ".kin\ipc_auth.token" set /p IPC_TOKEN=<".kin\ipc_auth.token"
+    if defined IPC_TOKEN (
+        start http://localhost:5173/?token=%IPC_TOKEN%
+    ) else (
+        start http://localhost:5173
+    )
 ) else (
     echo [3/3] Launching KIN in Production Mode...
     echo [*] Application Server: http://127.0.0.1:54321
@@ -87,7 +93,13 @@ if "%DEV_MODE%"=="1" (
     start "KIN Core Daemon" /B node core\dist\start_daemon.js
 
     timeout /t 2 /nobreak >nul
-    start http://127.0.0.1:54321
+    set "IPC_TOKEN="
+    if exist ".kin\ipc_auth.token" set /p IPC_TOKEN=<".kin\ipc_auth.token"
+    if defined IPC_TOKEN (
+        start http://127.0.0.1:54321/?token=%IPC_TOKEN%
+    ) else (
+        start http://127.0.0.1:54321
+    )
 )
 
 echo =====================================================================
