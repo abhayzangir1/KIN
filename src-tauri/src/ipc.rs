@@ -40,3 +40,30 @@ pub fn get_ipc_token() -> Result<String, String> {
 
     Err("IPC authentication token not found in .kin directory".to_string())
 }
+
+#[tauri::command]
+pub fn pick_folder() -> Result<Option<String>, String> {
+    #[cfg(windows)]
+    {
+        use std::process::Command;
+        let output = Command::new("powershell")
+            .args(&[
+                "-NoProfile",
+                "-STA",
+                "-Command",
+                "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Select Project or Repository Folder'; $f.ShowNewFolderButton = $true; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }",
+            ])
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !result.is_empty() {
+            return Ok(Some(result));
+        }
+        Ok(None)
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(None)
+    }
+}

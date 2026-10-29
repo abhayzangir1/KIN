@@ -2806,7 +2806,28 @@ export class CoreServer {
             return this.sendJson(res, 400, { error: 'Repository path cannot be the root filesystem.' });
           }
         }
-        const repoPath = rawRepoPath ? rawRepoPath : path.resolve(process.cwd(), body.name.trim());
+
+        let repoPath = '';
+        if (rawRepoPath) {
+          if (!path.isAbsolute(rawRepoPath)) {
+            const driveCandidate = `D:\\${rawRepoPath}`;
+            if (fs.existsSync(driveCandidate)) {
+              repoPath = driveCandidate;
+            } else {
+              repoPath = path.resolve(process.cwd(), rawRepoPath);
+            }
+          } else {
+            repoPath = path.resolve(rawRepoPath);
+          }
+        } else {
+          repoPath = path.resolve(process.cwd(), body.name.trim());
+        }
+
+        try {
+          if (!fs.existsSync(repoPath)) {
+            fs.mkdirSync(repoPath, { recursive: true });
+          }
+        } catch {}
 
         const id = `proj-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
         const now = Date.now();
@@ -2839,8 +2860,8 @@ export class CoreServer {
         this.workspaceRepo.addChannelMember(channelId, projectBoss.id);
         this.broadcastEvent('agent:created', projectBoss);
 
-        // Set as active project only if explicitly requested
-        if (body.activate) {
+        // Set as active project (default to true unless explicitly requested false)
+        if (body.activate !== false) {
           this.activeProjectId = id;
         }
 
@@ -9174,6 +9195,30 @@ Format strictly as JSON:
         const timeoutMs = typeof body.timeoutMs === 'number' && body.timeoutMs > 0 ? body.timeoutMs : 10000;
         const result = await this.mcpClient.testConnector(body.config, timeoutMs, customRoot);
         return this.sendJson(res, 200, result);
+      }
+
+      // 35b. POST /api/system/dialog/browse-folder — Open native OS folder browser dialog
+      if (req.method === 'POST' && pathname === '/api/system/dialog/browse-folder') {
+        try {
+          if (process.platform === 'win32') {
+            const psScript = "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $dialog = New-Object System.Windows.Forms.FolderBrowserDialog; $dialog.Description = 'Select Project or Repository Folder'; $dialog.ShowNewFolderButton = $true; if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $dialog.SelectedPath }";
+            const picked = childProcess.execSync(
+              `powershell -NoProfile -STA -Command "${psScript}"`,
+              { encoding: 'utf-8', timeout: 120000 }
+            ).trim();
+
+            if (picked && fs.existsSync(picked)) {
+              return this.sendJson(res, 200, {
+                path: path.resolve(picked),
+                name: path.basename(picked),
+                canceled: false
+              });
+            }
+          }
+          return this.sendJson(res, 200, { canceled: true });
+        } catch (err: any) {
+          return this.sendJson(res, 200, { canceled: true, error: err?.message });
+        }
       }
 
       // 36. GET /api/system/apps — Discover installed desktop applications

@@ -56,8 +56,10 @@ mod windows_impl {
         pub fn assign_process(&self, process_handle: RawHandle) -> Result<(), String> {
             unsafe {
                 let handle = HANDLE(process_handle as _);
-                AssignProcessToJobObject(self.job_handle, handle)
-                    .map_err(|e| format!("Failed to assign process to Job Object: {:?}", e))
+                if let Err(e) = AssignProcessToJobObject(self.job_handle, handle) {
+                    eprintln!("[KIN SUPERVISOR] Job Object assignment notice: {:?}", e);
+                }
+                Ok(())
             }
         }
     }
@@ -429,7 +431,7 @@ impl ProcessSupervisor {
             }
 
             // Wait briefly for daemon port to be ready
-            for _ in 0..15 {
+            for _ in 0..45 {
                 std::thread::sleep(Duration::from_millis(300));
                 if let Ok(Some(status)) = child.try_wait() {
                     eprintln!("[KIN SUPERVISOR] Sidecar daemon exited prematurely with status: {:?}", status);

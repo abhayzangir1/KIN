@@ -706,7 +706,8 @@ export class McpClientManager {
       (!cmdLower.endsWith('.exe') && cmdLower !== 'node' && cmdLower !== 'python' && cmdLower !== 'python3')
     );
 
-    const spawnCmd = (isWindows && cmdLower === 'node') ? process.execPath : resolvedCommand;
+    const isNodeExe = path.basename(process.execPath).toLowerCase().startsWith('node');
+    const spawnCmd = (isWindows && cmdLower === 'node') ? (isNodeExe ? process.execPath : 'node') : resolvedCommand;
     const proc = spawn(spawnCmd, resolvedArgs, {
       cwd: targetRoot,
       env: cleanEnv,

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useKinStore } from '../store/kinStore.js';
-import { FolderPlus, FolderOpen, X } from 'lucide-react';
+import { FolderPlus, FolderOpen, X, Loader2 } from 'lucide-react';
 
 export const NewProjectModal: React.FC = () => {
   const { isNewProjectModalOpen, setNewProjectModalOpen, createProject } = useKinStore();
@@ -8,8 +8,83 @@ export const NewProjectModal: React.FC = () => {
   const [repoPath, setRepoPath] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isBrowsing, setIsBrowsing] = useState(false);
 
   if (!isNewProjectModalOpen) return null;
+
+  const handleBrowse = async () => {
+    setIsBrowsing(true);
+    try {
+      // 1. Try Tauri invoke 'pick_folder' if running inside Tauri desktop shell
+      if (typeof window !== 'undefined') {
+        try {
+          const tauri = (window as any).__TAURI__;
+          const invoke =
+            tauri?.core?.invoke ||
+            tauri?.tauri?.invoke ||
+            tauri?.invoke ||
+            (window as any).__TAURI_INTERNALS__?.invoke;
+
+          if (typeof invoke === 'function') {
+            const selected = await invoke('pick_folder');
+            if (selected && typeof selected === 'string') {
+              setRepoPath(selected);
+              const normalized = selected.replace(/\\/g, '/').replace(/\/+$/, '');
+              const parts = normalized.split('/').filter(Boolean);
+              const folderName = parts[parts.length - 1];
+              if (folderName && !name) {
+                setName(folderName);
+              }
+              return;
+            }
+          }
+        } catch (tauriErr) {
+          console.warn('[Browse] Tauri pick_folder fallback:', tauriErr);
+        }
+      }
+
+      // 2. Try backend API dialog endpoint
+      try {
+        const res = await fetch('/api/system/dialog/browse-folder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.path && !data.canceled) {
+            setRepoPath(data.path);
+            const normalized = data.path.replace(/\\/g, '/').replace(/\/+$/, '');
+            const parts = normalized.split('/').filter(Boolean);
+            const folderName = parts[parts.length - 1];
+            if (folderName && !name) {
+              setName(folderName);
+            }
+            return;
+          }
+          if (data.canceled) {
+            return;
+          }
+        }
+      } catch (backendErr) {
+        console.warn('[Browse] Backend browse-folder fallback:', backendErr);
+      }
+
+      // 3. Fallback to HTML5 showDirectoryPicker if available
+      if ('showDirectoryPicker' in window) {
+        try {
+          const dirHandle = await (window as any).showDirectoryPicker();
+          if (dirHandle?.name) {
+            if (!name) setName(dirHandle.name);
+            setRepoPath(`D:\\${dirHandle.name}`);
+          }
+        } catch {
+          // User cancelled picker
+        }
+      }
+    } finally {
+      setIsBrowsing(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,30 +147,25 @@ export const NewProjectModal: React.FC = () => {
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="block text-[#94a3b8] font-medium">Root Repository Path</label>
-              {'showDirectoryPicker' in window && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      const dirHandle = await (window as any).showDirectoryPicker();
-                      if (dirHandle?.name) {
-                        if (!name) setName(dirHandle.name);
-                        setRepoPath(dirHandle.name);
-                      }
-                    } catch {}
-                  }}
-                  className="flex items-center space-x-1 text-[11px] text-emerald-400 hover:text-emerald-300 font-medium transition"
-                >
+              <button
+                type="button"
+                onClick={handleBrowse}
+                disabled={isBrowsing}
+                className="flex items-center space-x-1 text-[11px] text-emerald-400 hover:text-emerald-300 font-medium transition disabled:opacity-50"
+              >
+                {isBrowsing ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
                   <FolderOpen className="w-3 h-3" />
-                  <span>Browse Folder</span>
-                </button>
-              )}
+                )}
+                <span>{isBrowsing ? 'Selecting...' : 'Browse Folder'}</span>
+              </button>
             </div>
             <input
               type="text"
               value={repoPath}
               onChange={(e) => setRepoPath(e.target.value)}
-              placeholder="e.g. /workspace/my-project or C:\Projects\my-project"
+              placeholder="e.g. D:\kinntesttt or /workspace/my-project"
               className="w-full bg-[#090d16] border border-[#2d3748] rounded px-3 py-2 text-kin-text font-mono focus:outline-none focus:border-emerald-500"
             />
             <p className="text-[10px] text-[#64748b] mt-1">

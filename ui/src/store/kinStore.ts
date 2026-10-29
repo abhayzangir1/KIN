@@ -3144,10 +3144,14 @@ export const useKinStore = create<KinState>((set, get) => ({
       if (res.ok) {
         const data = await res.json();
         set({ isNewProjectModalOpen: false });
-        await get().fetchState(data.project.id);
+        await get().fetchState(data.project?.id);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData?.error || `Server returned ${res.status}`);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('[KIN UI] Failed to create project:', err);
+      throw err;
     }
   },
 

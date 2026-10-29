@@ -6,7 +6,7 @@ pub mod ipc;
 pub mod jail;
 pub mod supervisor;
 
-use ipc::get_ipc_token;
+use ipc::{get_ipc_token, pick_folder};
 use supervisor::ProcessSupervisor;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -21,7 +21,8 @@ pub fn run() {
     // 2. Build and run Tauri application
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            get_ipc_token
+            get_ipc_token,
+            pick_folder
         ])
         .setup(|app| {
             println!("[KIN SHELL] Tauri 2 desktop shell ready: version {}", app.package_info().version);
