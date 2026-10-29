@@ -692,7 +692,47 @@ export class McpClientManager {
 
     const targetRoot = customRoot ? path.resolve(customRoot) : this.projectRoot;
     const resolvedCommand = this.resolveConfigPath(config.command, targetRoot);
-    const resolvedArgs = (config.args || []).map((a) => this.resolveConfigPath(a, targetRoot));
+    let resolvedArgs = (config.args || []).map((a) => this.resolveConfigPath(a, targetRoot));
+
+    // Zero-Input Local Tool Auto-Resolvers (Filesystem & SQLite)
+    const serverNameLower = (config.name || '').toLowerCase();
+    const argsJoined = resolvedArgs.join(' ').toLowerCase();
+
+    // 1. Filesystem MCP: Auto-bind workspace root folder if '.' or missing
+    if (serverNameLower.includes('filesystem') || argsJoined.includes('server-filesystem')) {
+      const dotIndex = resolvedArgs.indexOf('.');
+      if (dotIndex >= 0) {
+        resolvedArgs[dotIndex] = targetRoot;
+      } else if (!resolvedArgs.some((a) => path.isAbsolute(a) || (typeof a === 'string' && fs.existsSync(a)))) {
+        resolvedArgs.push(targetRoot);
+      }
+    }
+
+    // 2. SQLite MCP: Auto-locate project database file
+    if (serverNameLower.includes('sqlite') || argsJoined.includes('server-sqlite')) {
+      const dbPathFlagIdx = resolvedArgs.findIndex((a) => a === '--db-path' || a === '-d');
+      if (dbPathFlagIdx >= 0 && dbPathFlagIdx < resolvedArgs.length - 1) {
+        const configuredDb = resolvedArgs[dbPathFlagIdx + 1];
+        if (!fs.existsSync(configuredDb) || configuredDb === './data.db' || configuredDb === 'data.db') {
+          const primaryKinDb = path.join(targetRoot, 'kin_storage.sqlite');
+          if (fs.existsSync(primaryKinDb)) {
+            resolvedArgs[dbPathFlagIdx + 1] = primaryKinDb;
+          } else {
+            try {
+              const files = fs.readdirSync(targetRoot);
+              const foundDb = files.find((f) => f.endsWith('.sqlite') || f.endsWith('.db'));
+              if (foundDb) {
+                resolvedArgs[dbPathFlagIdx + 1] = path.join(targetRoot, foundDb);
+              } else {
+                resolvedArgs[dbPathFlagIdx + 1] = primaryKinDb;
+              }
+            } catch {
+              resolvedArgs[dbPathFlagIdx + 1] = primaryKinDb;
+            }
+          }
+        }
+      }
+    }
 
     const cleanEnv = McpClientManager.sanitizeMcpEnv(config.env);
 

@@ -1,9 +1,18 @@
 import React, { useState } from 'react';
-import { useKinStore } from '../store/kinStore.js';
-import { FolderPlus, FolderOpen, X, Loader2 } from 'lucide-react';
+import { useKinStore, getIpcToken } from '../store/kinStore.js';
+import { FolderPlus, FolderOpen, X, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 
 export const NewProjectModal: React.FC = () => {
-  const { isNewProjectModalOpen, setNewProjectModalOpen, createProject } = useKinStore();
+  const {
+    isNewProjectModalOpen,
+    setNewProjectModalOpen,
+    createProject,
+    isConnected,
+    fetchState,
+    initSSE,
+    addToast,
+  } = useKinStore();
+
   const [name, setName] = useState('');
   const [repoPath, setRepoPath] = useState('');
   const [error, setError] = useState('');
@@ -14,6 +23,7 @@ export const NewProjectModal: React.FC = () => {
 
   const handleBrowse = async () => {
     setIsBrowsing(true);
+    setError('');
     try {
       // 1. Try Tauri invoke 'pick_folder' if running inside Tauri desktop shell
       if (typeof window !== 'undefined') {
@@ -43,12 +53,21 @@ export const NewProjectModal: React.FC = () => {
         }
       }
 
-      // 2. Try backend API dialog endpoint
+      // 2. Try backend API dialog endpoint with authentication headers
       try {
+        const token = await getIpcToken();
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) {
+          headers['x-ipc-token'] = token;
+          headers['x-kin-auth'] = token;
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+
         const res = await fetch('/api/system/dialog/browse-folder', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
         });
+
         if (res.ok) {
           const data = await res.json();
           if (data.path && !data.canceled) {
@@ -75,7 +94,9 @@ export const NewProjectModal: React.FC = () => {
           const dirHandle = await (window as any).showDirectoryPicker();
           if (dirHandle?.name) {
             if (!name) setName(dirHandle.name);
-            setRepoPath(`D:\\${dirHandle.name}`);
+            // Default to Windows drive path if on Windows environment
+            const defaultBase = navigator.platform.includes('Win') ? 'D:\\' : '/';
+            setRepoPath(`${defaultBase}${dirHandle.name}`);
           }
         } catch {
           // User cancelled picker
@@ -92,10 +113,29 @@ export const NewProjectModal: React.FC = () => {
       setError('Project name is required');
       return;
     }
+
+    if (!isConnected) {
+      setError('Cannot create workspace: KIN Core Daemon is currently disconnected. Click Reconnect below.');
+      return;
+    }
+
+    let finalRepoPath = repoPath.trim();
+    // If user provided a bare folder name (e.g. "kinntesttt") without path separators, normalize to drive root
+    if (finalRepoPath && !finalRepoPath.includes('\\') && !finalRepoPath.includes('/')) {
+      const defaultDrive = navigator.platform.includes('Win') ? 'D:\\' : '/';
+      finalRepoPath = `${defaultDrive}${finalRepoPath}`;
+      setRepoPath(finalRepoPath);
+    }
+
     try {
       setIsSubmitting(true);
       setError('');
-      await createProject(name.trim(), repoPath.trim() || undefined);
+      await createProject(name.trim(), finalRepoPath || undefined);
+      addToast({
+        title: 'Workspace Created',
+        message: `Project "${name.trim()}" initialized and active.`,
+        type: 'success',
+      });
       setName('');
       setRepoPath('');
     } catch (err: any) {
@@ -116,17 +156,39 @@ export const NewProjectModal: React.FC = () => {
           </div>
           <button
             onClick={() => setNewProjectModalOpen(false)}
-            className="text-kin-muted hover:text-kin-text transition"
+            className="text-kin-muted hover:text-kin-text transition cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
+        {/* Daemon Connection Warning */}
+        {!isConnected && (
+          <div className="p-3 rounded-lg bg-amber-950/60 border border-amber-500/40 text-amber-200 text-xs flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>KIN Core Daemon is offline or reconnecting...</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                fetchState();
+                initSSE();
+              }}
+              className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-medium text-[11px] border border-amber-500/30 flex items-center space-x-1 cursor-pointer"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>Reconnect</span>
+            </button>
+          </div>
+        )}
+
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-3 text-xs">
           {error && (
-            <div className="p-2 rounded bg-red-950/40 border border-red-500/30 text-red-300 text-xs">
-              {error}
+            <div className="p-2.5 rounded-lg bg-red-950/40 border border-red-500/30 text-red-300 text-xs flex items-center space-x-2">
+              <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+              <span>{error}</span>
             </div>
           )}
 
@@ -136,10 +198,8 @@ export const NewProjectModal: React.FC = () => {
               type="text"
               required
               value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-              }}
-              placeholder="e.g. test01, fintech-api"
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. kinntesttt, fintech-api"
               className="w-full bg-[#090d16] border border-[#2d3748] rounded px-3 py-2 text-kin-text focus:outline-none focus:border-emerald-500"
             />
           </div>
@@ -151,7 +211,7 @@ export const NewProjectModal: React.FC = () => {
                 type="button"
                 onClick={handleBrowse}
                 disabled={isBrowsing}
-                className="flex items-center space-x-1 text-[11px] text-emerald-400 hover:text-emerald-300 font-medium transition disabled:opacity-50"
+                className="flex items-center space-x-1 text-[11px] text-emerald-400 hover:text-emerald-300 font-medium transition disabled:opacity-50 cursor-pointer"
               >
                 {isBrowsing ? (
                   <Loader2 className="w-3 h-3 animate-spin" />
@@ -165,11 +225,11 @@ export const NewProjectModal: React.FC = () => {
               type="text"
               value={repoPath}
               onChange={(e) => setRepoPath(e.target.value)}
-              placeholder="e.g. D:\kinntesttt or /workspace/my-project"
+              placeholder="e.g. D:\kinntesttt or C:\Projects\my-app"
               className="w-full bg-[#090d16] border border-[#2d3748] rounded px-3 py-2 text-kin-text font-mono focus:outline-none focus:border-emerald-500"
             />
             <p className="text-[10px] text-[#64748b] mt-1">
-              Specify your local project folder. You do <strong className="text-amber-300">not</strong> need a JSON file.
+              Absolute path to your local project folder (e.g. <code className="text-emerald-300">D:\kinntesttt</code>).
             </p>
           </div>
 
@@ -177,16 +237,17 @@ export const NewProjectModal: React.FC = () => {
             <button
               type="button"
               onClick={() => setNewProjectModalOpen(false)}
-              className="px-3 py-1.5 rounded bg-[#1e293b] text-[#94a3b8] hover:text-kin-text transition"
+              className="px-3.5 py-1.5 rounded bg-[#1e293b] text-[#94a3b8] hover:text-kin-text transition cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || !name.trim()}
-              className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-medium transition"
+              disabled={isSubmitting || !name.trim() || !isConnected}
+              className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-medium transition cursor-pointer flex items-center space-x-1.5"
             >
-              {isSubmitting ? 'Creating...' : 'Create Project'}
+              {isSubmitting && <Loader2 className="w-3 h-3 animate-spin" />}
+              <span>{isSubmitting ? 'Creating...' : !isConnected ? 'Daemon Disconnected' : 'Create Project'}</span>
             </button>
           </div>
         </form>

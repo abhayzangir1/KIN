@@ -37,6 +37,8 @@ import { HumanTakeoverBanner } from './HumanTakeoverBanner.js';
 import { AutomationsView } from './AutomationsView.js';
 import { DecisionCard } from './DecisionCard.js';
 import { AgentModelQuickSwitch } from './AgentModelQuickSwitch.js';
+import { ThinkingAccordion } from './ThinkingAccordion.js';
+import { CodeBlock } from './CodeBlock.js';
 
 export const CenterView: React.FC = () => {
   const {
@@ -65,6 +67,7 @@ export const CenterView: React.FC = () => {
     steerNotification,
     queuedMessages,
     streamingDrafts,
+    thinkingDrafts,
     activeAgentChannels,
     queueMessage,
     dequeueMessage,
@@ -94,6 +97,7 @@ export const CenterView: React.FC = () => {
     fetchSkills,
     setSettingsModalOpen,
     setConnectorsModalOpen,
+    addToast,
   } = useKinStore();
 
   const isMachineTool = (tool?: string) => {
@@ -175,7 +179,13 @@ export const CenterView: React.FC = () => {
   const [isDragOverChat, setIsDragOverChat] = useState(false);
   const [chatUploadStatus, setChatUploadStatus] = useState<string | null>(null);
   const [expandedBackgroundTurns, setExpandedBackgroundTurns] = useState<Record<string, boolean>>({});
-  const [dismissHealthBanner, setDismissHealthBanner] = useState(false);
+  const [dismissHealthBanner, setDismissHealthBanner] = useState(() => {
+    try {
+      return sessionStorage.getItem('kin_dismiss_health_banner') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [dismissedRoutingChannels, setDismissedRoutingChannels] = useState<Record<string, boolean>>({});
   const [grillMeAnswers, setGrillMeAnswers] = useState<Record<string, string>>({});
   const [inspectingRecovery, setInspectingRecovery] = useState<any | null>(null);
@@ -224,7 +234,37 @@ export const CenterView: React.FC = () => {
   const [isSending, setIsSending] = useState(false);
   const isSteeringRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const adjustTextareaHeight = () => {
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+      inputRef.current.style.height = `${Math.min(Math.max(inputRef.current.scrollHeight, 38), 180)}px`;
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (items) {
+      const files: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].kind === 'file') {
+          const file = items[i].getAsFile();
+          if (file) files.push(file);
+        }
+      }
+      if (files.length > 0) {
+        e.preventDefault();
+        handleChatFileUpload(files);
+      }
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLTextAreaElement>) => {
+    e.preventDefault();
+    if (e.dataTransfer?.files?.length) {
+      handleChatFileUpload(e.dataTransfer.files);
+    }
+  };
   const recognitionRef = useRef<any>(null);
   const chatFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -278,7 +318,11 @@ export const CenterView: React.FC = () => {
 
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      alert('Web Speech API is not supported in this browser.');
+      addToast({
+        title: 'Voice Input Unavailable',
+        message: 'Web Speech API is not supported in this browser.',
+        type: 'warning',
+      });
       return;
     }
 
@@ -423,7 +467,7 @@ export const CenterView: React.FC = () => {
       return ag.displayName.toLowerCase().replace(/^@/, '').includes(query);
     });
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const val = e.target.value;
     setInputText(val);
     if (activeChannelId) {
@@ -562,6 +606,13 @@ export const CenterView: React.FC = () => {
   };
 
   const renderMessageContent = (content: string, isHumanMsg?: boolean) => {
+    let thoughtText = '';
+    if (!isHumanMsg) {
+      const thinkMatch = content.match(/<(?:think|thought|reasoning)>([\s\S]*?)<\/(?:think|thought|reasoning)>/i);
+      if (thinkMatch) {
+        thoughtText = thinkMatch[1].trim();
+      }
+    }
     const cleaned = isHumanMsg ? content : stripThoughtsAndToolSyntax(content);
     const textToRender = cleaned || content;
 
@@ -573,18 +624,7 @@ export const CenterView: React.FC = () => {
           const firstLineBreak = seg.indexOf('\n');
           const lang = firstLineBreak !== -1 ? seg.slice(3, firstLineBreak).trim() : '';
           const codeBody = firstLineBreak !== -1 ? seg.slice(firstLineBreak + 1, -3) : seg.slice(3, -3);
-          return (
-            <div key={sIdx} className="my-2 rounded-lg border border-slate-300 dark:border-[#30363d] bg-slate-100 dark:bg-[#0d1117] overflow-hidden shadow-xs">
-              {lang && (
-                <div className="flex items-center justify-between px-3 py-1 bg-slate-200/70 dark:bg-[#161b22] border-b border-slate-300 dark:border-[#30363d] text-[10px] font-mono text-slate-700 dark:text-[#8b949e]">
-                  <span>{lang}</span>
-                </div>
-              )}
-              <pre className="p-3 text-[11px] font-mono text-slate-800 dark:text-[#e2e8f0] overflow-x-auto leading-relaxed">
-                <code>{codeBody}</code>
-              </pre>
-            </div>
-          );
+          return <CodeBlock key={sIdx} language={lang} code={codeBody} />;
         }
         const paras = seg.split(/\n\n+/);
         return paras.map((p, pIdx) => {
@@ -611,7 +651,7 @@ export const CenterView: React.FC = () => {
     }
 
     const paragraphs = textToRender.split(/\n\n+/);
-    return paragraphs.map((para, pIdx) => {
+    const renderedParagraphs = paragraphs.map((para, pIdx) => {
       const trimmed = para.trim();
       if (trimmed.startsWith('>')) {
         const quoteContent = trimmed.replace(/^>\s*/gm, '');
@@ -630,6 +670,16 @@ export const CenterView: React.FC = () => {
         </div>
       );
     });
+
+    if (thoughtText) {
+      return (
+        <div className="space-y-1">
+          <ThinkingAccordion thinking={thoughtText} isStreaming={false} />
+          {renderedParagraphs}
+        </div>
+      );
+    }
+    return renderedParagraphs;
   };
 
   const parseDecisionProposal = (content: string) => {
@@ -822,14 +872,14 @@ export const CenterView: React.FC = () => {
             </div>
           )}
 
-          {/* System Health Diagnostics Warning Banner */}
+          {/* System Health Diagnostics Subtle Alert */}
           {systemHealth && systemHealth.status !== 'healthy' && !dismissHealthBanner && (
-            <div className="px-3.5 py-2 rounded-xl bg-amber-950/70 border border-amber-500/50 text-amber-200 text-xs flex items-center justify-between shadow-lg animate-fadeIn">
+            <div className="px-3 py-1.5 rounded-lg bg-amber-950/40 border border-amber-500/30 text-amber-200 text-[11px] flex items-center justify-between shadow-xs animate-fadeIn">
               <div className="flex items-center space-x-2">
-                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                 <span>
-                  <strong>System Diagnostics:</strong> Health status is <span className="font-mono uppercase font-bold text-amber-300">{systemHealth.status}</span>.
-                  {systemHealth.activeAlerts && systemHealth.activeAlerts.length > 0 && ` Active Alerts: [${systemHealth.activeAlerts.join(', ')}]`}
+                  <strong>Diagnostics:</strong> Health status is <span className="font-mono uppercase font-bold text-amber-300">{systemHealth.status}</span>
+                  {systemHealth.activeAlerts && systemHealth.activeAlerts.length > 0 && ` (${systemHealth.activeAlerts.join(', ')})`}
                 </span>
               </div>
               <div className="flex items-center space-x-2">
@@ -837,11 +887,15 @@ export const CenterView: React.FC = () => {
                   onClick={() => setActiveMainView('automations')}
                   className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-mono text-[10px] border border-amber-500/30 cursor-pointer"
                 >
-                  Governor Telemetry
+                  View Details
                 </button>
                 <button
-                  onClick={() => setDismissHealthBanner(true)}
+                  onClick={() => {
+                    setDismissHealthBanner(true);
+                    try { sessionStorage.setItem('kin_dismiss_health_banner', 'true'); } catch {}
+                  }}
                   className="text-amber-400 hover:text-amber-200 p-0.5 cursor-pointer"
+                  title="Dismiss alert"
                 >
                   ✕
                 </button>
@@ -1099,6 +1153,14 @@ export const CenterView: React.FC = () => {
                 : `Start the conversation by sending a message, or mention specific specialists with @ to coordinate their turns.`}
             </div>
           </div>
+        )}
+
+        {/* Live In-Flight Streaming Reasoning Accordion */}
+        {thinkingDrafts && thinkingDrafts[activeChannelId] && (
+          <ThinkingAccordion
+            thinking={thinkingDrafts[activeChannelId]}
+            isStreaming={true}
+          />
         )}
 
         {/* Live In-Flight Streaming Token Draft Bubble */}
@@ -1889,9 +1951,9 @@ export const CenterView: React.FC = () => {
                             body: JSON.stringify({}),
                           });
                           const data = await res.json();
-                          alert(`MCP Servers reloaded! Tools discovered: ${data.toolsCount || 0}`);
+                          addToast({ title: "MCP Servers Reloaded", message: `Tools discovered: ${data.toolsCount || 0}`, type: "success" });
                         } catch (err: any) {
-                          alert(`Failed to reload MCP: ${err.message}`);
+                          addToast({ title: "MCP Reload Failed", message: err.message, type: "error" });
                         }
                       }}
                       className="text-[10px] text-purple-500 hover:underline cursor-pointer font-medium"
@@ -2068,11 +2130,17 @@ export const CenterView: React.FC = () => {
             )}
           </div>
 
-          <input
+          <textarea
             ref={inputRef}
-            type="text"
+            rows={1}
             value={inputText}
-            onChange={handleInputChange}
+            onChange={(e) => {
+              handleInputChange(e);
+              adjustTextareaHeight();
+            }}
+            onPaste={handlePaste}
+            onDrop={handleDrop}
+            onDragOver={(e) => e.preventDefault()}
             onKeyDown={(e) => {
               if (showSlashMenu && matchingSlashCommands.length > 0) {
                 if (e.key === 'ArrowDown') {
@@ -2085,7 +2153,7 @@ export const CenterView: React.FC = () => {
                   setSlashSelectedIndex((prev) => (prev - 1 + matchingSlashCommands.length) % matchingSlashCommands.length);
                   return;
                 }
-                if (e.key === 'Tab' || e.key === 'Enter') {
+                if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
                   e.preventDefault();
                   const targetCmd = matchingSlashCommands[slashSelectedIndex]?.cmd || matchingSlashCommands[0].cmd;
                   handleSlashCommand(targetCmd);
@@ -2104,7 +2172,7 @@ export const CenterView: React.FC = () => {
                   setMentionSelectedIndex((prev) => (prev - 1 + matchingAgents.length) % matchingAgents.length);
                   return;
                 }
-                if (e.key === 'Tab' || e.key === 'Enter') {
+                if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
                   e.preventDefault();
                   const targetAgentName = matchingAgents[mentionSelectedIndex]?.displayName || matchingAgents[0].displayName;
                   handleInsertMention(targetAgentName);
@@ -2120,16 +2188,19 @@ export const CenterView: React.FC = () => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 handleSend(e);
+                if (inputRef.current) {
+                  inputRef.current.style.height = '38px';
+                }
               }
             }}
             placeholder={
               isChannelExecuting
                 ? `⚡ Steer active execution, or type and click 'Queue' for next...`
                 : isDm
-                ? `Direct message with ${targetAgent?.displayName || '@Agent'}...`
-                : `Message #${activeChannel?.name || 'general'} (type '/' for commands, '@' for agents)...`
+                ? `Direct message with ${targetAgent?.displayName || '@Agent'}... (Shift+Enter for newline)`
+                : `Message #${activeChannel?.name || 'general'} (Shift+Enter for newline, '/' for commands, '@' for agents)...`
             }
-            className="flex-1 bg-transparent text-xs text-kin-text placeholder-[#64748b] focus:outline-none"
+            className="flex-1 bg-transparent text-xs text-kin-text placeholder-[#64748b] focus:outline-none resize-none overflow-y-auto leading-relaxed py-1 min-h-[38px] max-h-[180px]"
           />
 
           <div className="flex items-center space-x-1.5 ml-2 text-[#64748b]">
@@ -2238,3 +2309,4 @@ export const CenterView: React.FC = () => {
   </main>
 );
 };
+

@@ -43,6 +43,8 @@ import { MemoryRepository, OCCConflictError } from '../domain/memory_repository.
 import { ComputerSupervisor } from '../computer/computer_supervisor.js';
 import { SecretVault } from '../security/secret_vault.js';
 import { SecretBroker } from '../security/secret_broker.js';
+import { CredentialScanner } from '../security/credential_scanner.js';
+import { OAuthHandler } from '../api/oauth_handler.js';
 import { GoalRepository } from '../domain/goal_repository.js';
 import { WorktreeManager } from '../execution/worktree_manager.js';
 import { BenchmarkEvaluator } from '../evaluation/benchmark_evaluator.js';
@@ -2159,7 +2161,25 @@ export class CoreServer {
     const parsedUrl = new URL(req.url ?? '/', 'http://127.0.0.1');
     const pathname = parsedUrl.pathname;
     const isHealthProbe = pathname === '/api/health' || pathname === '/health';
+    const isOAuthCallback = req.method === 'GET' && pathname === '/api/oauth/callback';
     const isPublicStatic = req.method === 'GET' && !pathname.startsWith('/api/');
+
+    // Handle OAuth browser redirect callback immediately
+    if (isOAuthCallback) {
+      const code = parsedUrl.searchParams.get('code') || '';
+      const state = parsedUrl.searchParams.get('state') || '';
+      const result = await OAuthHandler.handleCallback(code, state, this.db, this.port);
+      if (result.success && result.provider) {
+        this.syncModelGatewayProviders();
+        this.broadcastEvent('credentials:updated', { provider: result.provider });
+      }
+      res.writeHead(result.success ? 200 : 400, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store, no-cache',
+      });
+      res.end(result.html);
+      return;
+    }
 
     const origin = req.headers.origin;
     if (origin && !this.isAllowedOrigin(origin, req)) {
@@ -2168,7 +2188,7 @@ export class CoreServer {
     }
 
     const secFetchSite = req.headers['sec-fetch-site'];
-    if (secFetchSite === 'cross-site' && !isHealthProbe && !isPublicStatic) {
+    if (secFetchSite === 'cross-site' && !isHealthProbe && !isPublicStatic && !isOAuthCallback) {
       const allowedByOrigin = origin ? this.isAllowedOrigin(origin, req) : false;
       if (!allowedByOrigin) {
         const authHeader = req.headers['authorization'] || '';
@@ -2202,8 +2222,8 @@ export class CoreServer {
       }
     }
 
-    // Enforce local loopback IPC token authentication when enabled (exempting public health probes and static frontend assets)
-    if (this.requireIpcAuth && this.ipcAuthToken && !isHealthProbe && !isPublicStatic) {
+    // Enforce local loopback IPC token authentication when enabled (exempting public health probes, static frontend assets, and OAuth callbacks)
+    if (this.requireIpcAuth && this.ipcAuthToken && !isHealthProbe && !isPublicStatic && !isOAuthCallback) {
       const authHeader = req.headers['authorization'] || '';
       const xIpcToken = (req.headers['x-ipc-token'] || req.headers['x-kin-auth']) as string;
       // Query token is only accepted for SSE endpoint (/api/events) where custom headers are unsupported by browser EventSource
@@ -10553,6 +10573,45 @@ Format strictly as JSON:
         this.syncModelGatewayProviders();
         this.broadcastEvent('credential:deleted', { id: credId });
         return this.sendJson(res, 200, { success: true, id: credId });
+      }
+
+      // 71b. GET /api/settings/credentials/scan-host — Scan local developer credentials
+      if (req.method === 'GET' && (pathname === '/api/settings/credentials/scan-host' || pathname === '/api/credentials/scan-host')) {
+        const activeProj = this.workspaceRepo.getProject(this.activeProjectId);
+        const existingCreds = this.db.query<{ key_fingerprint: string }>('SELECT key_fingerprint FROM managed_credentials WHERE key_fingerprint IS NOT NULL');
+        const fingerprints = new Set(existingCreds.map((c) => c.key_fingerprint));
+        const discovered = CredentialScanner.scanHostCredentials(activeProj?.repoPath, fingerprints);
+        return this.sendJson(res, 200, { success: true, discovered });
+      }
+
+      // 71c. POST /api/settings/credentials/import-discovered — Import detected credential into SQLite
+      if (req.method === 'POST' && (pathname === '/api/settings/credentials/import-discovered' || pathname === '/api/credentials/import-discovered')) {
+        const body = await this.parseJsonBody<any>(req);
+        if (!body.provider || !body.token) {
+          return this.sendJson(res, 400, { error: 'Missing provider or token' });
+        }
+        const result = CredentialScanner.importCredential(this.db, {
+          provider: body.provider,
+          keyAlias: body.keyAlias || `${body.provider}-detected`,
+          token: body.token,
+          baseUrl: body.baseUrl,
+        });
+        if (result.success) {
+          this.syncModelGatewayProviders();
+          this.broadcastEvent('credentials:updated', { id: result.id, provider: body.provider });
+        }
+        return this.sendJson(res, result.success ? 200 : 400, result);
+      }
+
+      // 71d. POST /api/oauth/authorize/:provider — Initiate 1-click OAuth flow
+      const oauthAuthMatch = pathname.match(/^\/api\/oauth\/authorize\/([^/]+)$/);
+      if ((req.method === 'POST' || req.method === 'GET') && oauthAuthMatch) {
+        const provider = oauthAuthMatch[1].toLowerCase() as 'github' | 'google' | 'slack';
+        if (provider !== 'github' && provider !== 'google' && provider !== 'slack') {
+          return this.sendJson(res, 400, { error: `Unsupported OAuth provider: ${provider}` });
+        }
+        const authData = OAuthHandler.startAuthFlow(provider, this.port || 54321);
+        return this.sendJson(res, 200, { success: true, ...authData });
       }
 
       // 72. POST /api/decisions/grill-me-answers — Receive answers from GrillMe card & record authoritative ADR

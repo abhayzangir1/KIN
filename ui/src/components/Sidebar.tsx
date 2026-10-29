@@ -1,6 +1,6 @@
 import React from 'react';
 import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
-import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale, Trash2, Users, ShieldAlert, Server } from 'lucide-react';
+import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale, Trash2, Users, ShieldAlert, Edit2, ChevronDown, ChevronRight } from 'lucide-react';
 import { AgentModelQuickSwitch } from './AgentModelQuickSwitch.js';
 
 export const Sidebar: React.FC = () => {
@@ -19,6 +19,8 @@ export const Sidebar: React.FC = () => {
     setSelectedAgentId,
     setCreateChannelModalOpen,
     setAddAgentModalOpen,
+    openAgentSettings,
+    openSettingsModal,
     goals,
     tasks,
     deleteGoal,
@@ -29,11 +31,8 @@ export const Sidebar: React.FC = () => {
     decisions,
     setDecisionsModalOpen,
     schedules,
-    setAutomationsModalOpen,
     sidebarWidth,
     setSettingsModalOpen,
-    setConnectorsModalOpen,
-    mcpConnectors,
     autonomyMode,
     activeMainView,
     setActiveMainView,
@@ -41,6 +40,8 @@ export const Sidebar: React.FC = () => {
 
   const [confirmDeleteChannelId, setConfirmDeleteChannelId] = React.useState<string | null>(null);
   const [confirmDeleteGoalId, setConfirmDeleteGoalId] = React.useState<string | null>(null);
+  const [isGoalsOpen, setIsGoalsOpen] = React.useState(true);
+  const [isCoworkerDmsOpen, setIsCoworkerDmsOpen] = React.useState(false);
 
   const handleSelectDm = (agentId: string) => {
     setSelectedAgentId(agentId);
@@ -229,6 +230,19 @@ export const Sidebar: React.FC = () => {
                     </button>
 
                     <div className="flex items-center space-x-1 shrink-0">
+                      {/* Hover pencil button to open AgentSettingsModal */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openAgentSettings(agent.id);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-kin-card text-kin-muted hover:text-cyan-400 transition cursor-pointer"
+                        title={`Configure instructions & settings for ${agent.displayName}`}
+                      >
+                        <Edit2 className="w-3 h-3" />
+                      </button>
+
                       <AgentModelQuickSwitch
                         agent={agent}
                         availableModels={availableModels}
@@ -272,8 +286,12 @@ export const Sidebar: React.FC = () => {
 
         {/* COWORKER DIRECT MESSAGES SECTION */}
         <div className="space-y-1">
-          <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-kin-muted">
+          <div
+            onClick={() => setIsCoworkerDmsOpen((prev) => !prev)}
+            className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-kin-muted hover:text-kin-text cursor-pointer select-none transition"
+          >
             <div className="flex items-center space-x-1">
+              {isCoworkerDmsOpen ? <ChevronDown className="w-3 h-3 text-kin-muted" /> : <ChevronRight className="w-3 h-3 text-kin-muted" />}
               <Users className="w-3 h-3 text-kin-muted" />
               <span>Coworker Direct Messages</span>
             </div>
@@ -282,61 +300,69 @@ export const Sidebar: React.FC = () => {
             </span>
           </div>
 
-          <div className="space-y-0.5">
-            {coworkerDms.length > 0 ? (
-              coworkerDms.map((dm) => {
-                const isActive = activeChannelId === dm.id;
-                const memberNames = (dm.memberIds || [])
-                  .map((mId) => agents.find((a) => a.id === mId)?.displayName || mId)
-                  .join(' ↔ ');
-                const displayLabel = memberNames || dm.name || dm.id;
+          {isCoworkerDmsOpen && (
+            <div className="space-y-0.5">
+              {coworkerDms.length > 0 ? (
+                coworkerDms.map((dm) => {
+                  const isActive = activeChannelId === dm.id;
+                  const memberNames = (dm.memberIds || [])
+                    .map((mId) => agents.find((a) => a.id === mId)?.displayName || mId)
+                    .join(' ↔ ');
+                  const displayLabel = memberNames || dm.name || dm.id;
 
-                return (
-                  <button
-                    key={dm.id}
-                    onClick={() => {
-                      setActiveChannel(dm.id);
-                      setActiveMainView('chat');
-                    }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg transition cursor-pointer group ${
-                      isActive
-                        ? 'bg-indigo-500/15 border border-indigo-500/40 text-indigo-400 font-semibold shadow-xs'
-                        : 'text-kin-muted hover:bg-kin-card hover:text-kin-text'
-                    }`}
-                    title={`Inspect Coworker DM: ${displayLabel}`}
-                  >
-                    <div className="flex items-center space-x-2 truncate">
-                      <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
-                      <span className="truncate">{displayLabel}</span>
-                    </div>
+                  return (
+                    <button
+                      key={dm.id}
+                      onClick={() => {
+                        setActiveChannel(dm.id);
+                        setActiveMainView('chat');
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg transition cursor-pointer group ${
+                        isActive
+                          ? 'bg-indigo-500/15 border border-indigo-500/40 text-indigo-400 font-semibold shadow-xs'
+                          : 'text-kin-muted hover:bg-kin-card hover:text-kin-text'
+                      }`}
+                      title={`Inspect Coworker DM: ${displayLabel}`}
+                    >
+                      <div className="flex items-center space-x-2 truncate">
+                        <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
+                        <span className="truncate">{displayLabel}</span>
+                      </div>
 
-                    <div className="flex items-center space-x-1.5 shrink-0">
-                      {dm.unreadCount > 0 && !isActive && (
-                        <span className="px-1.5 py-0.2 rounded-full bg-indigo-500 text-white font-bold text-[9px]">
-                          {dm.unreadCount}
+                      <div className="flex items-center space-x-1.5 shrink-0">
+                        {dm.unreadCount > 0 && !isActive && (
+                          <span className="px-1.5 py-0.2 rounded-full bg-indigo-500 text-white font-bold text-[9px]">
+                            {dm.unreadCount}
+                          </span>
+                        )}
+                        <span className="text-[9px] font-mono uppercase px-1 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                          Audit
                         </span>
-                      )}
-                      <span className="text-[9px] font-mono uppercase px-1 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                        Audit
-                      </span>
-                    </div>
-                  </button>
-                );
-              })
-            ) : (
-              <div className="px-2.5 py-1.5 text-[10px] text-kin-muted italic">
-                No active coworker direct messages
-              </div>
-            )}
-          </div>
+                      </div>
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="px-2.5 py-1.5 text-[10px] text-kin-muted italic">
+                  No active coworker direct messages
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* TASKS & GOALS SECTION */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-kin-muted">
-            <div className="flex items-center space-x-1.5">
+            <div
+              onClick={() => setIsGoalsOpen((prev) => !prev)}
+              className="flex items-center space-x-1.5 cursor-pointer hover:text-kin-text select-none transition"
+              title={isGoalsOpen ? 'Collapse Goals & Tasks' : 'Expand Goals & Tasks'}
+            >
+              {isGoalsOpen ? <ChevronDown className="w-3 h-3 text-kin-muted" /> : <ChevronRight className="w-3 h-3 text-kin-muted" />}
               <Target className="w-3.5 h-3.5 text-emerald-500" />
               <span>Goals & Tasks</span>
+              <span className="text-[9px] font-mono text-kin-muted font-normal">({uniqueGoals.length})</span>
             </div>
             <div className="flex items-center space-x-1">
               <button
@@ -358,7 +384,8 @@ export const Sidebar: React.FC = () => {
             </div>
           </div>
 
-          <div className="space-y-2 max-h-80 overflow-y-auto pr-0.5 no-scrollbar">
+          {isGoalsOpen && (
+            <div className="space-y-2 max-h-80 overflow-y-auto pr-0.5 no-scrollbar">
             {uniqueGoals.map((goal) => {
               const goalTasks = tasks.filter((t) => t.goalId === goal.id);
               const completedCount = goalTasks.filter((t) => t.status === 'completed').length;
@@ -498,6 +525,7 @@ export const Sidebar: React.FC = () => {
               </div>
             )}
           </div>
+          )}
         </div>
 
         {/* ARCHITECTURE DECISION RECORDS (ADR) SECTION */}
@@ -537,63 +565,23 @@ export const Sidebar: React.FC = () => {
               <Clock className="w-3.5 h-3.5 text-cyan-500" />
               <span>Automations & Schedules</span>
             </div>
-            <button
-              onClick={() => {
-                setActiveMainView('automations');
-                setAutomationsModalOpen(true);
-              }}
-              className="p-0.5 rounded hover:bg-kin-card text-kin-muted hover:text-cyan-500 transition cursor-pointer"
-              title="Add New Automation / Schedule"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
           </div>
 
           <button
             onClick={() => setActiveMainView('automations')}
             className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg transition border group cursor-pointer ${
               activeMainView === 'automations'
-                ? 'bg-cyan-500/15 text-cyan-500 font-semibold border-cyan-500/40 shadow-xs'
+                ? 'bg-cyan-500/15 text-cyan-400 font-semibold border-cyan-500/40 shadow-xs'
                 : 'text-kin-muted hover:bg-kin-card hover:text-kin-text border-kin-border'
             }`}
+            title="Open Automations, Scheduled Routines & Directive Blueprints"
           >
             <div className="flex items-center space-x-2 truncate">
               <span className={`w-1.5 h-1.5 rounded-full ${activeMainView === 'automations' ? 'bg-cyan-400' : 'bg-cyan-500'}`} />
               <span className="truncate">Schedules & Routines</span>
             </div>
-            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-cyan-500/10 text-cyan-500 font-semibold border border-cyan-500/20">
+            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-cyan-500/10 text-cyan-400 font-semibold border border-cyan-500/20">
               {schedules.filter((s) => s.status === 'active').length} active
-            </span>
-          </button>
-        </div>
-
-        {/* MCP CONNECTORS SECTION */}
-        <div className="space-y-1">
-          <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-kin-muted">
-            <div className="flex items-center space-x-1">
-              <Server className="w-3.5 h-3.5 text-emerald-500" />
-              <span>Connectors & MCP</span>
-            </div>
-            <button
-              onClick={() => setConnectorsModalOpen(true)}
-              className="p-0.5 rounded hover:bg-kin-card text-kin-muted hover:text-emerald-500 transition cursor-pointer"
-              title="Open Connectors & MCP Modal"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <button
-            onClick={() => setConnectorsModalOpen(true)}
-            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-kin-muted hover:bg-kin-card hover:text-kin-text transition border border-kin-border group cursor-pointer"
-            title="Configure MCP Server Connections"
-          >
-            <div className="flex items-center space-x-2 truncate">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-              <span className="truncate">MCP Servers</span>
-            </div>
-            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-500 font-semibold border border-emerald-500/20">
-              {mcpConnectors.filter((c) => !c.disabled).length} active
             </span>
           </button>
         </div>
@@ -602,7 +590,7 @@ export const Sidebar: React.FC = () => {
       {/* Bottom Settings & Preferences Bar */}
       <div className="p-2.5 border-t border-kin-border bg-kin-surface shrink-0">
         <button
-          onClick={() => setSettingsModalOpen(true)}
+          onClick={() => openSettingsModal('general')}
           className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-kin-card hover:bg-kin-cardHover text-kin-text border border-kin-border transition group cursor-pointer"
           title="Open System Settings & Preferences"
         >

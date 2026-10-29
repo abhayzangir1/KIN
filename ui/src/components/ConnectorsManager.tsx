@@ -267,9 +267,11 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
     deleteMcpConnector,
     testMcpConnector,
     reloadMcpServers,
+    addToast,
   } = useKinStore();
 
   const [scopeFilter, setScopeFilter] = useState<'all' | 'global' | 'project'>(initialScopeFilter);
+  const [presetCategory, setPresetCategory] = useState<'all' | 'api' | 'data' | 'system' | 'custom'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedToolId, setExpandedToolId] = useState<string | null>(null);
   const [testingConnectorId, setTestingConnectorId] = useState<string | null>(null);
@@ -277,6 +279,16 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ scope: 'global' | 'project'; name: string } | null>(null);
   const [generalFeedback, setGeneralFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Discovered Host Credentials State
+  const [discoveredCreds, setDiscoveredCreds] = useState<any[]>([]);
+  const [isImportingCred, setIsImportingCred] = useState(false);
+
+  // Claude Desktop / Claude Code JSON Import/Export State
+  const [isJsonModalOpen, setIsJsonModalOpen] = useState(false);
+  const [jsonText, setJsonText] = useState('');
+  const [jsonScope, setJsonScope] = useState<'global' | 'project'>('project');
+  const [jsonError, setJsonError] = useState<string | null>(null);
 
   // Add / Edit Modal Drawer State
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -295,6 +307,14 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
 
   useEffect(() => {
     fetchMcpConnectors();
+    fetch('/api/settings/credentials/scan-host')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.discovered) {
+          setDiscoveredCreds(data.discovered.filter((c: any) => !c.alreadyImported));
+        }
+      })
+      .catch(() => {});
   }, [fetchMcpConnectors]);
 
   const copyToClipboard = (text: string, label: string) => {
@@ -303,6 +323,111 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
       setCopiedPath(label);
       setTimeout(() => setCopiedPath(null), 2000);
     } catch {}
+  };
+
+  const handleQuickEnable = async (preset: PresetItem) => {
+    try {
+      addToast(`Enabling ${preset.title}...`, 'info');
+      const res = await saveMcpConnector({
+        scope: preset.scope,
+        name: preset.name,
+        config: {
+          command: preset.command || 'npx',
+          args: preset.args || [],
+          url: preset.url,
+          env: preset.env || {},
+          disabled: false,
+        },
+      });
+      if (res.success) {
+        addToast(`✓ Enabled ${preset.title} connector!`, 'success');
+        fetchMcpConnectors();
+      } else {
+        addToast(res.error || `Failed to enable ${preset.title}`, 'error');
+      }
+    } catch (err: any) {
+      addToast(err?.message || `Failed to enable ${preset.title}`, 'error');
+    }
+  };
+
+  const handleOAuthSignIn = async (provider: 'github' | 'google' | 'slack') => {
+    try {
+      addToast(`Opening system browser to authenticate with ${provider.toUpperCase()}...`, 'info');
+      const res = await fetch(`/api/oauth/authorize/${provider}`, { method: 'POST' });
+      if (!res.ok) {
+        throw new Error(`Failed to initiate ${provider} authentication`);
+      }
+      const data = await res.json();
+      if (data.authUrl) {
+        addToast(`Authorizing in browser... Return to KIN once completed.`, 'info');
+      }
+    } catch (err: any) {
+      addToast(err?.message || `Failed to sign in with ${provider}`, 'error');
+    }
+  };
+
+  const handleImportDiscoveredCred = async (cred: any) => {
+    try {
+      setIsImportingCred(true);
+      const res = await fetch('/api/settings/credentials/import-discovered', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: cred.provider,
+          keyAlias: cred.identifier,
+          token: cred.token,
+        }),
+      });
+      if (res.ok) {
+        addToast(`✓ Connected ${cred.identifier} in 1 click!`, 'success');
+        setDiscoveredCreds((prev) => prev.filter((c) => c.id !== cred.id));
+        fetchMcpConnectors();
+      } else {
+        const data = await res.json();
+        addToast(data.error || 'Failed to import credential', 'error');
+      }
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to import credential', 'error');
+    } finally {
+      setIsImportingCred(false);
+    }
+  };
+
+  const handleImportClaudeJson = async () => {
+    try {
+      setJsonError(null);
+      const parsed = JSON.parse(jsonText);
+      const servers = parsed.mcpServers || parsed.servers || (Array.isArray(parsed) ? null : parsed);
+      if (!servers || typeof servers !== 'object') {
+        throw new Error('Invalid format: Expected {"mcpServers": { ... }}');
+      }
+      const entries = Object.entries(servers);
+      if (entries.length === 0) {
+        throw new Error('No servers found in JSON');
+      }
+      let importedCount = 0;
+      for (const [name, cfg] of entries) {
+        const s = cfg as any;
+        await saveMcpConnector({
+          scope: jsonScope,
+          name,
+          config: {
+            command: s.command,
+            args: Array.isArray(s.args) ? s.args : [],
+            url: s.url,
+            env: typeof s.env === 'object' ? s.env : {},
+            disabled: Boolean(s.disabled),
+          },
+        });
+        importedCount++;
+      }
+      addToast(`✓ Imported ${importedCount} connector(s) from Claude JSON!`, 'success');
+      setIsJsonModalOpen(false);
+      setJsonText('');
+      fetchMcpConnectors();
+    } catch (err: any) {
+      setJsonError(err?.message || 'Failed to parse JSON');
+    }
   };
 
   const handleOpenAdd = (preset?: PresetItem) => {
@@ -610,6 +735,30 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
             </button>
             <button
               type="button"
+              onClick={() => {
+                const mcpServers: Record<string, any> = {};
+                for (const c of mcpConnectors) {
+                  if (c.url) {
+                    mcpServers[c.name] = { url: c.url };
+                  } else {
+                    mcpServers[c.name] = {
+                      command: c.command || 'npx',
+                      args: c.args || [],
+                      env: c.env || {},
+                    };
+                  }
+                }
+                setJsonText(JSON.stringify({ mcpServers }, null, 2));
+                setIsJsonModalOpen(true);
+              }}
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-cyan-300 hover:text-cyan-200 text-xs font-semibold border border-cyan-500/30 transition cursor-pointer"
+              title="Import or Export Claude Desktop / Claude Code compatible MCP JSON"
+            >
+              <Code className="w-3.5 h-3.5" />
+              <span>Import / Export JSON</span>
+            </button>
+            <button
+              type="button"
               onClick={() => handleOpenAdd()}
               className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow transition cursor-pointer"
             >
@@ -691,28 +840,97 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
         </div>
       )}
 
+      {/* 1-Click Host Credential Auto-Discovery Banner */}
+      {discoveredCreds.length > 0 && (
+        <div className="p-3.5 rounded-xl bg-gradient-to-r from-emerald-950/50 via-slate-900 to-blue-950/50 border border-emerald-500/40 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
+          <div className="flex items-start space-x-3">
+            <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400 shrink-0 mt-0.5">
+              <Zap className="w-4 h-4 animate-pulse" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-white flex items-center space-x-2">
+                <span>⚡ Detected Local Developer Logins</span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  {discoveredCreds.length} available
+                </span>
+              </div>
+              <p className="text-[11px] text-gray-300 mt-0.5">
+                KIN found active host credentials on your machine. Connect them with 1-click without copy-pasting API keys.
+              </p>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {discoveredCreds.map((c) => (
+                  <span key={c.id} className="px-2 py-0.5 rounded bg-[#090d16] border border-[#23314d] font-mono text-[10px] text-emerald-300 flex items-center space-x-1">
+                    <Check className="w-3 h-3 text-emerald-400" />
+                    <span>{c.identifier}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center space-x-2 shrink-0 self-end sm:self-center">
+            <button
+              type="button"
+              disabled={isImportingCred}
+              onClick={async () => {
+                for (const cred of discoveredCreds) {
+                  await handleImportDiscoveredCred(cred);
+                }
+              }}
+              className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-lg cursor-pointer flex items-center space-x-1.5 disabled:opacity-50"
+            >
+              <Zap className="w-3.5 h-3.5 fill-current" />
+              <span>Connect All in 1-Click</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Preset Templates Carousel */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center space-x-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span>Popular Connector Presets</span>
-          </span>
-          <span className="text-[11px] text-[#8b949e]">Click any preset to prefill and configure</span>
+      <div className="space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center space-x-2">
+            <span className="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center space-x-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>Popular Connector Presets</span>
+            </span>
+            <span className="text-[11px] text-[#8b949e]">Zero-auth local tools & 1-click cloud sign-in</span>
+          </div>
+
+          {/* Category Filter Pills */}
+          <div className="flex items-center space-x-1 bg-[#090d16] p-0.5 rounded-lg border border-[#21262d]">
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'api', label: 'Cloud APIs' },
+              { id: 'data', label: 'Data & SQL' },
+              { id: 'system', label: 'System & Files' },
+              { id: 'custom', label: 'Custom' },
+            ].map((cat) => (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setPresetCategory(cat.id as any)}
+                className={`px-2 py-0.5 rounded text-[11px] font-medium transition cursor-pointer ${
+                  presetCategory === cat.id
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-xs'
+                    : 'text-[#8b949e] hover:text-white'
+                }`}
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-          {CONNECTOR_PRESETS.map((preset) => (
-            <button
+          {CONNECTOR_PRESETS.filter((p) => presetCategory === 'all' || p.category === presetCategory).map((preset) => (
+            <div
               key={preset.id}
-              type="button"
-              onClick={() => handleOpenAdd(preset)}
-              className="text-left p-3 rounded-xl bg-[#161b22] hover:bg-[#1c2129] border border-[#21262d] hover:border-[#38434f] transition group cursor-pointer flex flex-col justify-between"
+              className="p-3 rounded-xl bg-[#161b22] border border-[#21262d] hover:border-[#38434f] transition flex flex-col justify-between"
             >
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <div className="flex items-center space-x-2">
-                    <div className="p-1.5 rounded-lg bg-[#0d1117] border border-[#30363d] group-hover:border-emerald-500/40 transition">
+                    <div className="p-1.5 rounded-lg bg-[#0d1117] border border-[#30363d]">
                       {preset.icon}
                     </div>
                     <span className="font-bold text-white text-xs">{preset.title}</span>
@@ -732,13 +950,41 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                 </p>
               </div>
 
-              <div className="pt-2 mt-2 border-t border-[#21262d] flex items-center justify-between text-[10px] font-mono text-gray-400">
-                <span className="truncate">{preset.url ? 'HTTP-SSE' : (preset.command || 'stdio')}</span>
-                <span className="text-emerald-400 group-hover:translate-x-0.5 transition-transform font-sans font-semibold">
-                  + Use Template →
-                </span>
+              <div className="pt-2 mt-2 border-t border-[#21262d] flex items-center justify-between gap-1">
+                {/* 1-Click Zero-Input Enable for Local Tools */}
+                {(preset.id === 'filesystem' || preset.id === 'sqlite' || preset.id === 'kin-standard') ? (
+                  <button
+                    type="button"
+                    onClick={() => handleQuickEnable(preset)}
+                    className="flex-1 py-1 px-2 rounded-md bg-emerald-600/25 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/40 text-[11px] font-semibold transition cursor-pointer flex items-center justify-center space-x-1"
+                    title="Enable with zero manual input using auto-resolved workspace paths"
+                  >
+                    <Zap className="w-3 h-3 text-emerald-400" />
+                    <span>1-Click Enable</span>
+                  </button>
+                ) : (preset.id === 'github' || preset.id === 'google-workspace' || preset.id === 'slack') ? (
+                  /* 1-Click OAuth Sign-In for Cloud SaaS */
+                  <button
+                    type="button"
+                    onClick={() => handleOAuthSignIn(preset.id === 'google-workspace' ? 'google' : (preset.id as any))}
+                    className="flex-1 py-1 px-2 rounded-md bg-blue-600/25 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/40 text-[11px] font-semibold transition cursor-pointer flex items-center justify-center space-x-1"
+                    title="Sign in with OAuth via browser without typing API keys"
+                  >
+                    <Zap className="w-3 h-3 text-blue-400" />
+                    <span>1-Click Sign In</span>
+                  </button>
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={() => handleOpenAdd(preset)}
+                  className="py-1 px-2 rounded-md bg-[#21262d] hover:bg-[#30363d] text-gray-300 hover:text-white border border-[#30363d] text-[10px] font-medium transition cursor-pointer whitespace-nowrap"
+                  title="Configure custom arguments, environment variables, or scope"
+                >
+                  Configure →
+                </button>
               </div>
-            </button>
+            </div>
           ))}
         </div>
       </div>
@@ -1432,6 +1678,93 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                 </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Claude Desktop / Claude Code JSON Import/Export Modal */}
+      {isJsonModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col text-kin-text">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#1e293b] bg-[#090d16]">
+              <div className="flex items-center space-x-2 text-white font-bold text-sm">
+                <Code className="w-4 h-4 text-cyan-400" />
+                <span>Claude Desktop & Code JSON Import / Export</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsJsonModalOpen(false)}
+                className="text-gray-400 hover:text-white transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <p className="text-xs text-gray-400">
+                  Paste your standard <code className="text-cyan-300 font-mono">claude_desktop_config.json</code> or copy your KIN servers to use in Claude Code / Desktop.
+                </p>
+                <div className="flex items-center space-x-2 shrink-0">
+                  <label className="text-xs text-gray-400">Target Scope:</label>
+                  <select
+                    value={jsonScope}
+                    onChange={(e) => setJsonScope(e.target.value as any)}
+                    className="bg-[#090d16] border border-[#334155] text-xs text-white rounded px-2 py-1 font-mono"
+                  >
+                    <option value="project">Project Scope (.kin/mcp.json)</option>
+                    <option value="global">Global Scope (~/.kin/mcp.json)</option>
+                  </select>
+                </div>
+              </div>
+
+              {jsonError && (
+                <div className="p-2.5 rounded bg-red-950/40 border border-red-500/40 text-red-300 text-xs flex items-center space-x-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{jsonError}</span>
+                </div>
+              )}
+
+              <textarea
+                rows={12}
+                value={jsonText}
+                onChange={(e) => setJsonText(e.target.value)}
+                placeholder={'{\n  "mcpServers": {\n    "filesystem": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]\n    }\n  }\n}'}
+                className="w-full bg-[#090d16] border border-[#1e293b] rounded-xl p-3 font-mono text-xs text-cyan-300 focus:outline-none focus:border-cyan-500 resize-none leading-relaxed"
+              />
+
+              <div className="flex items-center justify-between pt-2 border-t border-[#1e293b]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(jsonText);
+                    addToast('Copied Claude MCP JSON to clipboard!', 'success');
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-[#1e293b] hover:bg-[#334155] text-xs text-gray-200 font-medium transition cursor-pointer flex items-center space-x-1.5"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Copy JSON to Clipboard</span>
+                </button>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsJsonModalOpen(false)}
+                    className="px-3.5 py-1.5 rounded-lg bg-[#1e293b] hover:bg-[#334155] text-xs text-gray-300 font-medium transition cursor-pointer"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleImportClaudeJson}
+                    className="px-4 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-xs text-white font-bold transition shadow-md cursor-pointer flex items-center space-x-1.5"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Import All Servers</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

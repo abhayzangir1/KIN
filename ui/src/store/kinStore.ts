@@ -460,6 +460,26 @@ export interface UploadItem {
   createdAt: number;
 }
 
+export type SettingsTab =
+  | 'general'
+  | 'models'
+  | 'credentials'
+  | 'skills'
+  | 'connectors'
+  | 'desktop'
+  | 'evaluations'
+  | 'database'
+  | 'layout'
+  | 'about';
+
+export interface ToastItem {
+  id: string;
+  type: 'success' | 'error' | 'info' | 'warning';
+  title?: string;
+  message: string;
+  duration?: number;
+}
+
 export interface GoalItem {
   id: string;
   projectId: string;
@@ -1007,7 +1027,21 @@ interface KinState {
   isCreateChannelModalOpen: boolean;
   isAddAgentModalOpen: boolean;
   isSettingsModalOpen: boolean;
-  setSettingsModalOpen: (open: boolean) => void;
+  activeSettingsTab: SettingsTab;
+  setActiveSettingsTab: (tab: SettingsTab) => void;
+  openSettingsModal: (tab?: SettingsTab) => void;
+  setSettingsModalOpen: (open: boolean, tab?: SettingsTab) => void;
+
+  // Agent Settings Modal State
+  isAgentSettingsModalOpen: boolean;
+  agentSettingsTargetAgentId: string | null;
+  openAgentSettings: (agentId: string) => void;
+  closeAgentSettings: () => void;
+
+  // Non-Blocking Toast Notification State
+  toasts: ToastItem[];
+  addToast: (toast: Omit<ToastItem, 'id'> | string, type?: 'success' | 'error' | 'info' | 'warning') => void;
+  removeToast: (id: string) => void;
 
   // Model Selector & Provider Manager State
   isModelSelectorOpen: boolean;
@@ -1306,7 +1340,46 @@ export const useKinStore = create<KinState>((set, get) => ({
   isCreateChannelModalOpen: false,
   isAddAgentModalOpen: false,
   isSettingsModalOpen: false,
-  setSettingsModalOpen: (open: boolean) => set({ isSettingsModalOpen: open }),
+  activeSettingsTab: 'general',
+  setActiveSettingsTab: (tab: SettingsTab) => set({ activeSettingsTab: tab }),
+  openSettingsModal: (tab: SettingsTab = 'general') => set({ isSettingsModalOpen: true, activeSettingsTab: tab }),
+  setSettingsModalOpen: (open: boolean, tab?: SettingsTab) =>
+    set({
+      isSettingsModalOpen: open,
+      ...(tab ? { activeSettingsTab: tab } : {}),
+    }),
+
+  // Agent Settings Modal State
+  isAgentSettingsModalOpen: false,
+  agentSettingsTargetAgentId: null,
+  openAgentSettings: (agentId: string) =>
+    set({
+      isAgentSettingsModalOpen: true,
+      agentSettingsTargetAgentId: agentId,
+    }),
+  closeAgentSettings: () =>
+    set({
+      isAgentSettingsModalOpen: false,
+      agentSettingsTargetAgentId: null,
+    }),
+
+  // Non-Blocking Toast Notification State
+  toasts: [],
+  addToast: (toast: Omit<ToastItem, 'id'> | string, type: 'success' | 'error' | 'info' | 'warning' = 'info') => {
+    const id = Math.random().toString(36).substring(2, 9);
+    const newToast: ToastItem =
+      typeof toast === 'string'
+        ? { id, type, message: toast, duration: 4000 }
+        : { id, ...toast, duration: toast.duration ?? 4000 };
+    set((state) => ({ toasts: [...state.toasts.slice(-4), newToast] }));
+    if (newToast.duration && newToast.duration > 0) {
+      setTimeout(() => {
+        set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
+      }, newToast.duration);
+    }
+  },
+  removeToast: (id: string) =>
+    set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
 
   // Model Selector & Provider Manager State
   isModelSelectorOpen: false,
@@ -1465,7 +1538,12 @@ export const useKinStore = create<KinState>((set, get) => ({
   isLoadingMcp: false,
   isLoadingConnectors: false,
   isConnectorsModalOpen: false,
-  setConnectorsModalOpen: (open: boolean) => set({ isConnectorsModalOpen: open }),
+  setConnectorsModalOpen: (open: boolean) =>
+    set({
+      isConnectorsModalOpen: open,
+      isSettingsModalOpen: open,
+      activeSettingsTab: 'connectors',
+    }),
 
   // Desktop & Browser Control State
   discoveredApps: [],

@@ -73,9 +73,10 @@ export const SettingsModal: React.FC = () => {
     browserStatus,
     theme,
     setTheme,
+    activeSettingsTab: activeTab,
+    setActiveSettingsTab: setActiveTab,
   } = useKinStore();
 
-  const [activeTab, setActiveTab] = useState<'general' | 'models' | 'credentials' | 'skills' | 'connectors' | 'desktop' | 'evaluations' | 'database' | 'layout' | 'about'>('general');
   const [isQueryingModels, setIsQueryingModels] = useState(false);
   const [vacuumStatus, setVacuumStatus] = useState<string | null>(null);
   const [isOptimizing, setIsOptimizing] = useState(false);

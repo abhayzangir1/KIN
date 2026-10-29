@@ -9,7 +9,16 @@ import {
   Plus,
   Bot,
   Sparkles,
+  Maximize2,
 } from 'lucide-react';
+import {
+  DIRECTIVE_BLUEPRINTS,
+  QUICK_INTERVALS,
+  QUICK_TIMERS,
+  NATURAL_DAILY_TIMES,
+  translateCronToEnglish,
+  DirectiveBlueprint,
+} from '../utils/automationCadence.js';
 
 export const AutomationsModal: React.FC = () => {
   const {
@@ -22,6 +31,8 @@ export const AutomationsModal: React.FC = () => {
     agents,
     channels,
     activeChannelId,
+    setActiveMainView,
+    addToast,
   } = useKinStore();
 
   const [activeTab, setActiveTab] = useState<'active' | 'create' | 'history'>('active');
@@ -66,12 +77,29 @@ export const AutomationsModal: React.FC = () => {
         setTargetChannelId(activeChannelId || channels[0]?.id || 'chan-general');
       }
     }
-  }, [isAutomationsModalOpen, agents, channels, activeChannelId]);
+  }, [isAutomationsModalOpen, agents, channels, activeChannelId, targetAgentId, targetChannelId]);
 
   if (!isAutomationsModalOpen) return null;
 
   const activeSchedules = schedules.filter((s) => s.status === 'active');
   const completedOrCancelled = schedules.filter((s) => s.status !== 'active');
+
+  const handleApplyBlueprint = (bp: DirectiveBlueprint) => {
+    setPrompt(bp.prompt);
+    if (bp.cadenceType === 'one_shot') {
+      setSchedType('one_shot');
+      setDurationSeconds(bp.durationSeconds || 60);
+    } else {
+      setSchedType('cron');
+      setCronExpression(bp.cronExpression || '0 */4 * * *');
+    }
+    setActiveTab('create');
+    addToast({
+      title: `Loaded ${bp.title}`,
+      message: 'Directive loaded into composer.',
+      type: 'info',
+    });
+  };
 
   const handleCreateSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,6 +124,11 @@ export const AutomationsModal: React.FC = () => {
 
     if (res.success) {
       setActionFeedback('Automation created and armed successfully!');
+      addToast({
+        title: 'Schedule Armed',
+        message: schedType === 'cron' ? translateCronToEnglish(cronExpression) : `Wakeup in ${durationSeconds}s`,
+        type: 'success',
+      });
       setPrompt('');
       setTimeout(() => {
         setActionFeedback(null);
@@ -111,10 +144,16 @@ export const AutomationsModal: React.FC = () => {
     const res = await triggerScheduleNow(id);
     if (res.success) {
       setActionFeedback('Trigger dispatched to agent successfully.');
+      addToast({ title: 'Schedule Triggered', message: 'Automation dispatched for immediate execution.', type: 'info' });
     } else {
       setActionFeedback(`Trigger error: ${res.error}`);
     }
     setTimeout(() => setActionFeedback(null), 2500);
+  };
+
+  const openFullWorkspace = () => {
+    setAutomationsModalOpen(false);
+    setActiveMainView('automations');
   };
 
   return (
@@ -129,18 +168,28 @@ export const AutomationsModal: React.FC = () => {
             <div>
               <h2 className="text-sm font-bold text-kin-text">Automations & Scheduled Routines</h2>
               <p className="text-[11px] text-[#64748b]">
-                Antigravity non-blocking sleep/wakeup timers and proactive recurring routines
+                Antigravity visual cadence timers, English cron schedules, and proactive autonomous directives
               </p>
             </div>
           </div>
-          <button
-            onClick={() => setAutomationsModalOpen(false)}
-            title="Close Automations (Esc)"
-            aria-label="Close Automations"
-            className="p-1 rounded-lg hover:bg-[#1e293b] text-[#64748b] hover:text-kin-text transition cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center space-x-1.5">
+            <button
+              onClick={openFullWorkspace}
+              title="Open in Full Control Hub"
+              className="p-1.5 rounded-lg hover:bg-[#1e293b] text-[#64748b] hover:text-cyan-300 transition cursor-pointer flex items-center space-x-1 text-xs"
+            >
+              <Maximize2 className="w-4 h-4" />
+              <span className="text-[10px] hidden sm:inline">Expand View</span>
+            </button>
+            <button
+              onClick={() => setAutomationsModalOpen(false)}
+              title="Close Automations (Esc)"
+              aria-label="Close Automations"
+              className="p-1 rounded-lg hover:bg-[#1e293b] text-[#64748b] hover:text-kin-text transition cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Tab Navigation */}
@@ -213,6 +262,11 @@ export const AutomationsModal: React.FC = () => {
                 activeSchedules.map((s) => {
                   const remainingSec = Math.max(0, Math.ceil((s.nextRunAt - now) / 1000));
                   const targetAgent = agents.find((a) => a.id === s.targetAgentId);
+                  const englishCadence = s.cronExpression
+                    ? translateCronToEnglish(s.cronExpression)
+                    : s.durationSeconds
+                    ? `Every ${s.durationSeconds}s`
+                    : 'Wakeup timer';
 
                   return (
                     <div
@@ -228,12 +282,16 @@ export const AutomationsModal: React.FC = () => {
                                 : 'bg-purple-500/20 text-purple-300 border-purple-500/30'
                             }`}
                           >
-                            {s.type === 'one_shot' ? 'One-Shot Timer' : `Cron (${s.cronExpression})`}
+                            {s.type === 'one_shot' ? 'One-Shot Timer' : 'Cron Routine'}
                           </span>
 
                           <span className="flex items-center space-x-1 text-emerald-400 font-mono text-[11px] font-bold bg-emerald-950/50 px-2 py-0.5 rounded border border-emerald-800/40">
                             <Clock className="w-3 h-3" />
                             <span>{remainingSec > 0 ? `Fires in ${remainingSec}s` : 'Due now'}</span>
+                          </span>
+
+                          <span className="text-[11px] text-cyan-200 bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-800/30 font-sans">
+                            🗓️ {englishCadence}
                           </span>
 
                           {targetAgent && (
@@ -282,6 +340,28 @@ export const AutomationsModal: React.FC = () => {
           {/* TAB 2: CREATE AUTOMATION */}
           {activeTab === 'create' && (
             <form onSubmit={handleCreateSchedule} className="space-y-4">
+              {/* Directive Blueprints Row */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-semibold uppercase tracking-wider text-[#94a3b8]">
+                    1-Click Directive Blueprints
+                  </label>
+                  <span className="text-[10px] text-[#64748b]">Click to populate</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {DIRECTIVE_BLUEPRINTS.slice(0, 4).map((bp) => (
+                    <button
+                      key={bp.id}
+                      type="button"
+                      onClick={() => handleApplyBlueprint(bp)}
+                      className="text-[11px] px-2.5 py-1 rounded-lg bg-[#111827] hover:bg-[#1a253f] text-[#cbd5e1] hover:text-cyan-300 border border-[#1e293b] hover:border-cyan-500/40 transition cursor-pointer"
+                    >
+                      ⚡ {bp.title}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Type Switcher */}
               <div className="space-y-1.5">
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-[#94a3b8]">
@@ -329,21 +409,13 @@ export const AutomationsModal: React.FC = () => {
                     Sleep Duration Before Wakeup
                   </label>
                   <div className="flex flex-wrap gap-1.5">
-                    {[
-                      { label: '5s', val: 5 },
-                      { label: '10s', val: 10 },
-                      { label: '30s', val: 30 },
-                      { label: '1m', val: 60 },
-                      { label: '5m', val: 300 },
-                      { label: '15m', val: 900 },
-                      { label: '1h', val: 3600 },
-                    ].map((p) => (
+                    {QUICK_TIMERS.map((p) => (
                       <button
-                        key={p.val}
+                        key={p.seconds}
                         type="button"
-                        onClick={() => setDurationSeconds(p.val)}
+                        onClick={() => setDurationSeconds(p.seconds)}
                         className={`px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition cursor-pointer border ${
-                          durationSeconds === p.val
+                          durationSeconds === p.seconds
                             ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
                             : 'bg-[#0c1220] text-[#64748b] border-[#1e293b] hover:text-kin-text'
                         }`}
@@ -370,13 +442,7 @@ export const AutomationsModal: React.FC = () => {
                     Recurring Interval / Cron Expression
                   </label>
                   <div className="flex flex-wrap gap-1.5">
-                    {[
-                      { label: 'Every 15s', expr: '*/15s' },
-                      { label: 'Every 1 min', expr: '*/1 * * * *' },
-                      { label: 'Every 5 min', expr: '*/5 * * * *' },
-                      { label: 'Every 15 min', expr: '*/15 * * * *' },
-                      { label: 'Hourly', expr: '0 * * * *' },
-                    ].map((p) => (
+                    {QUICK_INTERVALS.map((p) => (
                       <button
                         key={p.expr}
                         type="button"
@@ -390,6 +456,20 @@ export const AutomationsModal: React.FC = () => {
                         {p.label}
                       </button>
                     ))}
+                    {NATURAL_DAILY_TIMES.slice(0, 2).map((n) => (
+                      <button
+                        key={n.expr}
+                        type="button"
+                        onClick={() => setCronExpression(n.expr)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer border ${
+                          cronExpression === n.expr
+                            ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                            : 'bg-[#0c1220] text-[#64748b] border-[#1e293b] hover:text-kin-text'
+                        }`}
+                      >
+                        {n.label}
+                      </button>
+                    ))}
                   </div>
                   <input
                     type="text"
@@ -398,6 +478,10 @@ export const AutomationsModal: React.FC = () => {
                     placeholder="*/15 * * * *"
                     className="w-full px-2.5 py-1.5 rounded-lg bg-[#070a12] border border-[#1e293b] text-kin-text text-xs font-mono focus:outline-none focus:border-purple-500"
                   />
+                  <div className="text-[11px] text-cyan-300 flex items-center space-x-1.5 pt-0.5">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>🗓️ Preview: {translateCronToEnglish(cronExpression)}</span>
+                  </div>
                 </div>
               )}
 
@@ -453,25 +537,6 @@ export const AutomationsModal: React.FC = () => {
                   placeholder="e.g. Audit workspace test results and report any test failures in #general"
                   className="w-full px-3 py-2 rounded-xl bg-[#070a12] border border-[#1e293b] text-kin-text text-xs font-sans focus:outline-none focus:border-cyan-500 resize-none"
                 />
-
-                {/* Quick suggestions */}
-                <div className="flex flex-wrap gap-1 pt-1">
-                  {[
-                    'Audit repository git status and check for uncommitted changes',
-                    'Verify all core unit tests and report pass rate',
-                    'Check Ollama local LLM daemon telemetry and available models',
-                    'Perform SQLite WAL checkpoint optimization',
-                  ].map((sug) => (
-                    <button
-                      key={sug}
-                      type="button"
-                      onClick={() => setPrompt(sug)}
-                      className="text-[10px] px-2 py-0.5 rounded bg-[#131b2e] hover:bg-[#1a253f] text-[#94a3b8] hover:text-cyan-300 transition text-left cursor-pointer truncate max-w-full"
-                    >
-                      💡 {sug}
-                    </button>
-                  ))}
-                </div>
               </div>
 
               {/* Submit Button */}

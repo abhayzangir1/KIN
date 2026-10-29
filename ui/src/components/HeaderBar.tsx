@@ -14,7 +14,7 @@ export const HeaderBar: React.FC = () => {
     isConnected,
     projectAnalytics,
     setDesktopControlModalOpen,
-    setConnectorsModalOpen,
+    openSettingsModal,
     mcpConnectors,
     browserStatus,
     activeTakeover,
@@ -166,9 +166,9 @@ export const HeaderBar: React.FC = () => {
 
         {/* MCP Connectors Capsule */}
         <button
-          onClick={() => setConnectorsModalOpen(true)}
+          onClick={() => openSettingsModal('connectors')}
           className="hidden sm:flex items-center space-x-1 px-2.5 py-0.5 rounded-md bg-kin-card hover:bg-kin-cardHover border border-kin-border text-kin-muted hover:text-kin-text transition cursor-pointer"
-          title="Open Model Context Protocol (MCP) Connectors Modal"
+          title="Open Model Context Protocol (MCP) Connectors Hub in Settings"
         >
           <Server className="w-3 h-3 text-emerald-400 shrink-0" />
           <span className="text-[10px]">MCP: {mcpConnectors.filter((c) => !c.disabled).length}</span>

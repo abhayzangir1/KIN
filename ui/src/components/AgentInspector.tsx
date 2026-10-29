@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useKinStore, isAgentAvailable, AvailableModelItem } from '../store/kinStore.js';
+import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
 import {
   Terminal,
   ShieldCheck,
   FileText,
-  Save,
   Check,
   Send,
   Hash,
@@ -40,10 +39,7 @@ import {
   Target,
   Award,
   PanelRightClose,
-  Eye,
-  Wrench,
-  Brain,
-  SlidersHorizontal,
+  Edit2,
 } from 'lucide-react';
 import { ProviderIcon, formatContextWindow } from './ModelSelectorModal.js';
 
@@ -63,7 +59,6 @@ export const AgentInspector: React.FC = () => {
     setActiveRightTab,
     activeInspectorTab,
     setActiveInspectorTab,
-    updateAgentContract,
     terminalHistory,
     runTerminalCommand,
     clearTerminalHistory,
@@ -94,9 +89,8 @@ export const AgentInspector: React.FC = () => {
     fetchEvaluations,
     runAgentEvaluation,
     availableModels,
-    addCustomModel,
     openModelSelector,
-    updateAgentModel,
+    openAgentSettings,
   } = useKinStore();
 
   const currentAgent = agents.find((a) => a.id === selectedAgentId) || agents[0];
@@ -107,10 +101,8 @@ export const AgentInspector: React.FC = () => {
   const [customInstructions, setCustomInstructions] = useState(
     currentAgent?.systemPrompt || 'Optional custom instructions specific to this agent'
   );
-  const [isSaved, setIsSaved] = useState(false);
 
   // Dynamic models & assignment state
-  const [customModelInput, setCustomModelInput] = useState('');
 
   const isCurrentAgentModelReady = currentAgent
     ? isAgentAvailable({ ...currentAgent, activeModelId }, ollamaStatus, credentials, availableModels)
@@ -130,23 +122,6 @@ export const AgentInspector: React.FC = () => {
     };
   }, [availableModels, activeModelId]);
 
-  const quickModels = useMemo(() => {
-    const list: typeof availableModels = [];
-    const seen = new Set<string>();
-    if (activeModelItem && activeModelItem.id) {
-      list.push(activeModelItem);
-      seen.add(activeModelItem.id);
-    }
-    for (const m of availableModels) {
-      if (seen.has(m.id)) continue;
-      if (m.configured !== false || m.isInstalled || m.isFree) {
-        list.push(m);
-        seen.add(m.id);
-        if (list.length >= 8) break;
-      }
-    }
-    return list;
-  }, [availableModels, activeModelItem]);
 
 
   // Terminal state
@@ -199,12 +174,6 @@ export const AgentInspector: React.FC = () => {
     }
   }, [terminalHistory.length, activeRightTab]);
 
-  const handleSaveContract = async () => {
-    if (!currentAgent) return;
-    await updateAgentContract(currentAgent.id, roleTitle, activeModelId, customInstructions);
-    setIsSaved(true);
-    setTimeout(() => setIsSaved(false), 2000);
-  };
 
   const handleTerminalSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1470,243 +1439,83 @@ export const AgentInspector: React.FC = () => {
               </div>
             </div>
 
-            {/* Sub-tab 1: Contract & Prompts */}
+            {/* Sub-tab 1: Contract & Prompts -> Modern Specialist Profile Overview */}
             {activeInspectorTab === 'Contract' ? (
-              <div className="p-3 rounded-lg bg-[#0f172a] border border-[#1e293b] space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-1.5 text-kin-text font-semibold text-[11px]">
-                    <FileText className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Role Contract & Prompts</span>
+              <div className="p-3.5 rounded-xl bg-[#0f172a] border border-[#1e293b] space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-[#1e293b]">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-xs">
+                      {currentAgent?.displayName?.charAt(0) || 'A'}
+                    </div>
+                    <div>
+                      <div className="font-bold text-white text-xs">{currentAgent?.displayName}</div>
+                      <div className="text-[10px] text-gray-400 font-mono">{roleTitle}</div>
+                    </div>
                   </div>
-                  <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 font-mono">
-                    Project Scope
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => currentAgent && openAgentSettings(currentAgent.id)}
+                    className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 border border-blue-500/40 text-[11px] font-semibold transition cursor-pointer"
+                    title="Open full Agent Settings Modal (Prompts, Model, Scopes, Capabilities)"
+                  >
+                    <Edit2 className="w-3 h-3 text-blue-400" />
+                    <span>Edit Settings</span>
+                  </button>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-[10px] font-medium text-[#64748b] uppercase tracking-wider">
-                    Specialist Role Title
-                  </label>
-                  <input
-                    type="text"
-                    value={roleTitle}
-                    onChange={(e) => setRoleTitle(e.target.value)}
-                    className="w-full bg-[#0a0f1d] border border-[#1e293b] rounded px-2.5 py-1.5 text-kin-text text-xs focus:outline-none focus:border-emerald-500"
-                  />
+                {/* Active Model Pill Card */}
+                <div className="p-2.5 rounded-lg bg-[#080d1a] border border-[#1e293b] flex items-center justify-between">
+                  <div className="flex items-center space-x-2 truncate mr-2">
+                    <div className="w-6 h-6 rounded bg-[#0e1726] border border-[#23314d] flex items-center justify-center shrink-0">
+                      <ProviderIcon provider={activeModelItem.provider || activeModelId} className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="truncate">
+                      <div className="text-xs font-semibold text-white truncate">{activeModelItem.name || activeModelId}</div>
+                      <div className="text-[9px] font-mono text-gray-400 truncate">{formatContextWindow(activeModelItem.contextWindow)} context</div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openModelSelector(currentAgent?.id)}
+                    className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 transition shrink-0 cursor-pointer"
+                  >
+                    Switch
+                  </button>
                 </div>
 
-                {/* Dynamic LLM Model Selector with Rich Card & Inline Quick Switch */}
-                <div className="space-y-2.5">
+                {/* Instructions Preview Card */}
+                <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-1.5">
-                      <label className="text-[10px] font-medium text-[#64748b] uppercase tracking-wider">
-                        Active Model
-                      </label>
-                      {isSaved && (
-                        <span className="text-[10px] text-emerald-400 font-mono flex items-center space-x-0.5 animate-fadeIn">
-                          <Check className="w-3 h-3 text-emerald-400" />
-                          <span>Saved</span>
-                        </span>
-                      )}
-                    </div>
-
-                    <span
-                      className={`text-[9px] font-mono px-2 py-0.5 rounded border flex items-center space-x-1 ${
-                        isCurrentAgentModelReady
-                          ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                          : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
-                      }`}
-                      title={isCurrentAgentModelReady ? 'Model engine and credentials are ready' : 'Model is offline or missing API key'}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full ${isCurrentAgentModelReady ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
-                      <span>{isCurrentAgentModelReady ? 'READY' : 'KEY / OFFLINE'}</span>
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-gray-400 flex items-center space-x-1">
+                      <FileText className="w-3 h-3 text-blue-400" />
+                      <span>System Instructions</span>
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => currentAgent && openAgentSettings(currentAgent.id)}
+                      className="text-[10px] text-blue-400 hover:text-blue-300 font-semibold cursor-pointer"
+                    >
+                      Expand in Modal →
+                    </button>
                   </div>
-
-                  {/* Rich Active Model Card */}
-                  <div className="p-3 rounded-lg bg-[#080d1a] border border-[#1e293b] hover:border-blue-500/40 transition flex flex-col space-y-2.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center space-x-2.5 min-w-0">
-                        <div className="w-8 h-8 rounded-lg bg-[#0e1726] border border-[#23314d] flex items-center justify-center shrink-0">
-                          <ProviderIcon provider={activeModelItem.provider || activeModelId} className="w-4 h-4" />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="font-semibold text-white text-xs truncate" title={activeModelItem.name || activeModelId}>
-                            {activeModelItem.name || activeModelId.split('/').pop() || activeModelId}
-                          </div>
-                          <div className="text-[10px] font-mono text-[#64748b] truncate" title={activeModelId}>
-                            {activeModelId}
-                          </div>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => openModelSelector(currentAgent?.id)}
-                        className="flex items-center space-x-1 px-2.5 py-1 rounded bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 border border-blue-500/30 text-[11px] font-medium transition cursor-pointer shrink-0"
-                        title="Open full Model Selector & Provider Manager"
-                      >
-                        <SlidersHorizontal className="w-3 h-3 text-blue-400" />
-                        <span>Change</span>
-                      </button>
-                    </div>
-
-                    {/* Metadata & Capabilities Badges */}
-                    <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-[#131d30] text-[10px] font-mono">
-                      <span className="px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-300 border border-slate-700/60" title="Context Window Size">
-                        {formatContextWindow(activeModelItem.contextWindow)} ctx
-                      </span>
-                      {activeModelItem.supportsTools && (
-                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center space-x-1" title="Supports Tool Calling">
-                          <Wrench className="w-2.5 h-2.5" />
-                          <span>Tools</span>
-                        </span>
-                      )}
-                      {activeModelItem.supportsVision && (
-                        <span className="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20 flex items-center space-x-1" title="Supports Multimodal Vision">
-                          <Eye className="w-2.5 h-2.5" />
-                          <span>Vision</span>
-                        </span>
-                      )}
-                      {activeModelItem.supportsReasoning && (
-                        <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center space-x-1" title="Supports Extended Reasoning / Thinking">
-                          <Brain className="w-2.5 h-2.5" />
-                          <span>Reasoning</span>
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {!isCurrentAgentModelReady && (
-                    <div className="flex items-center justify-between px-2.5 py-1.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px]">
-                      <div className="flex items-center space-x-1.5 truncate mr-2">
-                        <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
-                        <span className="truncate">Model offline or missing API key</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => openModelSelector(currentAgent?.id)}
-                        className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-[9px] font-mono font-medium transition cursor-pointer shrink-0"
-                      >
-                        Fix
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Quick-Switch Model Pills */}
-                  {quickModels.length > 1 && (
-                    <div className="space-y-1.5 pt-1">
-                      <div className="flex items-center justify-between text-[10px] text-[#64748b]">
-                        <span>Quick Switch</span>
-                        <button
-                          type="button"
-                          onClick={() => openModelSelector(currentAgent?.id)}
-                          className="text-blue-400 hover:text-blue-300 transition cursor-pointer"
-                        >
-                          View all ({availableModels.length}) →
-                        </button>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {quickModels.map((m: AvailableModelItem) => {
-                          const isActive = m.id === activeModelId;
-                          return (
-                            <button
-                              key={m.id}
-                              type="button"
-                              onClick={async () => {
-                                setActiveModelId(m.id);
-                                if (currentAgent) {
-                                  await updateAgentModel(currentAgent.id, m.id);
-                                  setIsSaved(true);
-                                  setTimeout(() => setIsSaved(false), 2000);
-                                }
-                              }}
-                              className={`flex items-center space-x-1.5 px-2 py-1 rounded-md text-[10px] font-mono border transition cursor-pointer ${
-                                isActive
-                                  ? 'bg-blue-600/25 border-blue-400 text-blue-200 font-semibold shadow-sm'
-                                  : 'bg-[#0a0f1d] hover:bg-[#12192c] border-[#1e293b] text-[#94a3b8] hover:text-white'
-                              }`}
-                              title={m.id}
-                            >
-                              <ProviderIcon provider={m.provider || m.id} className="w-3 h-3" />
-                              <span className="truncate max-w-[120px]">{m.name || m.id.split('/').pop()}</span>
-                              {isActive && <Check className="w-2.5 h-2.5 text-blue-400" />}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Manual Model ID Assignment */}
-                  <div className="pt-1 space-y-1">
-                    <div className="flex items-center justify-between text-[10px] text-[#64748b]">
-                      <span>Assign Direct Model ID</span>
-                      <span className="text-[9px] font-mono text-[#475569] truncate max-w-[160px]">e.g. openai/gpt-4o</span>
-                    </div>
-                    <div className="flex items-center space-x-1.5">
-                      <input
-                        type="text"
-                        placeholder="e.g. xai/grok-2 or openai/gpt-4.5-preview"
-                        value={customModelInput}
-                        onChange={(e) => setCustomModelInput(e.target.value)}
-                        onKeyDown={async (e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            if (!customModelInput.trim()) return;
-                            const modelId = customModelInput.trim();
-                            await addCustomModel(modelId);
-                            setActiveModelId(modelId);
-                            if (currentAgent) {
-                              await updateAgentModel(currentAgent.id, modelId);
-                              setIsSaved(true);
-                              setTimeout(() => setIsSaved(false), 2000);
-                            }
-                            setCustomModelInput('');
-                          }
-                        }}
-                        className="flex-1 bg-[#070b14] border border-[#1e293b] rounded px-2 py-1 text-[11px] text-kin-text font-mono placeholder-[#475569] focus:outline-none focus:border-emerald-500"
-                      />
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!customModelInput.trim()) return;
-                          const modelId = customModelInput.trim();
-                          await addCustomModel(modelId);
-                          setActiveModelId(modelId);
-                          if (currentAgent) {
-                            await updateAgentModel(currentAgent.id, modelId);
-                            setIsSaved(true);
-                            setTimeout(() => setIsSaved(false), 2000);
-                          }
-                          setCustomModelInput('');
-                        }}
-                        className="px-2.5 py-1 rounded bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/40 text-[10px] font-mono font-medium transition cursor-pointer whitespace-nowrap"
-                      >
-                        + Set Model
-                      </button>
-                    </div>
+                  <div
+                    onClick={() => currentAgent && openAgentSettings(currentAgent.id)}
+                    className="p-3 rounded-lg bg-[#070b14] border border-[#1e293b] hover:border-blue-500/40 text-[11px] font-mono text-gray-300 leading-relaxed max-h-28 overflow-hidden relative cursor-pointer group"
+                    title="Click to edit full instructions in Agent Settings Modal"
+                  >
+                    <p className="line-clamp-4 select-none whitespace-pre-wrap">{customInstructions || 'No custom instructions defined. Click to configure persona and principles.'}</p>
+                    <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-[#070b14] to-transparent pointer-events-none group-hover:from-blue-950/40 transition" />
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-[10px] font-medium text-[#64748b] uppercase tracking-wider">
-                    Custom Specialist Instructions
-                  </label>
-                  <textarea
-                    rows={4}
-                    value={customInstructions}
-                    onChange={(e) => setCustomInstructions(e.target.value)}
-                    className="w-full bg-[#0a0f1d] border border-[#1e293b] rounded p-2 text-kin-text text-xs focus:outline-none focus:border-emerald-500 font-mono leading-relaxed resize-none"
-                  />
-                </div>
-
+                {/* 1-Click Launch Settings Button */}
                 <button
-                  onClick={handleSaveContract}
-                  className="w-full flex items-center justify-center space-x-1.5 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-medium transition text-xs shadow"
+                  type="button"
+                  onClick={() => currentAgent && openAgentSettings(currentAgent.id)}
+                  className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition shadow flex items-center justify-center space-x-1.5 cursor-pointer"
                 >
-                  {isSaved ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
-                  <span>{isSaved ? 'Contract Saved!' : 'Save Role Contract'}</span>
+                  <Edit2 className="w-3.5 h-3.5" />
+                  <span>Edit Specialist Prompts & Capabilities</span>
                 </button>
               </div>
             ) : activeInspectorTab === 'Telemetry' ? (

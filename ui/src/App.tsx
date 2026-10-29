@@ -18,6 +18,8 @@ import { AutomationsModal } from './components/AutomationsModal.js';
 import { ModelSelectorModal } from './components/ModelSelectorModal.js';
 import { AddProviderModal } from './components/AddProviderModal.js';
 import { ModelUnavailablePromptModal } from './components/ModelUnavailablePromptModal.js';
+import { AgentSettingsModal } from './components/AgentSettingsModal.js';
+import { ToastContainer } from './components/ToastContainer.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { useKinStore } from './store/kinStore.js';
 
@@ -235,6 +237,8 @@ export const App: React.FC = () => {
           <ModelSelectorModal />
           <AddProviderModal />
           <ModelUnavailablePromptModal />
+          <AgentSettingsModal />
+          <ToastContainer />
         </ErrorBoundary>
       </div>
     </ErrorBoundary>

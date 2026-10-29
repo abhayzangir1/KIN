@@ -18,8 +18,21 @@ import {
   Zap,
   AlertTriangle,
   X,
+  Sparkles,
+  ShieldCheck,
+  GitPullRequest,
+  FileText,
+  PlayCircle,
 } from 'lucide-react';
 import type { ScheduleAttemptItem } from '../store/kinStore.js';
+import {
+  DIRECTIVE_BLUEPRINTS,
+  QUICK_INTERVALS,
+  QUICK_TIMERS,
+  NATURAL_DAILY_TIMES,
+  translateCronToEnglish,
+  DirectiveBlueprint,
+} from '../utils/automationCadence.js';
 
 export const AutomationsView: React.FC = () => {
   const {
@@ -36,6 +49,7 @@ export const AutomationsView: React.FC = () => {
     setActiveMainView,
     systemHealth,
     fetchSystemHealth,
+    addToast,
   } = useKinStore();
 
   const [now, setNow] = useState(Date.now());
@@ -49,10 +63,11 @@ export const AutomationsView: React.FC = () => {
   const [attemptsList, setAttemptsList] = useState<ScheduleAttemptItem[]>([]);
   const [loadingAttempts, setLoadingAttempts] = useState(false);
 
-  // Form State
-  const [schedType, setSchedType] = useState<'one_shot' | 'cron'>('one_shot');
-  const [durationSeconds, setDurationSeconds] = useState(15);
-  const [cronExpression, setCronExpression] = useState('*/10 * * * *');
+  // Cadence Picker Mode
+  const [cadenceMode, setCadenceMode] = useState<'interval' | 'timer' | 'natural' | 'cron'>('interval');
+  const [schedType, setSchedType] = useState<'one_shot' | 'cron'>('cron');
+  const [durationSeconds, setDurationSeconds] = useState(30);
+  const [cronExpression, setCronExpression] = useState('*/15 * * * *');
   const [prompt, setPrompt] = useState('');
   const [targetAgentId, setTargetAgentId] = useState<string>('');
   const [targetChannelId, setTargetChannelId] = useState<string>('');
@@ -82,6 +97,33 @@ export const AutomationsView: React.FC = () => {
     }
   }, [agents, channels, activeChannelId, targetAgentId, targetChannelId]);
 
+  const handleApplyBlueprint = (bp: DirectiveBlueprint) => {
+    setPrompt(bp.prompt);
+    if (bp.cadenceType === 'one_shot') {
+      setSchedType('one_shot');
+      setCadenceMode('timer');
+      setDurationSeconds(bp.durationSeconds || 60);
+    } else {
+      setSchedType('cron');
+      setCronExpression(bp.cronExpression || '0 */4 * * *');
+      const isInterval = QUICK_INTERVALS.some((q) => q.expr === bp.cronExpression);
+      const isNatural = NATURAL_DAILY_TIMES.some((n) => n.expr === bp.cronExpression);
+      if (isInterval) {
+        setCadenceMode('interval');
+      } else if (isNatural) {
+        setCadenceMode('natural');
+      } else {
+        setCadenceMode('cron');
+      }
+    }
+    setIsCreating(true);
+    addToast({
+      title: `Loaded ${bp.title}`,
+      message: 'Blueprint loaded into schedule composer. Review and click Arm & Schedule.',
+      type: 'info',
+    });
+  };
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!prompt.trim()) {
@@ -104,13 +146,23 @@ export const AutomationsView: React.FC = () => {
     setIsSubmitting(false);
 
     if (res.success) {
-      setActionFeedback('Automation registered and scheduled successfully!');
+      setActionFeedback('Automation registered and armed successfully!');
+      addToast({
+        title: 'Schedule Armed',
+        message: schedType === 'cron' ? translateCronToEnglish(cronExpression) : `Wakeup in ${durationSeconds}s`,
+        type: 'success',
+      });
       setPrompt('');
       setIsCreating(false);
       fetchSchedules();
       setTimeout(() => setActionFeedback(null), 3000);
     } else {
       setActionFeedback(`Failed: ${res.error || 'Unknown error'}`);
+      addToast({
+        title: 'Schedule Failed',
+        message: res.error || 'Unknown error occurred',
+        type: 'error',
+      });
     }
   };
 
@@ -118,6 +170,7 @@ export const AutomationsView: React.FC = () => {
     const res = await triggerScheduleNow(id);
     if (res.success) {
       setActionFeedback('Triggered automation execution successfully.');
+      addToast({ title: 'Schedule Triggered', message: 'Executing now...', type: 'info' });
       fetchSchedules();
       setTimeout(() => setActionFeedback(null), 3000);
     } else {
@@ -128,6 +181,7 @@ export const AutomationsView: React.FC = () => {
   const handleCancel = async (id: string) => {
     await cancelSchedule(id);
     setActionFeedback('Cancelled schedule.');
+    addToast({ title: 'Schedule Cancelled', message: 'Automation was deactivated.', type: 'info' });
     fetchSchedules();
     setTimeout(() => setActionFeedback(null), 3000);
   };
@@ -137,6 +191,7 @@ export const AutomationsView: React.FC = () => {
     const res = await retrySchedule(id);
     if (res.success) {
       setActionFeedback('Failed schedule reset and triggered successfully.');
+      addToast({ title: 'Schedule Retried', message: 'Failed automation state was reset and triggered.', type: 'success' });
       fetchSchedules();
       setTimeout(() => setActionFeedback(null), 3000);
     } else {
@@ -168,6 +223,22 @@ export const AutomationsView: React.FC = () => {
   const activeCount = schedules.filter((s) => s.status === 'active').length;
   const totalCount = schedules.length;
 
+  const renderBlueprintIcon = (iconName: string) => {
+    switch (iconName) {
+      case 'ShieldCheck':
+        return <ShieldCheck className="w-4 h-4 text-emerald-400" />;
+      case 'GitPullRequest':
+        return <GitPullRequest className="w-4 h-4 text-cyan-400" />;
+      case 'FileText':
+        return <FileText className="w-4 h-4 text-purple-400" />;
+      case 'PlayCircle':
+        return <PlayCircle className="w-4 h-4 text-amber-400" />;
+      case 'Sparkles':
+      default:
+        return <Sparkles className="w-4 h-4 text-emerald-400" />;
+    }
+  };
+
   return (
     <main className="flex-1 flex flex-col h-full bg-[#0a0f1d] min-w-0 overflow-y-auto text-kin-text select-none">
       {/* Top Header */}
@@ -191,7 +262,7 @@ export const AutomationsView: React.FC = () => {
               </span>
             </div>
             <p className="text-xs text-[#94a3b8] mt-0.5">
-              Autonomous wakeup timers, durable cron routines, and multi-agent proactive execution schedules
+              Visual cadence scheduling, natural language intervals, and autonomous directive routines
             </p>
           </div>
         </div>
@@ -211,7 +282,7 @@ export const AutomationsView: React.FC = () => {
 
           <button
             onClick={() => setIsCreating(!isCreating)}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white shadow-lg shadow-emerald-900/40 transition cursor-pointer"
+            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white shadow-lg shadow-emerald-900/40 transition cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>{isCreating ? 'Close Creator' : 'New Schedule'}</span>
@@ -291,116 +362,278 @@ export const AutomationsView: React.FC = () => {
         </div>
       )}
 
-      {/* Creation Drawer / Form */}
+      {/* 1-Click Autonomous Directive Blueprints Bar */}
+      <div className="mx-6 mt-4 p-4 rounded-xl bg-gradient-to-r from-[#0c162d] to-[#0f172a] border border-[#1e293b] space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <Sparkles className="w-4 h-4 text-cyan-400" />
+            <h2 className="text-xs font-semibold text-white uppercase tracking-wider">
+              1-Click Autonomous Directive Blueprints
+            </h2>
+          </div>
+          <span className="text-[11px] text-[#64748b]">Click any blueprint to populate schedule</span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-2.5">
+          {DIRECTIVE_BLUEPRINTS.map((bp) => (
+            <button
+              key={bp.id}
+              onClick={() => handleApplyBlueprint(bp)}
+              className="p-3 rounded-lg bg-[#070d19]/80 hover:bg-[#131f38] border border-[#1e293b] hover:border-cyan-500/40 text-left transition group cursor-pointer flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  {renderBlueprintIcon(bp.icon)}
+                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-cyan-950/70 text-cyan-300 border border-cyan-800/40">
+                    {bp.humanCadence}
+                  </span>
+                </div>
+                <div className="text-xs font-bold text-white group-hover:text-cyan-300 transition">
+                  {bp.title}
+                </div>
+                <div className="text-[11px] text-[#94a3b8] mt-1 line-clamp-2 leading-relaxed">
+                  {bp.description}
+                </div>
+              </div>
+              <div className="mt-2 pt-2 border-t border-[#1e293b] flex items-center justify-between text-[10px] text-cyan-400 font-medium">
+                <span>Arm Blueprint</span>
+                <span className="group-hover:translate-x-0.5 transition-transform">→</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Visual Cadence Creation Drawer */}
       {isCreating && (
-        <div className="mx-6 mt-4 p-4 rounded-xl bg-[#0f172a] border border-cyan-500/40 space-y-3 shadow-xl">
-          <div className="flex items-center justify-between border-b border-[#1e293b] pb-2">
+        <div className="mx-6 mt-4 p-5 rounded-xl bg-[#0f172a] border border-cyan-500/40 space-y-4 shadow-2xl">
+          <div className="flex items-center justify-between border-b border-[#1e293b] pb-3">
             <div className="flex items-center space-x-2">
               <Zap className="w-4 h-4 text-cyan-400" />
-              <h2 className="text-sm font-semibold text-white">Create Proactive Routine or Wakeup Timer</h2>
+              <h2 className="text-sm font-semibold text-white">Visual Cadence Schedule Composer</h2>
             </div>
             <button
               onClick={() => setIsCreating(false)}
-              className="text-[#64748b] hover:text-white text-xs"
+              className="text-[#64748b] hover:text-white text-xs p-1"
             >
-              Cancel
+              <X className="w-4 h-4" />
             </button>
           </div>
 
-          <form onSubmit={handleCreate} className="space-y-3 text-xs">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {/* Schedule Type */}
-              <div>
-                <label className="block text-[#94a3b8] mb-1 font-medium">Schedule Type</label>
-                <div className="flex rounded-lg overflow-hidden border border-[#2d3748]">
-                  <button
-                    type="button"
-                    onClick={() => setSchedType('one_shot')}
-                    className={`flex-1 py-1.5 text-center transition cursor-pointer ${
-                      schedType === 'one_shot'
-                        ? 'bg-cyan-600 text-white font-bold'
-                        : 'bg-[#1e293b] text-[#94a3b8] hover:text-white'
-                    }`}
-                  >
-                    One-Shot Timer
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSchedType('cron')}
-                    className={`flex-1 py-1.5 text-center transition cursor-pointer ${
-                      schedType === 'cron'
-                        ? 'bg-cyan-600 text-white font-bold'
-                        : 'bg-[#1e293b] text-[#94a3b8] hover:text-white'
-                    }`}
-                  >
-                    Recurring Cron
-                  </button>
-                </div>
-              </div>
+          <form onSubmit={handleCreate} className="space-y-4 text-xs">
+            {/* Cadence Mode Selector Tabs */}
+            <div className="space-y-2">
+              <label className="block text-[#94a3b8] font-medium">Choose Cadence Mode</label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCadenceMode('interval');
+                    setSchedType('cron');
+                    setCronExpression('*/15 * * * *');
+                  }}
+                  className={`py-2 px-3 rounded-lg border text-left transition cursor-pointer ${
+                    cadenceMode === 'interval'
+                      ? 'bg-cyan-950/60 border-cyan-500 text-cyan-200'
+                      : 'bg-[#1e293b]/70 border-[#2d3748] text-[#94a3b8] hover:text-white'
+                  }`}
+                >
+                  <div className="font-bold text-xs">Quick Interval</div>
+                  <div className="text-[10px] opacity-75">Every 5m, 15m, 1h...</div>
+                </button>
 
-              {/* Timing Parameter */}
-              <div>
-                {schedType === 'one_shot' ? (
-                  <>
-                    <label className="block text-[#94a3b8] mb-1 font-medium">
-                      Duration (Seconds)
-                    </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCadenceMode('timer');
+                    setSchedType('one_shot');
+                    setDurationSeconds(30);
+                  }}
+                  className={`py-2 px-3 rounded-lg border text-left transition cursor-pointer ${
+                    cadenceMode === 'timer'
+                      ? 'bg-cyan-950/60 border-cyan-500 text-cyan-200'
+                      : 'bg-[#1e293b]/70 border-[#2d3748] text-[#94a3b8] hover:text-white'
+                  }`}
+                >
+                  <div className="font-bold text-xs">One-Shot Timer</div>
+                  <div className="text-[10px] opacity-75">Wake up in 10s, 1m...</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCadenceMode('natural');
+                    setSchedType('cron');
+                    setCronExpression('0 9 * * 1-5');
+                  }}
+                  className={`py-2 px-3 rounded-lg border text-left transition cursor-pointer ${
+                    cadenceMode === 'natural'
+                      ? 'bg-cyan-950/60 border-cyan-500 text-cyan-200'
+                      : 'bg-[#1e293b]/70 border-[#2d3748] text-[#94a3b8] hover:text-white'
+                  }`}
+                >
+                  <div className="font-bold text-xs">Daily Natural Time</div>
+                  <div className="text-[10px] opacity-75">9:00 AM Weekdays, etc.</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCadenceMode('cron');
+                    setSchedType('cron');
+                  }}
+                  className={`py-2 px-3 rounded-lg border text-left transition cursor-pointer ${
+                    cadenceMode === 'cron'
+                      ? 'bg-cyan-950/60 border-cyan-500 text-cyan-200'
+                      : 'bg-[#1e293b]/70 border-[#2d3748] text-[#94a3b8] hover:text-white'
+                  }`}
+                >
+                  <div className="font-bold text-xs">Advanced Cron</div>
+                  <div className="text-[10px] opacity-75">Raw 5-field cron</div>
+                </button>
+              </div>
+            </div>
+
+            {/* Cadence Specific Chips / Inputs */}
+            <div className="p-3.5 rounded-lg bg-[#090f1d] border border-[#1e293b] space-y-2.5">
+              {cadenceMode === 'interval' && (
+                <div className="space-y-2">
+                  <div className="text-[11px] text-[#94a3b8]">Select execution interval:</div>
+                  <div className="flex flex-wrap gap-2">
+                    {QUICK_INTERVALS.map((q) => (
+                      <button
+                        key={q.expr}
+                        type="button"
+                        onClick={() => setCronExpression(q.expr)}
+                        className={`px-3 py-1.5 rounded-lg border text-xs font-mono transition cursor-pointer ${
+                          cronExpression === q.expr
+                            ? 'bg-cyan-600 text-white border-cyan-400 font-bold shadow'
+                            : 'bg-[#1e293b] border-[#2d3748] text-[#cbd5e1] hover:text-white'
+                        }`}
+                      >
+                        {q.label} ({q.desc})
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {cadenceMode === 'timer' && (
+                <div className="space-y-3">
+                  <div className="text-[11px] text-[#94a3b8]">Select or enter wakeup duration:</div>
+                  <div className="flex flex-wrap gap-2">
+                    {QUICK_TIMERS.map((t) => (
+                      <button
+                        key={t.seconds}
+                        type="button"
+                        onClick={() => setDurationSeconds(t.seconds)}
+                        className={`px-3 py-1.5 rounded-lg border text-xs font-mono transition cursor-pointer ${
+                          durationSeconds === t.seconds
+                            ? 'bg-blue-600 text-white border-blue-400 font-bold shadow'
+                            : 'bg-[#1e293b] border-[#2d3748] text-[#cbd5e1] hover:text-white'
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center space-x-2 pt-1">
+                    <span className="text-[11px] text-[#94a3b8]">Custom Duration (seconds):</span>
                     <input
                       type="number"
                       min={1}
                       max={86400}
                       value={durationSeconds}
-                      onChange={(e) => setDurationSeconds(Number(e.target.value))}
-                      className="w-full bg-[#1e293b] border border-[#2d3748] rounded-lg px-3 py-1.5 text-white font-mono focus:border-cyan-500 focus:outline-none"
+                      onChange={(e) => setDurationSeconds(Math.max(1, Number(e.target.value)))}
+                      className="w-28 bg-[#1e293b] border border-[#2d3748] rounded px-2 py-1 text-white font-mono text-xs focus:border-cyan-500 focus:outline-none"
                     />
-                  </>
-                ) : (
-                  <>
-                    <label className="block text-[#94a3b8] mb-1 font-medium">
-                      Cron Expression (5-part or interval e.g. */5 * * * *)
-                    </label>
-                    <input
-                      type="text"
-                      value={cronExpression}
-                      onChange={(e) => setCronExpression(e.target.value)}
-                      placeholder="*/15 * * * *"
-                      className="w-full bg-[#1e293b] border border-[#2d3748] rounded-lg px-3 py-1.5 text-white font-mono focus:border-cyan-500 focus:outline-none"
-                    />
-                  </>
+                  </div>
+                </div>
+              )}
+
+              {cadenceMode === 'natural' && (
+                <div className="space-y-2">
+                  <div className="text-[11px] text-[#94a3b8]">Select natural daily schedule:</div>
+                  <div className="flex flex-wrap gap-2">
+                    {NATURAL_DAILY_TIMES.map((n) => (
+                      <button
+                        key={n.expr}
+                        type="button"
+                        onClick={() => setCronExpression(n.expr)}
+                        className={`px-3 py-1.5 rounded-lg border text-xs transition cursor-pointer ${
+                          cronExpression === n.expr
+                            ? 'bg-purple-600 text-white border-purple-400 font-bold shadow'
+                            : 'bg-[#1e293b] border-[#2d3748] text-[#cbd5e1] hover:text-white'
+                        }`}
+                      >
+                        {n.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {cadenceMode === 'cron' && (
+                <div className="space-y-2">
+                  <div className="text-[11px] text-[#94a3b8]">Enter standard 5-part cron (Minute Hour Day-of-Month Month Day-of-Week):</div>
+                  <input
+                    type="text"
+                    value={cronExpression}
+                    onChange={(e) => setCronExpression(e.target.value)}
+                    placeholder="*/15 * * * *"
+                    className="w-full bg-[#1e293b] border border-[#2d3748] rounded px-3 py-1.5 text-white font-mono text-xs focus:border-cyan-500 focus:outline-none"
+                  />
+                </div>
+              )}
+
+              {/* Real-time English Cron Translation pill */}
+              <div className="pt-2 border-t border-[#1e293b] flex items-center justify-between text-[11px]">
+                <div className="flex items-center space-x-1.5 text-cyan-300">
+                  <Clock className="w-3.5 h-3.5 text-cyan-400" />
+                  <span className="font-medium">Cadence Preview:</span>
+                  <span className="font-semibold text-white">
+                    {schedType === 'one_shot'
+                      ? `Fires once after ${durationSeconds} seconds`
+                      : translateCronToEnglish(cronExpression)}
+                  </span>
+                </div>
+                {schedType === 'cron' && (
+                  <span className="font-mono text-[10px] text-[#64748b]">
+                    expr: {cronExpression}
+                  </span>
                 )}
               </div>
+            </div>
 
-              {/* Target Agent & Channel */}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[#94a3b8] mb-1 font-medium">Target Agent</label>
-                  <select
-                    value={targetAgentId}
-                    onChange={(e) => setTargetAgentId(e.target.value)}
-                    className="w-full bg-[#1e293b] border border-[#2d3748] rounded-lg px-2 py-1.5 text-white focus:border-cyan-500 focus:outline-none"
-                  >
-                    {agents.map((ag) => (
-                      <option key={ag.id} value={ag.id}>
-                        {ag.displayName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+            {/* Target Agent & Channel */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[#94a3b8] mb-1 font-medium">Assigned Agent Specialist</label>
+                <select
+                  value={targetAgentId}
+                  onChange={(e) => setTargetAgentId(e.target.value)}
+                  className="w-full bg-[#1e293b] border border-[#2d3748] rounded-lg px-2.5 py-1.5 text-white focus:border-cyan-500 focus:outline-none"
+                >
+                  {agents.map((ag) => (
+                    <option key={ag.id} value={ag.id}>
+                      {ag.displayName} ({ag.role || 'Specialist'})
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-                <div>
-                  <label className="block text-[#94a3b8] mb-1 font-medium">Channel</label>
-                  <select
-                    value={targetChannelId}
-                    onChange={(e) => setTargetChannelId(e.target.value)}
-                    className="w-full bg-[#1e293b] border border-[#2d3748] rounded-lg px-2 py-1.5 text-white focus:border-cyan-500 focus:outline-none"
-                  >
-                    {channels.map((ch) => (
-                      <option key={ch.id} value={ch.id}>
-                        #{ch.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              <div>
+                <label className="block text-[#94a3b8] mb-1 font-medium">Target Broadcast Channel</label>
+                <select
+                  value={targetChannelId}
+                  onChange={(e) => setTargetChannelId(e.target.value)}
+                  className="w-full bg-[#1e293b] border border-[#2d3748] rounded-lg px-2.5 py-1.5 text-white focus:border-cyan-500 focus:outline-none"
+                >
+                  {channels.map((ch) => (
+                    <option key={ch.id} value={ch.id}>
+                      #{ch.name}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
@@ -412,24 +645,24 @@ export const AutomationsView: React.FC = () => {
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder="e.g. Inspect git diff for uncommitted changes, run build diagnostics, and post summary..."
-                rows={2}
+                placeholder="e.g. Inspect git diff for uncommitted changes, verify project dependencies, and post findings..."
+                rows={3}
                 className="w-full bg-[#1e293b] border border-[#2d3748] rounded-lg p-2.5 text-white font-sans text-xs focus:border-cyan-500 focus:outline-none"
               />
             </div>
 
-            <div className="flex justify-end space-x-2">
+            <div className="flex justify-end space-x-2 pt-1">
               <button
                 type="button"
                 onClick={() => setIsCreating(false)}
-                className="px-3 py-1.5 rounded-lg bg-[#1e293b] hover:bg-[#283548] text-[#94a3b8] text-xs font-medium"
+                className="px-3.5 py-1.5 rounded-lg bg-[#1e293b] hover:bg-[#283548] text-[#94a3b8] text-xs font-medium cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="px-4 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs transition cursor-pointer"
+                className="px-4 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs transition cursor-pointer shadow-lg shadow-cyan-900/40"
               >
                 {isSubmitting ? 'Arming Schedule...' : 'Arm & Schedule Now'}
               </button>
@@ -457,7 +690,7 @@ export const AutomationsView: React.FC = () => {
           <div className="flex rounded-lg overflow-hidden border border-[#1e293b]">
             <button
               onClick={() => setFilterType('all')}
-              className={`px-2.5 py-1 text-[11px] font-mono ${
+              className={`px-2.5 py-1 text-[11px] font-mono cursor-pointer ${
                 filterType === 'all' ? 'bg-[#1e293b] text-cyan-400 font-bold' : 'bg-[#0f172a] text-[#94a3b8]'
               }`}
             >
@@ -465,7 +698,7 @@ export const AutomationsView: React.FC = () => {
             </button>
             <button
               onClick={() => setFilterType('one_shot')}
-              className={`px-2.5 py-1 text-[11px] font-mono ${
+              className={`px-2.5 py-1 text-[11px] font-mono cursor-pointer ${
                 filterType === 'one_shot' ? 'bg-[#1e293b] text-cyan-400 font-bold' : 'bg-[#0f172a] text-[#94a3b8]'
               }`}
             >
@@ -473,7 +706,7 @@ export const AutomationsView: React.FC = () => {
             </button>
             <button
               onClick={() => setFilterType('cron')}
-              className={`px-2.5 py-1 text-[11px] font-mono ${
+              className={`px-2.5 py-1 text-[11px] font-mono cursor-pointer ${
                 filterType === 'cron' ? 'bg-[#1e293b] text-cyan-400 font-bold' : 'bg-[#0f172a] text-[#94a3b8]'
               }`}
             >
@@ -485,7 +718,7 @@ export const AutomationsView: React.FC = () => {
           <div className="flex rounded-lg overflow-hidden border border-[#1e293b]">
             <button
               onClick={() => setFilterStatus('all')}
-              className={`px-2.5 py-1 text-[11px] font-mono ${
+              className={`px-2.5 py-1 text-[11px] font-mono cursor-pointer ${
                 filterStatus === 'all' ? 'bg-[#1e293b] text-emerald-400 font-bold' : 'bg-[#0f172a] text-[#94a3b8]'
               }`}
             >
@@ -493,7 +726,7 @@ export const AutomationsView: React.FC = () => {
             </button>
             <button
               onClick={() => setFilterStatus('active')}
-              className={`px-2.5 py-1 text-[11px] font-mono ${
+              className={`px-2.5 py-1 text-[11px] font-mono cursor-pointer ${
                 filterStatus === 'active' ? 'bg-[#1e293b] text-emerald-400 font-bold' : 'bg-[#0f172a] text-[#94a3b8]'
               }`}
             >
@@ -501,7 +734,7 @@ export const AutomationsView: React.FC = () => {
             </button>
             <button
               onClick={() => setFilterStatus('completed')}
-              className={`px-2.5 py-1 text-[11px] font-mono ${
+              className={`px-2.5 py-1 text-[11px] font-mono cursor-pointer ${
                 filterStatus === 'completed' ? 'bg-[#1e293b] text-emerald-400 font-bold' : 'bg-[#0f172a] text-[#94a3b8]'
               }`}
             >
@@ -509,7 +742,7 @@ export const AutomationsView: React.FC = () => {
             </button>
             <button
               onClick={() => setFilterStatus('failed')}
-              className={`px-2.5 py-1 text-[11px] font-mono ${
+              className={`px-2.5 py-1 text-[11px] font-mono cursor-pointer ${
                 filterStatus === 'failed' ? 'bg-[#1e293b] text-red-400 font-bold' : 'bg-[#0f172a] text-[#94a3b8]'
               }`}
             >
@@ -529,6 +762,11 @@ export const AutomationsView: React.FC = () => {
           const remainingSec = Math.max(0, Math.ceil((s.nextRunAt - now) / 1000));
           const targetAgent = agents.find((a) => a.id === s.targetAgentId);
           const targetChan = channels.find((c) => c.id === s.channelId);
+          const englishCadence = s.cronExpression
+            ? translateCronToEnglish(s.cronExpression)
+            : s.durationSeconds
+            ? `Every ${s.durationSeconds}s`
+            : 'One-time wakeup';
 
           return (
             <div
@@ -576,9 +814,13 @@ export const AutomationsView: React.FC = () => {
                       </span>
                     )}
 
+                    <span className="font-sans text-[11px] text-cyan-200 bg-cyan-950/50 px-2 py-0.5 rounded border border-cyan-800/40">
+                      🗓️ {englishCadence}
+                    </span>
+
                     {s.cronExpression && (
-                      <span className="font-mono text-[11px] text-[#94a3b8] bg-[#1e293b] px-2 py-0.5 rounded">
-                        cron: {s.cronExpression}
+                      <span className="font-mono text-[10px] text-[#64748b] bg-[#1e293b] px-1.5 py-0.5 rounded">
+                        {s.cronExpression}
                       </span>
                     )}
                   </div>
@@ -670,7 +912,7 @@ export const AutomationsView: React.FC = () => {
             <Timer className="w-10 h-10 text-cyan-400/40 mx-auto" />
             <div className="text-sm font-semibold text-white">No schedules match the criteria</div>
             <p className="text-xs text-[#64748b] max-w-sm mx-auto">
-              Create an automated wakeup timer or proactive routine using the button above or type /schedule in chat.
+              Create an automated wakeup timer or proactive routine using the blueprints or button above.
             </p>
           </div>
         )}
@@ -736,7 +978,7 @@ export const AutomationsView: React.FC = () => {
             <div className="px-5 py-3 border-t border-[#1e293b] bg-[#0a0f1d] flex justify-end">
               <button
                 onClick={() => setAttemptsScheduleId(null)}
-                className="px-3 py-1.5 rounded-lg bg-[#1e293b] hover:bg-[#283548] text-[#94a3b8] text-xs font-medium"
+                className="px-3 py-1.5 rounded-lg bg-[#1e293b] hover:bg-[#283548] text-[#94a3b8] text-xs font-medium cursor-pointer"
               >
                 Close
               </button>
