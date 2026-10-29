@@ -18,6 +18,7 @@
     "test:e2e": "npm run test:e2e --workspace=core",
     "core:dev": "npm run dev --workspace=core",
     "ui:dev": "npm run dev --workspace=ui",
+    "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "package:desktop": "npm run build:prod && tauri build"
