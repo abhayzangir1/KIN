@@ -126,7 +126,9 @@ export class BrowserController {
       process.env.CHROME_BIN,
     ];
     for (const p of envOverrides) {
-      if (p && fs.existsSync(p)) return p;
+      if (!p) continue;
+      if (fs.existsSync(p)) return p;
+      if (!p.includes('/') && !p.includes('\\') && process.platform !== 'win32') return p;
     }
 
     const isWindows = process.platform === 'win32';

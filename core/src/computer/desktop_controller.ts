@@ -203,6 +203,7 @@ export class DesktopController {
           stdio: 'ignore',
           windowsHide: false,
         });
+        child.on('error', () => {});
         child.unref();
 
         return {
@@ -219,6 +220,7 @@ export class DesktopController {
           detached: true,
           stdio: 'ignore',
         });
+        child.on('error', () => {});
         child.unref();
 
         return {
@@ -239,18 +241,21 @@ export class DesktopController {
             stdio: 'ignore',
           });
         } else {
-          try {
+          // If executable exists on disk, spawn directly; otherwise fallback to xdg-open
+          const useDirect = fs.existsSync(targetPath);
+          if (useDirect) {
             child = childProcess.spawn(targetPath, args, {
               detached: true,
               stdio: 'ignore',
             });
-          } catch {
+          } else {
             child = childProcess.spawn('xdg-open', [targetPath, ...args], {
               detached: true,
               stdio: 'ignore',
             });
           }
         }
+        child.on('error', () => {});
         child.unref();
 
         return {

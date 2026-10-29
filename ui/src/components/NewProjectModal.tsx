@@ -120,9 +120,9 @@ export const NewProjectModal: React.FC = () => {
     }
 
     let finalRepoPath = repoPath.trim();
-    // If user provided a bare folder name (e.g. "kinntesttt") without path separators, normalize to drive root
+    // If user provided a bare folder name (e.g. "my-project") without path separators, normalize to drive root
     if (finalRepoPath && !finalRepoPath.includes('\\') && !finalRepoPath.includes('/')) {
-      const defaultDrive = navigator.platform.includes('Win') ? 'D:\\' : '/';
+      const defaultDrive = navigator.platform.includes('Win') ? 'C:\\' : '/';
       finalRepoPath = `${defaultDrive}${finalRepoPath}`;
       setRepoPath(finalRepoPath);
     }
@@ -210,7 +210,7 @@ export const NewProjectModal: React.FC = () => {
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. kinntesttt, fintech-api"
+              placeholder="e.g. my-app, fintech-api"
               className="w-full bg-[#090d16] border border-[#2d3748] rounded px-3 py-2 text-kin-text focus:outline-none focus:border-emerald-500"
             />
           </div>
@@ -236,11 +236,11 @@ export const NewProjectModal: React.FC = () => {
               type="text"
               value={repoPath}
               onChange={(e) => setRepoPath(e.target.value)}
-              placeholder="e.g. D:\kinntesttt or C:\Projects\my-app"
+              placeholder="e.g. C:\Projects\my-app or /home/user/my-app"
               className="w-full bg-[#090d16] border border-[#2d3748] rounded px-3 py-2 text-kin-text font-mono focus:outline-none focus:border-emerald-500"
             />
             <p className="text-[10px] text-[#64748b] mt-1">
-              Absolute path to your local project folder (e.g. <code className="text-emerald-300">D:\kinntesttt</code>).
+              Absolute path to your local project folder (e.g. <code className="text-emerald-300">C:\Projects\my-app</code>).
             </p>
           </div>
 

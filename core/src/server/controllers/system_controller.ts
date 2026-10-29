@@ -2314,19 +2314,18 @@ export class SystemController extends BaseController {
             });
             selectedPath = (out.stdout || '').trim();
           } else {
-            // Linux: Try zenity, fallback to kdialog
+            // Linux: Try zenity, fallback to kdialog if zenity is not installed
             let out = childProcess.spawnSync('zenity', ['--file-selection', '--directory', '--title=Select Project Folder'], {
               encoding: 'utf8',
               timeout: 60000,
             });
-            selectedPath = (out.stdout || '').trim();
-            if (!selectedPath) {
+            if (out.error) {
               out = childProcess.spawnSync('kdialog', ['--getexistingdirectory', '.'], {
                 encoding: 'utf8',
                 timeout: 60000,
               });
-              selectedPath = (out.stdout || '').trim();
             }
+            selectedPath = (out.stdout || '').trim();
           }
 
           if (selectedPath) {
