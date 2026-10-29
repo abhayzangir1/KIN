@@ -1,6 +1,6 @@
 {
   "name": "kin-workforce",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "KIN — Beyond AI orchestration: AI coworkers collaborating alongside humans as genuine teammates in a local-first workspace",
   "workspaces": [
