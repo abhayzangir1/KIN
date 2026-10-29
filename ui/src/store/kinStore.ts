@@ -61,8 +61,7 @@ export function isDesktopApp(): boolean {
     '__TAURI_INTERNALS__' in window ||
     window.location?.hostname === 'tauri.localhost' ||
     window.location?.protocol === 'tauri:' ||
-    window.location?.protocol === 'asset:' ||
-    (window.location?.port !== '54321' && window.location?.port !== '5173')
+    window.location?.protocol === 'asset:'
   );
 }
 

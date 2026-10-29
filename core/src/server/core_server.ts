@@ -2925,13 +2925,15 @@ export class CoreServer {
         const targetRepoPath = path.resolve(repoPath).toLowerCase();
 
         const existingProject = existingProjects.find((p: any) =>
-          p.name.trim().toLowerCase() === targetName ||
-          path.resolve(p.repoPath).toLowerCase() === targetRepoPath
+          (p.name && p.name.trim().toLowerCase() === targetName) ||
+          (p.repoPath && path.resolve(p.repoPath).toLowerCase() === targetRepoPath)
         );
 
         if (existingProject) {
           if (body.activate !== false) {
             this.activeProjectId = existingProject.id;
+            this.agentRepo.ensureProjectBoss(existingProject.id, workspaceId);
+            this.broadcastEvent('project:activated', { projectId: existingProject.id });
           }
           const channels = this.workspaceRepo.listChannels(existingProject.id);
           const channelId = channels.length > 0 ? channels[0].id : `chan-${existingProject.id}`;
@@ -8561,7 +8563,7 @@ Format strictly as JSON:
           return this.sendJson(res, 404, { error: 'Physical file not found' });
         }
 
-        this.handleCors(res);
+        this.handleCors(res, req);
         const safeFilename = path.basename(record.originalName || 'download').replace(/["\r\n\x00-\x1f]/g, '_');
         res.writeHead(200, {
           'Content-Type': record.mimeType || 'application/octet-stream',
