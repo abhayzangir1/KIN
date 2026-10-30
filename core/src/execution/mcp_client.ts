@@ -10,6 +10,8 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { pathToFileURL } from 'node:url';
 
+const INITIAL_SYSTEM_HOMEDIR = path.resolve(os.homedir());
+
 export interface McpServerConfig {
   name: string;
   command?: string;
@@ -282,7 +284,7 @@ export class McpClientManager {
     // Global user configs are loaded first; project-level configs override later.
     const isIsolatedInTest = process.env.KIN_ISOLATE_GLOBAL_MCP === 'true' &&
       !process.env.KIN_GLOBAL_CONFIG_DIR &&
-      (process.env.USERPROFILE === undefined || process.env.USERPROFILE === os.homedir());
+      path.resolve(userHome) === INITIAL_SYSTEM_HOMEDIR;
 
     const rawCandidatePaths = [
       ...(isIsolatedInTest ? [] : [
@@ -1573,13 +1575,13 @@ process.on('SIGINT', () => process.exit(0));
     }
 
     // 2. Global user-level connectors
+    const userHome = process.env.KIN_GLOBAL_CONFIG_DIR || process.env.USERPROFILE || process.env.HOME || os.homedir();
     const isIsolatedInTest = process.env.KIN_ISOLATE_GLOBAL_MCP === 'true' &&
       !process.env.KIN_GLOBAL_CONFIG_DIR &&
-      (process.env.USERPROFILE === undefined || process.env.USERPROFILE === os.homedir());
+      path.resolve(userHome) === INITIAL_SYSTEM_HOMEDIR;
 
     if (!isIsolatedInTest) {
       readScopeConfigs(McpClientManager.getGlobalConfigPath(), 'global');
-      const userHome = process.env.KIN_GLOBAL_CONFIG_DIR || process.env.USERPROFILE || process.env.HOME || os.homedir();
       const altGlobal = path.resolve(path.join(userHome, '.kin', 'mcp_servers.json'));
       if (fs.existsSync(altGlobal)) {
         readScopeConfigs(altGlobal, 'global');

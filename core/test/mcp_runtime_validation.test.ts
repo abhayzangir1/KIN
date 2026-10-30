@@ -994,6 +994,7 @@ describe('MCP Runtime End-to-End Validation', () => {
   it('loads global user connectors from ~/.kin/mcp.json and allows project-level overrides and disabled flags', async () => {
     const origUserProfile = process.env.USERPROFILE;
     const origHome = process.env.HOME;
+    const origGlobalConfigDir = process.env.KIN_GLOBAL_CONFIG_DIR;
     const globalHome = path.join(tempDir, 'global_home');
     const projectDir = path.join(tempDir, 'project_dir');
     const globalKinDir = path.join(globalHome, '.kin');
@@ -1003,6 +1004,7 @@ describe('MCP Runtime End-to-End Validation', () => {
 
     process.env.USERPROFILE = globalHome;
     process.env.HOME = globalHome;
+    process.env.KIN_GLOBAL_CONFIG_DIR = globalHome;
 
     try {
       // 1. Script for global server
@@ -1056,6 +1058,11 @@ describe('MCP Runtime End-to-End Validation', () => {
     } finally {
       process.env.USERPROFILE = origUserProfile;
       process.env.HOME = origHome;
+      if (origGlobalConfigDir !== undefined) {
+        process.env.KIN_GLOBAL_CONFIG_DIR = origGlobalConfigDir;
+      } else {
+        delete process.env.KIN_GLOBAL_CONFIG_DIR;
+      }
     }
   });
 });

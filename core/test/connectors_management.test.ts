@@ -13,6 +13,7 @@ describe('MCP Connectors Management & Scope Lifecycle Suite', () => {
   let projectDir: string;
   let origUserProfile: string | undefined;
   let origHome: string | undefined;
+  let origGlobalConfigDir: string | undefined;
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kin-connectors-test-'));
@@ -23,14 +24,20 @@ describe('MCP Connectors Management & Scope Lifecycle Suite', () => {
 
     origUserProfile = process.env.USERPROFILE;
     origHome = process.env.HOME;
+    origGlobalConfigDir = process.env.KIN_GLOBAL_CONFIG_DIR;
     process.env.USERPROFILE = globalHomeDir;
     process.env.HOME = globalHomeDir;
-    delete process.env.KIN_GLOBAL_CONFIG_DIR;
+    process.env.KIN_GLOBAL_CONFIG_DIR = globalHomeDir;
   });
 
   afterEach(() => {
     process.env.USERPROFILE = origUserProfile;
     process.env.HOME = origHome;
+    if (origGlobalConfigDir !== undefined) {
+      process.env.KIN_GLOBAL_CONFIG_DIR = origGlobalConfigDir;
+    } else {
+      delete process.env.KIN_GLOBAL_CONFIG_DIR;
+    }
     try {
       fs.rmSync(tempDir, { recursive: true, force: true });
     } catch {}

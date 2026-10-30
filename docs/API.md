@@ -2,7 +2,7 @@
 
 The KIN Core Daemon runs locally on `http://127.0.0.1:54321` and provides a comprehensive REST API and Server-Sent Events (SSE) stream for desktop shells, web interfaces, and automated clients.
 
-Route handlers are organized into domain controllers under [`core/src/server/controllers/`](../core/src/server/controllers/) (`system_controller.ts`, `workspace_controller.ts`, `communication_controller.ts`, `execution_controller.ts`, `git_controller.ts`, `skills_controller.ts`, `model_controller.ts`, `storage_controller.ts`) orchestrated by [`core/src/server/core_server.ts`](../core/src/server/core_server.ts) and backed by SQLite WAL storage in `kin_storage.sqlite`.
+Route handlers are organized into domain controllers under [`core/src/server/controllers/`](../core/src/server/controllers/) (`base_controller.ts`, `workspace_controller.ts`, `channel_controller.ts`, `agent_controller.ts`, `task_controller.ts`, `mcp_controller.ts`, `system_controller.ts`) orchestrated by [`core/src/server/router.ts`](../core/src/server/router.ts) and [`core/src/server/core_server.ts`](../core/src/server/core_server.ts) and backed by SQLite WAL storage in `kin_storage.sqlite`.
 
 ---
 
