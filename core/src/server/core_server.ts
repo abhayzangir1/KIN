@@ -2306,6 +2306,14 @@ export class CoreServer {
       return;
     } catch (err: any) {
       console.error('[KIN CORE SERVER ERROR]', err);
+      if (err?.message === 'Invalid JSON payload') {
+        this.sendJson(res, 400, { error: 'Bad Request: Invalid JSON payload' });
+        return;
+      }
+      if (err?.message === 'Payload too large') {
+        this.sendJson(res, 413, { error: 'Payload Too Large' });
+        return;
+      }
       this.sendJson(res, 500, { error: err?.message || 'Internal Server Error' });
       return;
     }

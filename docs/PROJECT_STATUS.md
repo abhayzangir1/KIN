@@ -65,7 +65,7 @@ KIN is organized into three production workspaces backed by 31 authoritative SQL
 
 ### Automated Test Suite
 - **Core Test Suite (`npm test --workspace=core`)**:
-  - **63 Test Suites**: All 63 passed (100% pass rate).
+  - **63 Test Suites**: All 63 passed deterministically without regressions.
   - **863 Tests**: 863 tests passing across 63 test files (0 failed, 0 skipped, 0 regressions).
   - Full regression coverage spans all 18 production layers: cold boot, health telemetry, static asset serving, task lease contention, message ingestion fencing, atomic CAS approval gates, SHA-256 EventLedger cryptographic integrity, and dynamic tool engine security under multi-worker loads.
   - Zero mock data or synthetic score facades: dynamic rubric evaluation from database records, authentic credential-gated model discovery, and centralized fallback model configuration (`DEFAULT_FALLBACK_MODEL_ID`).

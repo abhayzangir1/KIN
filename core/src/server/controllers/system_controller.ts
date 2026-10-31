@@ -1709,6 +1709,7 @@ export class SystemController extends BaseController {
           if (!triggered) {
             return this.sendJson(res, 404, { error: `Automation schedule '${scheduleId}' not found.` });
           }
+          this.broadcastEvent('schedule:fired', triggered);
           return this.sendJson(res, 200, { success: true, scheduleId, schedule: triggered, message: 'Automation triggered immediately.' });
         } catch (err: any) {
           return this.sendJson(res, 400, { error: err.message });
@@ -1720,6 +1721,7 @@ export class SystemController extends BaseController {
       if (req.method === 'DELETE' && cancelMatch) {
         const scheduleId = cancelMatch[1];
         this.scheduler.cancelSchedule(scheduleId);
+        this.broadcastEvent('schedule:cancelled', { scheduleId });
         return this.sendJson(res, 200, { success: true, scheduleId, message: 'Automation cancelled.' });
       }
 

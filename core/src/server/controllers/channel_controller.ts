@@ -73,6 +73,29 @@ export class ChannelController extends BaseController {
         return this.sendJson(res, 201, { channel: channelItem });
       }
 
+      // 7a-2. GET /api/channels/:id — Retrieve single channel details
+      const channelGetMatch = pathname.match(/^\/api\/channels\/([^/]+)$/);
+      if (req.method === 'GET' && channelGetMatch) {
+        const channelId = decodeURIComponent(channelGetMatch[1]);
+        const channel = this.workspaceRepo.getChannel(channelId);
+        if (!channel) {
+          return this.sendJson(res, 404, { error: `Channel '${channelId}' not found` });
+        }
+        const memberIds = this.workspaceRepo.listChannelMemberIds(channel.id);
+        return this.sendJson(res, 200, {
+          channel: {
+            id: channel.id,
+            projectId: channel.projectId,
+            name: channel.name,
+            topic: channel.topic,
+            isPrivate: channel.isPrivate,
+            channelType: channel.channelType || (channel.isPrivate ? 'direct_message' : 'channel'),
+            createdAt: channel.createdAt,
+            memberIds,
+          },
+        });
+      }
+
       // 7b-2. DELETE /api/channels/:id — Delete a channel and its messages
       const channelDeleteMatch = pathname.match(/^\/api\/channels\/([^/]+)$/);
       if (req.method === 'DELETE' && channelDeleteMatch) {
