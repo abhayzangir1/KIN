@@ -51,6 +51,14 @@ export class KinDatabase {
     if (this.dbPath !== ':memory:') {
       this.db.exec('PRAGMA journal_mode = WAL;');
       this.db.exec('PRAGMA synchronous = NORMAL;');
+      this.db.exec('PRAGMA mmap_size = 268435456;');
+      this.db.exec('PRAGMA cache_size = -64000;');
+      this.db.exec('PRAGMA temp_store = MEMORY;');
+      this.db.exec('PRAGMA wal_autocheckpoint = 1000;');
+      this.db.exec('PRAGMA threads = 4;');
+    } else {
+      this.db.exec('PRAGMA temp_store = MEMORY;');
+      this.db.exec('PRAGMA cache_size = -64000;');
     }
     this.db.exec(`PRAGMA busy_timeout = ${busyTimeoutMs};`);
     this.db.exec('PRAGMA foreign_keys = ON;');

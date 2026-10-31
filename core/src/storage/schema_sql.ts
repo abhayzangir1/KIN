@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     quota_resets_at INTEGER,
     interrupted_turn INTEGER DEFAULT 0,
     model_id TEXT,
+    priority INTEGER DEFAULT 50,
     created_at INTEGER NOT NULL,
     completed_at INTEGER
 );
@@ -466,4 +467,19 @@ CREATE TABLE IF NOT EXISTS harness_improvements (
 );
 CREATE INDEX IF NOT EXISTS idx_harness_improvements_domain ON harness_improvements(domain, component_type);
 CREATE INDEX IF NOT EXISTS idx_harness_improvements_sig ON harness_improvements(problem_signature);
+
+-- High-Performance Composite Indexes
+CREATE INDEX IF NOT EXISTS idx_agent_runs_state_created ON agent_runs(state, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_task_created ON agent_runs(task_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_state_quota ON agent_runs(state, quota_resets_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_status_lease ON tasks(status, lease_expires_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_goal_created ON tasks(goal_id, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_projects_workspace_created ON projects(workspace_id, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_messages_chan_sender_time ON messages(channel_id, sender_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_events_run_time ON event_journal(run_id, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_events_entity_schedule ON event_journal(entity_type, entity_id, event_type, id ASC);
+CREATE INDEX IF NOT EXISTS idx_memory_versions_mem_ver ON memory_versions(memory_id, version DESC);
+CREATE INDEX IF NOT EXISTS idx_decisions_project_created ON decisions(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_goals_proj_updated ON goals(project_id, updated_at DESC, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_identities_def ON agent_identities(definition_id);
 `;
