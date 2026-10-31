@@ -879,15 +879,26 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
           try {
             if (child.pid) {
               if (this.isWindows) {
-                childProcess.exec(`taskkill /pid ${child.pid} /T /F`);
+                try {
+                  childProcess.execSync(`taskkill /pid ${child.pid} /T /F`, { stdio: 'ignore' });
+                } catch {
+                  try {
+                    child.kill('SIGKILL');
+                  } catch {}
+                }
               } else {
                 try {
-                  childProcess.exec(`pkill -P ${child.pid}`);
+                  childProcess.execSync(`pkill -P ${child.pid}`, { stdio: 'ignore' });
                 } catch {}
-                child.kill('SIGKILL');
+                try {
+                  child.kill('SIGKILL');
+                } catch {}
               }
             }
-          } catch {}
+          } catch (termErr: unknown) {
+            const message = termErr instanceof Error ? termErr.message : String(termErr);
+            console.warn('[KIN DESKTOP] Process termination notice during abort:', message);
+          }
           resolve({ stdout: '', stderr: 'PowerShell execution cancelled by operator via AbortSignal', exitCode: 1 });
         };
         abortSignal.addEventListener('abort', abortListener, { once: true });

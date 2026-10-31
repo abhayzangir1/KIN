@@ -57,6 +57,14 @@ export class OAuthHandler {
   /**
    * Starts an OAuth 2.0 PKCE flow for the requested provider.
    */
+  public static startAuth(provider: 'github' | 'google' | 'slack', port: number = 54321): {
+    authUrl: string;
+    state: string;
+    provider: string;
+  } {
+    return this.startAuthFlow(provider, port);
+  }
+
   public static startAuthFlow(provider: 'github' | 'google' | 'slack', port: number = 54321): {
     authUrl: string;
     state: string;
@@ -77,22 +85,30 @@ export class OAuthHandler {
     let authUrl = '';
 
     if (provider === 'github') {
-      // Default KIN Desktop Client ID or user/environment override
-      const clientId = process.env.KIN_GITHUB_CLIENT_ID || 'Ov23liZ0K9bKinDesktop';
+      const clientId = process.env.KIN_GITHUB_CLIENT_ID;
+      if (!clientId) {
+        throw new Error('OAuth provider "github" is not configured. Missing KIN_GITHUB_CLIENT_ID environment variable.');
+      }
       authUrl = `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(
         clientId
       )}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=repo,read:user,workflow&state=${encodeURIComponent(
         state
       )}`;
     } else if (provider === 'google') {
-      const clientId = process.env.KIN_GOOGLE_CLIENT_ID || 'kin-desktop-google.apps.googleusercontent.com';
+      const clientId = process.env.KIN_GOOGLE_CLIENT_ID;
+      if (!clientId) {
+        throw new Error('OAuth provider "google" is not configured. Missing KIN_GOOGLE_CLIENT_ID environment variable.');
+      }
       authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
         clientId
       )}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=openid%20profile%20email%20https://www.googleapis.com/auth/drive.readonly&code_challenge=${encodeURIComponent(
         challenge
       )}&code_challenge_method=S256&state=${encodeURIComponent(state)}&access_type=offline`;
     } else if (provider === 'slack') {
-      const clientId = process.env.KIN_SLACK_CLIENT_ID || 'kin-desktop-slack';
+      const clientId = process.env.KIN_SLACK_CLIENT_ID;
+      if (!clientId) {
+        throw new Error('OAuth provider "slack" is not configured. Missing KIN_SLACK_CLIENT_ID environment variable.');
+      }
       authUrl = `https://slack.com/oauth/v2/authorize?client_id=${encodeURIComponent(
         clientId
       )}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=chat:write,channels:read,channels:history&state=${encodeURIComponent(
@@ -139,7 +155,10 @@ export class OAuthHandler {
       let username = 'Authenticated User';
 
       if (session.provider === 'github') {
-        const clientId = process.env.KIN_GITHUB_CLIENT_ID || 'Ov23liZ0K9bKinDesktop';
+        const clientId = process.env.KIN_GITHUB_CLIENT_ID;
+        if (!clientId) {
+          throw new Error('OAuth provider "github" is not configured. Missing KIN_GITHUB_CLIENT_ID environment variable.');
+        }
         const clientSecret = process.env.KIN_GITHUB_CLIENT_SECRET || '';
 
         // If client secret is configured, exchange code directly

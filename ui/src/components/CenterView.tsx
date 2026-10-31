@@ -151,7 +151,8 @@ export const CenterView: React.FC = () => {
   const [inputText, setInputText] = useState(() => {
     try {
       return activeChannelId ? (localStorage.getItem(`kin_draft_${activeChannelId}`) || '') : '';
-    } catch {
+    } catch (err) {
+      console.warn('[KIN UI] Failed to read draft from localStorage:', err);
       return '';
     }
   });
@@ -165,7 +166,8 @@ export const CenterView: React.FC = () => {
     try {
       const saved = localStorage.getItem(`kin_draft_${activeChannelId}`);
       setInputText(saved || '');
-    } catch {
+    } catch (err) {
+      console.warn('[KIN UI] Failed to read draft from localStorage:', err);
       setInputText('');
     }
   }, [activeChannelId]);
@@ -182,7 +184,8 @@ export const CenterView: React.FC = () => {
   const [dismissHealthBanner, setDismissHealthBanner] = useState(() => {
     try {
       return sessionStorage.getItem('kin_dismiss_health_banner') === 'true';
-    } catch {
+    } catch (err) {
+      console.warn('[KIN UI] Failed to read health banner dismissal:', err);
       return false;
     }
   });
@@ -310,7 +313,11 @@ export const CenterView: React.FC = () => {
   const toggleVoiceDictation = () => {
     if (isListening) {
       if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch {}
+        try {
+          recognitionRef.current.stop();
+        } catch (err) {
+          console.warn('[KIN UI] Failed to stop speech recognition:', err);
+        }
       }
       setIsListening(false);
       return;
@@ -353,7 +360,8 @@ export const CenterView: React.FC = () => {
 
       recognitionRef.current = recognition;
       recognition.start();
-    } catch {
+    } catch (err) {
+      console.warn('[KIN UI] Failed to start speech recognition:', err);
       setIsListening(false);
     }
   };
@@ -370,7 +378,9 @@ export const CenterView: React.FC = () => {
     if (activeChannelId) {
       try {
         localStorage.removeItem(`kin_draft_${activeChannelId}`);
-      } catch {}
+      } catch (err) {
+        console.warn('[KIN UI] Failed to remove draft from localStorage:', err);
+      }
     }
     setShowMentionMenu(false);
     setShowSlashMenu(false);
@@ -477,7 +487,9 @@ export const CenterView: React.FC = () => {
         } else {
           localStorage.removeItem(`kin_draft_${activeChannelId}`);
         }
-      } catch {}
+      } catch (err) {
+        console.warn('[KIN UI] Failed to save draft to localStorage:', err);
+      }
     }
 
     // Mention trigger check
@@ -687,7 +699,9 @@ export const CenterView: React.FC = () => {
     if (cardMatch) {
       try {
         return JSON.parse(cardMatch[1]);
-      } catch {}
+      } catch (err) {
+        console.warn('[KIN UI] Failed to parse decision proposal card:', err);
+      }
     }
     if (content.includes('### Architectural Tie-Breaker') || content.includes('Tie-Breaker Escalation') || content.includes('Decision Card:')) {
       const titleMatch = content.match(/(?:### Architectural Tie-Breaker|Proposed Plan Decision|Decision Card:)\s*([^\n]+)/);
@@ -725,7 +739,9 @@ export const CenterView: React.FC = () => {
       if (activeChannelId) {
         try {
           localStorage.removeItem(`kin_draft_${activeChannelId}`);
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] Failed to remove draft from localStorage:', err);
+        }
       }
       setSendError(null);
       setShowMentionMenu(false);
@@ -892,7 +908,11 @@ export const CenterView: React.FC = () => {
                 <button
                   onClick={() => {
                     setDismissHealthBanner(true);
-                    try { sessionStorage.setItem('kin_dismiss_health_banner', 'true'); } catch {}
+                    try {
+                      sessionStorage.setItem('kin_dismiss_health_banner', 'true');
+                    } catch (err) {
+                      console.warn('[KIN UI] Failed to persist health banner dismissal:', err);
+                    }
                   }}
                   className="text-amber-400 hover:text-amber-200 p-0.5 cursor-pointer"
                   title="Dismiss alert"
@@ -1952,15 +1972,15 @@ export const CenterView: React.FC = () => {
                       type="button"
                       onClick={async () => {
                         try {
-                          const res = await fetch('/api/mcp/reload', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({}),
-                          });
-                          const data = await res.json();
-                          addToast({ title: "MCP Servers Reloaded", message: `Tools discovered: ${data.toolsCount || 0}`, type: "success" });
+                          const res = await useKinStore.getState().reloadMcpServers();
+                          if (res.success) {
+                            addToast({ title: "MCP Servers Reloaded", message: `Tools discovered: ${res.toolsCount || 0}`, type: "success" });
+                          } else {
+                            addToast({ title: "MCP Reload Failed", message: res.error || 'Failed to reload MCP servers', type: "error" });
+                          }
                         } catch (err: any) {
-                          addToast({ title: "MCP Reload Failed", message: err.message, type: "error" });
+                          console.warn('[KIN UI] MCP reload error:', err);
+                          addToast({ title: "MCP Reload Failed", message: err?.message || 'Error reloading MCP servers', type: "error" });
                         }
                       }}
                       className="text-[10px] text-purple-500 hover:underline cursor-pointer font-medium"
@@ -2270,7 +2290,9 @@ export const CenterView: React.FC = () => {
                       if (activeChannelId) {
                         try {
                           localStorage.removeItem(`kin_draft_${activeChannelId}`);
-                        } catch {}
+                        } catch (err) {
+                          console.warn('[KIN UI] Failed to remove draft from localStorage:', err);
+                        }
                       }
                       setSendError(null);
                     }

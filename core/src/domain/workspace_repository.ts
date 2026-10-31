@@ -44,17 +44,39 @@ export class WorkspaceRepository {
   }
 
   public createProject(project: Project): void {
-    this.db.execute(
-      `INSERT INTO projects (id, workspace_id, name, repo_path, settings_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      project.id,
-      project.workspaceId,
-      project.name,
-      project.repoPath,
-      JSON.stringify(project.settings ?? {}),
-      project.createdAt,
-      project.updatedAt ?? project.createdAt
-    );
+    const ws = this.getWorkspace(project.workspaceId);
+    if (!ws) {
+      try {
+        this.createWorkspace({
+          id: project.workspaceId,
+          name: 'Default Workspace',
+          rootPath: '.',
+          defaultAutonomyMode: 'AUTO',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      } catch (wsErr: unknown) {
+        const message = wsErr instanceof Error ? wsErr.message : String(wsErr);
+        console.warn('[KIN WORKSPACE REPO] Failed ensuring workspace before createProject:', message);
+      }
+    }
+    try {
+      this.db.execute(
+        `INSERT INTO projects (id, workspace_id, name, repo_path, settings_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        project.id,
+        project.workspaceId,
+        project.name,
+        project.repoPath,
+        JSON.stringify(project.settings ?? {}),
+        project.createdAt,
+        project.updatedAt ?? project.createdAt
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[KIN WORKSPACE REPO] Failed to insert project:', message);
+      throw err;
+    }
   }
 
   public updateProject(project: Project): void {
@@ -305,7 +327,21 @@ export class WorkspaceRepository {
           projId = anyProj.id;
         } else {
           const anyWs = this.db.queryOne<{ id: string }>('SELECT id FROM workspaces ORDER BY created_at ASC LIMIT 1');
-          const wsId = anyWs?.id || 'ws-default';
+          let wsId = anyWs?.id;
+          if (!wsId) {
+            wsId = 'ws-default';
+            try {
+              this.db.execute(
+                `INSERT OR IGNORE INTO workspaces (id, name, created_at, updated_at) VALUES (?, 'Default Workspace', ?, ?)`,
+                wsId,
+                Date.now(),
+                Date.now()
+              );
+            } catch (wsErr: unknown) {
+              const message = wsErr instanceof Error ? wsErr.message : String(wsErr);
+              console.warn('[KIN WORKSPACE REPO] Failed ensuring workspace before auto-creating project:', message);
+            }
+          }
           try {
             this.db.execute(
               `INSERT OR IGNORE INTO projects (id, workspace_id, name, repo_path, settings_json, created_at, updated_at)
@@ -315,7 +351,11 @@ export class WorkspaceRepository {
               Date.now(),
               Date.now()
             );
-          } catch {}
+          } catch (projErr: unknown) {
+            const message = projErr instanceof Error ? projErr.message : String(projErr);
+            console.warn('[KIN WORKSPACE REPO] Failed auto-creating default project:', message);
+            throw projErr;
+          }
         }
 
         const newChanId = cleanName.startsWith('chan-') ? cleanName : `chan-${cleanName}`;

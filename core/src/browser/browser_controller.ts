@@ -118,7 +118,7 @@ export class BrowserController {
   /**
    * Finds the best installed Chromium-based browser executable on the host.
    */
-  public findBrowserExecutable(): string | undefined {
+  public static findBrowserExecutable(): string | undefined {
     // 0. Explicit environment variable overrides
     const envOverrides = [
       process.env.KIN_BROWSER_PATH,
@@ -164,6 +164,10 @@ export class BrowserController {
     }
 
     return undefined;
+  }
+
+  public findBrowserExecutable(): string | undefined {
+    return BrowserController.findBrowserExecutable();
   }
 
   /**

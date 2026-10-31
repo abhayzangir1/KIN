@@ -56,6 +56,7 @@ export const SkillsModal: React.FC = () => {
     rollbackSkill,
     mcpTools,
     fetchMcpData,
+    addToast,
   } = useKinStore();
 
   const [activeTab, setActiveTab] = useState<'active' | 'candidates' | 'experiences' | 'metrics' | 'mcp'>('active');
@@ -227,10 +228,10 @@ export const SkillsModal: React.FC = () => {
       const parsed = JSON.parse(text);
       const res = await importSkill(parsed);
       if (!res.success) {
-        alert(res.error || 'Failed to import skill bundle');
+        addToast(res.error || 'Failed to import skill bundle', 'error');
       }
     } catch (err: any) {
-      alert(`Invalid JSON file: ${err.message}`);
+      addToast(`Invalid JSON file: ${err.message}`, 'error');
     } finally {
       if (e.target) e.target.value = '';
     }
@@ -249,10 +250,10 @@ export const SkillsModal: React.FC = () => {
     if (window.confirm(`Roll back skill '${versionHistorySkill.name}' to selected version snapshot?`)) {
       const res = await rollbackSkill(versionHistorySkill.id, versionId);
       if (res.success) {
-        alert(`Successfully rolled back skill '${versionHistorySkill.name}' to version snapshot.`);
+        addToast(`Successfully rolled back skill '${versionHistorySkill.name}' to version snapshot.`, 'success');
         setVersionHistorySkill(null);
       } else {
-        alert(res.error || 'Failed to rollback skill');
+        addToast(res.error || 'Failed to rollback skill', 'error');
       }
     }
   };
@@ -281,9 +282,9 @@ export const SkillsModal: React.FC = () => {
     if (res.success) {
       setValidatingCandidate(null);
       setValidationRationale('');
-      alert(res.message || `Candidate ${action === 'promote' ? 'promoted to active' : 'rejected'}`);
+      addToast(res.message || `Candidate ${action === 'promote' ? 'promoted to active' : 'rejected'}`, 'success');
     } else {
-      alert(res.error || 'Failed to submit validation decision');
+      addToast(res.error || 'Failed to submit validation decision', 'error');
     }
   };
 

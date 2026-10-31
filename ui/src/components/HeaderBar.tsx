@@ -22,6 +22,7 @@ export const HeaderBar: React.FC = () => {
     agents,
     isInspectorOpen,
     toggleInspector,
+    addToast,
   } = useKinStore();
 
   const isMachineTool = (tool?: string) => {
@@ -99,9 +100,14 @@ export const HeaderBar: React.FC = () => {
 
           {projects.length > 1 && activeProjectId !== 'proj-kin' && (
             <button
-              onClick={() => {
+              onClick={async () => {
                 if (window.confirm(`Delete project "${activeProject?.name}"?`)) {
-                  deleteProject(activeProjectId);
+                  const res = await deleteProject(activeProjectId);
+                  if (res && !res.success) {
+                    addToast(res.error || 'Failed to delete project', 'error');
+                  } else {
+                    addToast(`Project "${activeProject?.name || ''}" deleted.`, 'info');
+                  }
                 }
               }}
               className="p-1 rounded hover:bg-red-900/30 text-kin-muted hover:text-red-400 transition"

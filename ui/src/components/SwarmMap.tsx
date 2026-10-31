@@ -73,7 +73,8 @@ export const SwarmMap: React.FC = () => {
     try {
       const saved = localStorage.getItem(`kin_swarm_viewmode_${activeProjectId || 'default'}`);
       return (saved as any) || 'flow';
-    } catch {
+    } catch (err) {
+      console.warn('[SwarmMap] Failed to load viewMode from localStorage:', err);
       return 'flow';
     }
   });
@@ -84,7 +85,8 @@ export const SwarmMap: React.FC = () => {
     try {
       const saved = localStorage.getItem(`kin_swarm_zoom_${activeProjectId || 'default'}`);
       return saved ? parseFloat(saved) : 1.0;
-    } catch {
+    } catch (err) {
+      console.warn('[SwarmMap] Failed to load zoom from localStorage:', err);
       return 1.0;
     }
   });
@@ -92,7 +94,8 @@ export const SwarmMap: React.FC = () => {
     try {
       const saved = localStorage.getItem(`kin_swarm_pan_${activeProjectId || 'default'}`);
       return saved ? JSON.parse(saved) : { x: 0, y: 0 };
-    } catch {
+    } catch (err) {
+      console.warn('[SwarmMap] Failed to load pan from localStorage:', err);
       return { x: 0, y: 0 };
     }
   });
@@ -105,7 +108,8 @@ export const SwarmMap: React.FC = () => {
     try {
       const saved = localStorage.getItem(`kin_swarm_positions_${activeProjectId || 'default'}`);
       return saved ? JSON.parse(saved) : {};
-    } catch {
+    } catch (err) {
+      console.warn('[SwarmMap] Failed to load positions from localStorage:', err);
       return {};
     }
   });
@@ -124,7 +128,8 @@ export const SwarmMap: React.FC = () => {
 
       const savedPan = localStorage.getItem(`kin_swarm_pan_${activeProjectId || 'default'}`);
       if (savedPan) setPan(JSON.parse(savedPan));
-    } catch {
+    } catch (err) {
+      console.warn('[SwarmMap] Failed to restore project swarm state from localStorage:', err);
       setUserPositions({});
     }
   }, [activeProjectId]);
@@ -133,14 +138,18 @@ export const SwarmMap: React.FC = () => {
   useEffect(() => {
     try {
       localStorage.setItem(`kin_swarm_viewmode_${activeProjectId || 'default'}`, viewMode);
-    } catch {}
+    } catch (err) {
+      console.warn('[SwarmMap] Failed to save viewMode to localStorage:', err);
+    }
   }, [viewMode, activeProjectId]);
 
   // Persist zoom changes per project
   useEffect(() => {
     try {
       localStorage.setItem(`kin_swarm_zoom_${activeProjectId || 'default'}`, String(zoom));
-    } catch {}
+    } catch (err) {
+      console.warn('[SwarmMap] Failed to save zoom to localStorage:', err);
+    }
   }, [zoom, activeProjectId]);
 
   const [draggingAgentId, setDraggingAgentId] = useState<string | null>(null);
@@ -475,7 +484,9 @@ export const SwarmMap: React.FC = () => {
       setPan((currentPan) => {
         try {
           localStorage.setItem(`kin_swarm_pan_${activeProjectId || 'default'}`, JSON.stringify(currentPan));
-        } catch {}
+        } catch (err) {
+          console.warn('[SwarmMap] Failed to save pan to localStorage:', err);
+        }
         return currentPan;
       });
     };
@@ -525,7 +536,9 @@ export const SwarmMap: React.FC = () => {
           setUserPositions((latestPositions) => {
             try {
               localStorage.setItem(`kin_swarm_positions_${activeProjectId || 'default'}`, JSON.stringify(latestPositions));
-            } catch {}
+            } catch (err) {
+              console.warn('[SwarmMap] Failed to save positions to localStorage:', err);
+            }
             return latestPositions;
           });
         }
@@ -547,7 +560,9 @@ export const SwarmMap: React.FC = () => {
       localStorage.removeItem(`kin_swarm_positions_${activeProjectId || 'default'}`);
       localStorage.removeItem(`kin_swarm_pan_${activeProjectId || 'default'}`);
       localStorage.removeItem(`kin_swarm_zoom_${activeProjectId || 'default'}`);
-    } catch {}
+    } catch (err) {
+      console.warn('[SwarmMap] Failed to reset layout in localStorage:', err);
+    }
     const containerW = canvasContainerRef.current?.clientWidth || 1000;
     const containerH = canvasContainerRef.current?.clientHeight || 700;
     const targetPanX = Math.round(containerW / 2 - 700);
@@ -1099,7 +1114,9 @@ export const SwarmMap: React.FC = () => {
                                     delete next[agent.id];
                                     try {
                                       localStorage.setItem(`kin_swarm_positions_${activeProjectId || 'default'}`, JSON.stringify(next));
-                                    } catch {}
+                                    } catch (err) {
+                                      console.warn('[SwarmMap] Failed to save updated positions to localStorage:', err);
+                                    }
                                     return next;
                                   });
                                   await decommissionAgent(agent.id);

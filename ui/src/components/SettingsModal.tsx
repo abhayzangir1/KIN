@@ -75,6 +75,7 @@ export const SettingsModal: React.FC = () => {
     setTheme,
     activeSettingsTab: activeTab,
     setActiveSettingsTab: setActiveTab,
+    addToast,
   } = useKinStore();
 
   const [isQueryingModels, setIsQueryingModels] = useState(false);
@@ -256,9 +257,15 @@ export const SettingsModal: React.FC = () => {
 
   const handleDeleteCred = async (id: string, name: string) => {
     if (window.confirm(`Delete credential "${name}"? Agents will no longer be able to use this key.`)) {
-      await deleteCredential(id);
-      await fetchCredentials();
-      await fetchAvailableModels();
+      try {
+        await deleteCredential(id);
+        await fetchCredentials();
+        await fetchAvailableModels();
+        addToast(`Credential "${name}" removed.`, 'info');
+      } catch (err: any) {
+        console.warn('[KIN UI] Failed to delete credential:', err);
+        addToast(`Failed to delete credential: ${err?.message || 'Error'}`, 'error');
+      }
     }
   };
 
@@ -288,17 +295,27 @@ export const SettingsModal: React.FC = () => {
     setIsOptimizing(true);
     setVacuumStatus('Optimizing SQLite WAL database...');
     try {
-      const res = await fetch('/api/system/optimize', { method: 'POST' }).catch(() => null);
-      if (res && res.ok) {
-        setVacuumStatus('Database optimized & indexes pruned successfully.');
+      const res = await fetch('/api/system/optimize', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const sizeInfo = data.databaseSizeBytes ? ` (${(data.databaseSizeBytes / (1024 * 1024)).toFixed(2)} MB)` : '';
+        setVacuumStatus(`Database optimized & indexes pruned successfully${sizeInfo}.`);
+        addToast('SQLite WAL database optimized successfully.', 'success');
       } else {
-        setVacuumStatus('WAL checkpoint executed.');
+        const data = await res.json().catch(() => ({ error: 'Optimization failed' }));
+        const errMsg = data.error || `Server responded with ${res.status}`;
+        console.warn('[KIN UI] Database optimization failed:', errMsg);
+        setVacuumStatus(`Optimization failed: ${errMsg}`);
+        addToast(`Database optimization failed: ${errMsg}`, 'error');
       }
-    } catch {
-      setVacuumStatus('Optimization complete.');
+    } catch (err: any) {
+      console.warn('[KIN UI] Database optimization error:', err);
+      const errMsg = err?.message || 'Network error during optimization';
+      setVacuumStatus(`Optimization failed: ${errMsg}`);
+      addToast(`Optimization failed: ${errMsg}`, 'error');
     } finally {
       setIsOptimizing(false);
-      setTimeout(() => setVacuumStatus(null), 4000);
+      setTimeout(() => setVacuumStatus(null), 5000);
     }
   };
 

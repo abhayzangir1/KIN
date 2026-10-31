@@ -1551,7 +1551,10 @@ export class ToolGateway {
       if (typeof toolArgs === 'string') {
         try {
           toolArgs = JSON.parse(toolArgs);
-        } catch {}
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          throw new Error('Invalid JSON string passed for tool arguments: ' + message);
+        }
       }
       if (!serverName || !mcpTool) {
         throw new Error(`'${toolName}' requires 'server' (or 'serverName') and 'tool' (or 'toolName') parameters.`);
@@ -1754,18 +1757,33 @@ export class ToolGateway {
           });
           if (this.toolEngine && params.handlerCode) {
             try {
-              this.toolEngine.createTool(
+              const toolResult = this.toolEngine.createTool(
                 {
                   id: params.id,
                   name: params.name,
                   description: params.description || '',
                   parametersSchema: params.parameters,
                   handlerCode: params.handlerCode,
+                  forceCreation: true,
                   requireApproval: false, // Legacy create_skill with handlerCode defaults to active for backward compatibility
                 },
                 this.getToolSchemas()
               );
-            } catch {}
+              if (toolResult && toolResult.success === false) {
+                return {
+                  success: false,
+                  error: 'Failed to register skill in ToolEngine: ' + (toolResult.error || toolResult.message || toolResult.status),
+                  riskLevel: risk,
+                };
+              }
+            } catch (err: unknown) {
+              const message = err instanceof Error ? err.message : String(err);
+              return {
+                success: false,
+                error: 'Failed to register skill in ToolEngine: ' + message,
+                riskLevel: risk,
+              };
+            }
           }
           return {
             success: true,
@@ -2413,7 +2431,10 @@ export class ToolGateway {
                   return { safe: false, error: `SSRF_BLOCKED: Destination '${host}' resolves to private/loopback IP '${addr.address}'.` };
                 }
               }
-            } catch {}
+            } catch (dnsErr: unknown) {
+              const message = dnsErr instanceof Error ? dnsErr.message : String(dnsErr);
+              return { safe: false, error: 'SSRF_BLOCKED: DNS resolution failed or timed out: ' + message };
+            }
             return { safe: true };
           };
 
@@ -2930,8 +2951,34 @@ export class ToolGateway {
               }
             } catch {}
           }
-          const defaultFallback = process.env.KIN_DEFAULT_MODEL || projectDefaultModel || 'ollama/gemma';
-          const activeModelId = params.suggestedModel || params.activeModelId || params.modelId || callerModelId || defaultFallback;
+          let dynamicallyResolvedModel: string | undefined;
+          if (this.db) {
+            try {
+              const modelRow = this.db.queryOne<{ id: string }>('SELECT id FROM models ORDER BY created_at ASC LIMIT 1');
+              if (modelRow?.id) {
+                dynamicallyResolvedModel = modelRow.id;
+              } else {
+                const agentRow = this.db.queryOne<{ active_model_id: string }>(
+                  'SELECT active_model_id FROM agent_identities WHERE active_model_id IS NOT NULL AND active_model_id != "" ORDER BY is_orchestrator DESC LIMIT 1'
+                );
+                if (agentRow?.active_model_id) {
+                  dynamicallyResolvedModel = agentRow.active_model_id;
+                }
+              }
+            } catch {}
+          }
+
+          const resolvedModel =
+            params.suggestedModel ||
+            params.activeModelId ||
+            params.modelId ||
+            callerModelId ||
+            process.env.KIN_DEFAULT_MODEL ||
+            projectDefaultModel ||
+            dynamicallyResolvedModel ||
+            'ollama/qwen2.5-coder:3b';
+
+          const activeModelId = resolvedModel;
           const domainAuthority = Array.isArray(params.domainAuthority) && params.domainAuthority.length > 0
             ? params.domainAuthority
             : [role];

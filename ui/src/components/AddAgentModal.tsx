@@ -56,8 +56,14 @@ export const AddAgentModal: React.FC = () => {
   const handleAssign = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedAgentToAssign) return;
-    await addChannelMember(activeChannelId, selectedAgentToAssign);
+    setError('');
+    const res = await addChannelMember(activeChannelId, selectedAgentToAssign);
+    if (res && !res.success) {
+      setError(res.error || 'Failed to assign agent');
+      return;
+    }
     setSelectedAgentToAssign('');
+    setAddAgentModalOpen(false);
   };
 
   const handleHire = async (e: React.FormEvent) => {

@@ -60,13 +60,17 @@ export const CreateTaskModal: React.FC = () => {
     try {
       setIsSubmitting(true);
       setError('');
-      await createTask(
+      const res = await createTask(
         selectedGoalId,
         taskTitle.trim(),
         taskDescription.trim() || undefined,
         assignedAgentId || undefined,
         selectedDependsOn.length > 0 ? selectedDependsOn : undefined
       );
+      if (res && !res.success) {
+        setError(res.error || 'Failed to create task');
+        return;
+      }
       setTaskTitle('');
       setTaskDescription('');
       setSelectedDependsOn([]);

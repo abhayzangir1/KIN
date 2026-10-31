@@ -21,9 +21,14 @@ export const CreateChannelModal: React.FC = () => {
     try {
       setIsSubmitting(true);
       setError('');
-      await createChannel(channelName.trim(), channelTopic.trim() || undefined);
+      const res = await createChannel(channelName.trim(), channelTopic.trim() || undefined);
+      if (res && !res.success) {
+        setError(res.error || 'Failed to create channel');
+        return;
+      }
       setChannelName('');
       setChannelTopic('');
+      setCreateChannelModalOpen(false);
     } catch (err: any) {
       setError(err?.message || 'Failed to create channel');
     } finally {

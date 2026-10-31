@@ -160,7 +160,10 @@ export class RecoveryEngine {
           const rateB = stratMap.get(b.strategy) ?? b.baseWeight * 10;
           return rateB - rateA;
         });
-      } catch {}
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn('[KIN RECOVERY ENGINE] Error retrieving learning metrics for recovery strategy sorting:', message);
+      }
 
       suggestedRecoveryStrategy = candidates[0]?.strategy || 'wait_and_retry';
     }

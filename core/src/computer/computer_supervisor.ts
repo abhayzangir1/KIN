@@ -64,10 +64,15 @@ export class ComputerSupervisor {
   // Per-Agent Active Tiers
   private agentTiers: Map<string, ComputerTier> = new Map();
 
-  constructor(options?: { baseProfileDir?: string; idleThresholdMs?: number }) {
+  private freeMemProvider?: () => number;
+
+  constructor(options?: { baseProfileDir?: string; idleThresholdMs?: number; freeMemProvider?: () => number }) {
     this.baseProfileDir = options?.baseProfileDir || path.resolve(process.cwd(), '.kin', 'browser_profiles');
     if (options?.idleThresholdMs) {
       this.idleThresholdMs = options.idleThresholdMs;
+    }
+    if (options?.freeMemProvider) {
+      this.freeMemProvider = options.freeMemProvider;
     }
 
     if (!fs.existsSync(this.baseProfileDir)) {
@@ -78,10 +83,13 @@ export class ComputerSupervisor {
     this.startIdleEvictionWatchdog();
   }
 
-  private mockFreeMemBytes?: number;
-
+  /**
+   * @deprecated For test harness compatibility only. In production, pass options.freeMemProvider.
+   */
   public setMockFreeMemBytes(bytes?: number): void {
-    this.mockFreeMemBytes = bytes;
+    if (process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST)) {
+      this.freeMemProvider = bytes !== undefined ? () => bytes : undefined;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -90,7 +98,7 @@ export class ComputerSupervisor {
 
   public getGovernorStatus(): GovernorStatus {
     const totalMemBytes = totalmem();
-    const freeMemBytes = this.mockFreeMemBytes ?? freemem();
+    const freeMemBytes = this.freeMemProvider ? this.freeMemProvider() : freemem();
     const freeMemGB = Number((freeMemBytes / (1024 * 1024 * 1024)).toFixed(2));
 
     let tier: 'low' | 'medium' | 'high' = 'medium';
@@ -231,8 +239,7 @@ export class ComputerSupervisor {
 
     this.masterBrowserLaunchPromise = (async () => {
       try {
-        const dummyController = new BrowserController();
-        const executablePath = dummyController.findBrowserExecutable();
+        const executablePath = BrowserController.findBrowserExecutable();
         if (!executablePath) {
           throw new Error('No compatible browser executable found (Google Chrome or Microsoft Edge required).');
         }

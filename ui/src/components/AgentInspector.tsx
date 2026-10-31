@@ -91,6 +91,7 @@ export const AgentInspector: React.FC = () => {
     availableModels,
     openModelSelector,
     openAgentSettings,
+    addToast,
   } = useKinStore();
 
   const currentAgent = agents.find((a) => a.id === selectedAgentId) || agents[0];
@@ -1234,7 +1235,7 @@ export const AgentInspector: React.FC = () => {
                           window.URL.revokeObjectURL(blobUrl);
                           a.remove();
                         } catch (e: any) {
-                          alert(`Download failed: ${e.message}`);
+                          addToast(`Download failed: ${e.message}`, 'error');
                         }
                       }}
                       className="p-1 rounded bg-[#1e293b] hover:bg-[#253248] text-[#94a3b8] hover:text-emerald-400 transition"

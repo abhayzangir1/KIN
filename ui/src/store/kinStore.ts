@@ -27,7 +27,9 @@ export async function getIpcToken(): Promise<string | null> {
           return cachedIpcToken;
         }
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[KIN UI] Tauri IPC token retrieval notice:', err);
+    }
     try {
       const searchParams = new URLSearchParams(window.location.search);
       const urlToken = searchParams.get('token');
@@ -39,7 +41,9 @@ export async function getIpcToken(): Promise<string | null> {
           const cleanQuery = searchParams.toString();
           const cleanUrl = window.location.pathname + (cleanQuery ? `?${cleanQuery}` : '') + window.location.hash;
           window.history.replaceState(null, '', cleanUrl);
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] Session token storage notice:', err);
+        }
         return cachedIpcToken;
       }
       const stored = window.localStorage.getItem('kin_ipc_token') || window.sessionStorage.getItem('kin_ipc_token') || window.localStorage.getItem('ipc_token');
@@ -47,7 +51,9 @@ export async function getIpcToken(): Promise<string | null> {
         cachedIpcToken = stored.trim();
         return cachedIpcToken;
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[KIN UI] Local token retrieval notice:', err);
+    }
 
     // In web dev mode or loopback browser session, the Vite proxy automatically injects the IPC token
   }
@@ -186,7 +192,9 @@ export async function computeTaskSignature(token: string, taskId: string): Promi
       );
       const sig = await crypto.subtle.sign('HMAC', cryptoKey, msgData);
       return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, '0')).join('');
-    } catch {}
+    } catch (err) {
+      console.warn('[KIN UI] WebCrypto HMAC signature notice, falling back:', err);
+    }
   }
   return hmacSha256Fallback(keyData, msgData);
 }
@@ -262,6 +270,7 @@ export interface AgentDisplay {
   activeModelId: string;
   fallbackModelId?: string;
   systemPrompt?: string;
+  capabilities?: string[];
   status: 'idle' | 'working' | 'thinking' | 'waiting' | 'needs_approval' | 'recovering';
   isOrchestrator: boolean;
   projectId?: string;
@@ -1128,18 +1137,18 @@ interface KinState {
   setActiveChannel: (channelId: string) => Promise<void>;
   setActiveProject: (projectId: string) => Promise<void>;
   createProject: (name: string, repoPath?: string) => Promise<void>;
-  deleteProject: (projectId: string) => Promise<void>;
-  createGoal: (title: string, description?: string, acceptanceCriteria?: string[]) => Promise<void>;
+  deleteProject: (projectId: string) => Promise<{ success: boolean; error?: string }>;
+  createGoal: (title: string, description?: string, acceptanceCriteria?: string[]) => Promise<{ success: boolean; error?: string; goal?: any }>;
   deleteGoal: (goalId: string) => Promise<{ success: boolean; error?: string }>;
-  createTask: (goalId: string, title: string, description?: string, assignedAgentId?: string, dependsOnTaskIds?: string[]) => Promise<void>;
+  createTask: (goalId: string, title: string, description?: string, assignedAgentId?: string, dependsOnTaskIds?: string[]) => Promise<{ success: boolean; error?: string; task?: any }>;
   deleteTask: (taskId: string) => Promise<{ success: boolean; error?: string }>;
-  updateTaskStatus: (taskId: string, status: 'backlog' | 'ready' | 'assigned' | 'running' | 'blocked' | 'review' | 'completed' | 'failed' | 'cancelled') => Promise<void>;
+  updateTaskStatus: (taskId: string, status: 'backlog' | 'ready' | 'assigned' | 'running' | 'blocked' | 'review' | 'completed' | 'failed' | 'cancelled') => Promise<{ success: boolean; error?: string }>;
   setNewGoalModalOpen: (open: boolean) => void;
   setNewTaskModalOpen: (open: boolean) => void;
   fetchChannelMembers: (channelId: string) => Promise<void>;
-  createChannel: (name: string, topic?: string) => Promise<void>;
+  createChannel: (name: string, topic?: string) => Promise<{ success: boolean; error?: string }>;
   deleteChannel: (channelId: string) => Promise<{ success: boolean; error?: string }>;
-  addChannelMember: (channelId: string, agentId: string) => Promise<void>;
+  addChannelMember: (channelId: string, agentId: string) => Promise<{ success: boolean; error?: string }>;
   removeChannelMember: (channelId: string, agentId: string) => Promise<void>;
   hireAgent: (params: {
     displayName: string;
@@ -1152,10 +1161,10 @@ interface KinState {
   startOllama: () => Promise<void>;
   runTerminalCommand: (command: string) => Promise<void>;
   clearTerminalHistory: () => void;
-  updateAgentContract: (agentId: string, roleTitle: string, activeModelId: string, systemPrompt?: string) => Promise<void>;
+  updateAgentContract: (agentId: string, roleTitle: string, activeModelId: string, systemPrompt?: string, capabilities?: string[]) => Promise<{ success: boolean; error?: string }>;
   sendMessage: (content: string, overrideChannelId?: string, isSteer?: boolean) => Promise<{ success: boolean; error?: string }>;
-  setAutonomyMode: (mode: 'AUTO' | 'ALWAYS_ASK' | 'FULL_ACCESS') => Promise<void>;
-  resolveApproval: (approvalId: string, approved: boolean) => Promise<void>;
+  setAutonomyMode: (mode: 'AUTO' | 'ALWAYS_ASK' | 'FULL_ACCESS') => Promise<{ success: boolean; error?: string }>;
+  resolveApproval: (approvalId: string, approved: boolean) => Promise<{ success: boolean; error?: string }>;
   setActiveInspectorTab: (tab: KinState['activeInspectorTab']) => void;
   setSelectedAgentId: (agentId: string) => void;
   setNewProjectModalOpen: (open: boolean) => void;
@@ -1438,20 +1447,26 @@ export const useKinStore = create<KinState>((set, get) => ({
     try {
       const saved = localStorage.getItem('kin_theme');
       if (saved === 'light' || saved === 'dark') return saved;
-    } catch {}
+    } catch (err) {
+      console.warn('[KIN UI] Theme storage load notice:', err);
+    }
     return 'light';
   })(),
   setTheme: (theme: 'dark' | 'light') => {
     try {
       localStorage.setItem('kin_theme', theme);
-    } catch {}
+    } catch (err) {
+      console.warn('[KIN UI] Theme storage save notice:', err);
+    }
     set({ theme });
   },
   toggleTheme: () => {
     const next = get().theme === 'dark' ? 'light' : 'dark';
     try {
       localStorage.setItem('kin_theme', next);
-    } catch {}
+    } catch (err) {
+      console.warn('[KIN UI] Theme storage save notice:', err);
+    }
     set({ theme: next });
   },
 
@@ -1463,7 +1478,9 @@ export const useKinStore = create<KinState>((set, get) => ({
         const val = parseInt(saved, 10);
         if (!isNaN(val) && val >= 180 && val <= 480) return val;
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[KIN UI] Sidebar width load notice:', err);
+    }
     return 260;
   })(),
   inspectorWidth: (() => {
@@ -1473,34 +1490,38 @@ export const useKinStore = create<KinState>((set, get) => ({
         const val = parseInt(saved, 10);
         if (!isNaN(val) && val >= 280 && val <= 720) return val;
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[KIN UI] Inspector width load notice:', err);
+    }
     return 390;
   })(),
   setSidebarWidth: (width: number) => {
     const clamped = Math.max(180, Math.min(480, Math.round(width)));
-    try { localStorage.setItem('kin_sidebar_width', clamped.toString()); } catch {}
+    try { localStorage.setItem('kin_sidebar_width', clamped.toString()); } catch (err) { console.warn('[KIN UI] Sidebar width save notice:', err); }
     set({ sidebarWidth: clamped });
   },
   setInspectorWidth: (width: number) => {
     const clamped = Math.max(280, Math.min(720, Math.round(width)));
-    try { localStorage.setItem('kin_inspector_width', clamped.toString()); } catch {}
+    try { localStorage.setItem('kin_inspector_width', clamped.toString()); } catch (err) { console.warn('[KIN UI] Inspector width save notice:', err); }
     set({ inspectorWidth: clamped });
   },
   isInspectorOpen: (() => {
     try {
       const saved = localStorage.getItem('kin_inspector_open');
       if (saved !== null) return saved === 'true';
-    } catch {}
+    } catch (err) {
+      console.warn('[KIN UI] Inspector state load notice:', err);
+    }
     return true;
   })(),
   setInspectorOpen: (open: boolean) => {
-    try { localStorage.setItem('kin_inspector_open', String(open)); } catch {}
+    try { localStorage.setItem('kin_inspector_open', String(open)); } catch (err) { console.warn('[KIN UI] Inspector state save notice:', err); }
     set({ isInspectorOpen: open });
   },
   toggleInspector: () => {
     set((state) => {
       const next = !state.isInspectorOpen;
-      try { localStorage.setItem('kin_inspector_open', String(next)); } catch {}
+      try { localStorage.setItem('kin_inspector_open', String(next)); } catch (err) { console.warn('[KIN UI] Inspector state save notice:', err); }
       return { isInspectorOpen: next };
     });
   },
@@ -1509,7 +1530,9 @@ export const useKinStore = create<KinState>((set, get) => ({
       localStorage.setItem('kin_sidebar_width', '260');
       localStorage.setItem('kin_inspector_width', '390');
       localStorage.setItem('kin_inspector_open', 'true');
-    } catch {}
+    } catch (err) {
+      console.warn('[KIN UI] Layout reset notice:', err);
+    }
     set({ sidebarWidth: 260, inspectorWidth: 390, isInspectorOpen: true });
   },
 
@@ -1568,7 +1591,8 @@ export const useKinStore = create<KinState>((set, get) => ({
       const rememberedChannelId = (() => {
         try {
           return targetProj ? localStorage.getItem(`kin_last_channel_${targetProj}`) : null;
-        } catch {
+        } catch (err) {
+          console.warn('[KIN UI] Channel memory read notice:', err);
           return null;
         }
       })();
@@ -1585,7 +1609,9 @@ export const useKinStore = create<KinState>((set, get) => ({
       if (targetProj && chosenChannelId) {
         try {
           localStorage.setItem(`kin_last_channel_${targetProj}`, chosenChannelId);
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] Channel memory save notice:', err);
+        }
       }
 
       const isViewingStateChannel = !chosenChannelId || chosenChannelId === (data.activeChannelId || 'chan-general');
@@ -1600,7 +1626,8 @@ export const useKinStore = create<KinState>((set, get) => ({
       const rememberedAgentId = (() => {
         try {
           return targetProj ? localStorage.getItem(`kin_selected_agent_${targetProj}`) : null;
-        } catch {
+        } catch (err) {
+          console.warn('[KIN UI] Agent memory read notice:', err);
           return null;
         }
       })();
@@ -1614,13 +1641,16 @@ export const useKinStore = create<KinState>((set, get) => ({
       if (targetProj && chosenAgentId) {
         try {
           localStorage.setItem(`kin_selected_agent_${targetProj}`, chosenAgentId);
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] Agent memory save notice:', err);
+        }
       }
 
       const rememberedView = (() => {
         try {
           return targetProj ? (localStorage.getItem(`kin_main_view_${targetProj}`) as 'chat' | 'automations' | null) : null;
-        } catch {
+        } catch (err) {
+          console.warn('[KIN UI] View memory read notice:', err);
           return null;
         }
       })();
@@ -1695,7 +1725,9 @@ export const useKinStore = create<KinState>((set, get) => ({
     if (projId) {
       try {
         localStorage.setItem(`kin_main_view_${projId}`, view);
-      } catch {}
+      } catch (err) {
+        console.warn('[KIN UI] View storage notice:', err);
+      }
     }
     set({ activeMainView: view });
   },
@@ -1888,9 +1920,15 @@ export const useKinStore = create<KinState>((set, get) => ({
         set({ isCreateChannelModalOpen: false });
         await get().fetchState();
         await get().setActiveChannel(data.channel.id);
+        return { success: true };
       }
-    } catch (err) {
+      const data = await res.json().catch(() => ({ error: 'Failed to create channel' }));
+      const errorMsg = data.error || `Server responded with ${res.status}`;
+      console.error('[KIN UI] Failed to create channel:', errorMsg);
+      return { success: false, error: errorMsg };
+    } catch (err: any) {
       console.error('[KIN UI] Failed to create channel:', err);
+      return { success: false, error: err?.message || 'Network error creating channel' };
     }
   },
 
@@ -1922,9 +1960,15 @@ export const useKinStore = create<KinState>((set, get) => ({
         set({ isAddAgentModalOpen: false });
         await get().fetchChannelMembers(channelId);
         await get().fetchState();
+        return { success: true };
       }
-    } catch (err) {
+      const data = await res.json().catch(() => ({ error: 'Failed to add channel member' }));
+      const errorMsg = data.error || `Server responded with ${res.status}`;
+      console.error('[KIN UI] Failed to add channel member:', errorMsg);
+      return { success: false, error: errorMsg };
+    } catch (err: any) {
       console.error('[KIN UI] Failed to add channel member:', err);
+      return { success: false, error: err?.message || 'Network error adding channel member' };
     }
   },
 
@@ -1937,8 +1981,8 @@ export const useKinStore = create<KinState>((set, get) => ({
         await get().fetchChannelMembers(channelId);
         await get().fetchState();
       } else {
-        const err = await res.json();
-        alert(err.error || 'Failed to remove member');
+        const err = await res.json().catch(() => ({ error: 'Failed to remove member' }));
+        get().addToast(err.error || 'Failed to remove member', 'error');
       }
     } catch (err) {
       console.error('[KIN UI] Failed to remove channel member:', err);
@@ -2055,7 +2099,9 @@ export const useKinStore = create<KinState>((set, get) => ({
               ),
             };
           });
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('agent:model_unavailable', (e) => {
@@ -2070,7 +2116,9 @@ export const useKinStore = create<KinState>((set, get) => ({
               channelId: data.channelId,
             },
           });
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('agent:updated', (e) => {
@@ -2082,7 +2130,9 @@ export const useKinStore = create<KinState>((set, get) => ({
               channelMembers: state.channelMembers.map((a) => (a.id === data.agentId ? { ...a, activeModelId: data.activeModelId } : a)),
             }));
           }
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('models:updated', () => {
@@ -2095,7 +2145,9 @@ export const useKinStore = create<KinState>((set, get) => ({
           if (data.autonomyMode) {
             set({ autonomyMode: data.autonomyMode });
           }
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('message:created', (e) => {
@@ -2189,7 +2241,9 @@ export const useKinStore = create<KinState>((set, get) => ({
               },
             }));
           }
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('agent:thinking_token', (e) => {
@@ -2214,7 +2268,9 @@ export const useKinStore = create<KinState>((set, get) => ({
               };
             });
           }
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('message:queued', (e) => {
@@ -2227,7 +2283,9 @@ export const useKinStore = create<KinState>((set, get) => ({
                 : [...state.queuedMessages, message],
             }));
           }
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('queue:dequeued', (e) => {
@@ -2238,7 +2296,9 @@ export const useKinStore = create<KinState>((set, get) => ({
               queuedMessages: state.queuedMessages.filter((q) => q.id !== messageId),
             }));
           }
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('queue:deleted', (e) => {
@@ -2249,7 +2309,9 @@ export const useKinStore = create<KinState>((set, get) => ({
               queuedMessages: state.queuedMessages.filter((q) => q.id !== messageId),
             }));
           }
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('agent:state', (e) => {
@@ -2316,7 +2378,9 @@ export const useKinStore = create<KinState>((set, get) => ({
         try {
           const data = JSON.parse(e.data);
           set({ pendingRecoveries: data.pendingRecoveries || [] });
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('quota:paused', (e) => {
@@ -2340,7 +2404,9 @@ export const useKinStore = create<KinState>((set, get) => ({
               },
             };
           });
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('quota:resumed', (e) => {
@@ -2349,7 +2415,9 @@ export const useKinStore = create<KinState>((set, get) => ({
           set((state) => ({
             quotaPauseState: (!data.runId || data.runId === 'all' || state.quotaPauseState?.runId === data.runId) ? null : state.quotaPauseState,
           }));
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('agent:evaluation_created', (e) => {
@@ -2361,7 +2429,9 @@ export const useKinStore = create<KinState>((set, get) => ({
             nextEvals[evalItem.agentId] = [evalItem, ...list.filter((x) => x.id !== evalItem.id)].slice(0, 50);
             return { agentEvaluations: nextEvals };
           });
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('credential:created', (e) => {
@@ -2370,7 +2440,9 @@ export const useKinStore = create<KinState>((set, get) => ({
           set((state) => ({
             credentials: [cred, ...state.credentials.filter((c) => c.id !== cred.id)],
           }));
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('credential:updated', (e) => {
@@ -2379,7 +2451,9 @@ export const useKinStore = create<KinState>((set, get) => ({
           set((state) => ({
             credentials: state.credentials.map((c) => (c.id === cred.id ? cred : c)),
           }));
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('credential:deleted', (e) => {
@@ -2388,14 +2462,18 @@ export const useKinStore = create<KinState>((set, get) => ({
           set((state) => ({
             credentials: state.credentials.filter((c) => c.id !== id),
           }));
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('grill_me:session', (e) => {
         try {
           const session: GrillMeSession = JSON.parse(e.data);
           set({ grillMeSession: session });
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('agent:tool_start', (e) => {
@@ -2458,7 +2536,9 @@ export const useKinStore = create<KinState>((set, get) => ({
             get().fetchChannelMembers(channelId);
           }
           get().fetchState();
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('channel:member_removed', (e) => {
@@ -2468,7 +2548,9 @@ export const useKinStore = create<KinState>((set, get) => ({
             get().fetchChannelMembers(channelId);
           }
           get().fetchState();
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('ollama:status', (e) => {
@@ -2700,7 +2782,9 @@ export const useKinStore = create<KinState>((set, get) => ({
             if (state.uploads.some((u) => u.id === item.id)) return state;
             return { uploads: [item, ...state.uploads] };
           });
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('upload:deleted', (e) => {
@@ -2709,7 +2793,9 @@ export const useKinStore = create<KinState>((set, get) => ({
           set((state) => ({
             uploads: state.uploads.filter((u) => u.id !== uploadId),
           }));
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('schedule:created', (e) => {
@@ -2719,7 +2805,9 @@ export const useKinStore = create<KinState>((set, get) => ({
             schedules: [...state.schedules.filter((s) => s.id !== sched.id), sched],
             routines: [...state.routines.filter((s) => s.id !== sched.id), sched],
           }));
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('schedule:fired', (e) => {
@@ -2730,7 +2818,9 @@ export const useKinStore = create<KinState>((set, get) => ({
             schedules: update(state.schedules),
             routines: update(state.routines),
           }));
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('schedule:cancelled', (e) => {
@@ -2740,7 +2830,9 @@ export const useKinStore = create<KinState>((set, get) => ({
             schedules: state.schedules.filter((s) => s.id !== scheduleId),
             routines: state.routines.filter((s) => s.id !== scheduleId),
           }));
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('channel:routing', (e) => {
@@ -2826,7 +2918,9 @@ export const useKinStore = create<KinState>((set, get) => ({
             schedules: [...state.schedules.filter((s) => s.id !== sched.id), sched],
             routines: [...state.routines.filter((s) => s.id !== sched.id), sched],
           }));
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('routine:fired', (e) => {
@@ -2837,7 +2931,9 @@ export const useKinStore = create<KinState>((set, get) => ({
             schedules: update(state.schedules),
             routines: update(state.routines),
           }));
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('routine:cancelled', (e) => {
@@ -2847,7 +2943,9 @@ export const useKinStore = create<KinState>((set, get) => ({
             schedules: state.schedules.filter((s) => s.id !== routineId),
             routines: state.routines.filter((s) => s.id !== routineId),
           }));
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       // Instant Human Takeover & Live Tool Previews
@@ -2906,7 +3004,9 @@ export const useKinStore = create<KinState>((set, get) => ({
               activeTakeover: currentChanTakeover || (data.channelId === state.activeChannelId ? nextTakeover : state.activeTakeover),
             };
           });
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('takeover:paused', (e) => {
@@ -2924,7 +3024,9 @@ export const useKinStore = create<KinState>((set, get) => ({
               activeTakeover: currentChanTakeover || (state.activeTakeover?.runId === runId ? updated : state.activeTakeover),
             };
           });
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('takeover:resumed', (e) => {
@@ -2941,7 +3043,9 @@ export const useKinStore = create<KinState>((set, get) => ({
               activeTakeover: currentChanTakeover || (state.activeTakeover?.runId === runId ? updated : state.activeTakeover),
             };
           });
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('takeover:aborted', (e) => {
@@ -2970,7 +3074,9 @@ export const useKinStore = create<KinState>((set, get) => ({
               };
             });
           }, 2500);
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('takeover:finished', (e) => {
@@ -2985,7 +3091,9 @@ export const useKinStore = create<KinState>((set, get) => ({
               activeTakeover: state.activeTakeover?.runId === runId ? currentChanTakeover : state.activeTakeover,
             };
           });
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       // Skills Engine Updates
@@ -3012,7 +3120,9 @@ export const useKinStore = create<KinState>((set, get) => ({
           set((state) => ({
             skills: state.skills.filter((s) => s.id !== skillId),
           }));
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       // Custom Tools Dynamic Updates
@@ -3022,7 +3132,9 @@ export const useKinStore = create<KinState>((set, get) => ({
           set((state) => ({
             customTools: [...state.customTools.filter((t) => t.id !== tool.id), tool],
           }));
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       sse.addEventListener('custom_tool:deleted', (e) => {
@@ -3031,13 +3143,15 @@ export const useKinStore = create<KinState>((set, get) => ({
           set((state) => ({
             customTools: state.customTools.filter((t) => t.id !== id),
           }));
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       // MCP Connectors Updates
       sse.addEventListener('mcp:connectors_updated', () => {
-        get().fetchMcpConnectors().catch(() => {});
-        get().fetchMcpData().catch(() => {});
+        get().fetchMcpConnectors().catch((err) => { console.warn('[KIN UI] Background sync notice:', err); });
+        get().fetchMcpData().catch((err) => { console.warn('[KIN UI] Background sync notice:', err); });
       });
 
       // Proactive Routines Updates
@@ -3055,7 +3169,9 @@ export const useKinStore = create<KinState>((set, get) => ({
           set((state) => ({
             routines: state.routines.filter((r) => r.id !== routineId),
           }));
-        } catch {}
+        } catch (err) {
+          console.warn('[KIN UI] SSE event handling notice:', err);
+        }
       });
 
       // Browser Telemetry Updates
@@ -3089,14 +3205,20 @@ export const useKinStore = create<KinState>((set, get) => ({
                 }));
               }
             })
-            .catch(() => {});
+            .catch((err) => {
+              console.warn('[KIN UI] Channel messages background sync notice:', err);
+            });
         }
       };
 
       sse.onerror = () => {
         set({ isConnected: false });
         if (eventSourceInstance === sse) {
-          try { sse.close(); } catch {}
+          try {
+            sse.close();
+          } catch (err) {
+            console.warn('[KIN UI] SSE close notice:', err);
+          }
           eventSourceInstance = null;
         }
         if (sseReconnectTimer) {
@@ -3127,7 +3249,9 @@ export const useKinStore = create<KinState>((set, get) => ({
     if (eventSourceInstance) {
       try {
         eventSourceInstance.close();
-      } catch {}
+      } catch (err) {
+        console.warn('[KIN UI] SSE close notice:', err);
+      }
       eventSourceInstance = null;
     }
     set({ isConnected: false });
@@ -3138,7 +3262,9 @@ export const useKinStore = create<KinState>((set, get) => ({
     if (projId && channelId) {
       try {
         localStorage.setItem(`kin_last_channel_${projId}`, channelId);
-      } catch {}
+      } catch (err) {
+        console.warn('[KIN UI] Channel memory save notice:', err);
+      }
     }
     set((state) => {
       const channelTakeover = Object.values(state.activeTakeovers || {}).find((t) => t.channelId === channelId) || null;
@@ -3182,14 +3308,17 @@ export const useKinStore = create<KinState>((set, get) => ({
     if (currentProj && currentChan) {
       try {
         localStorage.setItem(`kin_last_channel_${currentProj}`, currentChan);
-      } catch {}
+      } catch (err) {
+        console.warn('[KIN UI] Channel memory save notice:', err);
+      }
     }
 
     // 2. Check if the target project already has a remembered active channel, agent, and view
     const rememberedChannelId = (() => {
       try {
         return localStorage.getItem(`kin_last_channel_${projectId}`);
-      } catch {
+      } catch (err) {
+        console.warn('[KIN UI] Project channel memory read notice:', err);
         return null;
       }
     })();
@@ -3197,7 +3326,8 @@ export const useKinStore = create<KinState>((set, get) => ({
     const rememberedAgentId = (() => {
       try {
         return localStorage.getItem(`kin_selected_agent_${projectId}`);
-      } catch {
+      } catch (err) {
+        console.warn('[KIN UI] Project agent memory read notice:', err);
         return null;
       }
     })();
@@ -3205,7 +3335,8 @@ export const useKinStore = create<KinState>((set, get) => ({
     const rememberedView = (() => {
       try {
         return localStorage.getItem(`kin_main_view_${projectId}`) as 'chat' | 'automations' | null;
-      } catch {
+      } catch (err) {
+        console.warn('[KIN UI] Project view memory read notice:', err);
         return null;
       }
     })();
@@ -3228,7 +3359,9 @@ export const useKinStore = create<KinState>((set, get) => ({
     });
     try {
       await fetch(`/api/projects/${encodeURIComponent(projectId)}/activate`, { method: 'POST' });
-    } catch {}
+    } catch (err) {
+      console.warn('[KIN UI] Project activation notice:', err);
+    }
     await get().fetchState(projectId);
     await get().fetchGitStatus(projectId);
     await get().fetchUploads(projectId);
@@ -3261,9 +3394,17 @@ export const useKinStore = create<KinState>((set, get) => ({
       const res = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
       if (res.ok) {
         await get().fetchState();
+        return { success: true };
       }
-    } catch (err) {
+      const data = await res.json().catch(() => ({ error: 'Failed to delete project' }));
+      const errorMsg = data.error || `Server responded with ${res.status}`;
+      console.error('[KIN UI] Failed to delete project:', errorMsg);
+      await get().fetchState();
+      return { success: false, error: errorMsg };
+    } catch (err: any) {
       console.error('[KIN UI] Failed to delete project:', err);
+      await get().fetchState();
+      return { success: false, error: err?.message || 'Network error deleting project' };
     }
   },
 
@@ -3299,26 +3440,51 @@ export const useKinStore = create<KinState>((set, get) => ({
     }
   },
 
-  updateAgentContract: async (agentId: string, roleTitle: string, activeModelId: string, systemPrompt?: string) => {
+  updateAgentContract: async (agentId: string, roleTitle: string, activeModelId: string, systemPrompt?: string, capabilities?: string[]) => {
     // Optimistic update
     set((state) => ({
       agents: state.agents.map((a) =>
-        a.id === agentId ? { ...a, role: roleTitle, activeModelId, systemPrompt: systemPrompt || a.systemPrompt } : a
+        a.id === agentId
+          ? {
+              ...a,
+              role: roleTitle,
+              activeModelId,
+              systemPrompt: systemPrompt !== undefined ? systemPrompt : a.systemPrompt,
+              ...(capabilities ? { capabilities } : {}),
+            }
+          : a
       ),
       channelMembers: state.channelMembers.map((a) =>
-        a.id === agentId ? { ...a, role: roleTitle, activeModelId, systemPrompt: systemPrompt || a.systemPrompt } : a
+        a.id === agentId
+          ? {
+              ...a,
+              role: roleTitle,
+              activeModelId,
+              systemPrompt: systemPrompt !== undefined ? systemPrompt : a.systemPrompt,
+              ...(capabilities ? { capabilities } : {}),
+            }
+          : a
       ),
     }));
 
     try {
-      await fetch(`/api/agents/${agentId}/contract`, {
+      const res = await fetch(`/api/agents/${agentId}/contract`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roleTitle, activeModelId, systemPrompt }),
+        body: JSON.stringify({ roleTitle, activeModelId, systemPrompt, capabilities }),
       });
-    } catch (err) {
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: 'Contract update failed' }));
+        const errorMsg = data.error || `Server responded with ${res.status}`;
+        console.error('[KIN UI] Failed to update agent contract:', errorMsg);
+        await get().fetchState();
+        return { success: false, error: errorMsg };
+      }
+      return { success: true };
+    } catch (err: any) {
       console.error('[KIN UI] Failed to update agent contract:', err);
-      get().fetchState();
+      await get().fetchState();
+      return { success: false, error: err?.message || 'Network error updating agent contract' };
     }
   },
 
@@ -3357,24 +3523,30 @@ export const useKinStore = create<KinState>((set, get) => ({
           return;
         }
       }
-    } catch (err) {
-      console.warn('[KIN UI] Notice posting to queue endpoint, using local fallback:', err);
+      const data = await res.json().catch(() => ({ error: 'Failed to queue message' }));
+      const errorMsg = data.error || `Server responded with ${res.status}`;
+      console.error('[KIN UI] Failed to queue message:', errorMsg);
+      get().addToast(`Failed to queue message: ${errorMsg}`, 'error');
+    } catch (err: any) {
+      console.error('[KIN UI] Failed to post message to queue endpoint:', err);
+      get().addToast(`Network error queueing message: ${err?.message || err}`, 'error');
     }
-    const item: QueuedMessage = {
-      id: `qm-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      channelId,
-      content: content.trim(),
-      createdAt: Date.now(),
-    };
-    set((state) => ({ queuedMessages: [...state.queuedMessages, item] }));
   },
 
   dequeueMessage: async (id: string, channelId?: string) => {
     const cId = channelId || get().queuedMessages.find((q) => q.id === id)?.channelId || get().activeChannelId;
+    const prevQueued = get().queuedMessages;
     set((state) => ({ queuedMessages: state.queuedMessages.filter((q) => q.id !== id) }));
     try {
-      await fetch(`/api/channels/${cId}/queue/${id}`, { method: 'DELETE' });
-    } catch {}
+      const res = await fetch(`/api/channels/${cId}/queue/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        console.warn(`[KIN UI] Failed to delete queued message ${id} on server, rolling back`);
+        set({ queuedMessages: prevQueued });
+      }
+    } catch (err) {
+      console.warn(`[KIN UI] Error deleting queued message ${id}:`, err);
+      set({ queuedMessages: prevQueued });
+    }
   },
 
   promoteQueuedToSteer: async (id: string) => {
@@ -3442,33 +3614,57 @@ export const useKinStore = create<KinState>((set, get) => ({
   },
 
   setAutonomyMode: async (mode: 'AUTO' | 'ALWAYS_ASK' | 'FULL_ACCESS') => {
+    const prevMode = get().autonomyMode;
     set({ autonomyMode: mode });
     try {
-      await fetch('/api/workspace/autonomy', {
+      const res = await fetch('/api/workspace/autonomy', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ autonomyMode: mode }),
       });
-    } catch (err) {
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: 'Failed to update autonomy mode' }));
+        const errorMsg = data.error || `Server responded with ${res.status}`;
+        console.error('[KIN UI] Failed to update autonomy mode:', errorMsg);
+        set({ autonomyMode: prevMode });
+        await get().fetchState();
+        return { success: false, error: errorMsg };
+      }
+      return { success: true };
+    } catch (err: any) {
       console.error('[KIN UI] Failed to update autonomy mode:', err);
-      get().fetchState();
+      set({ autonomyMode: prevMode });
+      await get().fetchState();
+      return { success: false, error: err?.message || 'Network error updating autonomy mode' };
     }
   },
 
   resolveApproval: async (approvalId: string, approved: boolean) => {
+    const prevApprovals = get().pendingApprovals;
     set((state) => ({
       pendingApprovals: state.pendingApprovals.filter((a) => a.id !== approvalId),
     }));
 
     try {
-      await fetch(`/api/approvals/${approvalId}/resolve`, {
+      const res = await fetch(`/api/approvals/${approvalId}/resolve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ approved }),
       });
-    } catch (err) {
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: 'Failed to resolve approval' }));
+        const errorMsg = data.error || `Server responded with ${res.status}`;
+        console.error(`[KIN UI] Failed to resolve approval ${approvalId}:`, errorMsg);
+        set({ pendingApprovals: prevApprovals });
+        await get().fetchState();
+        return { success: false, error: errorMsg };
+      }
+      return { success: true };
+    } catch (err: any) {
       console.error(`[KIN UI] Failed to resolve approval ${approvalId}:`, err);
-      get().fetchState();
+      set({ pendingApprovals: prevApprovals });
+      await get().fetchState();
+      return { success: false, error: err?.message || 'Network error resolving approval' };
     }
   },
 
@@ -3487,9 +3683,15 @@ export const useKinStore = create<KinState>((set, get) => ({
           tasks: data.initialTask && !state.tasks.some((t) => t.id === data.initialTask.id) ? [...state.tasks, data.initialTask] : state.tasks,
           isNewGoalModalOpen: false,
         }));
+        return { success: true, goal: data.goal };
       }
-    } catch (err) {
+      const data = await res.json().catch(() => ({ error: 'Failed to create goal' }));
+      const errorMsg = data.error || data.message || `Failed to create goal (${res.status})`;
+      console.error('[KIN UI] Failed to create goal:', errorMsg);
+      return { success: false, error: errorMsg };
+    } catch (err: any) {
       console.error('[KIN UI] Failed to create goal:', err);
+      return { success: false, error: err?.message || 'Network error creating goal' };
     }
   },
 
@@ -3522,9 +3724,15 @@ export const useKinStore = create<KinState>((set, get) => ({
         set((state) => ({
           tasks: state.tasks.some((t) => t.id === data.task.id) ? state.tasks : [...state.tasks, data.task],
         }));
+        return { success: true, task: data.task };
       }
-    } catch (err) {
+      const data = await res.json().catch(() => ({ error: 'Failed to create task' }));
+      const errorMsg = data.error || data.message || `Failed to create task (${res.status})`;
+      console.error('[KIN UI] Failed to create task:', errorMsg);
+      return { success: false, error: errorMsg };
+    } catch (err: any) {
       console.error('[KIN UI] Failed to create task:', err);
+      return { success: false, error: err?.message || 'Network error creating task' };
     }
   },
 
@@ -3545,6 +3753,7 @@ export const useKinStore = create<KinState>((set, get) => ({
   },
 
   updateTaskStatus: async (taskId: string, status: 'backlog' | 'ready' | 'assigned' | 'running' | 'blocked' | 'review' | 'completed' | 'failed' | 'cancelled') => {
+    const prevTasks = get().tasks;
     set((state) => ({
       tasks: state.tasks.map((t) => (t.id === taskId ? { ...t, status } : t)),
     }));
@@ -3566,14 +3775,25 @@ export const useKinStore = create<KinState>((set, get) => ({
           }
         }
       }
-      await fetch(`/api/tasks/${taskId}/status`, {
+      const res = await fetch(`/api/tasks/${taskId}/status`, {
         method: 'PATCH',
         headers,
         body: JSON.stringify(body),
       });
-    } catch (err) {
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: 'Failed to update task status' }));
+        const errorMsg = data.error || `Server responded with ${res.status}`;
+        console.error(`[KIN UI] Failed to update task ${taskId} status:`, errorMsg);
+        set({ tasks: prevTasks });
+        await get().fetchState();
+        return { success: false, error: errorMsg };
+      }
+      return { success: true };
+    } catch (err: any) {
       console.error(`[KIN UI] Failed to update task ${taskId} status:`, err);
-      get().fetchState();
+      set({ tasks: prevTasks });
+      await get().fetchState();
+      return { success: false, error: err?.message || 'Network error updating task status' };
     }
   },
 
@@ -3649,7 +3869,9 @@ export const useKinStore = create<KinState>((set, get) => ({
     if (projId && agentId) {
       try {
         localStorage.setItem(`kin_selected_agent_${projId}`, agentId);
-      } catch {}
+      } catch (err) {
+        console.warn('[KIN UI] Selected agent memory save notice:', err);
+      }
     }
     set({ selectedAgentId: agentId });
   },
@@ -4291,7 +4513,7 @@ export const useKinStore = create<KinState>((set, get) => ({
         isLoadingMcp: false,
       });
       // Synchronously sync connectors list as well
-      get().fetchMcpConnectors().catch(() => {});
+      get().fetchMcpConnectors().catch((err) => { console.warn('[KIN UI] Background sync notice:', err); });
     } catch (err) {
       console.warn('[KIN UI] Failed to fetch MCP data:', err);
       set({ isLoadingMcp: false });
@@ -4364,7 +4586,7 @@ export const useKinStore = create<KinState>((set, get) => ({
         } else {
           await get().fetchMcpConnectors();
         }
-        get().fetchMcpData().catch(() => {});
+        get().fetchMcpData().catch((err) => { console.warn('[KIN UI] Background sync notice:', err); });
         return { success: true, toolsCount: data.toolsCount };
       }
       set({ isLoadingConnectors: false });
@@ -4390,7 +4612,7 @@ export const useKinStore = create<KinState>((set, get) => ({
         } else {
           await get().fetchMcpConnectors();
         }
-        get().fetchMcpData().catch(() => {});
+        get().fetchMcpData().catch((err) => { console.warn('[KIN UI] Background sync notice:', err); });
         return { success: true };
       }
       return { success: false, error: data.error || 'Failed to toggle connector' };
@@ -4418,7 +4640,7 @@ export const useKinStore = create<KinState>((set, get) => ({
         } else {
           await get().fetchMcpConnectors();
         }
-        get().fetchMcpData().catch(() => {});
+        get().fetchMcpData().catch((err) => { console.warn('[KIN UI] Background sync notice:', err); });
         return { success: true };
       }
       set({ isLoadingConnectors: false });
@@ -5027,7 +5249,9 @@ export const useKinStore = create<KinState>((set, get) => ({
   dismissGrillMe: () => set({ grillMeSession: null }),
   clearQuotaPause: () => {
     set({ quotaPauseState: null });
-    fetch('/api/system/recovery/clear-quota', { method: 'POST' }).catch(() => {});
+    fetch('/api/system/recovery/clear-quota', { method: 'POST' }).catch((err) => {
+      console.warn('[KIN UI] Clear quota recovery notice:', err);
+    });
   },
 
   clearTerminalHistory: () => set({ terminalHistory: [] }),

@@ -314,7 +314,9 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
           setDiscoveredCreds(data.discovered.filter((c: any) => !c.alreadyImported));
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.warn('[ConnectorsManager] Host credential scan notice:', err);
+      });
   }, [fetchMcpConnectors]);
 
   const copyToClipboard = (text: string, label: string) => {
@@ -322,7 +324,10 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
       navigator.clipboard.writeText(text);
       setCopiedPath(label);
       setTimeout(() => setCopiedPath(null), 2000);
-    } catch {}
+    } catch (err) {
+      console.warn('[ConnectorsManager] Failed to copy to clipboard:', err);
+      addToast('Failed to copy to clipboard', 'warning');
+    }
   };
 
   const handleQuickEnable = async (preset: PresetItem) => {

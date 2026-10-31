@@ -25,7 +25,11 @@ export const CreateGoalModal: React.FC = () => {
       const parsedCriteria = goalCriteria
         ? goalCriteria.split(/[,\n]/).map((c) => c.trim()).filter(Boolean)
         : undefined;
-      await createGoal(goalTitle.trim(), goalDescription.trim() || undefined, parsedCriteria);
+      const res = await createGoal(goalTitle.trim(), goalDescription.trim() || undefined, parsedCriteria);
+      if (res && !res.success) {
+        setError(res.error || 'Failed to create goal');
+        return;
+      }
       setGoalTitle('');
       setGoalDescription('');
       setGoalCriteria('');

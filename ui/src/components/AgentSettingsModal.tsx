@@ -133,7 +133,7 @@ export const AgentSettingsModal: React.FC = () => {
       setRoleTitle(targetAgent.role || 'Specialist');
       setSelectedModelId(targetAgent.activeModelId || 'qwen2.5-coder:3b');
       setInstructions(targetAgent.systemPrompt || '');
-      setCapabilities(['fs:read', 'fs:write', 'shell:exec']);
+      setCapabilities(targetAgent.capabilities || []);
     }
   }, [targetAgent]);
 
@@ -161,7 +161,10 @@ export const AgentSettingsModal: React.FC = () => {
     if (!targetAgent) return;
     try {
       setIsSaving(true);
-      await updateAgentContract(targetAgent.id, roleTitle.trim(), selectedModelId, instructions.trim());
+      const res = await updateAgentContract(targetAgent.id, roleTitle.trim(), selectedModelId, instructions.trim(), capabilities);
+      if (res && !res.success) {
+        throw new Error(res.error || 'Failed to save agent settings');
+      }
       if (selectedModelId !== targetAgent.activeModelId) {
         await updateAgentModel(targetAgent.id, selectedModelId, activeProject?.id, activeChannelId);
       }

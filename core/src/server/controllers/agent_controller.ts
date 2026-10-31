@@ -161,8 +161,8 @@ export class AgentController extends BaseController {
         return this.sendJson(res, 200, { success: true, agentId });
       }
 
-      // 10b. GET /api/agents/:agentId/execution-details — Transparent Antigravity Activity Tray
-      const agentExecDetailsMatch = pathname.match(/^\/api\/agents\/([^/]+)\/execution-details$/);
+      // 10b. GET /api/agents/:agentId/execution-details or /trajectory — Transparent Antigravity Activity Tray
+      const agentExecDetailsMatch = pathname.match(/^\/api\/agents\/([^/]+)\/(?:execution-details|trajectory)$/);
       if (req.method === 'GET' && agentExecDetailsMatch) {
         const agentId = agentExecDetailsMatch[1];
         const identity = this.agentRepo.getIdentity(agentId);
@@ -264,15 +264,7 @@ export class AgentController extends BaseController {
             realExploredFilesSet.add(a.params.dirPath || a.params.path);
           }
         }
-        let exploredFiles = Array.from(realExploredFilesSet);
-        if (exploredFiles.length === 0) {
-          try {
-            const topFiles = fs.readdirSync(repoPath).filter((f) => !f.startsWith('.') && f !== 'node_modules');
-            exploredFiles = topFiles.slice(0, 8);
-          } catch {
-            exploredFiles = [];
-          }
-        }
+        const exploredFiles = Array.from(realExploredFilesSet);
 
         // Real edited files derived from recorded writeFile actions or git changed files
         const realEditedFilesSet = new Set<string>();
@@ -429,29 +421,7 @@ export class AgentController extends BaseController {
           }
         }
 
-        if (reasoningItems.length === 0) {
-          reasoningItems.push({
-            id: 'item-thought-1',
-            type: 'thought',
-            summary: latestThought,
-            timestamp: latestRun ? latestRun.created_at : identity.createdAt,
-            durationFormatted: `${Math.round(reasoningDurationMs / 1000)}s`,
-            details: {
-              reasoning: `Identified active project '${project?.name || 'KIN'}'. Verified database WAL mode and ensured no mock fallbacks exist. Evaluated model routing for '${identity.activeModelId}'.`,
-            },
-          });
-        }
-
-        for (let idx = 0; idx < Math.min(5, exploredFiles.length); idx++) {
-          const f = exploredFiles[idx];
-          reasoningItems.push({
-            id: `item-explore-${idx}`,
-            type: 'file_explore',
-            summary: `Surveyed context: ${f}`,
-            timestamp: (latestRun ? latestRun.created_at : identity.createdAt) + 1000 * (idx + 1),
-            details: { file: f, path: f },
-          });
-        }
+        // Return authentic reasoning items only (empty if no reasoning occurred)
 
         const executionDetails = {
           agentId,

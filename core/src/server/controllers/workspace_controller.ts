@@ -196,6 +196,7 @@ export class WorkspaceController extends BaseController {
             assignedChannels: this.workspaceRepo.listAgentChannelIds(a.id, projectId),
             modelAvailable,
             modelStatus,
+            capabilities: def?.capabilities || [],
           };
         });
 
@@ -237,6 +238,7 @@ export class WorkspaceController extends BaseController {
             modelStatus,
             assignedChannels: assignedNames,
             domainAuthority: def?.domainAuthority || [],
+            capabilities: def?.capabilities || [],
           };
         });
 
@@ -511,6 +513,7 @@ export class WorkspaceController extends BaseController {
             assignedChannels,
             modelAvailable,
             modelStatus,
+            capabilities: def?.capabilities || [],
             analytics: {
               messagesCount: agentMessages[0]?.count || 0,
               assignedTasksCount: tasksTotal,

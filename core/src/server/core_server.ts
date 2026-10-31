@@ -209,21 +209,39 @@ export class CoreServer {
         // Keep authoritative dataDir/ipc_auth.token, dataDir/.kin/ipc_auth.token, and cwd/.kin/ipc_auth.token in sync
         const primaryTokenPath = path.join(dataDir, 'ipc_auth.token');
         if (!fs.existsSync(primaryTokenPath)) {
-          try { fs.writeFileSync(primaryTokenPath, this.ipcAuthToken, 'utf-8'); } catch {}
+          try {
+            fs.writeFileSync(primaryTokenPath, this.ipcAuthToken, 'utf-8');
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.error('[KIN CORE] Failed to write primary IPC auth token to', primaryTokenPath, message);
+          }
         }
         const dotKinDir = path.join(dataDir, '.kin');
         if (!fs.existsSync(dotKinDir)) {
-          try { fs.mkdirSync(dotKinDir, { recursive: true }); } catch {}
+          try {
+            fs.mkdirSync(dotKinDir, { recursive: true });
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.error('[KIN CORE] Failed to create .kin directory at', dotKinDir, message);
+          }
         }
         const subTokenPath = path.join(dotKinDir, 'ipc_auth.token');
         if (!fs.existsSync(subTokenPath)) {
-          try { fs.writeFileSync(subTokenPath, this.ipcAuthToken, 'utf-8'); } catch {}
+          try {
+            fs.writeFileSync(subTokenPath, this.ipcAuthToken, 'utf-8');
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.error('[KIN CORE] Failed to write sub IPC auth token to', subTokenPath, message);
+          }
         }
         try {
           const cwdKin = path.resolve(process.cwd(), '.kin');
           if (!fs.existsSync(cwdKin)) fs.mkdirSync(cwdKin, { recursive: true });
           fs.writeFileSync(path.join(cwdKin, 'ipc_auth.token'), this.ipcAuthToken, 'utf-8');
-        } catch {}
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error('[KIN CORE] Failed to write cwd .kin IPC auth token:', message);
+        }
       } catch (tokenErr) {
         console.warn('[KIN CORE] IPC auth token setup notice:', tokenErr);
       }
@@ -1025,16 +1043,39 @@ export class CoreServer {
     const agent = this.agentRepo.getIdentity(runRow.agent_id);
     if (!agent) return false;
 
-    const dummyTrigger = {
+    let triggerMsg: any = runRow.trigger_message_id
+      ? this.channelService.getMessage(runRow.trigger_message_id)
+      : undefined;
+
+    if (!triggerMsg && runRow.task_id) {
+      const taskObj = this.taskRepo.getTask(runRow.task_id);
+      if (taskObj) {
+        triggerMsg = {
+          id: `trigger-task-${runId}`,
+          channelId: runRow.channel_id || 'chan-default',
+          senderId: 'system',
+          senderType: 'system',
+          content: `Execute task: ${taskObj.title}\n${taskObj.description || ''}`,
+          createdAt: Date.now(),
+          taskId: runRow.task_id,
+        };
+      }
+    }
+
+    const effectiveTrigger = triggerMsg || {
       id: `trigger-resume-${Date.now()}`,
+      channelId: runRow.channel_id || 'chan-default',
+      senderId: 'system',
+      senderType: 'system',
       content: `[System Recovery: Resuming interrupted run ${runId} at turn ${runRow.interrupted_turn || checkpointData?.turn || 1}]`,
+      createdAt: Date.now(),
       taskId: runRow.task_id,
     };
 
     this.executeAgentResponse(
       agent,
       runRow.channel_id || 'chan-default',
-      dummyTrigger,
+      effectiveTrigger,
       0,
       checkpointData ? {
         turn: checkpointData.turn || runRow.interrupted_turn || 1,
@@ -2924,11 +2965,19 @@ export class CoreServer {
         }
       }
     }
-    if (this.lastChannelPromptFingerprints.size > 500) {
-      for (const [key, val] of this.lastChannelPromptFingerprints.entries()) {
-        if (nowMs - val.timestamp > 10 * 60 * 1000) {
-          this.lastChannelPromptFingerprints.delete(key);
-        }
+    // Bounded TTL (60s) and FIFO max-size (1000) eviction for prompt fingerprints
+    for (const [key, val] of this.lastChannelPromptFingerprints.entries()) {
+      if (nowMs - val.timestamp > 60 * 1000) {
+        this.lastChannelPromptFingerprints.delete(key);
+      }
+    }
+    if (this.lastChannelPromptFingerprints.size > 1000) {
+      const excess = this.lastChannelPromptFingerprints.size - 1000;
+      let removed = 0;
+      for (const key of this.lastChannelPromptFingerprints.keys()) {
+        this.lastChannelPromptFingerprints.delete(key);
+        removed++;
+        if (removed >= excess) break;
       }
     }
   }

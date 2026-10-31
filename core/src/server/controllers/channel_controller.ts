@@ -450,6 +450,15 @@ export class ChannelController extends BaseController {
             });
           }
           this.lastChannelPromptFingerprints.set(promptFingerprint, { promptHash: promptFingerprint, timestamp: nowMs });
+          if (this.lastChannelPromptFingerprints.size > 1000) {
+            const excess = this.lastChannelPromptFingerprints.size - 1000;
+            let removed = 0;
+            for (const k of this.lastChannelPromptFingerprints.keys()) {
+              this.lastChannelPromptFingerprints.delete(k);
+              removed++;
+              if (removed >= excess) break;
+            }
+          }
           this.pruneOldAdmissionFences(nowMs);
         }
 
@@ -582,12 +591,7 @@ export class ChannelController extends BaseController {
               }
 
               if (!answer) {
-                let dbSizeKb = 0;
-                try {
-                  const dbStat = fs.statSync(this.dbPath || 'kin_storage.sqlite');
-                  dbSizeKb = Math.round(dbStat.size / 1024);
-                } catch {}
-                answer = `Regarding "${btwQuery}": KIN daemon is active on port 54321 with SQLite WAL mode (${dbSizeKb} KB journal), immediate turn checkpoints, and atomic task leases. Ready to assist.`;
+                answer = `The quick query "${btwQuery}" could not be completed because the model is currently unavailable or the request timed out. Please check model provider configuration and try again.`;
               }
 
               const btwReply = this.channelService.sendMessage({
@@ -703,7 +707,10 @@ export class ChannelController extends BaseController {
               this.db.execute('UPDATE tasks SET description = ?, updated_at = ? WHERE id = ?', updatedDesc, Date.now(), t.id);
               this.broadcastEvent('task:updated', { taskId: t.id, status: 'running', description: updatedDesc });
             }
-          } catch {}
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.warn('[KIN CORE] Steer directive update failed:', message);
+          }
 
           this.broadcastEvent('steer:received', {
             channelId,
