@@ -15,7 +15,7 @@ KIN solves this via **Ephemeral Git Worktrees** (`.kin/worktrees/<task-id>/`):
 - The operator's main working tree remains untouched while tests compile and pass in isolation.
 
 ```
-Main Git Working Tree (d:/KIN [branch: main])
+Main Git Working Tree (/workspace/project [branch: main])
               │
               ├──► Worktree 1 (.kin/worktrees/task-1-auth [branch: kin/task-1])
               │         │

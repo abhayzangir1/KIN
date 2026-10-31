@@ -15,7 +15,7 @@ export interface DiscoveredCredential {
   id: string;
   provider: 'github' | 'gcloud' | 'openai' | 'anthropic' | 'gemini' | 'groq' | 'deepseek' | 'slack' | 'notion';
   source: 'cli' | 'env' | 'dotenv';
-  identifier: string; // e.g. "abhayzangir1 (gh CLI)" or "OPENAI_API_KEY (env)"
+  identifier: string; // e.g. "developer (gh CLI)" or "OPENAI_API_KEY (env)"
   maskedKey: string;
   token: string;
   alreadyImported: boolean;

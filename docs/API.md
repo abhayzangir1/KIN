@@ -44,7 +44,7 @@ Returns the complete operational state of the active workspace, projects, channe
   {
     "workspace": { "id": "ws-default", "name": "Default Workspace", "autonomyMode": "AUTO" },
     "activeProjectId": "proj-kin",
-    "projects": [{ "id": "proj-kin", "name": "KIN", "rootPath": "D:/kin_sandbox_workspace" }],
+    "projects": [{ "id": "proj-kin", "name": "KIN", "rootPath": "/workspace/projects/kin" }],
     "channels": [...],
     "agents": [...],
     "goals": [...],
@@ -84,7 +84,7 @@ List all registered organizational projects.
 Create a new project container.
 - **Request Body**:
   ```json
-  { "name": "Backend API", "rootPath": "D:/projects/backend_api" }
+  { "name": "Backend API", "rootPath": "/workspace/projects/backend_api" }
   ```
 
 ### `POST /api/projects/:id/activate`
@@ -378,7 +378,7 @@ Consolidated endpoint listing all proactive schedules and automations for the pr
         "id": "sched-1730000000",
         "projectId": "proj-kin",
         "projectName": "KIN",
-        "repoPath": "D:/kin_sandbox_workspace",
+        "repoPath": "/workspace/projects/kin",
         "channelId": "chan-general",
         "channelName": "#general",
         "targetAgentId": "agent-orchestrator",

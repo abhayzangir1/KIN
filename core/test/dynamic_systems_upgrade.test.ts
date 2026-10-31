@@ -570,11 +570,11 @@ describe('KIN Dynamic Computer & Systems Upgrade (Round 14)', () => {
 
   describe('6. Resilient Tool Call Extraction & Routine Duration Parsing', () => {
     it('extracts tool calls from raw JSON without <tool_call> tags', () => {
-      const rawJson = '{"name": "readFile", "parameters": {"filePath": "D:\\\\KIN\\\\core\\\\docs\\\\server.md"}}';
+      const rawJson = '{"name": "readFile", "parameters": {"filePath": "C:\\\\project\\\\core\\\\docs\\\\server.md"}}';
       const extracted = AgentLoopRunner.extractToolCall(rawJson);
       expect(extracted).not.toBeNull();
       expect(extracted?.name).toBe('readFile');
-      expect(extracted?.params.filePath).toBe('D:/KIN/core/docs/server.md');
+      expect(extracted?.params.filePath).toBe('C:/project/core/docs/server.md');
     });
 
     it('extracts tool calls from markdown code fences', () => {

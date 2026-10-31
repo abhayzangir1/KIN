@@ -78,14 +78,14 @@ describe('KIN Phase 1/2: Core IPC Server Integration & Authoritative State', () 
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: 'test01',
-        repoPath: 'D:\\test01',
+        repoPath: 'C:\\test01',
       }),
     });
 
     expect(res.status).toBe(201);
     const data: any = await res.json();
     expect(data.project.name).toBe('test01');
-    expect(data.project.repoPath).toBe('D:\\test01');
+    expect(data.project.repoPath).toBe('C:\\test01');
 
     // Verify in projects list
     const listRes = await fetch(`http://127.0.0.1:${port}/api/projects`);
