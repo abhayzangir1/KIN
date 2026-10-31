@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
+import { requestConfirmation } from './ConfirmDialog.js';
 import {
   Terminal,
   ShieldCheck,
@@ -98,7 +99,15 @@ export const AgentInspector: React.FC = () => {
 
   // Contract form state
   const [roleTitle, setRoleTitle] = useState(currentAgent?.role || 'Workspace Orchestrator');
-  const [activeModelId, setActiveModelId] = useState(currentAgent?.activeModelId || 'ollama/qwen2.5-coder:3b');
+  const [activeModelId, setActiveModelId] = useState(currentAgent?.activeModelId || availableModels[0]?.id || '');
+
+  useEffect(() => {
+    if (currentAgent) {
+      setRoleTitle(currentAgent.role || 'Workspace Orchestrator');
+      setActiveModelId(currentAgent.activeModelId || availableModels[0]?.id || '');
+      setCustomInstructions(currentAgent.systemPrompt || 'Optional custom instructions specific to this agent');
+    }
+  }, [currentAgent?.id, currentAgent?.role, currentAgent?.activeModelId, currentAgent?.systemPrompt, availableModels]);
   const [customInstructions, setCustomInstructions] = useState(
     currentAgent?.systemPrompt || 'Optional custom instructions specific to this agent'
   );
@@ -250,10 +259,21 @@ export const AgentInspector: React.FC = () => {
 
   // Revert file confirmation
   const handleRevert = async (filePath: string) => {
-    if (window.confirm(`Are you sure you want to revert all changes to "${filePath}"? This action cannot be undone.`)) {
+    const confirmed = await requestConfirmation({
+      title: 'Revert File Changes',
+      message: `Are you sure you want to revert all changes to "${filePath}"? This action cannot be undone.`,
+      confirmLabel: 'Revert',
+      variant: 'danger',
+    });
+    if (confirmed) {
       setRevertingPath(filePath);
-      await revertGitFile(filePath);
+      const res = await revertGitFile(filePath);
       setRevertingPath(null);
+      if (!res.success) {
+        addToast(res.error || `Failed to revert "${filePath}". Check repository lock or permissions.`, 'error');
+      } else {
+        addToast(`Successfully reverted changes to "${filePath}".`, 'success');
+      }
     }
   };
 
@@ -302,6 +322,8 @@ export const AgentInspector: React.FC = () => {
     if (res.success && res.review) {
       setAiReviewResult({ path: filePath, review: res.review, verdict: res.verdict });
       setShowAiReviewCard(true);
+    } else {
+      addToast(res.error || 'AI review request failed', 'error');
     }
   };
 
@@ -709,7 +731,12 @@ export const AgentInspector: React.FC = () => {
                         {/* Actions: Stage/Unstage, Revert, Review */}
                         <div className="flex items-center space-x-1 shrink-0">
                           <button
-                            onClick={() => stageGitFile(file.path, !file.staged)}
+                            onClick={async () => {
+                              const res = await stageGitFile(file.path, !file.staged);
+                              if (!res.success) {
+                                addToast(res.error || `Failed to ${file.staged ? 'unstage' : 'stage'} "${file.path}".`, 'error');
+                              }
+                            }}
                             className={`p-1 rounded text-[10px] transition ${
                               file.staged
                                 ? 'bg-purple-600/30 text-purple-300 hover:bg-purple-600/50'
@@ -860,7 +887,12 @@ export const AgentInspector: React.FC = () => {
                           const isStaged = currentFile?.staged ?? false;
                           return (
                             <button
-                              onClick={() => stageGitFile(activeGitDiff.path, !isStaged)}
+                              onClick={async () => {
+                                const res = await stageGitFile(activeGitDiff.path, !isStaged);
+                                if (!res.success) {
+                                  addToast(res.error || `Failed to ${isStaged ? 'unstage' : 'stage'} "${activeGitDiff.path}".`, 'error');
+                                }
+                              }}
                               className={`flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-medium border transition ${
                                 isStaged
                                   ? 'bg-purple-600/20 text-purple-300 border-purple-500/30 hover:bg-purple-600/30'
@@ -1246,11 +1278,17 @@ export const AgentInspector: React.FC = () => {
 
                     <button
                       onClick={async () => {
-                        if (window.confirm(`Delete upload "${upl.originalName}"?`)) {
+                        const confirmed = await requestConfirmation({
+                          title: 'Delete Upload',
+                          message: `Are you sure you want to delete upload "${upl.originalName}"?`,
+                          confirmLabel: 'Delete',
+                          variant: 'danger',
+                        });
+                        if (confirmed) {
                           await deleteUpload(upl.id);
                         }
                       }}
-                      className="p-1 rounded bg-[#1e293b] hover:bg-red-950/60 text-[#94a3b8] hover:text-red-400 transition"
+                      className="p-1 rounded bg-[#1e293b] hover:bg-red-950/60 text-[#94a3b8] hover:text-red-400 transition cursor-pointer"
                       title="Delete upload"
                     >
                       <Trash2 className="w-3.5 h-3.5" />

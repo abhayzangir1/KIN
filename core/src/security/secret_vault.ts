@@ -172,7 +172,7 @@ export class SecretVault {
       if (this.legacyMasterKey) {
         try {
           return tryDecrypt(this.legacyMasterKey);
-        } catch {}
+        } catch (err) { console.debug("[secret_vault] Suppressed exception in catch block:", err); }
       }
       throw err;
     }

@@ -108,23 +108,28 @@ describe('Phase 4 Desktop & Browser Automation Reliability', () => {
       supervisor.releaseDesktopLock('agent-active');
     });
 
-    it('adapts concurrency governor limits based on free memory tiers', () => {
+    it('adapts concurrency governor limits based on free memory tiers', async () => {
       // Simulate low memory (< 2.5 GB)
-      supervisor.setMockFreeMemBytes(1.5 * 1024 * 1024 * 1024);
-      let status = supervisor.getGovernorStatus();
+      const lowSupervisor = new ComputerSupervisor({
+        baseProfileDir: testProfileDir,
+        freeMemProvider: () => 1.5 * 1024 * 1024 * 1024,
+      });
+      let status = lowSupervisor.getGovernorStatus();
       expect(status.tier).toBe('low');
       expect(status.maxBrowserContexts).toBe(1);
       expect(status.maxShellProcesses).toBe(1);
+      await lowSupervisor.shutdown();
 
       // Simulate high memory (> 6.0 GB)
-      supervisor.setMockFreeMemBytes(8.0 * 1024 * 1024 * 1024);
-      status = supervisor.getGovernorStatus();
+      const highSupervisor = new ComputerSupervisor({
+        baseProfileDir: testProfileDir,
+        freeMemProvider: () => 8.0 * 1024 * 1024 * 1024,
+      });
+      status = highSupervisor.getGovernorStatus();
       expect(status.tier).toBe('high');
       expect(status.maxBrowserContexts).toBe(3);
       expect(status.maxShellProcesses).toBe(4);
-
-      // Reset mock
-      supervisor.setMockFreeMemBytes(undefined);
+      await highSupervisor.shutdown();
     });
   });
 

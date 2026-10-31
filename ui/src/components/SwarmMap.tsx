@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useKinStore } from '../store/kinStore.js';
+import { requestConfirmation } from './ConfirmDialog.js';
 import {
   Network,
   Bot,
@@ -61,11 +62,13 @@ export const SwarmMap: React.FC = () => {
     availableModels,
     fetchAvailableModels,
     updateAgentModel,
+    addToast,
   } = useKinStore();
 
   const [filterScope, setFilterScope] = useState<'all' | 'channel'>('all');
+  const defaultChannelId = channels.find((c) => (c as any).isGeneral || c.name.toLowerCase() === 'general')?.id || channels[0]?.id || '';
   const [selectedChannelId, setSelectedChannelId] = useState<string>(
-    activeChannelId.startsWith('dm-') ? 'chan-general' : activeChannelId
+    activeChannelId.startsWith('dm-') ? defaultChannelId : activeChannelId
   );
   const [searchQuery, setSearchQuery] = useState('');
   const [hoveredAgentId, setHoveredAgentId] = useState<string | null>(null);
@@ -338,7 +341,7 @@ export const SwarmMap: React.FC = () => {
           targetAgentId: latestDelegation.targetAgentId,
           targetAgentName: to.displayName,
           directive: latestDelegation.directive || 'Active Task Delegation',
-          channelId: latestDelegation.channelId || 'chan-general',
+          channelId: latestDelegation.channelId || defaultChannelId,
           type: 'direct_delegation',
           status: 'active',
           isLive: true,
@@ -413,7 +416,7 @@ export const SwarmMap: React.FC = () => {
           targetAgentId: spec.id,
           targetAgentName: spec.displayName,
           directive: `Workforce Coordination: ${spec.role || 'Specialist Execution'}`,
-          channelId: spec.assignedChannels?.[0] || 'chan-general',
+          channelId: spec.assignedChannels?.[0] || defaultChannelId,
           type: 'direct_delegation',
           status: isSpecWorking ? 'active' : 'completed',
           isLive: isSpecWorking,
@@ -1108,7 +1111,13 @@ export const SwarmMap: React.FC = () => {
                               type="button"
                               onClick={async (e) => {
                                 e.stopPropagation();
-                                if (window.confirm(`Decommission ${agent.displayName} from workforce?`)) {
+                                const confirmed = await requestConfirmation({
+                                  title: 'Decommission Agent',
+                                  message: `Decommission ${agent.displayName} from workforce?`,
+                                  confirmLabel: 'Decommission',
+                                  variant: 'danger',
+                                });
+                                if (confirmed) {
                                   setUserPositions((prev) => {
                                     const next = { ...prev };
                                     delete next[agent.id];
@@ -1119,7 +1128,12 @@ export const SwarmMap: React.FC = () => {
                                     }
                                     return next;
                                   });
-                                  await decommissionAgent(agent.id);
+                                  const res = await decommissionAgent(agent.id);
+                                  if (res && (res as any).success === false) {
+                                    addToast((res as any).error || `Failed to decommission ${agent.displayName}`, 'error');
+                                  } else {
+                                    addToast(`Decommissioned ${agent.displayName}.`, 'info');
+                                  }
                                 }
                               }}
                               className="p-1 rounded text-slate-400 hover:text-red-500 hover:bg-red-500/10 transition cursor-pointer"

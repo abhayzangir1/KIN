@@ -138,9 +138,7 @@ export class DesktopController {
             }
           }
         }
-      } catch {
-        // Registry enumeration fallback
-      }
+      } catch (err) { console.debug("[desktop_controller] Suppressed exception in catch block:", err); }
     } else {
       // macOS fallbacks
       addApp('Terminal', '/System/Applications/Utilities/Terminal.app', 'system');
@@ -330,7 +328,8 @@ export class DesktopController {
 
             this.cachedWindows = { data: windows, timestamp: Date.now() };
             resolve(windows);
-          } catch {
+          } catch (jsonErr) {
+            console.debug('[DesktopController] listWindows JSON parse error:', jsonErr);
             resolve(this.cachedWindows?.data || []);
           }
         });
@@ -394,13 +393,17 @@ public static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
         if ($fgThread -ne 0 -and $curThread -ne $fgThread) {
           try {
             $attached = [Win32.Win32Focus]::AttachThreadInput($curThread, $fgThread, $true)
-          } catch {}
+          } catch {
+            Write-Verbose "AttachThreadInput attach failed: $($_.Exception.Message)"
+          }
         }
 
         try {
           $ws = New-Object -ComObject WScript.Shell
           $ws.SendKeys('%')
-        } catch {}
+        } catch {
+          Write-Verbose "WScript.Shell SendKeys failed: $($_.Exception.Message)"
+        }
 
         [Win32.Win32Focus]::ShowWindow($p.MainWindowHandle, 9) | Out-Null
         [Win32.Win32Focus]::BringWindowToTop($p.MainWindowHandle) | Out-Null
@@ -409,7 +412,9 @@ public static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
         if ($attached) {
           try {
             [Win32.Win32Focus]::AttachThreadInput($curThread, $fgThread, $false) | Out-Null
-          } catch {}
+          } catch {
+            Write-Verbose "AttachThreadInput detach failed: $($_.Exception.Message)"
+          }
         }
 
         if (-not $res) {
@@ -519,7 +524,8 @@ public static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
         isPrimary: Boolean(screen.Primary),
         scaleFactor: 1.0,
       }));
-    } catch {
+    } catch (err) {
+      console.debug('[DesktopController] getDisplays resolution notice:', err);
       return [{ id: 'disp-0', width: 1920, height: 1080, isPrimary: true, scaleFactor: 1.0 }];
     }
   }
@@ -611,7 +617,8 @@ public static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
         Write-Output $b64
       `;
 
-      const res = await this.runPowerShell(psScript);
+      // Use 32MB buffer capacity so 4K and multi-monitor PNG captures are never truncated
+      const res = await this.runPowerShell(psScript, undefined, { maxBufferBytes: 32 * 1024 * 1024, timeoutMs: 30000 });
       const out = res.stdout;
       const metaMatch = out.match(/META_(INTERACTIVE|HEADLESS):(\d+)x(\d+)\|(\d*)\|([\s\S]*)/) || out.match(/META:(\d+)x(\d+)\|([\s\S]*)/);
 
@@ -845,11 +852,22 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
   /**
    * Helper to execute PowerShell scripts via stdin streaming,
    * bypassing the 8191-character Windows command-line limit and preventing command injection hazards.
+   * Supports configurable execution timeouts up to 300s+, rolling memory buffer caps, and process-tree termination.
    */
-  public runPowerShell(script: string, abortSignal?: AbortSignal): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  public runPowerShell(
+    script: string,
+    abortSignal?: AbortSignal,
+    options?: { timeoutMs?: number; maxBufferBytes?: number }
+  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     if (abortSignal?.aborted) {
       return Promise.resolve({ stdout: '', stderr: 'PowerShell execution cancelled by operator via AbortSignal', exitCode: 1 });
     }
+
+    const configuredTimeout = options?.timeoutMs
+      ?? (process.env.KIN_POWERSHELL_TIMEOUT_MS ? parseInt(process.env.KIN_POWERSHELL_TIMEOUT_MS, 10) : undefined)
+      ?? 30000;
+    const effectiveTimeout = Math.max(1000, Math.min(configuredTimeout, 300000));
+    const maxBuffer = options?.maxBufferBytes ?? (4 * 1024 * 1024);
 
     return new Promise((resolve) => {
       const child = childProcess.spawn(
@@ -864,52 +882,76 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
       let stderr = '';
       let killed = false;
 
-      const timer = setTimeout(() => {
-        killed = true;
-        child.kill();
-        resolve({ stdout: '', stderr: 'PowerShell execution timed out', exitCode: 1 });
-      }, 20000);
+      const killProcessTree = () => {
+        try {
+          if (child.pid) {
+            if (this.isWindows) {
+              try {
+                childProcess.execSync(`taskkill /pid ${child.pid} /T /F`, { stdio: 'ignore' });
+              } catch (killErr) {
+                console.debug("[desktop_controller] taskkill tree termination fallback:", killErr);
+                try {
+                  child.kill('SIGKILL');
+                } catch (err) { console.debug("[desktop_controller] Suppressed exception in catch block:", err); }
+              }
+            } else {
+              try {
+                childProcess.execSync(`pkill -P ${child.pid}`, { stdio: 'ignore' });
+              } catch (err) { console.debug("[desktop_controller] Suppressed exception in catch block:", err); }
+              try {
+                child.kill('SIGKILL');
+              } catch (err) { console.debug("[desktop_controller] Suppressed exception in catch block:", err); }
+            }
+          }
+        } catch (termErr: unknown) {
+          const message = termErr instanceof Error ? termErr.message : String(termErr);
+          console.warn('[KIN DESKTOP] Process termination notice:', message);
+        }
+      };
 
       let abortListener: (() => void) | undefined;
+
+      const timer = setTimeout(() => {
+        if (killed) return;
+        killed = true;
+        if (abortSignal && abortListener) {
+          abortSignal.removeEventListener('abort', abortListener);
+        }
+        killProcessTree();
+        resolve({
+          stdout: stdout || '',
+          stderr: stderr ? `${stderr}\nPowerShell execution timed out after ${effectiveTimeout}ms` : `PowerShell execution timed out after ${effectiveTimeout}ms`,
+          exitCode: 124,
+        });
+      }, effectiveTimeout);
+
       if (abortSignal) {
         abortListener = () => {
           if (killed) return;
           killed = true;
           clearTimeout(timer);
-          try {
-            if (child.pid) {
-              if (this.isWindows) {
-                try {
-                  childProcess.execSync(`taskkill /pid ${child.pid} /T /F`, { stdio: 'ignore' });
-                } catch {
-                  try {
-                    child.kill('SIGKILL');
-                  } catch {}
-                }
-              } else {
-                try {
-                  childProcess.execSync(`pkill -P ${child.pid}`, { stdio: 'ignore' });
-                } catch {}
-                try {
-                  child.kill('SIGKILL');
-                } catch {}
-              }
-            }
-          } catch (termErr: unknown) {
-            const message = termErr instanceof Error ? termErr.message : String(termErr);
-            console.warn('[KIN DESKTOP] Process termination notice during abort:', message);
-          }
+          killProcessTree();
           resolve({ stdout: '', stderr: 'PowerShell execution cancelled by operator via AbortSignal', exitCode: 1 });
         };
         abortSignal.addEventListener('abort', abortListener, { once: true });
       }
 
       child.stdout.on('data', (d) => {
-        stdout += d.toString('utf-8');
+        if (stdout.length < maxBuffer) {
+          stdout += d.toString('utf-8');
+          if (stdout.length > maxBuffer) {
+            stdout = stdout.slice(0, maxBuffer) + '\n[Truncated: output buffer exceeded limit]';
+          }
+        }
       });
 
       child.stderr.on('data', (d) => {
-        stderr += d.toString('utf-8');
+        if (stderr.length < maxBuffer) {
+          stderr += d.toString('utf-8');
+          if (stderr.length > maxBuffer) {
+            stderr = stderr.slice(0, maxBuffer) + '\n[Truncated: error buffer exceeded limit]';
+          }
+        }
       });
 
       child.on('close', (code) => {

@@ -5,8 +5,8 @@
   "identifier": "com.kin.workforce",
   "build": {
     "frontendDist": "../ui/dist",
-    "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "npm run dev --workspace=ui",
+    "devUrl": "http://127.0.0.1:5173",
+    "beforeDevCommand": "npm run build --workspace=@kin/core && npm run dev --workspace=ui",
     "beforeBuildCommand": "npm run build:prod"
   },
   "app": {

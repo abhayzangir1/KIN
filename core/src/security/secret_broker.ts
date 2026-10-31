@@ -118,7 +118,7 @@ export class SecretBroker {
                     maxSpend: row.max_spend_tokens,
                   },
                 });
-              } catch {}
+              } catch (err) { console.debug("[secret_broker] Suppressed exception in catch block:", err); }
               return `[DENIED_SPEND_CAP_EXCEEDED:${keyName}]`;
             }
 
@@ -128,7 +128,7 @@ export class SecretBroker {
               try {
                 const parsed = JSON.parse(row.scoped_grants_json);
                 if (Array.isArray(parsed)) grants = parsed;
-              } catch {}
+              } catch (err) { console.debug("[secret_broker] Suppressed exception in catch block:", err); }
             }
 
             if (callerAgentId && callerAgentId !== 'system' && callerAgentId !== 'operator') {
@@ -144,13 +144,13 @@ export class SecretBroker {
                       keyName,
                     },
                   });
-                } catch {}
+                } catch (err) { console.debug("[secret_broker] Suppressed exception in catch block:", err); }
                 return `[DENIED_UNAUTHORIZED_KEY_ACCESS:${keyName}]`;
               }
             }
             ciphertextToDecrypt = row.secret_hash;
           }
-        } catch {}
+        } catch (err) { console.debug("[secret_broker] Suppressed exception in catch block:", err); }
       }
 
       const decrypted = this.vault.decrypt(ciphertextToDecrypt);

@@ -215,7 +215,8 @@ export class SchedulerService {
     try {
       const res = await this.triggerScheduleNow(id);
       return !!res;
-    } catch {
+    } catch (err) {
+      console.error('[scheduler] triggerSchedule error:', err);
       return false;
     }
   }
@@ -570,7 +571,9 @@ export class SchedulerService {
         let payload: any = {};
         try {
           payload = JSON.parse(r.payload_json);
-        } catch {}
+        } catch (parseErr) {
+          console.warn(`[Scheduler] Failed to parse payload_json for attempt ${r.id}:`, parseErr);
+        }
         return {
           id: `att-${r.id}`,
           scheduleId,
@@ -580,7 +583,8 @@ export class SchedulerService {
           executedAt: r.created_at,
         };
       });
-    } catch {
+    } catch (dbErr) {
+      console.warn(`[Scheduler] Failed to query attempts for schedule ${scheduleId}:`, dbErr);
       return [];
     }
   }

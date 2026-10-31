@@ -31,7 +31,7 @@ export class OutputSpiller {
     }
     try {
       this.cleanStaleSpills();
-    } catch {}
+    } catch (err) { console.debug("[output_spiller] Suppressed exception in catch block:", err); }
   }
 
   /**
@@ -52,9 +52,9 @@ export class OutputSpiller {
             fs.unlinkSync(fullPath);
             cleaned++;
           }
-        } catch {}
+        } catch (err) { console.debug("[output_spiller] Suppressed exception in catch block:", err); }
       }
-    } catch {}
+    } catch (err) { console.debug("[output_spiller] Suppressed exception in catch block:", err); }
     return cleaned;
   }
 

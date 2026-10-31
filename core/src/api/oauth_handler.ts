@@ -196,7 +196,9 @@ export class OAuthHandler {
               const userData = await userRes.json();
               if (userData.login) username = userData.login;
             }
-          } catch {}
+          } catch (fetchErr) {
+            console.warn('[OAuthHandler] Failed to resolve GitHub username for token:', fetchErr);
+          }
         }
       } else {
         accessToken = code;
@@ -322,7 +324,7 @@ export class OAuthHandler {
   </div>
   <script>
     setTimeout(function() {
-      try { window.close(); } catch(e) {}
+      try { window.close(); } catch(e) { console.debug("Window close prevented by browser policy:", e); }
     }, 3000);
   </script>
 </body>

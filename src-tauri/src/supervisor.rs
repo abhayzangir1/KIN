@@ -56,10 +56,17 @@ mod windows_impl {
         pub fn assign_process(&self, process_handle: RawHandle) -> Result<(), String> {
             unsafe {
                 let handle = HANDLE(process_handle as _);
-                if let Err(e) = AssignProcessToJobObject(self.job_handle, handle) {
-                    eprintln!("[KIN SUPERVISOR] Job Object assignment notice: {:?}", e);
+                match AssignProcessToJobObject(self.job_handle, handle) {
+                    Ok(()) => {
+                        crate::log_diagnostic("[KIN SUPERVISOR] Process successfully assigned to Windows Job Object.");
+                        Ok(())
+                    }
+                    Err(e) => {
+                        let err_msg = format!("Failed to assign process to Job Object: {:?}", e);
+                        crate::log_diagnostic(&format!("[KIN SUPERVISOR ERROR] {}", err_msg));
+                        Err(err_msg)
+                    }
                 }
-                Ok(())
             }
         }
     }
@@ -133,10 +140,9 @@ pub mod unix_impl {
             install_signal_handlers_once();
 
             // 1. Primary thread-safe tracking via Mutex<Vec<i32>>
-            if let Ok(mut lock) = get_child_pgids().lock() {
-                if !lock.contains(&pgid) {
-                    lock.push(pgid);
-                }
+            let mut lock = get_child_pgids().lock().unwrap_or_else(|p| p.into_inner());
+            if !lock.contains(&pgid) {
+                lock.push(pgid);
             }
 
             // 2. Lockless atomic mirror for signal handlers
@@ -157,13 +163,8 @@ pub mod unix_impl {
         /// Invoked on Drop, upon process exit (atexit), or explicitly.
         pub fn cleanup() {
             let pgids: Vec<i32> = {
-                if let Ok(mut lock) = get_child_pgids().lock() {
-                    lock.drain(..).filter(|&p| p > 1).collect()
-                } else if let Ok(mut lock) = get_child_pgids().try_lock() {
-                    lock.drain(..).filter(|&p| p > 1).collect()
-                } else {
-                    Vec::new()
-                }
+                let mut lock = get_child_pgids().lock().unwrap_or_else(|p| p.into_inner());
+                lock.drain(..).filter(|&p| p > 1).collect()
             };
 
             if pgids.is_empty() {
@@ -246,25 +247,28 @@ impl ProcessSupervisor {
             unix_sup: Some(unix_impl::UnixProcessSupervisor::new()),
         };
 
-        let mut lock = get_supervisor().lock().unwrap();
+        let mut lock = get_supervisor().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         *lock = Some(supervisor);
         Ok(())
     }
 
     pub fn shutdown() {
+        crate::log_diagnostic("[KIN SUPERVISOR] ProcessSupervisor shutdown invoked.");
         #[cfg(unix)]
         unix_impl::UnixProcessSupervisor::cleanup();
     }
 
     #[cfg(windows)]
     pub fn assign_raw_handle(process_handle: std::os::windows::io::RawHandle) -> Result<(), String> {
-        let lock = get_supervisor().lock().unwrap();
+        let lock = get_supervisor().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(ref supervisor) = *lock {
             if let Some(ref job) = supervisor.win_job {
                 return job.assign_process(process_handle);
             }
         }
-        Err("Process supervisor not initialized".to_string())
+        let err = "Process supervisor not initialized".to_string();
+        crate::log_diagnostic(&format!("[KIN SUPERVISOR ERROR] {}", err));
+        Err(err)
     }
 
     #[cfg(not(windows))]
@@ -317,14 +321,24 @@ impl ProcessSupervisor {
         PathBuf::from(".kin")
     }
 
+    pub fn resolve_port() -> u16 {
+        std::env::var("KIN_PORT")
+            .ok()
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or(54321)
+    }
+
     pub fn spawn_core_daemon_if_needed() -> Result<(), String> {
-        const DEFAULT_PORT: u16 = 54321;
-        if Self::is_daemon_active(DEFAULT_PORT) {
-            println!("[KIN SUPERVISOR] Daemon is already active on port {}", DEFAULT_PORT);
+        let port = Self::resolve_port();
+        if Self::is_daemon_active(port) {
+            crate::log_diagnostic(&format!("[KIN SUPERVISOR] Daemon is already active on port {}", port));
             return Ok(());
         }
 
-        println!("[KIN SUPERVISOR] Daemon not detected on port {}. Checking for sidecar or dev script...", DEFAULT_PORT);
+        crate::log_diagnostic(&format!(
+            "[KIN SUPERVISOR] Daemon not detected on port {}. Checking for sidecar or dev script...",
+            port
+        ));
 
         let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf()));
@@ -366,7 +380,7 @@ impl ProcessSupervisor {
         if let Some(sidecar_path) = found_sidecar {
             println!("[KIN SUPERVISOR] Found standalone sidecar binary at: {:?}", sidecar_path);
             let mut command = Command::new(&sidecar_path);
-            command.env("KIN_PORT", DEFAULT_PORT.to_string());
+            command.env("KIN_PORT", port.to_string());
             let kin_data_dir = Self::resolve_data_dir();
             let _ = std::fs::create_dir_all(&kin_data_dir);
             command.env("KIN_DATA_DIR", kin_data_dir.to_string_lossy().to_string());
@@ -398,12 +412,24 @@ impl ProcessSupervisor {
             #[cfg(windows)]
             {
                 use std::os::windows::io::AsRawHandle;
-                let _ = Self::assign_raw_handle(child.as_raw_handle());
+                if let Err(e) = Self::assign_raw_handle(child.as_raw_handle()) {
+                    crate::log_diagnostic(&format!(
+                        "[KIN SUPERVISOR WARNING] Could not assign sidecar process to Job Object: {}",
+                        e
+                    ));
+                } else {
+                    crate::log_diagnostic("[KIN SUPERVISOR] Sidecar process successfully assigned to Job Object.");
+                }
             }
             #[cfg(unix)]
             {
                 let pid = child.id() as i32;
-                unix_impl::UnixProcessSupervisor::register_child_pgid(pid);
+                if let Err(e) = Self::assign_raw_handle(pid) {
+                    crate::log_diagnostic(&format!(
+                        "[KIN SUPERVISOR WARNING] Could not register sidecar child pgid: {}",
+                        e
+                    ));
+                }
             }
 
             // Wait briefly for daemon port to be ready
@@ -413,13 +439,13 @@ impl ProcessSupervisor {
                     eprintln!("[KIN SUPERVISOR] Sidecar daemon exited prematurely with status: {:?}", status);
                     break;
                 }
-                if Self::is_daemon_active(DEFAULT_PORT) {
-                    println!("[KIN SUPERVISOR] Sidecar daemon successfully bound to port {}", DEFAULT_PORT);
+                if Self::is_daemon_active(port) {
+                    println!("[KIN SUPERVISOR] Sidecar daemon successfully bound to port {}", port);
                     return Ok(());
                 }
             }
 
-            println!("[KIN SUPERVISOR] Sidecar failed to bind to port {}. Falling back to development runner...", DEFAULT_PORT);
+            println!("[KIN SUPERVISOR] Sidecar failed to bind to port {}. Falling back to development runner...", port);
             if child.try_wait().ok().flatten().is_none() {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -450,24 +476,23 @@ impl ProcessSupervisor {
             }
         };
 
-        let working_dir = if script_path.parent().and_then(|p| p.parent()).is_some() {
-            let mut p = script_path.clone();
-            p.pop(); // remove start_daemon.js
-            p.pop(); // remove dist
-            p.pop(); // remove core -> project root
-            if p.exists() {
-                p
-            } else {
-                current_dir.clone()
+        let working_dir = {
+            let mut cur = script_path.parent().map(|p| p.to_path_buf());
+            let mut found = None;
+            while let Some(dir) = cur {
+                if dir.join("package.json").exists() {
+                    found = Some(dir);
+                    break;
+                }
+                cur = dir.parent().map(|p| p.to_path_buf());
             }
-        } else {
-            current_dir.clone()
+            found.unwrap_or_else(|| current_dir.clone())
         };
 
         let mut command = Command::new("node");
         command.arg(&script_path);
         command.current_dir(&working_dir);
-        command.env("KIN_PORT", DEFAULT_PORT.to_string());
+        command.env("KIN_PORT", port.to_string());
         let kin_data_dir = Self::resolve_data_dir();
         let _ = std::fs::create_dir_all(&kin_data_dir);
         command.env("KIN_DATA_DIR", kin_data_dir.to_string_lossy().to_string());
@@ -484,29 +509,60 @@ impl ProcessSupervisor {
             command.process_group(0);
         }
 
-        let child = command.spawn().map_err(|e| format!("Failed to spawn daemon: {}", e))?;
+        let mut child = command.spawn().map_err(|e| format!("Failed to spawn daemon: {}", e))?;
 
         #[cfg(windows)]
         {
             use std::os::windows::io::AsRawHandle;
-            let _ = Self::assign_raw_handle(child.as_raw_handle());
+            if let Err(e) = Self::assign_raw_handle(child.as_raw_handle()) {
+                crate::log_diagnostic(&format!(
+                    "[KIN SUPERVISOR WARNING] Could not assign daemon process to Job Object: {}",
+                    e
+                ));
+            } else {
+                crate::log_diagnostic("[KIN SUPERVISOR] Daemon process successfully assigned to Job Object.");
+            }
         }
         #[cfg(unix)]
         {
             let pid = child.id() as i32;
-            unix_impl::UnixProcessSupervisor::register_child_pgid(pid);
+            if let Err(e) = Self::assign_raw_handle(pid) {
+                crate::log_diagnostic(&format!(
+                    "[KIN SUPERVISOR WARNING] Could not register daemon child pgid: {}",
+                    e
+                ));
+            }
         }
 
-        // Wait briefly for daemon port to be ready
-        for _ in 0..10 {
+        // Wait briefly for daemon port to be ready, actively checking for premature child exit
+        for _ in 0..15 {
             std::thread::sleep(Duration::from_millis(300));
-            if Self::is_daemon_active(DEFAULT_PORT) {
-                println!("[KIN SUPERVISOR] Daemon successfully bound to port {}", DEFAULT_PORT);
+            if let Ok(Some(status)) = child.try_wait() {
+                let err_msg = format!("[KIN SUPERVISOR ERROR] Daemon process exited prematurely with status: {:?}", status);
+                crate::log_diagnostic(&err_msg);
+                eprintln!("{}", err_msg);
+                return Err(err_msg);
+            }
+            if Self::is_daemon_active(port) {
+                println!("[KIN SUPERVISOR] Daemon successfully bound to port {}", port);
                 return Ok(());
             }
         }
 
-        println!("[KIN SUPERVISOR] Daemon process spawned (PID: {}), awaiting port readiness.", child.id());
+        if let Ok(Some(status)) = child.try_wait() {
+            let err_msg = format!("[KIN SUPERVISOR ERROR] Daemon process exited with status: {:?}", status);
+            crate::log_diagnostic(&err_msg);
+            return Err(err_msg);
+        }
+
+        if !Self::is_daemon_active(port) {
+            let _ = child.kill();
+            let _ = child.wait();
+            let err_msg = format!("[KIN SUPERVISOR ERROR] Daemon failed to bind to port {} within timeout limit", port);
+            crate::log_diagnostic(&err_msg);
+            return Err(err_msg);
+        }
+
         Ok(())
     }
 }

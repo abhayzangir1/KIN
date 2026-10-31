@@ -4,6 +4,8 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { EventLedger } from '../../security/event_ledger.js';
+import { safeJsonParseObject } from '../../storage/db.js';
+import { DEFAULT_FALLBACK_MODEL_ID } from '../../domain/agent_repository.js';
 import { BaseController } from './base_controller.js';
 
 export class WorkspaceController extends BaseController {
@@ -52,7 +54,7 @@ export class WorkspaceController extends BaseController {
           if (!fs.existsSync(repoPath)) {
             fs.mkdirSync(repoPath, { recursive: true });
           }
-        } catch {}
+        } catch (err) { console.debug("[workspace_controller] Suppressed exception in catch block:", err); }
 
         const workspaceId = 'ws-default';
         const existingProjects = typeof (this.workspaceRepo as any).getProjects === 'function'
@@ -327,9 +329,7 @@ export class WorkspaceController extends BaseController {
                 });
               }
             }
-          } catch (e) {
-            // ignore unreadable
-          }
+          } catch (e) { console.debug("[workspace_controller] Suppressed exception in catch block:", e); }
         };
 
         scanDir(project.repoPath);
@@ -363,7 +363,7 @@ export class WorkspaceController extends BaseController {
         try {
           const canonicalTarget = fs.realpathSync(resolvedPath);
           canonicalRel = path.relative(project.repoPath, canonicalTarget).toLowerCase().replace(/\\/g, '/');
-        } catch {}
+        } catch (err) { console.debug("[workspace_controller] Suppressed exception in catch block:", err); }
 
         const blockedSensitivePatterns = [
           'vault.key',
@@ -556,7 +556,7 @@ export class WorkspaceController extends BaseController {
 
         const pendingApprovals = rawApprovals.map((a) => {
           const agent = agents.find((ag) => ag.id === a.agent_id);
-          const payload = JSON.parse(a.action_payload_json);
+          const payload = safeJsonParseObject(a.action_payload_json, {} as Record<string, any>);
           return {
             id: a.id,
             runId: a.run_id,
@@ -580,7 +580,7 @@ export class WorkspaceController extends BaseController {
         try {
           if (fs.existsSync(this.dbPath)) dbStat += fs.statSync(this.dbPath).size;
           if (fs.existsSync(`${this.dbPath}-wal`)) dbStat += fs.statSync(`${this.dbPath}-wal`).size;
-        } catch {}
+        } catch (err) { console.debug("[workspace_controller] Suppressed exception in catch block:", err); }
 
         const totalMessagesRow = this.db.query<{ total: number; human: number; agent: number }>(
           `SELECT 
@@ -706,7 +706,7 @@ export class WorkspaceController extends BaseController {
             entityId: 'ws-default',
             payload: { autonomyMode: body.autonomyMode },
           });
-        } catch {}
+        } catch (err) { console.debug("[workspace_controller] Suppressed exception in catch block:", err); }
 
         this.broadcastEvent('autonomy:updated', { autonomyMode: body.autonomyMode });
         return this.sendJson(res, 200, { success: true, autonomyMode: body.autonomyMode });
@@ -725,7 +725,7 @@ export class WorkspaceController extends BaseController {
         try {
           if (fs.existsSync(this.dbPath)) dbStat += fs.statSync(this.dbPath).size;
           if (fs.existsSync(`${this.dbPath}-wal`)) dbStat += fs.statSync(`${this.dbPath}-wal`).size;
-        } catch {}
+        } catch (err) { console.debug("[workspace_controller] Suppressed exception in catch block:", err); }
 
         const totalMessagesRow = this.db.query<{ total: number; human: number; agent: number }>(
           `SELECT 
@@ -980,7 +980,7 @@ export class WorkspaceController extends BaseController {
             const canonicalFull = fs.realpathSync(fullPath);
             canonicalRel = path.relative(project.repoPath, canonicalFull).toLowerCase().replace(/\\/g, '/').replace(/^\.?\//, '');
           }
-        } catch {}
+        } catch (err) { console.debug("[workspace_controller] Suppressed exception in catch block:", err); }
 
         const isProtectedGitPath = (p: string) => {
           return (
@@ -1038,7 +1038,7 @@ export class WorkspaceController extends BaseController {
             const canonicalFull = fs.realpathSync(fullPath);
             canonicalRel = path.relative(project.repoPath, canonicalFull).toLowerCase().replace(/\\/g, '/').replace(/^\.?\//, '');
           }
-        } catch {}
+        } catch (err) { console.debug("[workspace_controller] Suppressed exception in catch block:", err); }
 
         const isProtectedGitPath = (p: string) => {
           return (
@@ -1126,7 +1126,7 @@ export class WorkspaceController extends BaseController {
           `\`\`\`diff\n${truncatedDiff}\n\`\`\``;
 
         const modelRes = await this.modelGateway.invoke({
-          modelId: boss?.activeModelId || 'ollama/qwen2.5-coder:3b',
+          modelId: boss?.activeModelId || this.agentRepo.getIdentity('agent-boss')?.activeModelId || DEFAULT_FALLBACK_MODEL_ID,
           messages: [{ role: 'user', content: reviewPrompt }],
         });
 
@@ -1259,7 +1259,7 @@ export class WorkspaceController extends BaseController {
                 fs.unlinkSync(diskPath);
               }
             }
-          } catch {}
+          } catch (err) { console.debug("[workspace_controller] Suppressed exception in catch block:", err); }
 
           this.db.execute(
             `DELETE FROM memories WHERE scope = 'project' AND scope_id = ? AND key = ?`,

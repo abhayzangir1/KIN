@@ -1,6 +1,8 @@
 import { KinDatabase, safeJsonParseArray } from '../storage/db.js';
 import { AgentDefinition, AgentIdentity } from './types.js';
 
+export const DEFAULT_FALLBACK_MODEL_ID = 'ollama/qwen2.5-coder:3b';
+
 export class AgentRepository {
   private db: KinDatabase;
 
@@ -417,7 +419,7 @@ export class AgentRepository {
         name: 'Boss',
         role: 'Workspace Orchestrator',
         systemPrompt: 'You are @Boss, KIN’s workspace orchestrator for this project. Coordinate agents and tools for the current request. Follow the capabilities and project boundaries provided for this run, and ask when access or authority is unclear.',
-        defaultModelId: 'ollama/qwen2.5-coder:3b',
+        defaultModelId: DEFAULT_FALLBACK_MODEL_ID,
         domainAuthority: ['Architecture', 'Orchestration', 'Engineering', 'Operations'],
         capabilities: ['read', 'write', 'shell', 'worktree', 'delegate', 'agent:hire', 'agent:delegate', '*'],
         createdAt: now,
@@ -430,7 +432,7 @@ export class AgentRepository {
       projectId,
       definitionId: defId,
       displayName: '@Boss',
-      activeModelId: 'ollama/qwen2.5-coder:3b',
+      activeModelId: DEFAULT_FALLBACK_MODEL_ID,
       isOrchestrator: true,
       isEphemeral: false,
       createdAt: now,

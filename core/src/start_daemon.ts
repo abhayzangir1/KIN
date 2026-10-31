@@ -27,7 +27,7 @@ for (const envPath of envCandidates) {
       process.loadEnvFile(envPath);
       console.log(`[KIN CORE] Environment variables loaded from: ${envPath}`);
       break;
-    } catch {}
+    } catch (err) { console.debug("[start_daemon] Suppressed exception in catch block:", err); }
   }
 }
 
@@ -44,15 +44,31 @@ const port = parseInt(process.env.KIN_PORT || '54321', 10);
 
 const server = new CoreServer({ port, dbPath });
 
+function getDaemonErrorLogPath(): string {
+  try {
+    const dir = getDataDirectory();
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    return path.resolve(dir, 'daemon_error.log');
+  } catch {
+    return path.resolve(process.cwd(), 'daemon_error.log');
+  }
+}
+
 process.on('uncaughtException', async (err) => {
   const msg = `[${new Date().toISOString()}] [KIN CORE UNCAUGHT EXCEPTION] ${err?.stack || err}\n`;
   console.error(msg);
   try {
-    fs.appendFileSync(path.resolve(process.cwd(), 'daemon_error.log'), msg);
-  } catch {}
+    fs.appendFileSync(getDaemonErrorLogPath(), msg);
+  } catch (logErr) {
+    console.error('[start_daemon] Failed to append uncaught exception to daemon_error.log:', logErr);
+  }
   try {
     await server.stop();
-  } catch {}
+  } catch (stopErr) {
+    console.error('[start_daemon] Failed to stop server cleanly during uncaughtException:', stopErr);
+  }
   process.exit(1);
 });
 
@@ -60,8 +76,10 @@ process.on('unhandledRejection', (reason) => {
   const msg = `[${new Date().toISOString()}] [KIN CORE UNHANDLED REJECTION] ${(reason as any)?.stack || reason}\n`;
   console.error(msg);
   try {
-    fs.appendFileSync(path.resolve(process.cwd(), 'daemon_error.log'), msg);
-  } catch {}
+    fs.appendFileSync(getDaemonErrorLogPath(), msg);
+  } catch (logErr) {
+    console.error('[start_daemon] Failed to append unhandled rejection to daemon_error.log:', logErr);
+  }
 });
 
 server.start().then((actualPort) => {

@@ -65,7 +65,11 @@ export class MigrationRunner {
       } else if (typeof __dirname !== 'undefined') {
         currentDir = __dirname;
       }
-    } catch {}
+    } catch (dirErr) {
+
+      console.debug("[migration_runner] Could not resolve current directory:", dirErr);
+
+    }
 
     const candidatePaths = [
       path.join(currentDir, 'schema.sql'),
@@ -92,7 +96,11 @@ export class MigrationRunner {
               schemaSql = content;
               break;
             }
-          } catch {}
+          } catch (readErr) {
+
+            console.debug("[migration_runner] Failed reading candidate schema path:", p, readErr);
+
+          }
         }
       }
     }
@@ -366,6 +374,33 @@ export class MigrationRunner {
         }
       }
 
+      // Pre-migration: approvals table status constraint including 'failed'
+      if (existingTables.includes('approvals')) {
+        const approvalsSql = this.db.queryOne<{ sql: string }>(
+          "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'approvals';"
+        )?.sql || '';
+        if (!approvalsSql.includes("'failed'")) {
+          this.db.exec(`
+            CREATE TABLE approvals_dg_tmp (
+              id TEXT PRIMARY KEY,
+              run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+              agent_id TEXT NOT NULL REFERENCES agent_identities(id) ON DELETE CASCADE,
+              tool_name TEXT NOT NULL,
+              action_payload_json TEXT NOT NULL,
+              risk_level TEXT NOT NULL CHECK (risk_level IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL')),
+              status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'expired', 'failed')),
+              commit_sha TEXT,
+              expires_at INTEGER NOT NULL,
+              created_at INTEGER NOT NULL,
+              decided_at INTEGER
+            );
+            INSERT INTO approvals_dg_tmp SELECT * FROM approvals;
+            DROP TABLE approvals;
+            ALTER TABLE approvals_dg_tmp RENAME TO approvals;
+          `);
+        }
+      }
+
       // Pre-migration: agent_evaluations table real test suite columns
       if (existingTables.includes('agent_evaluations')) {
         const evalCols = this.db.query<{ name: string }>("PRAGMA table_info(agent_evaluations);").map((c) => c.name);
@@ -530,10 +565,18 @@ export class MigrationRunner {
                 const fp = crypto.createHash('sha256').update(decrypted.trim()).digest('hex');
                 this.db.execute('UPDATE managed_credentials SET key_fingerprint = ? WHERE id = ?;', fp, row.id);
               }
-            } catch {}
+            } catch (decErr) {
+
+              console.debug("[migration_runner] Decryption failed for key_fingerprint backfill:", decErr);
+
+            }
           }
         }
-      } catch {}
+      } catch (backfillErr) {
+
+        console.debug("[migration_runner] Key fingerprint backfill query failed:", backfillErr);
+
+      }
     });
 
     // Run integrity check

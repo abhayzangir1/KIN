@@ -13,7 +13,7 @@ import * as dns from 'node:dns';
 import { v4 as uuidv4 } from 'uuid';
 import { AutonomyMode, RiskLevel, AgentIdentity } from '../domain/types.js';
 import { MemoryRepository } from '../domain/memory_repository.js';
-import { AgentRepository } from '../domain/agent_repository.js';
+import { AgentRepository, DEFAULT_FALLBACK_MODEL_ID } from '../domain/agent_repository.js';
 import { DesktopController } from '../computer/desktop_controller.js';
 import { BrowserController, WebStepAction } from '../browser/browser_controller.js';
 import { FinancialSafetyShield } from '../policy/financial_safety.js';
@@ -351,7 +351,7 @@ export class ToolGateway {
                 Date.now(),
                 Date.now()
               );
-            } catch {}
+            } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
           }
           try {
             this.db.execute(
@@ -362,7 +362,7 @@ export class ToolGateway {
               Date.now(),
               Date.now()
             );
-          } catch {}
+          } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
         }
       }
 
@@ -1051,7 +1051,7 @@ export class ToolGateway {
             });
           }
         }
-      } catch {}
+      } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
     }
 
     const mcp = this.mcpClient;
@@ -1097,7 +1097,7 @@ export class ToolGateway {
             parameters: (ct.parametersSchema as any) || { type: 'object', properties: {} },
           });
         }
-      } catch {}
+      } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
     }
 
     return schemas;
@@ -1175,7 +1175,10 @@ export class ToolGateway {
       case 'read_file':
       case 'listDirectory':
       case 'list_directory':
-        return { primary: 'fs:read', aliases: ['fs:read', 'fs_read', 'read', 'fs', 'read_spill', 'readSpill', 'readFile', 'read_file', 'listDirectory', 'list_directory'] };
+      case 'workspace_tree':
+      case 'workspaceTree':
+      case 'tree':
+        return { primary: 'fs:read', aliases: ['fs:read', 'fs_read', 'read', 'fs', 'read_spill', 'readSpill', 'readFile', 'read_file', 'listDirectory', 'list_directory', 'workspace_tree', 'workspaceTree', 'tree'] };
 
       case 'writeFile':
       case 'write_file':
@@ -1937,6 +1940,10 @@ export class ToolGateway {
           return { success: true, output: { bytesWritten } as T, riskLevel: risk };
         }
 
+        case 'workspace_tree':
+        case 'workspaceTree':
+        case 'tree':
+        case 'list_directory':
         case 'listDirectory': {
           const targetDir = params.dirPath || params.path || '.';
           const entries = await this.handleListDirectory(targetDir, context.worktreeRoot);
@@ -1958,7 +1965,7 @@ export class ToolGateway {
               if (proj?.repo_path) {
                 projectRoot = proj.repo_path;
               }
-            } catch {}
+            } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
           }
           if (!projectRoot && context.worktreeRoot.includes('.kin')) {
             const kinIndex = context.worktreeRoot.indexOf(path.join('.kin', 'worktrees'));
@@ -2592,7 +2599,7 @@ export class ToolGateway {
                       if (uddgMatch) {
                         try {
                           rawHref = decodeURIComponent(uddgMatch[1]);
-                        } catch {}
+                        } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
                       }
                     }
                     results.push({
@@ -2602,7 +2609,8 @@ export class ToolGateway {
                     });
                   }
                 }
-              } catch {
+              } catch (err) {
+                console.debug('[ToolGateway] HTML parsing error in webSearch fallback:', err);
                 clearTimeout(fallbackTimeout);
               }
             }
@@ -2815,7 +2823,7 @@ export class ToolGateway {
                 message: `Notified @${coworker.displayName.replace(/^@/, '')} in DM: "${String(directive).slice(0, 100)}"`,
                 channelId,
               });
-            } catch {}
+            } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
           }
           return {
             success: true,
@@ -2949,7 +2957,7 @@ export class ToolGateway {
                 const parsed = JSON.parse(projRow.settings_json);
                 projectDefaultModel = parsed.defaultModel || parsed.model || parsed.activeModelId;
               }
-            } catch {}
+            } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
           }
           let dynamicallyResolvedModel: string | undefined;
           if (this.db) {
@@ -2959,13 +2967,13 @@ export class ToolGateway {
                 dynamicallyResolvedModel = modelRow.id;
               } else {
                 const agentRow = this.db.queryOne<{ active_model_id: string }>(
-                  'SELECT active_model_id FROM agent_identities WHERE active_model_id IS NOT NULL AND active_model_id != "" ORDER BY is_orchestrator DESC LIMIT 1'
+                  "SELECT active_model_id FROM agent_identities WHERE active_model_id IS NOT NULL AND active_model_id != '' ORDER BY is_orchestrator DESC LIMIT 1"
                 );
                 if (agentRow?.active_model_id) {
                   dynamicallyResolvedModel = agentRow.active_model_id;
                 }
               }
-            } catch {}
+            } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
           }
 
           const resolvedModel =
@@ -2976,7 +2984,7 @@ export class ToolGateway {
             process.env.KIN_DEFAULT_MODEL ||
             projectDefaultModel ||
             dynamicallyResolvedModel ||
-            'ollama/qwen2.5-coder:3b';
+            DEFAULT_FALLBACK_MODEL_ID;
 
           const activeModelId = resolvedModel;
           const domainAuthority = Array.isArray(params.domainAuthority) && params.domainAuthority.length > 0
@@ -3063,14 +3071,14 @@ export class ToolGateway {
                 if (parentRow) {
                   verifiedParentId = candidateParent;
                 }
-              } catch {}
+              } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
             } else if (this.agentRepo) {
               try {
                 const parent = this.agentRepo.getIdentity(candidateParent);
                 if (parent) {
                   verifiedParentId = candidateParent;
                 }
-              } catch {}
+              } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
             }
           }
 
@@ -3522,7 +3530,7 @@ export class ToolGateway {
                   message: `Direct message from @${context.agentId} to you: "${String(content).slice(0, 100)}"`,
                   content: String(content),
                 });
-              } catch {}
+              } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
             }
 
             return {
@@ -3631,7 +3639,7 @@ export class ToolGateway {
                   : `Notified @${recipientAgent.displayName.replace(/^@/, '')} in DM: "${String(content).slice(0, 100)}"`,
                 channelId: dmChannelId,
               });
-            } catch {}
+            } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
           }
 
           return {
@@ -4110,7 +4118,7 @@ export class ToolGateway {
               }
             }
           }
-        } catch {}
+        } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
       }
     }
 
@@ -4236,7 +4244,7 @@ export class ToolGateway {
         if (lstat.isFile() && (lstat.nlink ?? 1) > 1) {
           fs.unlinkSync(target);
         }
-      } catch {}
+      } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
     }
 
     while (attempts < maxAttempts) {
@@ -4364,11 +4372,11 @@ export class ToolGateway {
               } else {
                 try {
                   exec(`pkill -P ${child.pid}`);
-                } catch {}
+                } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
                 child.kill('SIGKILL');
               }
             }
-          } catch {}
+          } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
           return reject(new Error('Shell execution cancelled by operator via AbortSignal.'));
         }
 
@@ -4381,11 +4389,11 @@ export class ToolGateway {
               } else {
                 try {
                   exec(`pkill -P ${child.pid}`);
-                } catch {}
+                } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
                 child.kill('SIGKILL');
               }
             }
-          } catch {}
+          } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
           reject(new Error('Shell execution cancelled by operator via AbortSignal.'));
         }, { once: true });
       }

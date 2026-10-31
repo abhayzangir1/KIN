@@ -17,7 +17,7 @@ import { getDataDirectory } from '../storage/data_directory.js';
 import { MigrationRunner } from '../storage/migration_runner.js';
 import { WakeupQueue } from '../kernel/wakeup_queue.js';
 import { WorkspaceRepository } from '../domain/workspace_repository.js';
-import { AgentRepository } from '../domain/agent_repository.js';
+import { AgentRepository, DEFAULT_FALLBACK_MODEL_ID } from '../domain/agent_repository.js';
 import { TaskRepository } from '../domain/task_repository.js';
 import { ChannelService } from '../communication/channel_service.js';
 import { ActivationEngine } from '../communication/activation_engine.js';
@@ -164,7 +164,7 @@ export class CoreServer {
           try {
             process.loadEnvFile(envPath);
             break;
-          } catch {}
+          } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
         }
       }
     }
@@ -292,7 +292,7 @@ export class CoreServer {
                   if (Array.isArray(grants) && grants.length > 0 && !grants.includes(callerAgentId) && !grants.includes('*')) {
                     continue;
                   }
-                } catch {}
+                } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
               }
               lastResolvedCredIdByProvider.set(provider, row.id);
               if (row.key_alias) lastResolvedCredIdByProvider.set(row.key_alias, row.id);
@@ -301,7 +301,7 @@ export class CoreServer {
               return decrypted || row.secret_hash;
             }
           }
-        } catch {}
+        } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
         if (provider === 'openrouter') return process.env.OPENROUTER_API_KEY;
         if (provider === 'openai') return process.env.OPENAI_API_KEY;
         if (provider === 'anthropic') return process.env.ANTHROPIC_API_KEY;
@@ -344,13 +344,14 @@ export class CoreServer {
                 if (Array.isArray(grants) && grants.length > 0 && !grants.includes(callerAgentId) && !grants.includes('*')) {
                   continue;
                 }
-              } catch {}
+              } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
             }
             const decrypted = vault.decrypt(r.secret_hash) || r.secret_hash;
             result.push({ id: r.id, key: decrypted, keyAlias: r.key_alias, baseUrl: r.base_url || undefined });
           }
           return result;
-        } catch {
+        } catch (err) {
+          console.error('[CoreServer] Failed to load credentials from vault/DB:', err);
           return [];
         }
       },
@@ -373,7 +374,7 @@ export class CoreServer {
               provider
             );
           }
-        } catch {}
+        } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
       },
     });
 
@@ -407,7 +408,7 @@ export class CoreServer {
           );
         }
       }
-    } catch {}
+    } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
     this.contextCompiler = new ContextCompiler();
     this.scheduler = new SchedulerService(this.db);
     this.computerSupervisor = new ComputerSupervisor();
@@ -645,7 +646,7 @@ export class CoreServer {
       if (!target) {
         throw new Error(`Target agent '${targetAgent}' not found for delegation`);
       }
-      const targetChannelId = channelId || 'chan-general';
+      const targetChannelId = this.resolveDefaultChannelForProject(targetProjId, channelId);
       this.broadcastEvent('agent:delegation_started', {
         fromAgentId,
         targetAgentId: target.id,
@@ -709,7 +710,7 @@ export class CoreServer {
       if (initialProject?.repoPath) {
         repoRoot = initialProject.repoPath;
       }
-    } catch {}
+    } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
     this.skillEngine = new SkillEngine(this.db, { repoRoot });
     this.toolGateway.setSkillEngine(this.skillEngine);
     this.recoveryEngine = new RecoveryEngine(this.skillEngine);
@@ -769,7 +770,7 @@ export class CoreServer {
         const admittedAgent = this.agentRepo.getIdentity(admittedRun.agentId);
         if (admittedAgent) {
           this.broadcastEvent('run:admitted', { runId: admittedRun.id, agentId: admittedAgent.id });
-          const targetChan = admittedRun.channelId || 'chan-general';
+          const targetChan = this.resolveDefaultChannelForProject(admittedAgent.projectId || 'proj-kin', admittedRun.channelId);
           let trigger = admittedRun.triggerMessageId
             ? this.channelService.getMessage(admittedRun.triggerMessageId)
             : undefined;
@@ -800,9 +801,11 @@ export class CoreServer {
           'SELECT DISTINCT channel_id FROM queued_messages'
         );
         for (const row of channelsWithQueued) {
-          this.processNextQueuedMessage(row.channel_id).catch(() => {});
+          this.processNextQueuedMessage(row.channel_id).catch((err) => {
+            console.warn('[CoreServer] Failed to process queued message on startup:', err);
+          });
         }
-      } catch {}
+      } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
     } catch (err) {
       console.warn('[KIN CORE] Startup queue dispatch notice:', err);
     }
@@ -902,7 +905,7 @@ export class CoreServer {
             // Unblock active in-memory execution and takeover gates
             const abortCtrl = this.runAbortControllers.get(item.id);
             if (abortCtrl) {
-              try { abortCtrl.abort(new Error(`Supervisor self-healing aborted stale run ${item.id}`)); } catch {}
+              try { abortCtrl.abort(new Error(`Supervisor self-healing aborted stale run ${item.id}`)); } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
               this.runAbortControllers.delete(item.id);
             }
             this.activeAgentExecutions.delete(item.agentId);
@@ -925,7 +928,7 @@ export class CoreServer {
                     this.broadcastEvent('task:updated', { taskId: item.taskId, status: 'ready' });
                   }
                 }
-              } catch {}
+              } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
             }
 
             // Post self-healing audit message to channel
@@ -1030,7 +1033,7 @@ export class CoreServer {
     if (checkpointRow && checkpointRow.snapshot_json) {
       try {
         checkpointData = JSON.parse(checkpointRow.snapshot_json);
-      } catch {}
+      } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
     }
 
     // Remove from pending recoveries
@@ -1148,7 +1151,7 @@ export class CoreServer {
           ('groq', 'Groq', 'custom', 1, ?),
           ('custom', 'Custom Provider', 'custom', 1, ?)
       `, now, now, now, now, now, now, now, now);
-    } catch {}
+    } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
 
     // Ensure strictly ONE default agent: @Boss (Orchestrator)
     const existingAgents = this.agentRepo.listIdentitiesByProject('proj-kin');
@@ -1167,7 +1170,7 @@ export class CoreServer {
         name: 'Boss',
         role: 'Workspace Orchestrator',
         systemPrompt: 'You are @Boss, KIN’s default workspace orchestrator. Coordinate agents and tools for the current request. Follow the capabilities and project boundaries provided for this run, and ask when access or authority is unclear.',
-        defaultModelId: 'ollama/qwen2.5-coder:3b',
+        defaultModelId: DEFAULT_FALLBACK_MODEL_ID,
         domainAuthority: ['Architecture', 'Orchestration', 'Engineering', 'Operations'],
         capabilities: ['read', 'write', 'shell', 'worktree', 'delegate', 'agent:hire', 'agent:delegate', '*'],
         createdAt: now,
@@ -1180,7 +1183,7 @@ export class CoreServer {
         projectId: 'proj-kin',
         definitionId: 'def-boss',
         displayName: '@Boss',
-        activeModelId: 'ollama/qwen2.5-coder:3b',
+        activeModelId: DEFAULT_FALLBACK_MODEL_ID,
         isOrchestrator: true,
         isEphemeral: false,
         createdAt: now,
@@ -1240,13 +1243,13 @@ export class CoreServer {
             rationale = REPLACE(REPLACE(REPLACE(rationale, '${termPlatformOld}', 'KIN Platform'), '${termPlatformShort}', 'KIN Platform'), '${termPlatformRuntime}', 'platform runtime')
         WHERE title LIKE '%${termPlatformShort}%' OR rationale LIKE '%${termPlatformShort}%' OR title LIKE '%${termPlatformRuntime}%' OR rationale LIKE '%${termPlatformRuntime}%'
       `);
-    } catch {}
+    } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
 
     // Prune ephemeral test channels from live environment
     if (!process.env.VITEST && process.env.NODE_ENV !== 'test') {
       try {
         this.workspaceRepo.pruneEphemeralTestChannels('proj-kin');
-      } catch {}
+      } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
     }
 
     // Ensure DocWriter specialist exists for live daemon / production deliverables
@@ -1258,7 +1261,7 @@ export class CoreServer {
           name: 'DocWriter',
           role: 'Technical Documentation & Architecture Specialist',
           systemPrompt: 'You are @DocWriter, the technical documentation specialist. You write comprehensive, clear TRDs, architecture docs, and READMEs.',
-          defaultModelId: 'ollama/qwen2.5-coder:3b',
+          defaultModelId: DEFAULT_FALLBACK_MODEL_ID,
           domainAuthority: ['Documentation', 'Architecture', 'TRD', 'Verification'],
           capabilities: ['read', 'write', 'agent:hire', 'agent:delegate'],
           createdAt: now,
@@ -1269,7 +1272,7 @@ export class CoreServer {
           projectId: 'proj-kin',
           definitionId: 'def-docwriter',
           displayName: '@DocWriter',
-          activeModelId: 'ollama/qwen2.5-coder:3b',
+          activeModelId: DEFAULT_FALLBACK_MODEL_ID,
           isOrchestrator: false,
           isEphemeral: false,
           createdAt: now,
@@ -1460,7 +1463,7 @@ export class CoreServer {
       if (fs.existsSync(resolvedJail)) {
         resolvedJail = fs.realpathSync(resolvedJail);
       }
-    } catch {}
+    } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
 
     let resolvedTarget = path.resolve(jailRoot, targetPath);
     try {
@@ -1478,7 +1481,7 @@ export class CoreServer {
           parent = path.dirname(parent);
         }
       }
-    } catch {}
+    } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
 
     const relative = path.relative(resolvedJail, resolvedTarget);
     return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
@@ -1500,7 +1503,7 @@ export class CoreServer {
       if (fs.existsSync(normTarget)) {
         normTarget = fs.realpathSync(normTarget);
       }
-    } catch {}
+    } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
 
     const rootPattern = /^([a-zA-Z]:[/\\]?|\/|\\)$/;
     if (rootPattern.test(normTarget)) {
@@ -1515,7 +1518,7 @@ export class CoreServer {
         if (fs.existsSync(resolvedDir)) {
           resolvedDir = fs.realpathSync(resolvedDir);
         }
-      } catch {}
+      } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
       return resolvedDir;
     };
 
@@ -1597,55 +1600,13 @@ export class CoreServer {
     return id;
   }
 
-  public computeProductivityScore(agentId?: string): number {
-    try {
-      const now = Date.now();
-      const past24h = now - 24 * 60 * 60 * 1000;
-      let totalTasks = 0;
-      let completedTasks = 0;
-      let verifiedEvidence = 0;
-
-      if (agentId) {
-        const tasks = this.db.query<any>(
-          'SELECT status, evidence_bundle_id FROM tasks WHERE assigned_agent_id = ? AND updated_at > ?',
-          agentId,
-          past24h
-        );
-        totalTasks = tasks.length;
-        completedTasks = tasks.filter((t) => t.status === 'completed').length;
-        const evidenceRows = this.db.query<any>(
-          `SELECT verified FROM evidence e
-           JOIN tasks t ON e.task_id = t.id
-           WHERE t.assigned_agent_id = ? AND e.created_at > ?`,
-          agentId,
-          past24h
-        );
-        verifiedEvidence = evidenceRows.filter((e) => Boolean(e.verified)).length;
-      } else {
-        const tasks = this.db.query<any>(
-          'SELECT status, evidence_bundle_id FROM tasks WHERE updated_at > ?',
-          past24h
-        );
-        totalTasks = tasks.length;
-        completedTasks = tasks.filter((t) => t.status === 'completed').length;
-        const evidenceRows = this.db.query<any>(
-          'SELECT verified FROM evidence WHERE created_at > ?',
-          past24h
-        );
-        verifiedEvidence = evidenceRows.filter((e) => Boolean(e.verified)).length;
-      }
-
-      if (totalTasks === 0 && verifiedEvidence === 0) {
-        return 85;
-      }
-
-      const taskCompletionRate = totalTasks > 0 ? (completedTasks / totalTasks) : 0.8;
-      const evidenceBonus = Math.min(verifiedEvidence * 5, 20);
-      const score = Math.round(taskCompletionRate * 80 + evidenceBonus);
-      return Math.min(Math.max(score, 10), 100);
-    } catch {
-      return 85;
-    }
+  /**
+   * Resolves the primary/default channel for a given project, preventing cross-project channel leakage.
+   */
+  public resolveDefaultChannelForProject(projectId: string, explicitChannelId?: string): string {
+    if (explicitChannelId) return explicitChannelId;
+    const channels = this.workspaceRepo.listChannels(projectId);
+    return channels.find((c) => c.name === 'general')?.id || channels[0]?.id || 'chan-general';
   }
 
   /**
@@ -1674,7 +1635,7 @@ export class CoreServer {
           if (buf[i] === 0) return true;
         }
       }
-    } catch {}
+    } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
     return false;
   }
 
@@ -1792,7 +1753,7 @@ export class CoreServer {
         if (!client.writableEnded && !client.destroyed) {
           client.end();
         }
-      } catch {}
+      } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
     }
     this.sseClients.clear();
     this.scheduler.stop();
@@ -1804,13 +1765,13 @@ export class CoreServer {
     // 2. Shut down MCP subprocesses
     try {
       await this.mcpClient?.shutdown();
-    } catch {}
+    } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
 
     // 3. Pause / abort active runners and cancel in-flight controllers
     for (const ctrl of Array.from(this.runAbortControllers.values())) {
       try {
         ctrl.abort('shutdown');
-      } catch {}
+      } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
     }
     this.runAbortControllers.clear();
 
@@ -1830,23 +1791,23 @@ export class CoreServer {
           Promise.allSettled(inFlightPromises),
           new Promise((r) => setTimeout(r, 2500)),
         ]);
-      } catch {}
+      } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
     }
 
     // 5. Close browser and computer controllers
     try {
       await this.browserController.close();
-    } catch {}
+    } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
     try {
       await this.computerSupervisor?.shutdown();
-    } catch {}
+    } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
 
     // 6. Close HTTP server
     if (this.server) {
       try {
         (this.server as any).closeIdleConnections?.();
         (this.server as any).closeAllConnections?.();
-      } catch {}
+      } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
       await new Promise<void>((resolve) => {
         this.server?.close(() => resolve());
       });
@@ -1855,12 +1816,12 @@ export class CoreServer {
     // 7. Clear wakeup queue before closing SQLite database connection
     try {
       this.wakeupQueue?.clear?.();
-    } catch {}
+    } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
 
     // 8. Close SQLite database connection last
     try {
       this.db.close();
-    } catch {}
+    } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
   }
 
   public getDatabase(): KinDatabase {
@@ -2171,7 +2132,7 @@ export class CoreServer {
       if (ws && ws.defaultAutonomyMode) {
         return ws.defaultAutonomyMode;
       }
-    } catch {}
+    } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
     return 'AUTO';
   }
 
@@ -2354,7 +2315,7 @@ export class CoreServer {
     let moduleDir = '';
     try {
       moduleDir = path.dirname(fileURLToPath(import.meta.url));
-    } catch {}
+    } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
     const candidates = [
       moduleDir ? path.resolve(moduleDir, '..', '..', '..', 'ui', 'dist') : '',
       moduleDir ? path.resolve(moduleDir, '..', '..', 'ui', 'dist') : '',
@@ -2370,7 +2331,7 @@ export class CoreServer {
         if (fs.existsSync(cand) && fs.statSync(cand).isDirectory() && fs.existsSync(path.join(cand, 'index.html'))) {
           return cand;
         }
-      } catch {}
+      } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
     }
     return null;
   }
@@ -2454,7 +2415,7 @@ export class CoreServer {
           });
           fs.createReadStream(indexPath).pipe(res);
           return true;
-        } catch {}
+        } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
       }
     }
 
@@ -2581,7 +2542,7 @@ export class CoreServer {
       const now = Date.now();
       const defId = `def-${now}`;
       const agentId = `agent-${now}`;
-      const inheritedModelId = boss?.activeModelId || 'ollama/qwen2.5-coder:3b';
+      const inheritedModelId = boss?.activeModelId || DEFAULT_FALLBACK_MODEL_ID;
 
       this.agentRepo.createDefinition({
         id: defId,
@@ -2730,7 +2691,7 @@ export class CoreServer {
           const role = spec.role;
           const sysPrompt = spec.systemPrompt || `You are ${spec.name}, a ${role} specialist in project ${targetProjId}. Follow the capabilities and project scope provided for this run.`;
 
-          const inheritedModel = boss?.activeModelId || (boss?.definitionId ? this.agentRepo.getDefinition(boss.definitionId)?.defaultModelId : undefined) || 'ollama/qwen2.5-coder:3b';
+          const inheritedModel = boss?.activeModelId || (boss?.definitionId ? this.agentRepo.getDefinition(boss.definitionId)?.defaultModelId : undefined) || DEFAULT_FALLBACK_MODEL_ID;
 
           this.agentRepo.createDefinition({
             id: defId,
@@ -3438,7 +3399,7 @@ export class CoreServer {
           productivityScore: 0,
         });
         if (run?.id) {
-          try { this.kernel.transitionState(run.id, 'waiting_for_approval', 'Halted due to stagnant discussion'); } catch {}
+          try { this.kernel.transitionState(run.id, 'waiting_for_approval', 'Halted due to stagnant discussion'); } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
         }
         this.activeAgentExecutions.delete(agent.id);
         this.broadcastEvent('agent:state', { agentId: agent.id, channelId, status: 'idle' });
@@ -3536,10 +3497,10 @@ export class CoreServer {
         } catch (wtErr: any) {
           console.warn('[KIN CORE] Worktree provision failure - failing closed:', wtErr);
           if (activeTaskId) {
-            try { this.taskRepo.updateTaskStatus(activeTaskId, 'blocked'); } catch {}
+            try { this.taskRepo.updateTaskStatus(activeTaskId, 'blocked'); } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
           }
           if (run?.id) {
-            try { this.kernel.transitionState(run.id, 'failed', `Worktree isolation setup failed: ${wtErr?.message || wtErr}`); } catch {}
+            try { this.kernel.transitionState(run.id, 'failed', `Worktree isolation setup failed: ${wtErr?.message || wtErr}`); } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
           }
           this.channelService.sendMessage({
             channelId,
@@ -3642,7 +3603,7 @@ export class CoreServer {
         onHeartbeat: () => {
           try {
             this.kernel.heartbeat(run.id);
-          } catch {}
+          } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
         },
         onRenewLease: (tId: string) => {
           try {
@@ -4000,7 +3961,7 @@ export class CoreServer {
                 const worktreeManager = new WorktreeManager(repoRoot);
                 await worktreeManager.removeWorktree(worktreeInfo.worktreePath);
                 await worktreeManager.deleteBranch(worktreeInfo.branch);
-              } catch {}
+              } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
             }
             console.warn('[KIN CORE] Worktree merge/cleanup error:', wtMergeErr);
           }
@@ -4120,7 +4081,7 @@ export class CoreServer {
         if (activeTaskId) {
           try {
             this.taskRepo.releaseTaskLease(activeTaskId, run.id, wasAlreadyFailed);
-          } catch {}
+          } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
         }
       } else if (
         loopResult.actions &&
@@ -4467,7 +4428,7 @@ export class CoreServer {
               this.taskRepo.updateTaskStatus(activeTaskId, 'review');
               this.taskRepo.releaseTaskLease(activeTaskId, run.id, true);
               this.broadcastEvent('task:updated', { taskId: activeTaskId, status: 'review', reason: taskErr?.message });
-            } catch {}
+            } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
           }
         }
       }
@@ -4731,7 +4692,7 @@ export class CoreServer {
           }
           this.taskRepo.updateTaskStatus(activeTaskId, 'failed');
           this.broadcastEvent('task:updated', { taskId: activeTaskId, status: 'failed' });
-        } catch {}
+        } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
       }
       this.broadcastEvent('agent:state', { agentId: agent.id, channelId, status: 'idle' });
       try {
@@ -4752,7 +4713,7 @@ export class CoreServer {
           createdAt: errorReply.createdAt,
           productivityScore: 0,
         });
-      } catch {}
+      } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
     } finally {
       if (run?.id) {
         this.runAbortControllers.delete(run.id);
@@ -4857,7 +4818,7 @@ export class CoreServer {
 
       // Check if already fenced in admitting queue to prevent duplicate execution cycles
       let meta: any = {};
-      try { meta = JSON.parse(candidate.metadata_json || '{}'); } catch {}
+      try { meta = JSON.parse(candidate.metadata_json || '{}'); } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
       if (meta.fencingToken || this.messageAdmissionFences.has(candidate.id)) {
         this.db.execute('DELETE FROM queued_messages WHERE id = ?', candidate.id);
         return;

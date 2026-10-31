@@ -284,7 +284,7 @@ CREATE TABLE IF NOT EXISTS approvals (
     tool_name TEXT NOT NULL,
     action_payload_json TEXT NOT NULL,
     risk_level TEXT NOT NULL CHECK (risk_level IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL')),
-    status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'expired')),
+    status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'expired', 'failed')),
     commit_sha TEXT,
     expires_at INTEGER NOT NULL,
     created_at INTEGER NOT NULL,

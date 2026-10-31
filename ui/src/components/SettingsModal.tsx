@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useKinStore } from '../store/kinStore.js';
 import { ProviderIcon } from './ModelSelectorModal.js';
+import { requestConfirmation } from './ConfirmDialog.js';
 import {
   X,
   Settings,
@@ -33,6 +34,7 @@ import {
   ChevronRight,
   Server,
   Maximize2,
+  Loader2,
 } from 'lucide-react';
 import { ConnectorsManager } from './ConnectorsManager.js';
 
@@ -58,6 +60,7 @@ export const SettingsModal: React.FC = () => {
     setActiveInspectorTab,
     credentials,
     fetchCredentials,
+    credentialsLoading,
     addCredential,
     updateCredential,
     deleteCredential,
@@ -146,6 +149,38 @@ export const SettingsModal: React.FC = () => {
       setIsRegisteringCustom(false);
     }
   };
+
+  const handleSelectAutonomyMode = async (mode: 'AUTO' | 'ALWAYS_ASK' | 'FULL_ACCESS') => {
+    const res = await setAutonomyMode(mode);
+    if (!res?.success) {
+      addToast(res?.error || 'Failed to update workspace autonomy mode', 'error');
+    } else {
+      addToast(`Autonomy mode updated to ${mode.replace('_', ' ')}`, 'info');
+    }
+  };
+
+  const hostPlatform = useMemo(() => {
+    const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+    if (/Macintosh|Mac OS X/i.test(ua)) return 'macOS (Darwin)';
+    if (/Linux/i.test(ua)) return 'Linux';
+    if (/Windows|Win32/i.test(ua)) return 'Windows (win32)';
+    return 'Cross-Platform Node.js Runtime';
+  }, []);
+
+  const coreDaemonPort = useMemo(() => {
+    if (typeof window !== 'undefined' && window.location.port) {
+      return `${window.location.hostname}:${window.location.port}`;
+    }
+    return '127.0.0.1:54321';
+  }, []);
+
+  const frontendWebServer = useMemo(() => {
+    if (typeof window !== 'undefined') {
+      const isTauri = Boolean((window as any).__TAURI_INTERNALS__);
+      return `${window.location.host || 'localhost:5173'} (${isTauri ? 'Tauri WebView Shell' : 'Vite + React 18'})`;
+    }
+    return 'localhost:5173 (Vite + React 18)';
+  }, []);
 
   // BYOK Credentials State
   const [showCredForm, setShowCredForm] = useState(false);
@@ -256,7 +291,13 @@ export const SettingsModal: React.FC = () => {
   };
 
   const handleDeleteCred = async (id: string, name: string) => {
-    if (window.confirm(`Delete credential "${name}"? Agents will no longer be able to use this key.`)) {
+    const confirmed = await requestConfirmation({
+      title: 'Delete Credential',
+      message: `Delete credential "${name}"? Agents will no longer be able to use this key.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (confirmed) {
       try {
         await deleteCredential(id);
         await fetchCredentials();
@@ -495,7 +536,7 @@ export const SettingsModal: React.FC = () => {
                 <div className="grid grid-cols-1 gap-3">
                   {/* AUTO Mode */}
                   <div
-                    onClick={() => setAutonomyMode('AUTO')}
+                    onClick={() => handleSelectAutonomyMode('AUTO')}
                     className={`p-3.5 rounded-lg border cursor-pointer transition flex items-start space-x-3 ${
                       autonomyMode === 'AUTO'
                         ? 'bg-emerald-950/20 border-emerald-500 text-kin-text shadow-sm'
@@ -528,7 +569,7 @@ export const SettingsModal: React.FC = () => {
 
                   {/* ALWAYS_ASK Mode */}
                   <div
-                    onClick={() => setAutonomyMode('ALWAYS_ASK')}
+                    onClick={() => handleSelectAutonomyMode('ALWAYS_ASK')}
                     className={`p-3.5 rounded-lg border cursor-pointer transition flex items-start space-x-3 ${
                       autonomyMode === 'ALWAYS_ASK'
                         ? 'bg-amber-950/20 border-amber-500 text-kin-text shadow-sm'
@@ -561,7 +602,7 @@ export const SettingsModal: React.FC = () => {
 
                   {/* FULL_ACCESS Mode */}
                   <div
-                    onClick={() => setAutonomyMode('FULL_ACCESS')}
+                    onClick={() => handleSelectAutonomyMode('FULL_ACCESS')}
                     className={`p-3.5 rounded-lg border cursor-pointer transition flex items-start space-x-3 ${
                       autonomyMode === 'FULL_ACCESS'
                         ? 'bg-blue-950/20 border-blue-500 text-kin-text shadow-sm'
@@ -1349,7 +1390,12 @@ export const SettingsModal: React.FC = () => {
 
                 {/* Credentials List */}
                 <div className="space-y-3">
-                  {credentials && credentials.length > 0 ? (
+                  {credentialsLoading ? (
+                    <div className="p-8 rounded-lg bg-[#161b22] border border-[#30363d] text-center space-y-2">
+                      <Loader2 className="w-6 h-6 animate-spin text-purple-400 mx-auto" />
+                      <div className="text-xs text-[#8b949e]">Loading encrypted vault credentials...</div>
+                    </div>
+                  ) : credentials && credentials.length > 0 ? (
                     credentials.map((cred) => {
                       const prov = (cred.provider || 'custom').toLowerCase();
                       const provColor =
@@ -1879,15 +1925,15 @@ export const SettingsModal: React.FC = () => {
                   </div>
                   <div className="flex justify-between py-1 border-b border-[#21262d]">
                     <span className="text-[#8b949e]">Host Platform</span>
-                    <span className="text-emerald-400">Windows win32 (Node.js runtime)</span>
+                    <span className="text-emerald-400">{hostPlatform}</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-[#21262d]">
                     <span className="text-[#8b949e]">Core Daemon Port</span>
-                    <span className="text-blue-400">127.0.0.1:54321</span>
+                    <span className="text-blue-400">{coreDaemonPort}</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-[#21262d]">
                     <span className="text-[#8b949e]">Frontend Web Server</span>
-                    <span className="text-purple-400">localhost:5173 (Vite + React 18)</span>
+                    <span className="text-purple-400">{frontendWebServer}</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-[#21262d]">
                     <span className="text-[#8b949e]">Tool Capabilities</span>

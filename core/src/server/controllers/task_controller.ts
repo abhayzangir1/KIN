@@ -111,7 +111,7 @@ export class TaskController extends BaseController {
               status,
             },
           });
-        } catch {}
+        } catch (err) { console.debug("[task_controller] Suppressed exception in catch block:", err); }
 
         let toolExecutionResult: any = null;
         if (approvalRow) {
@@ -226,7 +226,7 @@ export class TaskController extends BaseController {
                 this.preservedWorktrees.delete(approvalRow.run_id);
                 try {
                   this.db.execute(`UPDATE approvals SET status = 'failed', decided_at = ? WHERE id = ?`, Date.now(), approvalId);
-                } catch {}
+                } catch (err) { console.debug("[task_controller] Suppressed exception in catch block:", err); }
                 toolSuccess = false;
                 toolError = execErr.message || String(execErr);
                 toolExecutionResult = { success: false, error: toolError };
@@ -806,7 +806,7 @@ export class TaskController extends BaseController {
                       Date.now(),
                       Date.now()
                     );
-                  } catch {}
+                  } catch (err) { console.debug("[task_controller] Suppressed exception in catch block:", err); }
                 }
               }
 
@@ -880,13 +880,16 @@ export class TaskController extends BaseController {
             this.broadcastEvent('task:updated', { taskId: pId, status: 'ready' });
             const nextReady = this.taskRepo.getTask(pId);
             if (nextReady && nextReady.status === 'ready') {
+              const parentGoal = nextReady.goalId ? this.goalRepo.getGoal(nextReady.goalId) : undefined;
+              const targetProj = parentGoal?.projectId || this.activeProjectId || 'proj-kin';
               let nextWorker = nextReady.assignedAgentId ? this.agentRepo.getIdentity(nextReady.assignedAgentId) : undefined;
               if (!nextWorker) {
-                const targetProj = this.activeProjectId || 'proj-kin';
                 nextWorker = this.agentRepo.ensureProjectBoss(targetProj);
               }
               if (nextWorker) {
-                const targetChannelId = (nextReady as any).channelId || this.workspaceRepo.listChannels(this.activeProjectId || 'proj-kin')[0]?.id || 'chan-general';
+                const targetChannelId = (nextReady as any).channelId
+                  || parentGoal?.originChannelId
+                  || this.resolveDefaultChannelForProject(targetProj);
                 const taskTrigger = {
                   id: `task-advance-${Date.now()}-${nextReady.id}`,
                   channelId: targetChannelId,
@@ -990,8 +993,12 @@ export class TaskController extends BaseController {
         this.taskRepo.createDecision(newDec);
         this.broadcastEvent('decision:created', newDec);
 
+        const validChannel = (body.channelId && this.db.queryOne<{ id: string }>('SELECT id FROM channels WHERE id = ?', body.channelId))
+          ? body.channelId
+          : (this.db.queryOne<{ id: string }>("SELECT id FROM channels WHERE name = 'general' LIMIT 1")?.id || 'chan-general');
+
         const confirmMsg = this.channelService.sendMessage({
-          channelId: body.channelId || 'chan-default',
+          channelId: validChannel,
           senderId: boss?.id || 'agent-boss',
           senderType: 'agent',
           content: `🛡️ **Architecture Hardened & Authoritative Decision Recorded!**\n\n` +

@@ -188,7 +188,7 @@ export class McpClientManager {
       fs.writeFileSync(filePath, serialized, 'utf-8');
       try {
         if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-      } catch {}
+      } catch (err) { console.debug("[mcp_client] Suppressed exception in catch block:", err); }
     }
   }
 
@@ -217,9 +217,7 @@ export class McpClientManager {
         }
         return { format: 'mcpServers', data: parsed };
       }
-    } catch {
-      // malformed or corrupted JSON falls back to fresh mcpServers structure
-    }
+    } catch (err) { console.debug("[mcp_client] Suppressed exception in catch block:", err); }
     return { format: 'mcpServers', data: { mcpServers: {} } };
   }
 
@@ -495,7 +493,7 @@ export class McpClientManager {
           }
         }
       }
-    } catch {}
+    } catch (err) { console.debug("[mcp_client] Suppressed exception in catch block:", err); }
   }
 
   private async connectSseIfSupported(serverName: string, url: string): Promise<boolean> {
@@ -577,9 +575,7 @@ export class McpClientManager {
               }
             }
           }
-        } catch {
-          // Stream completed or aborted
-        } finally {
+        } catch (err) { console.debug("[mcp_client] Suppressed exception in catch block:", err); } finally {
           if (!isEndpointDispatched) {
             isEndpointDispatched = true;
             resolveEndpoint(url);
@@ -802,9 +798,7 @@ export class McpClientManager {
               }
             }
           }
-        } catch (e) {
-          // Non-JSON stdout or partial stream
-        }
+        } catch (e) { console.debug("[mcp_client] Suppressed exception in catch block:", e); }
       }
     });
 
@@ -895,7 +889,7 @@ export class McpClientManager {
           }
         }
         proc.kill();
-      } catch {}
+      } catch (err) { console.debug("[mcp_client] Suppressed exception in catch block:", err); }
       cleanupServer(err?.message || 'Handshake failed');
       return [];
     }
@@ -1069,9 +1063,7 @@ export class McpClientManager {
               } else {
                 resolve(json.result);
               }
-            } catch {
-              // Non-JSON response body, will be caught by SSE handler if connected
-            }
+            } catch (err) { console.debug("[mcp_client] Suppressed exception in catch block:", err); }
           })
           .catch((err) => {
             cleanup();
@@ -1176,7 +1168,7 @@ export class McpClientManager {
       if (entry.sseController) {
         try {
           entry.sseController.abort();
-        } catch {}
+        } catch (err) { console.debug("[mcp_client] Suppressed exception in catch block:", err); }
       }
       if (entry.process) {
         try {
@@ -1193,7 +1185,7 @@ export class McpClientManager {
             }
           }
           entry.process.kill();
-        } catch {}
+        } catch (err) { console.debug("[mcp_client] Suppressed exception in catch block:", err); }
       }
       this.activeServers.delete(actualName);
       this.lastServerErrors.delete(actualName);
@@ -1425,7 +1417,9 @@ rl.on('line', (line) => {
     if (id !== undefined && id !== null) {
       send({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found: ' + method } });
     }
-  } catch {}
+  } catch (parseErr) {
+    send({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error: ' + (parseErr && parseErr.message ? parseErr.message : String(parseErr)) } });
+  }
 });
 process.on('SIGTERM', () => process.exit(0));
 process.on('SIGINT', () => process.exit(0));

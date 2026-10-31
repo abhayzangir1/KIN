@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useKinStore } from '../store/kinStore.js';
+import { requestConfirmation } from './ConfirmDialog.js';
 import {
   X,
   Scale,
@@ -108,7 +109,13 @@ export const DecisionsModal: React.FC = () => {
   };
 
   const handleDelete = async (decisionId: string) => {
-    if (!confirm('Are you sure you want to permanently delete this architecture decision record?')) {
+    const confirmed = await requestConfirmation({
+      title: 'Delete Decision Record',
+      message: 'Are you sure you want to permanently delete this architecture decision record?',
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) {
       return;
     }
     const res = await deleteDecision(decisionId);

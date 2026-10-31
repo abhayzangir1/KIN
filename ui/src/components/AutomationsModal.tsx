@@ -74,7 +74,7 @@ export const AutomationsModal: React.FC = () => {
         setTargetAgentId(boss.id);
       }
       if (!targetChannelId) {
-        setTargetChannelId(activeChannelId || channels[0]?.id || 'chan-general');
+        setTargetChannelId(activeChannelId || channels.find((c: any) => c.isDefault)?.id || channels[0]?.id || '');
       }
     }
   }, [isAutomationsModalOpen, agents, channels, activeChannelId, targetAgentId, targetChannelId]);
@@ -312,7 +312,14 @@ export const AutomationsModal: React.FC = () => {
                             <span>Trigger</span>
                           </button>
                           <button
-                            onClick={() => cancelSchedule(s.id)}
+                            onClick={async () => {
+                              const res = await cancelSchedule(s.id);
+                              if (!res?.success) {
+                                addToast(res?.error || 'Failed to cancel schedule', 'error');
+                              } else {
+                                addToast('Schedule cancelled', 'info');
+                              }
+                            }}
                             className="px-2 py-1 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[11px] font-semibold border border-red-500/30 transition flex items-center space-x-1 cursor-pointer"
                             title="Cancel schedule"
                           >

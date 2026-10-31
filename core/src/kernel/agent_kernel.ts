@@ -337,11 +337,12 @@ export class AgentKernel {
         if (parsed && Array.isArray(parsed.conversationHistory) && parsed.conversationHistory.length > 0) {
           return parsed;
         }
-      } catch {}
+      } catch (err) { console.debug("[agent_kernel] Suppressed exception in catch block:", err); }
     }
     try {
       return JSON.parse(rows[0].snapshot_json);
-    } catch {
+    } catch (parseErr) {
+      console.warn("[AgentKernel] Failed to parse checkpoint snapshot_json:", parseErr);
       return undefined;
     }
   }

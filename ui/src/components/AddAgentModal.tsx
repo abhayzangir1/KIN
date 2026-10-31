@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
 import { X, UserPlus, UserCheck, Bot } from 'lucide-react';
 
@@ -24,7 +24,13 @@ export const AddAgentModal: React.FC = () => {
   // Hire form fields
   const [displayName, setDisplayName] = useState('');
   const [roleTitle, setRoleTitle] = useState('');
-  const [activeModelId, setActiveModelId] = useState('ollama/qwen2.5-coder:3b');
+  const [activeModelId, setActiveModelId] = useState(availableModels[0]?.id || '');
+
+  useEffect(() => {
+    if (!activeModelId && availableModels.length > 0) {
+      setActiveModelId(availableModels[0].id);
+    }
+  }, [availableModels, activeModelId]);
   const [customModelInput, setCustomModelInput] = useState('');
   const [modelTierFilter, setModelTierFilter] = useState<'all' | 'free' | 'paid'>('all');
   const [systemPrompt, setSystemPrompt] = useState('');
@@ -346,7 +352,11 @@ export const AddAgentModal: React.FC = () => {
                     onClick={async () => {
                       if (!customModelInput.trim()) return;
                       const mId = customModelInput.trim();
-                      await addCustomModel(mId);
+                      const res = await addCustomModel(mId);
+                      if (!res?.success) {
+                        setError(res?.error || `Failed to add model "${mId}"`);
+                        return;
+                      }
                       setActiveModelId(mId);
                       setCustomModelInput('');
                     }}

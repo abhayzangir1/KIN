@@ -10,7 +10,7 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { Worker } from 'node:worker_threads';
 import { v4 as uuidv4 } from 'uuid';
-import { KinDatabase } from '../storage/db.js';
+import { KinDatabase, safeJsonParseObject } from '../storage/db.js';
 
 export interface CustomTool {
   id: string;
@@ -290,7 +290,7 @@ export class ToolEngine {
               now,
               now
             );
-          } catch {}
+          } catch (err) { console.debug("[tool_engine] Suppressed exception in catch block:", err); }
         }
 
         const actionPayload = {
@@ -569,7 +569,7 @@ export class ToolEngine {
         if (activeWorker) {
           try {
             activeWorker.terminate();
-          } catch {}
+          } catch (err) { console.debug("[tool_engine] Suppressed exception in catch block:", err); }
           activeWorker = null;
         }
       });
@@ -588,7 +588,7 @@ export class ToolEngine {
       if (activeWorker) {
         try {
           activeWorker.terminate();
-        } catch {}
+        } catch (err) { console.debug("[tool_engine] Suppressed exception in catch block:", err); }
         activeWorker = null;
       }
       this.incrementMetrics(tool.id, false);
@@ -800,12 +800,7 @@ export class ToolEngine {
   }
 
   private mapRowToTool(row: any): CustomTool {
-    let parsedSchema: Record<string, unknown> = {};
-    try {
-      parsedSchema = JSON.parse(row.parameters_schema);
-    } catch {
-      parsedSchema = {};
-    }
+    const parsedSchema = safeJsonParseObject(row.parameters_schema, {});
     return {
       id: row.id,
       projectId: row.project_id || undefined,
@@ -825,12 +820,7 @@ export class ToolEngine {
   }
 
   private mapRowToImprovement(row: any): HarnessImprovement {
-    let metrics: Record<string, unknown> = {};
-    try {
-      metrics = JSON.parse(row.evidence_metrics_json);
-    } catch {
-      metrics = {};
-    }
+    const metrics = safeJsonParseObject(row.evidence_metrics_json, {});
     return {
       id: row.id,
       projectId: row.project_id || undefined,

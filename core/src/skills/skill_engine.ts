@@ -10,7 +10,7 @@ import * as path from 'node:path';
 import * as vm from 'node:vm';
 import { Worker } from 'node:worker_threads';
 import { createRequire } from 'node:module';
-import { KinDatabase } from '../storage/db.js';
+import { KinDatabase, safeJsonParseArray } from '../storage/db.js';
 import { MigrationRunner } from '../storage/migration_runner.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -24,7 +24,7 @@ function getRuntimeRequire(): NodeRequire {
     if (metaUrl) {
       return createRequire(metaUrl);
     }
-  } catch {}
+  } catch (err) { console.debug("[skill_engine] Suppressed exception in catch block:", err); }
   return createRequire(path.resolve(process.cwd(), 'index.js'));
 }
 
@@ -265,7 +265,7 @@ export class SkillEngine {
           );
         }
       }
-    } catch {}
+    } catch (err) { console.debug("[skill_engine] Suppressed exception in catch block:", err); }
   }
 
   /**
@@ -512,22 +512,22 @@ export class SkillEngine {
 
     const terminateAsyncWorkers = () => {
       if (activeWorker) {
-        try { activeWorker.terminate(); } catch {}
+        try { activeWorker.terminate(); } catch (err) { console.debug("[skill_engine] Suppressed exception in catch block:", err); }
         activeWorker = null;
       }
       const terminateTarget = (target: any) => {
         if (!target) return;
         if (typeof target.terminate === 'function') {
-          try { target.terminate(); } catch {}
+          try { target.terminate(); } catch (err) { console.debug("[skill_engine] Suppressed exception in catch block:", err); }
         }
         if (typeof target.kill === 'function') {
-          try { target.kill('SIGKILL'); } catch {}
+          try { target.kill('SIGKILL'); } catch (err) { console.debug("[skill_engine] Suppressed exception in catch block:", err); }
         }
         if (target.worker && typeof target.worker.terminate === 'function') {
-          try { target.worker.terminate(); } catch {}
+          try { target.worker.terminate(); } catch (err) { console.debug("[skill_engine] Suppressed exception in catch block:", err); }
         }
         if (target.childProcess && typeof target.childProcess.kill === 'function') {
-          try { target.childProcess.kill('SIGKILL'); } catch {}
+          try { target.childProcess.kill('SIGKILL'); } catch (err) { console.debug("[skill_engine] Suppressed exception in catch block:", err); }
         }
       };
       terminateTarget(executionContext);
@@ -643,7 +643,9 @@ export class SkillEngine {
           try {
             delete global.process.mainModule;
             delete global.require;
-          } catch (_) {}
+          } catch (delErr) {
+            console.debug('[skill_engine] Suppressed exception stripping dangerous host hooks:', delErr);
+          }
 
           const sandbox = Object.create(null);
 
@@ -785,7 +787,7 @@ export class SkillEngine {
       ]).finally(() => {
         if (timer) clearTimeout(timer);
         if (activeWorker) {
-          try { activeWorker.terminate(); } catch {}
+          try { activeWorker.terminate(); } catch (err) { console.debug("[skill_engine] Suppressed exception in catch block:", err); }
           activeWorker = null;
         }
       });
@@ -804,7 +806,7 @@ export class SkillEngine {
     } finally {
       if (timer) clearTimeout(timer);
       if (activeWorker) {
-        try { activeWorker.terminate(); } catch {}
+        try { activeWorker.terminate(); } catch (err) { console.debug("[skill_engine] Suppressed exception in catch block:", err); }
         activeWorker = null;
       }
     }
@@ -971,7 +973,7 @@ export class SkillEngine {
 
     try {
       this.db.execute('DELETE FROM skill_versions WHERE skill_id = ?', existing.id);
-    } catch (_) {}
+    } catch (_) { console.debug("[skill_engine] Suppressed exception in catch block:", _); }
     this.db.execute('DELETE FROM skills WHERE id = ?', existing.id);
 
     // Remove from disk if exists safely without path traversal or directory root wiping
@@ -1190,7 +1192,7 @@ export class SkillEngine {
       let meta = {};
       try {
         meta = JSON.parse(r.metadata_json || '{}');
-      } catch {}
+      } catch (err) { console.debug("[skill_engine] Suppressed exception in catch block:", err); }
       return {
         id: r.id,
         skillId: r.skill_id ?? undefined,
@@ -1420,7 +1422,7 @@ export class SkillEngine {
     if (targetVersion.change_summary) {
       try {
         manifest = JSON.parse(targetVersion.change_summary);
-      } catch {}
+      } catch (err) { console.debug("[skill_engine] Suppressed exception in catch block:", err); }
     }
 
     const handlerCode = manifest.handlerCode ?? null;
@@ -1910,7 +1912,7 @@ export class SkillEngine {
               const raw = fs.readFileSync(fullPath, 'utf-8');
               const res = this.importSkillBundle(raw);
               loaded.push(...res.skills);
-            } catch {}
+            } catch (err) { console.debug("[skill_engine] Suppressed exception in catch block:", err); }
           } else if (entry.name.endsWith('.md') && entry.name.toLowerCase() !== 'readme.md') {
             try {
               const rawMd = fs.readFileSync(fullPath, 'utf-8');
@@ -2003,7 +2005,7 @@ export class SkillEngine {
   }
 
   private mapRowToSkill(row: any): Skill {
-    const triggerPatterns = JSON.parse(row.trigger_patterns_json || '[]');
+    const triggerPatterns = safeJsonParseArray<string>(row.trigger_patterns_json, []);
     let parameters: any = undefined;
     if (row.parameters_json) {
       try {

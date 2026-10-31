@@ -36,6 +36,7 @@ export const Sidebar: React.FC = () => {
     autonomyMode,
     activeMainView,
     setActiveMainView,
+    addToast,
   } = useKinStore();
 
   const [confirmDeleteChannelId, setConfirmDeleteChannelId] = React.useState<string | null>(null);
@@ -149,13 +150,16 @@ export const Sidebar: React.FC = () => {
                         {chan.memberIds.length}
                       </span>
                     )}
-                    {chan.id !== 'chan-general' && (
+                    {!chan.isGeneral && chan.name.toLowerCase() !== 'general' && chan.id !== 'chan-general' && (
                       <button
                         type="button"
-                        onClick={(e) => {
+                        onClick={async (e) => {
                           e.stopPropagation();
                           if (confirmDeleteChannelId === chan.id) {
-                            deleteChannel(chan.id);
+                            const res = await deleteChannel(chan.id);
+                            if (!res?.success) {
+                              addToast(res?.error || 'Failed to delete channel', 'error');
+                            }
                             setConfirmDeleteChannelId(null);
                           } else {
                             setConfirmDeleteChannelId(chan.id);
@@ -403,10 +407,13 @@ export const Sidebar: React.FC = () => {
                       </span>
                       <button
                         type="button"
-                        onClick={(e) => {
+                        onClick={async (e) => {
                           e.stopPropagation();
                           if (confirmDeleteGoalId === goal.id) {
-                            deleteGoal(goal.id);
+                            const res = await deleteGoal(goal.id);
+                            if (!res?.success) {
+                              addToast(res?.error || 'Failed to delete goal', 'error');
+                            }
                             setConfirmDeleteGoalId(null);
                           } else {
                             setConfirmDeleteGoalId(goal.id);
@@ -457,7 +464,12 @@ export const Sidebar: React.FC = () => {
                         >
                           <div className="flex items-center space-x-2 truncate flex-1 mr-1">
                             <button
-                              onClick={() => updateTaskStatus(task.id, nextStatus[task.status] || 'ready')}
+                              onClick={async () => {
+                                const res = await updateTaskStatus(task.id, nextStatus[task.status] || 'ready');
+                                if (!res?.success) {
+                                  addToast(res?.error || 'Failed to update task status', 'error');
+                                }
+                              }}
                               className="shrink-0 hover:scale-110 transition cursor-pointer"
                               title={`Status: ${task.status}${task.status === 'review' ? ' (Awaiting operator sign-off - Click to approve)' : ' (Click to advance)'}`}
                             >
@@ -504,7 +516,12 @@ export const Sidebar: React.FC = () => {
                               {task.status}
                             </span>
                             <button
-                              onClick={() => deleteTask(task.id)}
+                              onClick={async () => {
+                                const res = await deleteTask(task.id);
+                                if (!res?.success) {
+                                  addToast(res?.error || 'Failed to delete task', 'error');
+                                }
+                              }}
                               className="opacity-0 group-hover/task:opacity-100 p-0.5 rounded hover:bg-red-500/10 text-kin-muted hover:text-red-500 transition cursor-pointer"
                               title="Delete Task"
                             >

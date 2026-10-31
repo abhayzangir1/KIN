@@ -365,6 +365,17 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
       const data = await res.json();
       if (data.authUrl) {
         addToast(`Authorizing in browser... Return to KIN once completed.`, 'info');
+        try {
+          const tauri = (window as any).__TAURI__;
+          const openUrl = tauri?.opener?.openUrl || tauri?.shell?.open;
+          if (typeof openUrl === 'function') {
+            await openUrl(data.authUrl);
+          } else {
+            window.open(data.authUrl, '_blank', 'noopener,noreferrer');
+          }
+        } catch (_) {
+          window.open(data.authUrl, '_blank', 'noopener,noreferrer');
+        }
       }
     } catch (err: any) {
       addToast(err?.message || `Failed to sign in with ${provider}`, 'error');
@@ -411,9 +422,10 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
         throw new Error('No servers found in JSON');
       }
       let importedCount = 0;
+      const errors: string[] = [];
       for (const [name, cfg] of entries) {
         const s = cfg as any;
-        await saveMcpConnector({
+        const res = await saveMcpConnector({
           scope: jsonScope,
           name,
           config: {
@@ -424,9 +436,19 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
             disabled: Boolean(s.disabled),
           },
         });
-        importedCount++;
+        if (res?.success) {
+          importedCount++;
+        } else {
+          errors.push(res?.error || `Failed to save "${name}"`);
+        }
       }
-      addToast(`✓ Imported ${importedCount} connector(s) from Claude JSON!`, 'success');
+      if (errors.length > 0 && importedCount === 0) {
+        addToast(`Failed to import connectors: ${errors.join(', ')}`, 'error');
+      } else if (errors.length > 0) {
+        addToast(`Imported ${importedCount} connector(s) with ${errors.length} error(s): ${errors.join(', ')}`, 'warning');
+      } else {
+        addToast(`✓ Imported ${importedCount} connector(s) from Claude JSON!`, 'success');
+      }
       setIsJsonModalOpen(false);
       setJsonText('');
       fetchMcpConnectors();

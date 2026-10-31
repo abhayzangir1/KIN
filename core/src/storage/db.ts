@@ -179,9 +179,7 @@ export class KinDatabase {
         try {
           this.db.exec(`ROLLBACK TO ${savepointName};`);
           this.db.exec(`RELEASE ${savepointName};`);
-        } catch {
-          // Ignore rollback error
-        }
+        } catch (err) { console.debug("[db] Suppressed exception in catch block:", err); }
         throw error;
       } finally {
         currentTx.savepointLevel--;
@@ -228,9 +226,7 @@ export class KinDatabase {
       } catch (error) {
         try {
           this.db.exec('ROLLBACK;');
-        } catch {
-          // Rollback error ignored if transaction was already aborted
-        }
+        } catch (err) { console.debug("[db] Suppressed exception in catch block:", err); }
         throw error;
       } finally {
         releaseLock();
@@ -259,9 +255,7 @@ export class KinDatabase {
         try {
           this.db.exec(`ROLLBACK TO ${savepointName};`);
           this.db.exec(`RELEASE ${savepointName};`);
-        } catch {
-          // Ignore rollback error
-        }
+        } catch (err) { console.debug("[db] Suppressed exception in catch block:", err); }
         throw error;
       } finally {
         if (currentTx) {
@@ -299,9 +293,7 @@ export class KinDatabase {
         } catch (error) {
           try {
             this.db.exec('ROLLBACK;');
-          } catch {
-            // Rollback error ignored
-          }
+          } catch (err) { console.debug("[db] Suppressed exception in catch block:", err); }
           throw error;
         }
       } finally {

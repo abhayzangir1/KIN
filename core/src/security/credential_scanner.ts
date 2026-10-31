@@ -93,9 +93,9 @@ export class CredentialScanner {
           if (output && output.length > 10) {
             addCred('github', 'cli', 'GitHub CLI session', output);
           }
-        } catch {}
+        } catch (err) { console.debug("[credential_scanner] Suppressed exception in catch block:", err); }
       }
-    } catch {}
+    } catch (err) { console.debug("[credential_scanner] Suppressed exception in catch block:", err); }
 
     // 2. Scan Process Environment Variables
     const envMappings: Array<{ key: string; provider: DiscoveredCredential['provider']; name: string }> = [
@@ -141,7 +141,7 @@ export class CredentialScanner {
                 addCred(match.provider, 'dotenv', `${k} (${file})`, v);
               }
             }
-          } catch {}
+          } catch (err) { console.debug("[credential_scanner] Suppressed exception in catch block:", err); }
         }
       }
     }

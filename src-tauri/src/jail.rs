@@ -5,11 +5,16 @@
 
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct JailValidationResult {
     pub is_valid: bool,
     pub canonical_path: Option<String>,
     pub error: Option<String>,
+}
+
+#[tauri::command]
+pub fn validate_jail_path(jail_root: String, target_path: String) -> JailValidationResult {
+    FilesystemJail::validate_path(jail_root, target_path)
 }
 
 pub struct FilesystemJail;

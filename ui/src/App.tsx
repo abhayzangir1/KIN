@@ -12,6 +12,7 @@ import { ModelSelectorModal } from './components/ModelSelectorModal.js';
 import { AddProviderModal } from './components/AddProviderModal.js';
 import { ModelUnavailablePromptModal } from './components/ModelUnavailablePromptModal.js';
 import { ToastContainer } from './components/ToastContainer.js';
+import { ModelOnboardingBanner } from './components/ModelOnboardingBanner.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { useKinStore } from './store/kinStore.js';
 
@@ -44,6 +45,7 @@ export const App: React.FC = () => {
     isDesktopControlModalOpen,
     isDecisionsModalOpen,
     isAgentSettingsModalOpen,
+    addToast,
   } = useKinStore();
 
   const [windowWidth, setWindowWidth] = useState(
@@ -79,6 +81,40 @@ export const App: React.FC = () => {
       closeSSE();
     };
   }, [fetchState, initSSE, closeSSE]);
+
+  // Listen to native Tauri supervisor daemon events (daemon-ready, daemon-error)
+  useEffect(() => {
+    let unlistenReady: (() => void) | undefined;
+    let unlistenError: (() => void) | undefined;
+
+    const setupTauriEvents = async () => {
+      try {
+        const tauriEvent =
+          (window as any).__TAURI__?.event ||
+          (window as any).__TAURI_INTERNALS__?.event;
+        if (tauriEvent?.listen) {
+          unlistenReady = await tauriEvent.listen('daemon-ready', () => {
+            console.log('[KIN APP] Received daemon-ready event from Tauri supervisor');
+            fetchState();
+            initSSE();
+          });
+          unlistenError = await tauriEvent.listen('daemon-error', (event: any) => {
+            console.error('[KIN APP] Received daemon-error event from Tauri supervisor:', event?.payload);
+            addToast(`Daemon Startup Alert: ${event?.payload || 'Failed to initialize core daemon'}`, 'error');
+          });
+        }
+      } catch (err) {
+        console.debug('[KIN APP] Tauri event listener setup skipped:', err);
+      }
+    };
+
+    setupTauriEvents();
+
+    return () => {
+      if (unlistenReady) unlistenReady();
+      if (unlistenError) unlistenError();
+    };
+  }, [fetchState, initSSE, addToast]);
 
   // Global mouse move and up listeners for fluid Antigravity-style dragging
   useEffect(() => {
@@ -144,6 +180,9 @@ export const App: React.FC = () => {
             </button>
           </div>
         )}
+
+        {/* First-Boot AI Model Onboarding Banner */}
+        <ModelOnboardingBanner />
 
         {/* Main 3-Column Draggable & Resizable Workspace Layout */}
         <div className="flex flex-1 overflow-hidden min-h-0 relative">

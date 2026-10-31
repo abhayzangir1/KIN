@@ -430,7 +430,7 @@ export class ChannelController extends BaseController {
                     preview = `\n[File Content Preview]:\n${fs.readFileSync(diskPath, 'utf-8').slice(0, 4000)}`;
                   }
                   effectiveContent += `\n\n[System Attachment: '${rawFilename}' resolved on disk at: ${diskPath} (${stat.size} bytes)]${preview}`;
-                } catch {}
+                } catch (err) { console.debug("[channel_controller] Suppressed exception in catch block:", err); }
               }
             }
           }
@@ -689,7 +689,7 @@ export class ChannelController extends BaseController {
                 if (currentCtrl) {
                   try {
                     currentCtrl.abort('steer');
-                  } catch {}
+                  } catch (err) { console.debug("[channel_controller] Suppressed exception in catch block:", err); }
                   // Immediately replace with fresh AbortController for subsequent turns of this run
                   this.runAbortControllers.set(exec.runId, new AbortController());
                 }
@@ -1075,13 +1075,13 @@ export class ChannelController extends BaseController {
               const changedLines = gitCheck.stdout.split(/\r?\n/).filter((l) => l.trim().length > 0);
               gitSummaryText = changedLines.length === 0 ? 'Working tree clean (0 uncommitted changes)' : `${changedLines.length} uncommitted file(s)`;
             }
-          } catch {}
+          } catch (err) { console.debug("[channel_controller] Suppressed exception in catch block:", err); }
 
           let dbSizeKb = 0;
           try {
             const dbStat = fs.statSync(this.dbPath || 'kin_storage.sqlite');
             dbSizeKb = Math.round(dbStat.size / 1024);
-          } catch {}
+          } catch (err) { console.debug("[channel_controller] Suppressed exception in catch block:", err); }
 
           const engineSummary = `WAL (${dbSizeKb} KB) | Ollama: ${ollamaInfo.online ? `${ollamaInfo.models.length} model(s)` : 'offline'}`;
 
@@ -1520,7 +1520,7 @@ export class ChannelController extends BaseController {
               const changedLines = gitCheck.stdout.split(/\r?\n/).filter((l) => l.trim().length > 0);
               gitSummaryText = changedLines.length === 0 ? 'Working tree clean (0 uncommitted changes)' : `${changedLines.length} uncommitted file(s)`;
             }
-          } catch {}
+          } catch (err) { console.debug("[channel_controller] Suppressed exception in catch block:", err); }
 
           const tasks = this.taskRepo.listTasksByProject(targetProjectId);
           const running = tasks.filter((t) => t.status === 'running').length;
@@ -1530,7 +1530,7 @@ export class ChannelController extends BaseController {
           try {
             const dbStat = fs.statSync(this.dbPath || 'kin_storage.sqlite');
             dbSizeKb = Math.round(dbStat.size / 1024);
-          } catch {}
+          } catch (err) { console.debug("[channel_controller] Suppressed exception in catch block:", err); }
 
           const ollamaInfo = await this.getLocalOllamaModels();
           const engineSummary = `WAL (${dbSizeKb} KB) | Ollama: ${ollamaInfo.online ? `${ollamaInfo.models.length} model(s)` : 'offline'}`;

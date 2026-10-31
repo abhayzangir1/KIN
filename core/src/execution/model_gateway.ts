@@ -112,7 +112,7 @@ async function readChunkWithTimeout(reader: any, timeoutMs = 30000): Promise<{ d
         if (reader && typeof reader.cancel === 'function') {
           reader.cancel().catch?.(() => {});
         }
-      } catch {}
+      } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
       reject(new Error(`Model stream stalled: no chunk received within ${timeoutMs}ms idle timeout.`));
     }, timeoutMs);
   });
@@ -408,7 +408,7 @@ export class ModelGateway {
             message: `Local Ollama online (${models.length} model(s) available)`,
           };
         }
-      } catch {}
+      } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
       this.isOllamaOnlineCached = false;
       this.ollamaModelCountCached = 0;
       return {
@@ -1187,7 +1187,7 @@ export class ModelGateway {
                   });
                 }
               }
-            } catch {}
+            } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
           }
 
           if (liveModels.length > 0) {
@@ -1383,7 +1383,7 @@ export class ModelGateway {
               }));
             }
           }
-        } catch {}
+        } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
         this.validatedProviders.set('anthropic', false);
         if (shouldOmit) return [];
         return standardAnthropic;
@@ -1464,7 +1464,7 @@ export class ModelGateway {
               }));
             }
           }
-        } catch {}
+        } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
         this.validatedProviders.set('deepseek', false);
         if (shouldOmit) return [];
         return standardDeepSeek;
@@ -1539,7 +1539,7 @@ export class ModelGateway {
               }));
             }
           }
-        } catch {}
+        } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
         this.validatedProviders.set('xai', false);
         if (shouldOmit) return [];
         return standardXAi;
@@ -1840,9 +1840,7 @@ export class ModelGateway {
               switchedModelId: params.fallbackModelId,
             };
           }
-        } catch {
-          // ignore fallback error and return primary error report
-        }
+        } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
       }
       const durationMs = Date.now() - startTime;
       const causeText = err?.cause?.message || (err?.cause ? String(err.cause) : '');
@@ -1969,7 +1967,7 @@ export class ModelGateway {
           if (!fnName) continue;
           let fnArgs = tc?.function?.arguments ?? tc?.arguments ?? tc?.parameters ?? {};
           if (typeof fnArgs === 'string') {
-            try { fnArgs = JSON.parse(fnArgs); } catch {}
+            try { fnArgs = JSON.parse(fnArgs); } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
           }
           const callKey = tc.id ? String(tc.id) : `${fnName}:${JSON.stringify(fnArgs)}`;
           if (!seenToolCalls.has(callKey)) {
@@ -2013,7 +2011,7 @@ export class ModelGateway {
               promptTokens = parsed.prompt_eval_count || promptTokens;
               completionTokens = parsed.eval_count || completionTokens;
             }
-          } catch {}
+          } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
         }
       }
 
@@ -2030,7 +2028,7 @@ export class ModelGateway {
             promptTokens = parsed.prompt_eval_count || promptTokens;
             completionTokens = parsed.eval_count || completionTokens;
           }
-        } catch {}
+        } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
       }
     } else if (res.body && (Symbol.asyncIterator in (res.body as any))) {
       const decoder = new TextDecoder('utf-8');
@@ -2056,7 +2054,7 @@ export class ModelGateway {
               promptTokens = parsed.prompt_eval_count || promptTokens;
               completionTokens = parsed.eval_count || completionTokens;
             }
-          } catch {}
+          } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
         }
       }
     } else {
@@ -2074,7 +2072,7 @@ export class ModelGateway {
             promptTokens = parsed.prompt_eval_count || promptTokens;
             completionTokens = parsed.eval_count || completionTokens;
           }
-        } catch {}
+        } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
       }
       if (params.onToken && fullContent) {
         params.onToken(fullContent);
@@ -2259,7 +2257,7 @@ export class ModelGateway {
               completionTokens = parsed.usage.completion_tokens || completionTokens;
               totalTokens = parsed.usage.total_tokens || totalTokens;
             }
-          } catch {}
+          } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
         }
       }
 
@@ -2291,7 +2289,7 @@ export class ModelGateway {
           if (!fnName) continue;
           let fnArgs = tc?.function?.arguments ?? tc?.arguments ?? tc?.parameters ?? {};
           if (typeof fnArgs === 'string') {
-            try { fnArgs = JSON.parse(fnArgs); } catch {}
+            try { fnArgs = JSON.parse(fnArgs); } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
           }
           collectedToolCalls.push({ name: fnName, parameters: fnArgs });
         }
@@ -2475,7 +2473,7 @@ export class ModelGateway {
               completionTokens = parsed.usage.completion_tokens || completionTokens;
               totalTokens = parsed.usage.total_tokens || totalTokens;
             }
-          } catch {}
+          } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
         }
       }
 
@@ -2507,7 +2505,7 @@ export class ModelGateway {
           if (!fnName) continue;
           let fnArgs = tc?.function?.arguments ?? tc?.arguments ?? tc?.parameters ?? {};
           if (typeof fnArgs === 'string') {
-            try { fnArgs = JSON.parse(fnArgs); } catch {}
+            try { fnArgs = JSON.parse(fnArgs); } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
           }
           collectedToolCalls.push({ name: fnName, parameters: fnArgs });
         }
@@ -2685,7 +2683,7 @@ export class ModelGateway {
             if (parsed.type === 'message_delta' && parsed.usage?.output_tokens) {
               completionTokens = parsed.usage.output_tokens;
             }
-          } catch {}
+          } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
         }
       }
     } else {

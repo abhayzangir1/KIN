@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useKinStore } from '../store/kinStore.js';
 import { Folder, Plus, X, Copy, Check, Activity, Network, PanelRight, PanelRightClose, Server } from 'lucide-react';
+import { ConfirmDialog, requestConfirmation } from './ConfirmDialog.js';
 
 export const HeaderBar: React.FC = () => {
   const {
@@ -101,7 +102,13 @@ export const HeaderBar: React.FC = () => {
           {projects.length > 1 && activeProjectId !== 'proj-kin' && (
             <button
               onClick={async () => {
-                if (window.confirm(`Delete project "${activeProject?.name}"?`)) {
+                const confirmed = await requestConfirmation({
+                  title: 'Delete Project Workspace',
+                  message: `Delete project "${activeProject?.name || activeProjectId}"? All project files and channels will be detached.`,
+                  confirmLabel: 'Delete Project',
+                  variant: 'danger',
+                });
+                if (confirmed) {
                   const res = await deleteProject(activeProjectId);
                   if (res && !res.success) {
                     addToast(res.error || 'Failed to delete project', 'error');
@@ -215,6 +222,7 @@ export const HeaderBar: React.FC = () => {
           </div>
         )}
       </div>
+      <ConfirmDialog />
     </header>
   );
 };

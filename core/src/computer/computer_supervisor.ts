@@ -56,8 +56,8 @@ export class ComputerSupervisor {
 
   // Hardware Concurrency Governor Queues
   private activeShellCount: number = 0;
-  private shellQueue: Array<() => void> = [];
-  private browserQueue: Array<() => void> = [];
+  private shellQueue: Array<{ grant: () => void; reject: (err: Error) => void; timer: NodeJS.Timeout }> = [];
+  private browserQueue: Array<{ grant: () => void; reject: (err: Error) => void; timer: NodeJS.Timeout }> = [];
   private pendingBrowserAllocations: Set<string> = new Set();
   private agentControllers: Map<string, BrowserController> = new Map();
 
@@ -81,15 +81,6 @@ export class ComputerSupervisor {
 
     // Start 30-second interval for 3-minute idle context eviction
     this.startIdleEvictionWatchdog();
-  }
-
-  /**
-   * @deprecated For test harness compatibility only. In production, pass options.freeMemProvider.
-   */
-  public setMockFreeMemBytes(bytes?: number): void {
-    if (process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST)) {
-      this.freeMemProvider = bytes !== undefined ? () => bytes : undefined;
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -143,15 +134,16 @@ export class ComputerSupervisor {
           released = true;
           this.activeShellCount--;
           const next = this.shellQueue.shift();
-          if (next) next();
+          if (next) next.grant();
         }
       };
     }
 
     // Queue request
     return new Promise<() => void>((resolve, reject) => {
+      let waiter: { grant: () => void; reject: (err: Error) => void; timer: NodeJS.Timeout };
       const timer = setTimeout(() => {
-        const idx = this.shellQueue.indexOf(grant);
+        const idx = this.shellQueue.indexOf(waiter);
         if (idx !== -1) this.shellQueue.splice(idx, 1);
         reject(new Error(`Shell execution slot request timed out after ${timeoutMs}ms due to host memory throttle.`));
       }, timeoutMs);
@@ -165,12 +157,13 @@ export class ComputerSupervisor {
             released = true;
             this.activeShellCount--;
             const next = this.shellQueue.shift();
-            if (next) next();
+            if (next) next.grant();
           }
         });
       };
 
-      this.shellQueue.push(grant);
+      waiter = { grant, reject, timer };
+      this.shellQueue.push(waiter);
     });
   }
 
@@ -194,14 +187,15 @@ export class ComputerSupervisor {
           released = true;
           this.pendingBrowserAllocations.delete(agentId);
           const next = this.browserQueue.shift();
-          if (next) next();
+          if (next) next.grant();
         }
       };
     }
 
     return new Promise<() => void>((resolve, reject) => {
+      let waiter: { grant: () => void; reject: (err: Error) => void; timer: NodeJS.Timeout };
       const timer = setTimeout(() => {
-        const idx = this.browserQueue.indexOf(grant);
+        const idx = this.browserQueue.indexOf(waiter);
         if (idx !== -1) this.browserQueue.splice(idx, 1);
         reject(new Error(`Browser context slot allocation timed out after ${timeoutMs}ms due to memory pressure.`));
       }, timeoutMs);
@@ -215,12 +209,13 @@ export class ComputerSupervisor {
             released = true;
             this.pendingBrowserAllocations.delete(agentId);
             const next = this.browserQueue.shift();
-            if (next) next();
+            if (next) next.grant();
           }
         });
       };
 
-      this.browserQueue.push(grant);
+      waiter = { grant, reject, timer };
+      this.browserQueue.push(waiter);
     });
   }
 
@@ -253,7 +248,11 @@ export class ComputerSupervisor {
           '--disable-infobars',
           '--window-size=1280,800',
         ];
-        if (process.env.KIN_BROWSER_NO_SANDBOX === 'true') {
+        const isContainerOrRoot = process.env.KIN_BROWSER_NO_SANDBOX === 'true'
+          || fs.existsSync('/.dockerenv')
+          || (typeof process.getuid === 'function' && process.getuid() === 0)
+          || process.env.CI === 'true';
+        if (isContainerOrRoot) {
           launchArgs.push('--no-sandbox', '--disable-setuid-sandbox');
         }
 
@@ -402,7 +401,7 @@ export class ComputerSupervisor {
 
     try {
       await session.context.close();
-    } catch {}
+    } catch (err) { console.debug("[computer_supervisor] Suppressed exception in catch block:", err); }
 
     this.agentSessions.delete(agentId);
     this.agentControllers.delete(agentId);
@@ -412,7 +411,7 @@ export class ComputerSupervisor {
 
     // Notify any queued browser allocation
     const next = this.browserQueue.shift();
-    if (next) next();
+    if (next) next.grant();
   }
 
   // ---------------------------------------------------------------------------
@@ -568,19 +567,33 @@ export class ComputerSupervisor {
     for (const agentId of Array.from(this.agentSessions.keys())) {
       try {
         await this.closeAgentSession(agentId);
-      } catch {}
+      } catch (err) { console.debug("[computer_supervisor] Suppressed exception in catch block:", err); }
     }
 
     if (this.masterBrowser) {
       try {
         await this.masterBrowser.close();
-      } catch {}
+      } catch (err) { console.debug("[computer_supervisor] Suppressed exception in catch block:", err); }
       this.masterBrowser = null;
     }
 
     this.desktopLockOwner = null;
-    this.desktopLockWaiters.forEach((w) => clearTimeout(w.timer));
+    this.desktopLockWaiters.forEach((w) => {
+      clearTimeout(w.timer);
+      w.resolve(false);
+    });
     this.desktopLockWaiters = [];
+    this.shellQueue.forEach((w) => {
+      clearTimeout(w.timer);
+      w.reject(new Error('ComputerSupervisor is shutting down'));
+    });
+    this.shellQueue = [];
+    this.browserQueue.forEach((w) => {
+      clearTimeout(w.timer);
+      w.reject(new Error('ComputerSupervisor is shutting down'));
+    });
+    this.browserQueue = [];
+    this.activeShellCount = 0;
     this.agentControllers.clear();
     this.pendingBrowserAllocations.clear();
   }

@@ -18,7 +18,9 @@ export function getDataDirectory(): string {
     if (!fs.existsSync(customDir)) {
       try {
         fs.mkdirSync(customDir, { recursive: true });
-      } catch {}
+      } catch (err) {
+        console.warn(`[data_directory] Warning: Failed to create custom data directory '${customDir}':`, err);
+      }
     }
     return customDir;
   }
@@ -39,7 +41,9 @@ export function getDataDirectory(): string {
   if (!fs.existsSync(kinDataDir)) {
     try {
       fs.mkdirSync(kinDataDir, { recursive: true });
-    } catch {}
+    } catch (err) {
+      console.warn(`[data_directory] Warning: Failed to create kin data directory '${kinDataDir}':`, err);
+    }
   }
 
   return kinDataDir;

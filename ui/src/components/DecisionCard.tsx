@@ -28,12 +28,12 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ title, topic, option
         <div className="p-3 rounded-lg bg-kin-bg border border-kin-border space-y-1.5 flex flex-col justify-between">
           <div>
             <div className="text-xs font-medium text-blue-400">{optionA.label}</div>
-            <div className="text-[11px] text-emerald-400">✓ {optionA.pros}</div>
-            <div className="text-[11px] text-red-400">✗ {optionA.cons}</div>
+            {optionA.pros ? <div className="text-[11px] text-emerald-400">✓ {optionA.pros}</div> : null}
+            {optionA.cons ? <div className="text-[11px] text-red-400">✗ {optionA.cons}</div> : null}
           </div>
           <button
             onClick={() => onSelect('A')}
-            className="w-full mt-2 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white font-medium transition"
+            className="w-full mt-2 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white font-medium transition cursor-pointer"
           >
             Choose Option A
           </button>
@@ -43,12 +43,12 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ title, topic, option
         <div className="p-3 rounded-lg bg-kin-bg border border-kin-border space-y-1.5 flex flex-col justify-between">
           <div>
             <div className="text-xs font-medium text-purple-400">{optionB.label}</div>
-            <div className="text-[11px] text-emerald-400">✓ {optionB.pros}</div>
-            <div className="text-[11px] text-red-400">✗ {optionB.cons}</div>
+            {optionB.pros ? <div className="text-[11px] text-emerald-400">✓ {optionB.pros}</div> : null}
+            {optionB.cons ? <div className="text-[11px] text-red-400">✗ {optionB.cons}</div> : null}
           </div>
           <button
             onClick={() => onSelect('B')}
-            className="w-full mt-2 py-1 text-xs rounded bg-purple-600 hover:bg-purple-500 text-white font-medium transition"
+            className="w-full mt-2 py-1 text-xs rounded bg-purple-600 hover:bg-purple-500 text-white font-medium transition cursor-pointer"
           >
             Choose Option B
           </button>
@@ -56,19 +56,21 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ title, topic, option
       </div>
 
       {/* Recommended Compromise */}
-      <div className="pt-1 flex items-center justify-between border-t border-kin-border/50 text-xs">
-        <div className="flex items-center space-x-1.5 text-kin-muted text-[11px]">
-          <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
-          <span>Orchestrator Recommendation: {recommendation || 'Normalized payload with client selector'}</span>
+      {recommendation ? (
+        <div className="pt-1 flex items-center justify-between border-t border-kin-border/50 text-xs">
+          <div className="flex items-center space-x-1.5 text-kin-muted text-[11px]">
+            <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
+            <span>Orchestrator Recommendation: {recommendation}</span>
+          </div>
+          <button
+            onClick={() => onSelect('compromise')}
+            className="text-blue-400 hover:text-blue-300 font-medium flex items-center space-x-1 cursor-pointer"
+          >
+            <span>Apply Compromise</span>
+            <ArrowRight className="w-3 h-3" />
+          </button>
         </div>
-        <button
-          onClick={() => onSelect('compromise')}
-          className="text-blue-400 hover:text-blue-300 font-medium flex items-center space-x-1"
-        >
-          <span>Apply Compromise</span>
-          <ArrowRight className="w-3 h-3" />
-        </button>
-      </div>
+      ) : null}
     </div>
   );
 };

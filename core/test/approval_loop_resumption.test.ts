@@ -170,12 +170,12 @@ describe('Approval Loop Resumption & Task Lease Management', () => {
 
     expect(res.status).toBe(200);
 
-    // Approval is marked approved in database even though tool failed
+    // Approval status transitions to failed on execution error per Feature 55
     const resolvedApproval = db.queryOne<{ status: string }>(
       'SELECT status FROM approvals WHERE id = ?',
       approvalId
     );
-    expect(resolvedApproval?.status).toBe('approved');
+    expect(resolvedApproval?.status).toBe('failed');
 
     // Agent run is transitioned to running so the loop can self-correct
     const run = db.queryOne<{ state: string }>(

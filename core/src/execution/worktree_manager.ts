@@ -111,9 +111,7 @@ export class WorktreeManager {
       // Register untracked files with intent-to-add so new files are recognized in diff
       try {
         await execFileAsync('git', ['add', '-N', '.'], { cwd: worktreePath });
-      } catch {
-        // Ignored if intent-to-add fails
-      }
+      } catch (err) { console.debug("[worktree_manager] Suppressed exception in catch block:", err); }
 
       let resolvedBranch = baseBranch;
       try {
@@ -145,7 +143,7 @@ export class WorktreeManager {
             });
             stdout = cachedDiff.stdout;
           }
-        } catch {}
+        } catch (err) { console.debug("[worktree_manager] Suppressed exception in catch block:", err); }
       }
 
       return stdout;
@@ -286,13 +284,13 @@ export class WorktreeManager {
           } catch {
             try {
               await execFileAsync('git', ['read-tree', '-u', '-m', `refs/heads/${targetBase}`], { cwd: repoRoot });
-            } catch {}
+            } catch (err) { console.debug("[worktree_manager] Suppressed exception in catch block:", err); }
           }
         } else {
           // In a shadow repository (!isGit), checkout the merged branch in repoRoot before calling copyProjectAssets
           try {
             await execFileAsync('git', ['checkout', '-f', targetBase], { cwd: repoRoot });
-          } catch {}
+          } catch (err) { console.debug("[worktree_manager] Suppressed exception in catch block:", err); }
           this.copyProjectAssets(repoRoot, this.projectRoot);
         }
 
@@ -338,7 +336,7 @@ export class WorktreeManager {
         try {
           await this.removeWorktree(worktreePath);
           await this.deleteBranch(`feat/kin-${runId}-${probeSlug}`);
-        } catch {}
+        } catch (err) { console.debug("[worktree_manager] Suppressed exception in catch block:", err); }
       }
     }
   }
@@ -351,9 +349,7 @@ export class WorktreeManager {
     const repoRoot = isGit ? this.projectRoot : path.join(this.projectRoot, '.kin', '.git_shadow');
     try {
       await execFileAsync('git', ['branch', '-D', branchName], { cwd: repoRoot });
-    } catch {
-      // Branch may already be deleted or unreferenced
-    }
+    } catch (err) { console.debug("[worktree_manager] Suppressed exception in catch block:", err); }
   }
 
   /**
@@ -376,9 +372,7 @@ export class WorktreeManager {
       }
       try {
         await execFileAsync('git', ['worktree', 'prune'], { cwd: repoRoot });
-      } catch {
-        // Ignored
-      }
+      } catch (err) { console.debug("[worktree_manager] Suppressed exception in catch block:", err); }
     }
   }
 
@@ -407,7 +401,7 @@ export class WorktreeManager {
         } else if (entry.isFile()) {
           fs.copyFileSync(srcPath, dstPath);
         }
-      } catch {}
+      } catch (err) { console.debug("[worktree_manager] Suppressed exception in catch block:", err); }
     }
   }
 

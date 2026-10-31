@@ -510,11 +510,12 @@ describe('KIN Dynamic Computer & Systems Upgrade (Round 14)', () => {
     });
 
     it('throttles multi-browser and shell requests when host memory is in low tier', async () => {
-      const supervisor = new ComputerSupervisor({ baseProfileDir: path.join(tempDir, 'profiles') });
+      const supervisor = new ComputerSupervisor({
+        baseProfileDir: path.join(tempDir, 'profiles'),
+        freeMemProvider: () => 1.5 * 1024 * 1024 * 1024,
+      });
 
       try {
-        // Simulate low memory tier (< 2.5 GB free)
-        supervisor.setMockFreeMemBytes(1.5 * 1024 * 1024 * 1024);
         const status = supervisor.getGovernorStatus();
         expect(status.tier).toBe('low');
         expect(status.maxShellProcesses).toBe(1);

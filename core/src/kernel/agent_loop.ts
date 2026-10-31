@@ -133,7 +133,7 @@ export class AgentLoopRunner {
           runId
         );
       }
-    } catch {}
+    } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
   }
 
   /**
@@ -260,7 +260,7 @@ export class AgentLoopRunner {
                 'SELECT id, content FROM messages WHERE channel_id = ? ORDER BY created_at ASC',
                 options.channelId
               );
-            } catch {}
+            } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
           }
           const compMessages = conversationHistory.map((m, idx) => {
             const matchedPersisted = persistedMessages[idx]?.id || persistedMessages.find((pm) => pm.content === m.content)?.id;
@@ -308,7 +308,7 @@ export class AgentLoopRunner {
                   title: t.title + (t.description ? `: ${t.description}` : ''),
                   evidenceUri: t.evidenceBundleId || undefined,
                 }));
-            } catch {}
+            } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
           }
 
           if (options.decisionRepo || options.taskRepo) {
@@ -321,7 +321,7 @@ export class AgentLoopRunner {
                 key: d.id,
                 decision: d.rationale ? `${d.title} — ${d.rationale}` : d.title,
               }));
-            } catch {}
+            } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
           }
 
           const activeTaskObj = options.taskId && options.taskRepo ? options.taskRepo.getTask(options.taskId) : undefined;
@@ -401,7 +401,7 @@ export class AgentLoopRunner {
 
       // 4c. Active Run Heartbeat & Task Lease Renewal
       if (options.onHeartbeat) {
-        try { options.onHeartbeat(); } catch {}
+        try { options.onHeartbeat(); } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
       }
       if (options.taskId && options.onRenewLease) {
         const isWatchdogTest = Boolean(options.watchdogIntervalMs && options.watchdogIntervalMs < 1000 && currentTurn === 1);
@@ -423,7 +423,7 @@ export class AgentLoopRunner {
             console.warn('[AGENT_LOOP] Lease renewal error:', leaseErr);
           }
         } else {
-          try { await options.onRenewLease(options.taskId); } catch {}
+          try { await options.onRenewLease(options.taskId); } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
         }
       }
 
@@ -480,7 +480,7 @@ export class AgentLoopRunner {
           }
           try {
             options.onHeartbeat?.();
-          } catch {}
+          } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
           if (options.taskId && options.onRenewLease) {
             try {
               const renewed = await options.onRenewLease(options.taskId);
@@ -532,7 +532,7 @@ export class AgentLoopRunner {
           if (options.agentRepo && options.agentId) {
             try {
               options.agentRepo.updateIdentity(options.agentId, { activeModelId: response.switchedModelId });
-            } catch {}
+            } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
           }
         }
 
@@ -571,7 +571,7 @@ export class AgentLoopRunner {
 
         if (isAbort) {
           if (options.renewAbortSignal) {
-            try { options.renewAbortSignal(); } catch {}
+            try { options.renewAbortSignal(); } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
           }
           // Mid-task steering interrupt: drain steer directives and pivot immediately
           let steerDirectives: string[] = [];
@@ -601,12 +601,12 @@ export class AgentLoopRunner {
           if (options.onTurnCheckpoint) {
             try {
               await options.onTurnCheckpoint(currentTurn, conversationHistory, actions);
-            } catch {}
+            } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
           }
           if (options.onQuotaPaused) {
             try {
               await options.onQuotaPaused(currentTurn, resetAt, conversationHistory, actions);
-            } catch {}
+            } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
           }
           return {
             finalContent: `Execution gracefully paused due to provider quota limit (HTTP 429 / RESOURCE_EXHAUSTED). Turn checkpoint preserved.`,
@@ -621,7 +621,7 @@ export class AgentLoopRunner {
         if (options.onModelUnavailable) {
           try {
             await options.onModelUnavailable(currentModelId, errMsg);
-          } catch {}
+          } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
         }
         return {
           finalContent: `⚠️ Execution halted: The selected model "${currentModelId}" is unavailable.\n\nError: ${errMsg}\n\nOperator Action Required: Automatic fallback is disabled to prevent silent model changes. Please update your provider credentials in Settings or choose an alternative model in the Model Selector.`,
@@ -657,12 +657,12 @@ export class AgentLoopRunner {
         if (options.onTurnCheckpoint) {
           try {
             await options.onTurnCheckpoint(currentTurn, conversationHistory, actions);
-          } catch {}
+          } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
         }
         if (options.onQuotaPaused) {
           try {
             await options.onQuotaPaused(currentTurn, resetAt, conversationHistory, actions);
-          } catch {}
+          } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
         }
         return {
           finalContent: `Execution gracefully paused due to provider quota limit (HTTP 429 / RESOURCE_EXHAUSTED). Turn checkpoint preserved.`,
@@ -680,7 +680,7 @@ export class AgentLoopRunner {
         if (options.onModelUnavailable) {
           try {
             await options.onModelUnavailable(currentModelId, errorDetail);
-          } catch {}
+          } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
         }
         return {
           finalContent: `⚠️ Execution halted: The selected model "${currentModelId}" is unavailable.\n\nError: ${errorDetail}\n\nOperator Action Required: Automatic fallback is disabled to prevent unexpected costs or degraded responses. Please configure your provider API key in Settings or choose an alternative model in the Model Selector.`,
@@ -717,7 +717,7 @@ export class AgentLoopRunner {
           if (options.onTurnCheckpoint) {
             try {
               await options.onTurnCheckpoint(currentTurn, conversationHistory, actions);
-            } catch {}
+            } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
           }
           continue;
         }
@@ -726,7 +726,7 @@ export class AgentLoopRunner {
         if (options.onTurnCheckpoint) {
           try {
             await options.onTurnCheckpoint(currentTurn, conversationHistory, actions);
-          } catch {}
+          } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
         }
         break;
       }
@@ -852,7 +852,7 @@ export class AgentLoopRunner {
       // Check if already aborted before invoking tool
       if (toolAbortSignal?.aborted) {
         if (options.renewAbortSignal) {
-          try { options.renewAbortSignal(); } catch {}
+          try { options.renewAbortSignal(); } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
         }
         let steerDirectives: string[] = [];
         if (options.getSteerDirectives) {
@@ -955,7 +955,7 @@ export class AgentLoopRunner {
           }
 
           if (options.renewAbortSignal) {
-            try { options.renewAbortSignal(); } catch {}
+            try { options.renewAbortSignal(); } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
           }
 
           let steerDirectives: string[] = [];
@@ -1123,7 +1123,7 @@ export class AgentLoopRunner {
       }
 
       if (options.onHeartbeat) {
-        try { options.onHeartbeat(); } catch {}
+        try { options.onHeartbeat(); } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
       }
 
       // Record empirical action experience into SkillEngine learning pipeline
@@ -1236,7 +1236,7 @@ export class AgentLoopRunner {
           lessonsLearned: `Run completed with ${actions.length} action(s). Skill '${skill.name}' was active. Outcome: ${overallOutcome}.`,
         });
       }
-    } catch {}
+    } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
 
     return {
       finalContent,
@@ -1547,7 +1547,7 @@ To delegate or coordinate with another specialist:
               return { name, params: {} };
             }
           }
-        } catch {}
+        } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
       }
       return null;
     };

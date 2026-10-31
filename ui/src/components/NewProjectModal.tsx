@@ -45,8 +45,10 @@ export const NewProjectModal: React.FC = () => {
               if (folderName && !name) {
                 setName(folderName);
               }
-              return;
             }
+            // If native folder dialog was displayed (whether path was chosen or dialog cancelled),
+            // return immediately and avoid opening redundant secondary backend fallback dialogs.
+            return;
           }
         } catch (tauriErr) {
           console.warn('[Browse] Tauri pick_folder fallback:', tauriErr);
@@ -98,8 +100,10 @@ export const NewProjectModal: React.FC = () => {
             const defaultBase = navigator.platform.includes('Win') ? 'C:\\' : '/';
             setRepoPath(`${defaultBase}${dirHandle.name}`);
           }
-        } catch {
-          // User cancelled picker
+        } catch (pickerErr: any) {
+          if (pickerErr?.name !== 'AbortError') {
+            console.warn('[NewProjectModal] HTML5 directory picker error:', pickerErr);
+          }
         }
       }
     } finally {
@@ -132,7 +136,7 @@ export const NewProjectModal: React.FC = () => {
       setError('');
       // If not yet connected, attempt a rapid reconnect check
       if (!isConnected) {
-        await fetchState().catch(() => {});
+        await fetchState().catch((err) => console.warn('[NewProjectModal] Background fetchState sync failed:', err));
       }
       await createProject(name.trim(), finalRepoPath || undefined);
       addToast({
@@ -146,7 +150,7 @@ export const NewProjectModal: React.FC = () => {
       const msg = err?.message || 'Failed to create project';
       if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
         setError('Core daemon is initializing. Reconnecting automatically... please retry in a second.');
-        fetchState().catch(() => {});
+        fetchState().catch((err) => console.warn('[NewProjectModal] Background fetchState reconnect failed:', err));
         initSSE();
       } else {
         setError(msg);

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useKinStore, SkillItem, SkillVersionItem } from '../store/kinStore.js';
+import { requestConfirmation } from './ConfirmDialog.js';
 import {
   X,
   Sparkles,
@@ -247,7 +248,13 @@ export const SkillsModal: React.FC = () => {
 
   const handleRollback = async (versionId: string) => {
     if (!versionHistorySkill) return;
-    if (window.confirm(`Roll back skill '${versionHistorySkill.name}' to selected version snapshot?`)) {
+    const confirmed = await requestConfirmation({
+      title: 'Roll Back Skill Version',
+      message: `Roll back skill '${versionHistorySkill.name}' to selected version snapshot?`,
+      confirmLabel: 'Roll Back',
+      variant: 'warning',
+    });
+    if (confirmed) {
       const res = await rollbackSkill(versionHistorySkill.id, versionId);
       if (res.success) {
         addToast(`Successfully rolled back skill '${versionHistorySkill.name}' to version snapshot.`, 'success');
@@ -737,9 +744,20 @@ export const SkillsModal: React.FC = () => {
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
                             <button
-                              onClick={() => {
-                                if (window.confirm(`Delete custom skill "${skill.name}"?`)) {
-                                  deleteSkill(skill.id);
+                              onClick={async () => {
+                                const confirmed = await requestConfirmation({
+                                  title: 'Delete Custom Skill',
+                                  message: `Are you sure you want to delete custom skill "${skill.name}"?`,
+                                  confirmLabel: 'Delete',
+                                  variant: 'danger',
+                                });
+                                if (confirmed) {
+                                  const ok = await deleteSkill(skill.id);
+                                  if (!ok) {
+                                    addToast(`Failed to delete custom skill "${skill.name}".`, 'error');
+                                  } else {
+                                    addToast(`Skill "${skill.name}" deleted.`, 'success');
+                                  }
                                 }
                               }}
                               className="p-1.5 rounded hover:bg-red-950/40 text-gray-400 hover:text-red-400 transition"
@@ -855,9 +873,20 @@ export const SkillsModal: React.FC = () => {
                       </button>
 
                       <button
-                        onClick={() => {
-                          if (window.confirm(`Reject and deprecate candidate '${candidate.name}'?`)) {
-                            validateCandidate(candidate.id, 'reject');
+                        onClick={async () => {
+                          const confirmed = await requestConfirmation({
+                            title: 'Reject Candidate Skill',
+                            message: `Reject and deprecate candidate '${candidate.name}'?`,
+                            confirmLabel: 'Reject',
+                            variant: 'danger',
+                          });
+                          if (confirmed) {
+                            const res = await validateCandidate(candidate.id, 'reject');
+                            if (res && res.success !== false) {
+                              addToast(`Candidate '${candidate.name}' rejected.`, 'info');
+                            } else {
+                              addToast(res?.error || `Failed to reject candidate '${candidate.name}'.`, 'error');
+                            }
                           }
                         }}
                         className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-500/40 transition"

@@ -7,11 +7,13 @@ pub mod jail;
 pub mod supervisor;
 
 use ipc::{get_ipc_token, pick_folder};
+use jail::validate_jail_path;
 use supervisor::ProcessSupervisor;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::panic;
 use std::thread;
+use tauri::Emitter;
 
 pub fn log_diagnostic(msg: &str) {
     println!("{}", msg);
@@ -49,17 +51,21 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             get_ipc_token,
-            pick_folder
+            pick_folder,
+            validate_jail_path
         ])
         .setup(|app| {
             log_diagnostic(&format!("[KIN SHELL] Tauri 2 desktop shell ready: version {}", app.package_info().version));
 
+            let app_handle = app.handle().clone();
             // Asynchronously spawn daemon so main UI thread does not freeze or delay WebView2 initialization
-            thread::spawn(|| {
+            thread::spawn(move || {
                 if let Err(daemon_err) = ProcessSupervisor::spawn_core_daemon_if_needed() {
                     log_diagnostic(&format!("[KIN WARNING] Daemon auto-spawn notice: {}", daemon_err));
+                    let _ = app_handle.emit("daemon-error", daemon_err.to_string());
                 } else {
                     log_diagnostic("[KIN CORE] Daemon confirmed running and port active.");
+                    let _ = app_handle.emit("daemon-ready", ());
                 }
             });
 
@@ -90,9 +96,11 @@ pub fn run() {
         match event {
             tauri::RunEvent::ExitRequested { api: _, .. } => {
                 log_diagnostic("[KIN SHELL] RunEvent::ExitRequested received.");
+                supervisor::ProcessSupervisor::shutdown();
             }
             tauri::RunEvent::Exit => {
                 log_diagnostic("[KIN SHELL] RunEvent::Exit received.");
+                supervisor::ProcessSupervisor::shutdown();
             }
             tauri::RunEvent::Ready => {
                 log_diagnostic("[KIN SHELL] RunEvent::Ready received.");

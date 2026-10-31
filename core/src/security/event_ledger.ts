@@ -91,7 +91,7 @@ export class EventLedger {
         if (lastRow?.record_hash) {
           prevHash = lastRow.record_hash;
         }
-      } catch {}
+      } catch (err) { console.debug("[event_ledger] Suppressed exception in catch block:", err); }
 
       const recordHash = crypto
         .createHash('sha256')

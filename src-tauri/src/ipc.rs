@@ -51,6 +51,9 @@ pub fn pick_folder() -> Result<Option<String>, String> {
             .creation_flags(0x08000000)
             .args(&[
                 "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
                 "-STA",
                 "-Command",
                 "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Select Project or Repository Folder'; $f.ShowNewFolderButton = $true; $topMost = New-Object System.Windows.Forms.Form; $topMost.TopMost = $true; if ($f.ShowDialog($topMost) -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }",
@@ -86,9 +89,15 @@ pub fn pick_folder() -> Result<Option<String>, String> {
             .output();
 
         if let Ok(output) = zenity {
-            let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !result.is_empty() {
-                return Ok(Some(result));
+            // Exit code 1 indicates operator explicitly clicked Cancel or closed the dialog
+            if output.status.code() == Some(1) {
+                return Ok(None);
+            }
+            if output.status.success() {
+                let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !result.is_empty() {
+                    return Ok(Some(result));
+                }
             }
         }
 
@@ -97,9 +106,15 @@ pub fn pick_folder() -> Result<Option<String>, String> {
             .output();
 
         if let Ok(output) = kdialog {
-            let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !result.is_empty() {
-                return Ok(Some(result));
+            // Exit code 1 indicates operator explicitly clicked Cancel or closed the dialog
+            if output.status.code() == Some(1) {
+                return Ok(None);
+            }
+            if output.status.success() {
+                let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !result.is_empty() {
+                    return Ok(Some(result));
+                }
             }
         }
         Ok(None)

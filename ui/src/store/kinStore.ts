@@ -72,8 +72,47 @@ export function isDesktopApp(): boolean {
 }
 
 export function getApiBaseUrl(): string {
+  if (typeof window !== 'undefined') {
+    const customUrl = (window as any).__KIN_API_URL__ || (window as any).__KIN_API_BASE_URL__;
+    if (customUrl) return String(customUrl).replace(/\/+$/, '');
+
+    let urlPort: string | null = null;
+    try {
+      if (window.location?.search) {
+        const searchParams = new URLSearchParams(window.location.search);
+        urlPort = searchParams.get('port') || searchParams.get('kin_port');
+        if (urlPort) {
+          try {
+            window.sessionStorage.setItem('KIN_PORT', urlPort);
+          } catch (storageErr) {
+            console.debug('[kinStore] Failed to write KIN_PORT to sessionStorage:', storageErr);
+          }
+        }
+      }
+    } catch (urlErr) {
+      console.debug('[kinStore] Failed to parse URLSearchParams for port:', urlErr);
+    }
+
+    const customPort =
+      urlPort ||
+      (window as any).__KIN_PORT__ ||
+      (typeof sessionStorage !== 'undefined' && (sessionStorage.getItem('KIN_PORT') || sessionStorage.getItem('KIN_API_PORT'))) ||
+      (typeof localStorage !== 'undefined' && (localStorage.getItem('KIN_PORT') || localStorage.getItem('KIN_API_PORT'))) ||
+      (typeof import.meta !== 'undefined' && (import.meta as any).env && ((import.meta as any).env.VITE_KIN_PORT || (import.meta as any).env.VITE_API_PORT)) ||
+      (window.location?.port && window.location.port !== '5173' && window.location.port !== '3000' && window.location.port !== '80' && window.location.port !== '443' ? window.location.port : null);
+    if (customPort) {
+      return `http://127.0.0.1:${customPort}`;
+    }
+  }
+
   if (isDesktopApp()) {
-    return 'http://127.0.0.1:54321';
+    const desktopPort =
+      (typeof window !== 'undefined' && (
+        (window as any).__KIN_PORT__ ||
+        (typeof sessionStorage !== 'undefined' && (sessionStorage.getItem('KIN_PORT') || sessionStorage.getItem('KIN_API_PORT'))) ||
+        (typeof localStorage !== 'undefined' && (localStorage.getItem('KIN_PORT') || localStorage.getItem('KIN_API_PORT')))
+      )) || '54321';
+    return `http://127.0.0.1:${desktopPort}`;
   }
   return '';
 }
@@ -203,13 +242,15 @@ export async function computeTaskSignature(token: string, taskId: string): Promi
 if (typeof window !== 'undefined' && typeof window.fetch === 'function' && nativeFetch) {
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     let url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+    const apiBase = getApiBaseUrl();
     if (isDesktopApp() && url.startsWith('/api/')) {
-      url = `http://127.0.0.1:54321${url}`;
+      url = `${apiBase}${url}`;
     }
 
     const isLocalApi = url.startsWith('/api/') ||
-      url.startsWith('http://127.0.0.1:54321') ||
-      url.startsWith('http://localhost:54321') ||
+      (Boolean(apiBase) && url.startsWith(apiBase)) ||
+      url.startsWith('http://127.0.0.1:') ||
+      url.startsWith('http://localhost:') ||
       (typeof window !== 'undefined' && window.location && url.startsWith(window.location.origin + '/api/'));
 
     const headers = new Headers(init?.headers || (typeof input === 'object' && 'headers' in input ? (input as Request).headers : {}));
@@ -289,7 +330,19 @@ export interface ChannelItem {
   unreadCount: number;
   memberIds?: string[];
   isPrivate?: boolean;
+  isGeneral?: boolean;
   channelType?: 'channel' | 'direct_message' | 'meeting';
+}
+
+export interface ConfirmDialogState {
+  isOpen: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  variant?: 'danger' | 'warning' | 'info';
+  onConfirm: () => void | Promise<void>;
+  onCancel?: () => void;
 }
 
 export interface MessageItem {
@@ -1052,6 +1105,11 @@ interface KinState {
   addToast: (toast: Omit<ToastItem, 'id'> | string, type?: 'success' | 'error' | 'info' | 'warning') => void;
   removeToast: (id: string) => void;
 
+  // Non-Blocking Confirmation Dialog State
+  confirmDialog: ConfirmDialogState | null;
+  openConfirmDialog: (params: Omit<ConfirmDialogState, 'isOpen'>) => void;
+  closeConfirmDialog: () => void;
+
   // Model Selector & Provider Manager State
   isModelSelectorOpen: boolean;
   modelSelectorTargetAgentId: string | null;
@@ -1127,7 +1185,7 @@ interface KinState {
   clearSteerNotification: () => void;
   fetchState: (projectId?: string) => Promise<void>;
   fetchSchedules: (projectId?: string) => Promise<void>;
-  cancelSchedule: (scheduleId: string) => Promise<void>;
+  cancelSchedule: (scheduleId: string) => Promise<{ success: boolean; error?: string }>;
   fetchArtifacts: (projectId?: string) => Promise<void>;
   selectArtifact: (relativePath: string) => Promise<void>;
   clearSelectedArtifact: () => void;
@@ -1175,8 +1233,8 @@ interface KinState {
   fetchGitStatus: (projectId?: string) => Promise<void>;
   fetchGitDiff: (path: string, projectId?: string) => Promise<void>;
   clearGitDiff: () => void;
-  revertGitFile: (path: string) => Promise<boolean>;
-  stageGitFile: (path: string, stage: boolean) => Promise<boolean>;
+  revertGitFile: (path: string) => Promise<{ success: boolean; error?: string }>;
+  stageGitFile: (path: string, stage: boolean) => Promise<{ success: boolean; error?: string }>;
   requestAiReview: (filePath?: string) => Promise<{ success: boolean; review?: string; verdict?: string; error?: string }>;
 
   // Upload Actions
@@ -1252,7 +1310,7 @@ interface KinState {
   launchApp: (appNameOrPath: string, args?: string[]) => Promise<{ success: boolean; error?: string }>;
   fetchActiveWindows: () => Promise<void>;
   focusWindow: (titleOrPid: string | number) => Promise<any>;
-  closeWindow: (titleOrPid: string | number) => Promise<boolean>;
+  closeWindow: (titleOrPid: string | number) => Promise<{ success: boolean; error?: string }>;
   fetchBrowserStatus: () => Promise<void>;
   closeBrowser: () => Promise<boolean>;
   navigateBrowser: (url: string) => Promise<boolean>;
@@ -1262,7 +1320,7 @@ interface KinState {
   // Routine Actions
   fetchRoutines: (projectId?: string) => Promise<void>;
   createRoutine: (params: { prompt: string; type: 'cron' | 'one_shot'; cronExpression?: string; durationSeconds?: number; channelId?: string; targetAgentId?: string }) => Promise<void>;
-  cancelRoutine: (routineId: string) => Promise<void>;
+  cancelRoutine: (routineId: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 let eventSourceInstance: EventSource | null = null;
@@ -1272,8 +1330,8 @@ let fetchStateRetryTimer: any = null;
 
 export const useKinStore = create<KinState>((set, get) => ({
   projects: [],
-  activeProjectId: 'proj-kin',
-  activeChannelId: 'chan-general',
+  activeProjectId: '',
+  activeChannelId: '',
   channels: [],
   channelMembers: [],
   schedules: [],
@@ -1313,7 +1371,9 @@ export const useKinStore = create<KinState>((set, get) => ({
   pendingRecoveries: [],
   quotaPauseState: null,
   agentEvaluations: {},
+  evaluationsLoading: false,
   credentials: [],
+  credentialsLoading: false,
   grillMeSession: null,
   queuedMessages: [],
   streamingDrafts: {},
@@ -1389,6 +1449,22 @@ export const useKinStore = create<KinState>((set, get) => ({
   },
   removeToast: (id: string) =>
     set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
+
+  // Non-Blocking Confirmation Dialog State
+  confirmDialog: null,
+  openConfirmDialog: (params: Omit<ConfirmDialogState, 'isOpen'>) =>
+    set({ confirmDialog: { ...params, isOpen: true } }),
+  closeConfirmDialog: () =>
+    set((state) => {
+      if (state.confirmDialog?.onCancel) {
+        try {
+          state.confirmDialog.onCancel();
+        } catch (cancelErr) {
+          console.debug('[kinStore] Exception in confirmDialog.onCancel callback:', cancelErr);
+        }
+      }
+      return { confirmDialog: null };
+    }),
 
   // Model Selector & Provider Manager State
   isModelSelectorOpen: false,
@@ -1604,7 +1680,7 @@ export const useKinStore = create<KinState>((set, get) => ({
       const channelExists = data.channels?.some((c: any) => c.id === currentActive);
       const chosenChannelId = (channelExists || agentBelongsToProject)
         ? currentActive
-        : (data.activeChannelId || (data.channels?.[0]?.id ?? 'chan-general'));
+        : (data.activeChannelId || data.channels?.find((c: any) => c.name?.toLowerCase() === 'general')?.id || data.channels?.[0]?.id || '');
 
       if (targetProj && chosenChannelId) {
         try {
@@ -1614,7 +1690,8 @@ export const useKinStore = create<KinState>((set, get) => ({
         }
       }
 
-      const isViewingStateChannel = !chosenChannelId || chosenChannelId === (data.activeChannelId || 'chan-general');
+      const defaultFallbackId = data.activeChannelId || data.channels?.find((c: any) => c.name?.toLowerCase() === 'general')?.id || data.channels?.[0]?.id || '';
+      const isViewingStateChannel = !chosenChannelId || chosenChannelId === defaultFallbackId;
       const nextCache: Record<string, MessageItem[]> = {
         ...get().channelMessagesCache,
         ...(data.activeChannelId ? { [data.activeChannelId]: data.messages || [] } : {}),
@@ -1851,7 +1928,7 @@ export const useKinStore = create<KinState>((set, get) => ({
     }
   },
 
-  cancelSchedule: async (scheduleId: string) => {
+  cancelSchedule: async (scheduleId: string): Promise<{ success: boolean; error?: string }> => {
     try {
       const res = await fetch(`/api/schedules/${scheduleId}`, { method: 'DELETE' });
       if (res.ok) {
@@ -1859,9 +1936,14 @@ export const useKinStore = create<KinState>((set, get) => ({
           schedules: state.schedules.filter((s) => s.id !== scheduleId),
           routines: state.routines.filter((r) => r.id !== scheduleId),
         }));
+        return { success: true };
       }
-    } catch (err) {
+      const data = await res.json().catch(() => ({}));
+      const errorMsg = data.error || `Server returned ${res.status}`;
+      return { success: false, error: errorMsg };
+    } catch (err: any) {
       console.error('[KIN UI] Failed to cancel schedule:', err);
+      return { success: false, error: err?.message || 'Network error' };
     }
   },
 
@@ -1936,10 +2018,14 @@ export const useKinStore = create<KinState>((set, get) => ({
     try {
       const res = await fetch(`/api/channels/${channelId}`, { method: 'DELETE' });
       if (res.ok) {
-        set((state) => ({
-          channels: state.channels.filter((c) => c.id !== channelId),
-          activeChannelId: state.activeChannelId === channelId ? 'chan-general' : state.activeChannelId,
-        }));
+        set((state) => {
+          const remaining = state.channels.filter((c) => c.id !== channelId);
+          const fallback = remaining.find((c) => (c as any).isGeneral || c.name.toLowerCase() === 'general')?.id || remaining[0]?.id || '';
+          return {
+            channels: remaining,
+            activeChannelId: state.activeChannelId === channelId ? fallback : state.activeChannelId,
+          };
+        });
         return { success: true };
       }
       const data = await res.json().catch(() => ({}));
@@ -2520,11 +2606,16 @@ export const useKinStore = create<KinState>((set, get) => ({
       sse.addEventListener('channel:deleted', (e) => {
         try {
           const { channelId } = JSON.parse(e.data);
-          set((state) => ({
-            channels: state.channels.filter((c) => c.id !== channelId),
-            activeChannelId: state.activeChannelId === channelId ? 'chan-general' : state.activeChannelId,
-          }));
-        } catch {
+          set((state) => {
+            const remaining = state.channels.filter((c) => c.id !== channelId);
+            const fallback = remaining.find((c) => (c as any).isGeneral || c.name.toLowerCase() === 'general')?.id || remaining[0]?.id || '';
+            return {
+              channels: remaining,
+              activeChannelId: state.activeChannelId === channelId ? fallback : state.activeChannelId,
+            };
+          });
+        } catch (err) {
+          console.warn('[kinStore] Failed to process SSE channel:deleted event, falling back to fetchState:', err);
           get().fetchState();
         }
       });
@@ -2617,7 +2708,8 @@ export const useKinStore = create<KinState>((set, get) => ({
             goals: state.goals.filter((g) => g.id !== goalId),
             tasks: state.tasks.filter((t) => t.goalId !== goalId),
           }));
-        } catch {
+        } catch (err) {
+          console.warn('[kinStore] Failed to process SSE goal:deleted event, falling back to fetchState:', err);
           get().fetchState();
         }
       });
@@ -3945,7 +4037,7 @@ export const useKinStore = create<KinState>((set, get) => ({
 
   clearGitDiff: () => set({ activeGitDiff: null }),
 
-  revertGitFile: async (filePath: string) => {
+  revertGitFile: async (filePath: string): Promise<{ success: boolean; error?: string }> => {
     const projectId = get().activeProjectId;
     try {
       const res = await fetch(`/api/projects/${projectId}/git/revert`, {
@@ -3958,16 +4050,18 @@ export const useKinStore = create<KinState>((set, get) => ({
           get().clearGitDiff();
         }
         await get().fetchGitStatus();
-        return true;
+        return { success: true };
       }
-      return false;
-    } catch (err) {
+      const data = await res.json().catch(() => ({}));
+      const errorMsg = data.error || `Server returned ${res.status}`;
+      return { success: false, error: errorMsg };
+    } catch (err: any) {
       console.error('[KIN UI] Failed to revert git file:', err);
-      return false;
+      return { success: false, error: err?.message || 'Network error' };
     }
   },
 
-  stageGitFile: async (filePath: string, stage: boolean) => {
+  stageGitFile: async (filePath: string, stage: boolean): Promise<{ success: boolean; error?: string }> => {
     const projectId = get().activeProjectId;
     try {
       const res = await fetch(`/api/projects/${projectId}/git/stage`, {
@@ -3980,12 +4074,14 @@ export const useKinStore = create<KinState>((set, get) => ({
         if (get().activeGitDiff?.path === filePath) {
           await get().fetchGitDiff(filePath);
         }
-        return true;
+        return { success: true };
       }
-      return false;
-    } catch (err) {
+      const data = await res.json().catch(() => ({}));
+      const errorMsg = data.error || `Server returned ${res.status}`;
+      return { success: false, error: errorMsg };
+    } catch (err: any) {
       console.error('[KIN UI] Failed to stage/unstage git file:', err);
-      return false;
+      return { success: false, error: err?.message || 'Network error' };
     }
   },
 
@@ -4734,7 +4830,7 @@ export const useKinStore = create<KinState>((set, get) => ({
     }
   },
 
-  closeWindow: async (titleOrPid: string | number) => {
+  closeWindow: async (titleOrPid: string | number): Promise<{ success: boolean; error?: string }> => {
     try {
       const res = await fetch('/api/system/windows/close', {
         method: 'POST',
@@ -4743,12 +4839,14 @@ export const useKinStore = create<KinState>((set, get) => ({
       });
       if (res.ok) {
         await get().fetchActiveWindows();
-        return true;
+        return { success: true };
       }
-      return false;
-    } catch (err) {
+      const data = await res.json().catch(() => ({}));
+      const errorMsg = data.error || `Failed to close window (${res.status})`;
+      return { success: false, error: errorMsg };
+    } catch (err: any) {
       console.error('[KIN UI] Failed to close window:', err);
-      return false;
+      return { success: false, error: err?.message || 'Network error' };
     }
   },
 
@@ -4842,8 +4940,8 @@ export const useKinStore = create<KinState>((set, get) => ({
     await get().createSchedule(params);
   },
 
-  cancelRoutine: async (routineId: string) => {
-    await get().cancelSchedule(routineId);
+  cancelRoutine: async (routineId: string): Promise<{ success: boolean; error?: string }> => {
+    return get().cancelSchedule(routineId);
   },
 
   // Crash Recovery & Quota Safety Actions
@@ -4954,6 +5052,7 @@ export const useKinStore = create<KinState>((set, get) => ({
   },
 
   fetchEvaluations: async (agentId: string) => {
+    set({ evaluationsLoading: true });
     try {
       const res = await fetch(`/api/agents/${encodeURIComponent(agentId)}/evaluations`);
       if (res.ok) {
@@ -4967,10 +5066,13 @@ export const useKinStore = create<KinState>((set, get) => ({
       }
     } catch (err) {
       console.error('[KIN UI] Failed to fetch agent evaluations:', err);
+    } finally {
+      set({ evaluationsLoading: false });
     }
   },
 
   runAgentEvaluation: async (agentId: string) => {
+    set({ evaluationsLoading: true });
     try {
       const res = await fetch(`/api/agents/${encodeURIComponent(agentId)}/evaluate`, { method: 'POST' });
       if (res.ok) {
@@ -4988,10 +5090,13 @@ export const useKinStore = create<KinState>((set, get) => ({
     } catch (err) {
       console.error('[KIN UI] Failed to run agent evaluation:', err);
       return { success: false };
+    } finally {
+      set({ evaluationsLoading: false });
     }
   },
 
   fetchCredentials: async () => {
+    set({ credentialsLoading: true });
     try {
       const res = await fetch('/api/settings/credentials');
       if (res.ok) {
@@ -5000,6 +5105,8 @@ export const useKinStore = create<KinState>((set, get) => ({
       }
     } catch (err) {
       console.error('[KIN UI] Failed to fetch credentials:', err);
+    } finally {
+      set({ credentialsLoading: false });
     }
   },
 

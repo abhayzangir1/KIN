@@ -464,7 +464,7 @@ export class TaskRepository {
             if (objType === 'commit') {
               isCommit = true;
             }
-          } catch {}
+          } catch (err) { console.debug("[task_repository] Suppressed exception in catch block:", err); }
         }
         if (!isCommit) {
           markReview();
@@ -480,7 +480,7 @@ export class TaskRepository {
         } else if (filePath.includes('?')) {
           filePath = filePath.split('?')[0];
         }
-        try { filePath = decodeURIComponent(filePath); } catch {}
+        try { filePath = decodeURIComponent(filePath); } catch (err) { console.debug("[task_repository] Suppressed exception in catch block:", err); }
         if (process.platform === 'win32' && filePath.startsWith('/') && filePath.length > 2 && filePath[2] === ':') {
           filePath = filePath.slice(1);
         }
@@ -510,7 +510,7 @@ export class TaskRepository {
         if (filePath.includes('?')) {
           filePath = filePath.split('?')[0];
         }
-        try { filePath = decodeURIComponent(filePath); } catch {}
+        try { filePath = decodeURIComponent(filePath); } catch (err) { console.debug("[task_repository] Suppressed exception in catch block:", err); }
         if (process.platform === 'win32' && filePath.startsWith('/') && filePath.length > 2 && filePath[2] === ':') {
           filePath = filePath.slice(1);
         }
@@ -534,7 +534,7 @@ export class TaskRepository {
         } else if (filePath.includes('?')) {
           filePath = filePath.split('?')[0];
         }
-        try { filePath = decodeURIComponent(filePath); } catch {}
+        try { filePath = decodeURIComponent(filePath); } catch (err) { console.debug("[task_repository] Suppressed exception in catch block:", err); }
         if (process.platform === 'win32' && filePath.startsWith('/') && filePath.length > 2 && filePath[2] === ':') {
           filePath = filePath.slice(1);
         }
@@ -564,7 +564,7 @@ export class TaskRepository {
           try {
             const objType = child_process.execFileSync('git', ['cat-file', '-t', commitSha], { cwd: process.cwd(), stdio: 'pipe', timeout: 5000 }).toString().trim();
             if (objType === 'commit') isCommit = true;
-          } catch {}
+          } catch (err) { console.debug("[task_repository] Suppressed exception in catch block:", err); }
         }
         if (!isCommit) {
           markReview();
@@ -589,7 +589,7 @@ export class TaskRepository {
         } else if (filePath.includes('?')) {
           filePath = filePath.split('?')[0];
         }
-        try { filePath = decodeURIComponent(filePath); } catch {}
+        try { filePath = decodeURIComponent(filePath); } catch (err) { console.debug("[task_repository] Suppressed exception in catch block:", err); }
         if (process.platform === 'win32' && filePath.startsWith('/') && filePath.length > 2 && filePath[2] === ':') {
           filePath = filePath.slice(1);
         }

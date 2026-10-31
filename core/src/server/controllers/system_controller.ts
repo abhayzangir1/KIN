@@ -274,20 +274,7 @@ export class SystemController extends BaseController {
             if (ToolGateway.isMetadataService(parsedBase.hostname)) {
               return this.sendJson(res, 400, { error: 'SSRF_BLOCKED: Cloud metadata addresses are prohibited.' });
             }
-          } catch {
-            return this.sendJson(res, 400, { error: 'Invalid baseUrl URL format' });
-          }
-        }
-        if (body.baseUrl) {
-          try {
-            const parsedBase = new URL(body.baseUrl);
-            if (parsedBase.protocol !== 'http:' && parsedBase.protocol !== 'https:') {
-              return this.sendJson(res, 400, { error: 'Invalid baseUrl protocol. Only http: and https: are supported.' });
-            }
-            if (ToolGateway.isMetadataService(parsedBase.hostname)) {
-              return this.sendJson(res, 400, { error: 'SSRF_BLOCKED: Cloud metadata addresses are prohibited.' });
-            }
-          } catch {
+          } catch (urlErr) {
             return this.sendJson(res, 400, { error: 'Invalid baseUrl URL format' });
           }
           this.modelGateway.registerCustomProvider(body.provider, body.baseUrl, body.apiKey);
@@ -314,7 +301,7 @@ export class SystemController extends BaseController {
             body.apiKey ? 'managed' : null,
             now
           );
-        } catch {}
+        } catch (err) { console.debug("[system_controller] Suppressed exception in catch block:", err); }
 
         for (const m of discovered) {
           try {
@@ -330,7 +317,7 @@ export class SystemController extends BaseController {
                   body.apiKey ? 'managed' : null,
                   now
                 );
-              } catch {}
+              } catch (err) { console.debug("[system_controller] Suppressed exception in catch block:", err); }
             }
             this.db.execute(
               `INSERT OR REPLACE INTO models (id, provider_id, name, context_window, max_output_tokens, supports_tools, supports_vision, created_at)
@@ -344,7 +331,7 @@ export class SystemController extends BaseController {
               m.supportsVision ? 1 : 0,
               now
             );
-          } catch {}
+          } catch (err) { console.debug("[system_controller] Suppressed exception in catch block:", err); }
         }
         this.broadcastEvent('models:updated', { provider: body.provider, count: discovered.length });
         return this.sendJson(res, 200, { success: true, count: discovered.length, models: discovered });
@@ -365,7 +352,7 @@ export class SystemController extends BaseController {
             if (ToolGateway.isMetadataService(parsedBase.hostname)) {
               return this.sendJson(res, 400, { error: 'SSRF_BLOCKED: Cloud metadata addresses are prohibited.' });
             }
-          } catch {
+          } catch (urlErr) {
             return this.sendJson(res, 400, { error: 'Invalid baseUrl URL format' });
           }
         }
@@ -386,7 +373,7 @@ export class SystemController extends BaseController {
                 m.supportsVision ? 1 : 0,
                 now
               );
-            } catch {}
+            } catch (err) { console.debug("[system_controller] Suppressed exception in catch block:", err); }
           }
           this.broadcastEvent('models:updated', { provider: body.provider, count: verification.models.length });
         } else if (!verification.working) {
@@ -400,7 +387,7 @@ export class SystemController extends BaseController {
               this.modelGateway.invalidateProvider(body.provider);
               this.broadcastEvent('models:updated', { provider: body.provider, count: 0 });
             }
-          } catch {}
+          } catch (err) { console.debug("[system_controller] Suppressed exception in catch block:", err); }
         }
         return this.sendJson(res, 200, {
           success: verification.working,
@@ -541,7 +528,7 @@ export class SystemController extends BaseController {
           try {
             const stat = fs.statSync(this.dbPath);
             size = stat.size;
-          } catch {}
+          } catch (err) { console.debug("[system_controller] Suppressed exception in catch block:", err); }
           return this.sendJson(res, 200, {
             success: true,
             checkpoint: 'TRUNCATE completed',
@@ -659,7 +646,7 @@ export class SystemController extends BaseController {
           if (type === 'cron') {
             schedule = this.scheduler.createCronSchedule({
               projectId,
-              channelId: channelId || 'chan-general',
+              channelId: this.resolveDefaultChannelForProject(projectId, channelId),
               targetAgentId,
               prompt: prompt || 'Periodic autonomous check',
               cronExpression: cronExpression || '*/5 * * * *',
@@ -672,7 +659,7 @@ export class SystemController extends BaseController {
             }
             schedule = this.scheduler.createOneShotTimer({
               projectId,
-              channelId: channelId || 'chan-general',
+              channelId: this.resolveDefaultChannelForProject(projectId, channelId),
               targetAgentId,
               prompt: prompt || 'Scheduled wakeup check',
               durationSeconds: dur,
@@ -1494,7 +1481,7 @@ export class SystemController extends BaseController {
           if (body.type === 'cron') {
             routine = this.scheduler.createCronSchedule({
               projectId,
-              channelId: body.channelId || 'chan-general',
+              channelId: this.resolveDefaultChannelForProject(projectId, body.channelId),
               targetAgentId: body.targetAgentId,
               prompt: body.prompt || 'Proactive routine check',
               cronExpression: body.cronExpression || '*/15 * * * *',
@@ -1503,7 +1490,7 @@ export class SystemController extends BaseController {
           } else {
             routine = this.scheduler.createOneShotTimer({
               projectId,
-              channelId: body.channelId || 'chan-general',
+              channelId: this.resolveDefaultChannelForProject(projectId, body.channelId),
               targetAgentId: body.targetAgentId,
               prompt: body.prompt || 'Proactive routine check',
               durationSeconds: Number(body.durationSeconds) || 60,
@@ -1686,7 +1673,7 @@ export class SystemController extends BaseController {
           if (type === 'cron') {
             schedule = this.scheduler.createCronSchedule({
               projectId: targetProjId,
-              channelId: channelId || 'chan-general',
+              channelId: this.resolveDefaultChannelForProject(targetProjId, channelId),
               targetAgentId,
               prompt: prompt || 'Periodic autonomous check',
               cronExpression: cronExpression || '*/5 * * * *',
@@ -1699,7 +1686,7 @@ export class SystemController extends BaseController {
             }
             schedule = this.scheduler.createOneShotTimer({
               projectId: targetProjId,
-              channelId: channelId || 'chan-general',
+              channelId: this.resolveDefaultChannelForProject(targetProjId, channelId),
               targetAgentId,
               prompt: prompt || 'Scheduled wakeup check',
               durationSeconds: dur,
@@ -1749,7 +1736,7 @@ export class SystemController extends BaseController {
         let body: any = {};
         try {
           body = await this.parseJsonBody<any>(req);
-        } catch {}
+        } catch (err) { console.debug("[system_controller] Suppressed exception in catch block:", err); }
         const modelOverride = body?.modelOverride || body?.targetModelId;
         const toResume = [...this.pendingRecoveries];
         let resumed = 0;
@@ -1778,7 +1765,7 @@ export class SystemController extends BaseController {
         let body: any = {};
         try {
           body = await this.parseJsonBody<any>(req);
-        } catch {}
+        } catch (err) { console.debug("[system_controller] Suppressed exception in catch block:", err); }
         const modelOverride = body?.modelOverride || body?.targetModelId;
         const ok = await this.resumeInterruptedRun(runId, modelOverride);
         return this.sendJson(res, 200, { success: ok, runId, model: modelOverride });
@@ -1791,7 +1778,7 @@ export class SystemController extends BaseController {
         let body: any = {};
         try {
           body = await this.parseJsonBody<any>(req);
-        } catch {}
+        } catch (err) { console.debug("[system_controller] Suppressed exception in catch block:", err); }
         const targetModel = body?.targetModelId || body?.modelOverride;
         if (!targetModel) {
           return this.sendJson(res, 400, { error: 'targetModelId or modelOverride is required' });
@@ -1835,7 +1822,7 @@ export class SystemController extends BaseController {
           let scopedAgentIds: string[] = [];
           try {
             if (r.scoped_grants_json) scopedAgentIds = JSON.parse(r.scoped_grants_json);
-          } catch {}
+          } catch (err) { console.debug("[system_controller] Suppressed exception in catch block:", err); }
           const maskedKey = r.masked_key || '****...****';
           return {
             id: r.id,
@@ -1900,7 +1887,7 @@ export class SystemController extends BaseController {
                 existingDuplicate = ac;
                 try {
                   this.db.execute('UPDATE managed_credentials SET key_fingerprint = ? WHERE id = ?', fingerprint, ac.id);
-                } catch {}
+                } catch (err) { console.debug("[system_controller] Suppressed exception in catch block:", err); }
                 break;
               }
             }
@@ -1959,7 +1946,7 @@ export class SystemController extends BaseController {
               'managed',
               now
             );
-          } catch {}
+          } catch (err) { console.debug("[system_controller] Suppressed exception in catch block:", err); }
         }
         this.syncModelGatewayProviders();
 
@@ -2003,7 +1990,7 @@ export class SystemController extends BaseController {
                       'managed',
                       now
                     );
-                  } catch {}
+                  } catch (err) { console.debug("[system_controller] Suppressed exception in catch block:", err); }
                 }
                 this.db.execute(
                   `INSERT OR REPLACE INTO models (id, provider_id, name, context_window, max_output_tokens, supports_tools, supports_vision, created_at)
@@ -2017,7 +2004,7 @@ export class SystemController extends BaseController {
                   m.supportsVision ? 1 : 0,
                   now
                 );
-              } catch {}
+              } catch (err) { console.debug("[system_controller] Suppressed exception in catch block:", err); }
             }
             if (discovered.length > 0) {
               this.broadcastEvent('models:updated', { provider, count: discovered.length });
@@ -2121,7 +2108,7 @@ export class SystemController extends BaseController {
               'managed',
               now
             );
-          } catch {}
+          } catch (err) { console.debug("[system_controller] Suppressed exception in catch block:", err); }
         }
         this.syncModelGatewayProviders();
 
@@ -2165,7 +2152,7 @@ export class SystemController extends BaseController {
                         'managed',
                         now
                       );
-                    } catch {}
+                    } catch (err) { console.debug("[system_controller] Suppressed exception in catch block:", err); }
                   }
                   this.db.execute(
                     `INSERT OR REPLACE INTO models (id, provider_id, name, context_window, max_output_tokens, supports_tools, supports_vision, created_at)
@@ -2179,7 +2166,7 @@ export class SystemController extends BaseController {
                     m.supportsVision ? 1 : 0,
                     now
                   );
-                } catch {}
+                } catch (err) { console.debug("[system_controller] Suppressed exception in catch block:", err); }
               }
               if (discovered.length > 0) {
                 this.broadcastEvent('models:updated', { provider, count: discovered.length });
@@ -2257,40 +2244,14 @@ export class SystemController extends BaseController {
         if (provider !== 'github' && provider !== 'google' && provider !== 'slack') {
           return this.sendJson(res, 400, { error: `Unsupported OAuth provider: ${provider}` });
         }
-        const authData = OAuthHandler.startAuthFlow(provider, this.port || 54321);
-        return this.sendJson(res, 200, { success: true, ...authData });
-      }
-
-      // 73. GET /api/system/apps — Discover installed desktop applications
-      if (req.method === 'GET' && pathname === '/api/system/apps') {
-        const apps = await this.desktopController.discoverInstalledApps();
-        return this.sendJson(res, 200, { apps });
-      }
-
-      // 74. POST /api/system/apps/launch — Launch installed desktop application
-      if (req.method === 'POST' && pathname === '/api/system/apps/launch') {
-        const body = await this.parseJsonBody<{ appNameOrPath?: string; name?: string; args?: string[]; approvalToken?: string }>(req);
-        const target = body.appNameOrPath || body.name;
-        if (!target) return this.sendJson(res, 400, { error: 'appNameOrPath is required' });
-        const approvalToken = (req.headers['x-kin-approval-token'] as string) || body.approvalToken;
-        const autonomyMode = this.getEffectiveAutonomyMode();
-        const sentinel = Sentinel.getInstance();
-        const decision = sentinel.evaluate({
-          agentId: 'operator',
-          toolName: 'desktopLaunchApp',
-          params: { target, args: body.args },
-          riskLevel: 'HIGH',
-          autonomyMode,
-          agentCapabilities: ['desktop:launch'],
-        });
-
-        if (!decision.allowed) {
-          return this.sendJson(res, 403, { error: decision.reason || 'Launch blocked by Sentinel' });
+        try {
+          const authData = OAuthHandler.startAuthFlow(provider, this.port || 54321);
+          return this.sendJson(res, 200, { success: true, ...authData });
+        } catch (err: any) {
+          return this.sendJson(res, 400, { success: false, error: err.message || String(err) });
         }
-
-        const resObj = await this.desktopController.launchApp(target, body.args);
-        return this.sendJson(res, 200, resObj);
       }
+
 
       // 75. POST /api/system/dialog/browse-folder — Cross-platform native folder browser
       if (req.method === 'POST' && pathname === '/api/system/dialog/browse-folder') {
@@ -2309,7 +2270,7 @@ export class SystemController extends BaseController {
                 let timedOut = false;
                 const timer = setTimeout(() => {
                   timedOut = true;
-                  try { proc.kill(); } catch {}
+                  try { proc.kill(); } catch (err) { console.debug("[system_controller] Suppressed exception in catch block:", err); }
                   resolve('');
                 }, 60000);
 

@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as childProcess from 'node:child_process';
 import { AgentIdentity } from '../../domain/types.js';
+import { DEFAULT_FALLBACK_MODEL_ID } from '../../domain/agent_repository.js';
 import { BenchmarkEvaluator } from '../../evaluation/benchmark_evaluator.js';
 import { EventLedger } from '../../security/event_ledger.js';
 import { BaseController } from './base_controller.js';
@@ -52,7 +53,7 @@ export class AgentController extends BaseController {
         const agentId = `agent-${now}`;
         const boss = this.agentRepo.listIdentitiesByProject(projectId).find((a) => a.isOrchestrator);
         const inheritedBossModel = boss?.activeModelId || (boss?.definitionId ? this.agentRepo.getDefinition(boss.definitionId)?.defaultModelId : undefined);
-        const activeModelId = body.activeModelId || body.model || body.suggestedModel || inheritedBossModel || 'ollama/qwen2.5-coder:3b';
+        const activeModelId = body.activeModelId || body.model || body.suggestedModel || inheritedBossModel || DEFAULT_FALLBACK_MODEL_ID;
         const role = body.roleTitle || 'Specialist';
 
         this.agentRepo.createDefinition({
@@ -216,7 +217,7 @@ export class AgentController extends BaseController {
                 });
               }
             }
-          } catch {}
+          } catch (err) { console.debug("[agent_controller] Suppressed exception in catch block:", err); }
         }
 
         // Check git status to get genuine file changes
@@ -224,7 +225,7 @@ export class AgentController extends BaseController {
         try {
           const gitStat = childProcess.execSync('git status --porcelain=v1', { cwd: repoPath, encoding: 'utf-8', timeout: 3000 });
           changedFiles = gitStat.split('\n').filter(Boolean).map((l) => l.slice(3).trim());
-        } catch {}
+        } catch (err) { console.debug("[agent_controller] Suppressed exception in catch block:", err); }
 
         // Calculate genuine execution duration
         const latestRun = runs[0];
@@ -252,7 +253,7 @@ export class AgentController extends BaseController {
               durationMs: ar.duration_ms,
               timestamp: ar.created_at,
             });
-          } catch {}
+          } catch (err) { console.debug("[agent_controller] Suppressed exception in catch block:", err); }
         }
 
         // Real explored files derived from recorded readFile/listDirectory actions or genuine repo files
@@ -606,7 +607,7 @@ export class AgentController extends BaseController {
                 entityId: identity.id,
                 payload: { role: role || def.role, systemPrompt: body.systemPrompt ? '[UPDATED]' : undefined },
               });
-            } catch {}
+            } catch (err) { console.debug("[agent_controller] Suppressed exception in catch block:", err); }
           }
         }
 
@@ -638,7 +639,7 @@ export class AgentController extends BaseController {
               entityId: identity.id,
               payload: { capabilities: sanitizedCaps },
             });
-          } catch {}
+          } catch (err) { console.debug("[agent_controller] Suppressed exception in catch block:", err); }
         }
 
         this.broadcastEvent('agent:updated', { agentId: identity.id, activeModelId: activeModelId || identity.activeModelId, projectId: identity.projectId, channelId: body.channelId, ...body });
@@ -672,7 +673,7 @@ export class AgentController extends BaseController {
                 entityId: identity.id,
                 payload: { role: body.roleTitle || def.role, systemPrompt: body.systemPrompt ? '[UPDATED]' : undefined },
               });
-            } catch {}
+            } catch (err) { console.debug("[agent_controller] Suppressed exception in catch block:", err); }
           }
         }
 
@@ -708,7 +709,7 @@ export class AgentController extends BaseController {
               entityId: identity.id,
               payload: { capabilities: sanitizedCaps },
             });
-          } catch {}
+          } catch (err) { console.debug("[agent_controller] Suppressed exception in catch block:", err); }
         }
 
         this.broadcastEvent('agent:updated', { agentId, ...body });
@@ -783,7 +784,7 @@ export class AgentController extends BaseController {
           if (this.kernel.getRun(runId)) {
             this.kernel.transitionState(runId, 'paused');
           }
-        } catch {}
+        } catch (err) { console.debug("[agent_controller] Suppressed exception in catch block:", err); }
         this.broadcastEvent('takeover:paused', { runId });
         return this.sendJson(res, 200, { success: true, runId, isPaused: true });
       }
@@ -801,7 +802,7 @@ export class AgentController extends BaseController {
           if (this.kernel.getRun(runId)) {
             this.kernel.transitionState(runId, 'running');
           }
-        } catch {}
+        } catch (err) { console.debug("[agent_controller] Suppressed exception in catch block:", err); }
         this.broadcastEvent('takeover:resumed', { runId });
         return this.sendJson(res, 200, { success: true, runId, isPaused: false });
       }
@@ -821,7 +822,7 @@ export class AgentController extends BaseController {
           if (this.kernel.getRun(runId)) {
             this.kernel.transitionState(runId, 'cancelled');
           }
-        } catch {}
+        } catch (err) { console.debug("[agent_controller] Suppressed exception in catch block:", err); }
         this.broadcastEvent('takeover:aborted', { runId });
         return this.sendJson(res, 200, { success: true, runId, isAborted: true });
       }
@@ -844,14 +845,29 @@ export class AgentController extends BaseController {
           agentId
         );
         const evaluations = rows.map((r) => {
-          let rubricScores = { accuracy: 90, reasoning: 90, toolCompetence: 90, safetyAdherence: 95, overall: 91 };
-          try {
-            if (r.rubric_metrics_json) rubricScores = JSON.parse(r.rubric_metrics_json);
-          } catch {}
+          const rawScore = Number(r.score ?? 0);
+          const baseScore = rawScore > 0 && rawScore <= 1 ? Math.round(rawScore * 100) : Math.round(rawScore);
+          let rubricScores: Record<string, number> = {
+            accuracy: baseScore,
+            reasoning: baseScore,
+            toolCompetence: baseScore,
+            safetyAdherence: r.passed ? 100 : baseScore,
+            overall: baseScore,
+          };
+          if (r.rubric_metrics_json) {
+            try {
+              const parsed = JSON.parse(r.rubric_metrics_json);
+              if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+                rubricScores = parsed;
+              }
+            } catch (err) {
+              console.debug("[agent_controller] Failed to parse rubric_metrics_json:", err);
+            }
+          }
           let testCases: any[] = [];
           try {
             if (r.test_cases_json) testCases = JSON.parse(r.test_cases_json);
-          } catch {}
+          } catch (err) { console.debug("[agent_controller] Suppressed exception in catch block:", err); }
           return {
             id: r.id,
             agentId: r.agent_id,

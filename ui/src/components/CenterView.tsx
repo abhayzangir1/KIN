@@ -90,6 +90,7 @@ export const CenterView: React.FC = () => {
     discardRecoveries,
     resumeRun,
     switchRunToModel,
+    switchRunToOllama,
     submitGrillMeAnswers,
     dismissGrillMe,
     clearQuotaPause,
@@ -121,7 +122,7 @@ export const CenterView: React.FC = () => {
 
   const isMachineControlActive =
     !!activeMachineTool ||
-    (browserStatus?.active && (activeChannelId === 'chan-general' || activeChannelId.startsWith('dm-')));
+    (browserStatus?.active && (activeChannelId === 'chan-general' || channels.find((c) => c.id === activeChannelId)?.isGeneral || channels.find((c) => c.id === activeChannelId)?.name?.toLowerCase() === 'general' || activeChannelId.startsWith('dm-')));
 
   const activeMachineAgent =
     (channelTakeover?.agentId && agents.find((a) => a.id === channelTakeover.agentId)?.displayName) ||
@@ -203,31 +204,6 @@ export const CenterView: React.FC = () => {
       if (m?.id && !seen.has(m.id)) {
         list.push({ id: m.id, name: m.name || m.id, provider: m.provider || 'custom' });
         seen.add(m.id);
-      }
-    }
-
-    const standardFallbacks = [
-      { id: 'openrouter/auto', name: 'OpenRouter Auto (Best Available)', provider: 'openrouter' },
-      { id: 'openrouter/google/gemini-2.0-flash-001', name: 'OpenRouter Gemini 2.0 Flash', provider: 'openrouter' },
-      { id: 'openrouter/meta-llama/llama-3.3-70b-instruct:free', name: 'OpenRouter Llama 3.3 70B (Free)', provider: 'openrouter' },
-      { id: 'openrouter/deepseek/deepseek-r1:free', name: 'OpenRouter DeepSeek R1 (Free)', provider: 'openrouter' },
-      { id: 'gemini/gemini-2.5-flash', name: 'Google Gemini 2.5 Flash', provider: 'gemini' },
-      { id: 'gemini/gemini-2.5-pro', name: 'Google Gemini 2.5 Pro', provider: 'gemini' },
-      { id: 'openai/gpt-4o', name: 'OpenAI GPT-4o', provider: 'openai' },
-      { id: 'openai/gpt-4o-mini', name: 'OpenAI GPT-4o Mini', provider: 'openai' },
-      { id: 'anthropic/claude-3-7-sonnet', name: 'Anthropic Claude 3.7 Sonnet', provider: 'anthropic' },
-      { id: 'anthropic/claude-3-5-haiku', name: 'Anthropic Claude 3.5 Haiku', provider: 'anthropic' },
-      { id: 'deepseek/deepseek-chat', name: 'DeepSeek Chat (V3)', provider: 'deepseek' },
-      { id: 'deepseek/deepseek-reasoner', name: 'DeepSeek Reasoner (R1)', provider: 'deepseek' },
-      { id: 'groq/llama-3.3-70b-versatile', name: 'Groq Llama 3.3 70B', provider: 'groq' },
-      { id: 'ollama/llama3', name: 'Ollama Llama 3 (Local)', provider: 'ollama' },
-      { id: 'ollama/qwen2.5-coder', name: 'Ollama Qwen 2.5 Coder (Local)', provider: 'ollama' },
-    ];
-
-    for (const fb of standardFallbacks) {
-      if (!seen.has(fb.id)) {
-        list.push(fb);
-        seen.add(fb.id);
       }
     }
 
@@ -704,16 +680,29 @@ export const CenterView: React.FC = () => {
       }
     }
     if (content.includes('### Architectural Tie-Breaker') || content.includes('Tie-Breaker Escalation') || content.includes('Decision Card:')) {
-      const titleMatch = content.match(/(?:### Architectural Tie-Breaker|Proposed Plan Decision|Decision Card:)\s*([^\n]+)/);
+      const titleMatch = content.match(/(?:### Architectural Tie-Breaker|Proposed Plan Decision|Decision Card:)\s*:?\s*([^\n]+)/);
       const optAMatch = content.match(/Option A:\s*([^\n]+)/);
       const optBMatch = content.match(/Option B:\s*([^\n]+)/);
       if (optAMatch && optBMatch) {
+        const optAProsMatch = content.match(/Option A Pros?:\s*([^\n]+)/i);
+        const optAConsMatch = content.match(/Option A Cons?:\s*([^\n]+)/i);
+        const optBProsMatch = content.match(/Option B Pros?:\s*([^\n]+)/i);
+        const optBConsMatch = content.match(/Option B Cons?:\s*([^\n]+)/i);
+        const recMatch = content.match(/Recommendation:\s*([^\n]+)/i);
         return {
           title: titleMatch ? titleMatch[1].trim() : 'Architectural Plan Decision',
           topic: 'Interactive plan review',
-          optionA: { label: optAMatch[1].trim(), pros: 'Primary recommended path', cons: 'May require verification' },
-          optionB: { label: optBMatch[1].trim(), pros: 'Alternative implementation', cons: 'Different trade-offs' },
-          recommendation: 'Evaluate tradeoffs before selection',
+          optionA: {
+            label: optAMatch[1].trim(),
+            pros: optAProsMatch ? optAProsMatch[1].trim() : '',
+            cons: optAConsMatch ? optAConsMatch[1].trim() : '',
+          },
+          optionB: {
+            label: optBMatch[1].trim(),
+            pros: optBProsMatch ? optBProsMatch[1].trim() : '',
+            cons: optBConsMatch ? optBConsMatch[1].trim() : '',
+          },
+          recommendation: recMatch ? recMatch[1].trim() : undefined,
         };
       }
     }
@@ -1372,7 +1361,7 @@ export const CenterView: React.FC = () => {
                       Inspect
                     </button>
                     <select
-                      value={selectedRecoveryModels[rec.runId || rec.id] || rec.model || selectableModels[0]?.id || 'openrouter/google/gemini-2.0-flash-001'}
+                      value={selectedRecoveryModels[rec.runId || rec.id] || rec.model || selectableModels[0]?.id || ''}
                       onChange={(e) => {
                         const val = e.target.value;
                         setSelectedRecoveryModels((prev) => ({ ...prev, [rec.runId || rec.id]: val }));
@@ -1389,7 +1378,7 @@ export const CenterView: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => {
-                        const targetModel = selectedRecoveryModels[rec.runId || rec.id] || rec.model || selectableModels[0]?.id || 'openrouter/google/gemini-2.0-flash-001';
+                        const targetModel = selectedRecoveryModels[rec.runId || rec.id] || rec.model || selectableModels[0]?.id || '';
                         switchRunToModel(rec.runId || rec.id, targetModel);
                       }}
                       className="px-2 py-0.5 rounded bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-200 border border-cyan-500/40 text-[10px] font-bold transition cursor-pointer whitespace-nowrap"
@@ -1397,6 +1386,23 @@ export const CenterView: React.FC = () => {
                     >
                       Switch & Resume
                     </button>
+                    {ollamaStatus?.online && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const res = await switchRunToOllama(rec.runId || rec.id);
+                          if (!res.success) {
+                            addToast('Failed to switch to local Ollama', 'error');
+                          } else {
+                            addToast(`Switched run to Ollama (${res.model || 'local'})`, 'success');
+                          }
+                        }}
+                        className="px-2 py-0.5 rounded bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-200 border border-emerald-500/40 text-[10px] font-bold transition cursor-pointer whitespace-nowrap"
+                        title="Switch immediately to local Ollama"
+                      >
+                        🦙 Ollama
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => resumeRun(rec.runId || rec.id)}
@@ -1454,7 +1460,7 @@ export const CenterView: React.FC = () => {
                 )}
                 <div className="flex items-center justify-end space-x-2 pt-1 border-t border-amber-900/30">
                   <select
-                    value={selectedRecoveryModels[inspectingRecovery.runId || inspectingRecovery.id] || inspectingRecovery.model || selectableModels[0]?.id || 'openrouter/google/gemini-2.0-flash-001'}
+                    value={selectedRecoveryModels[inspectingRecovery.runId || inspectingRecovery.id] || inspectingRecovery.model || selectableModels[0]?.id || ''}
                     onChange={(e) => {
                       const val = e.target.value;
                       setSelectedRecoveryModels((prev) => ({ ...prev, [inspectingRecovery.runId || inspectingRecovery.id]: val }));
@@ -1471,7 +1477,7 @@ export const CenterView: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => {
-                      const targetModel = selectedRecoveryModels[inspectingRecovery.runId || inspectingRecovery.id] || inspectingRecovery.model || selectableModels[0]?.id || 'openrouter/google/gemini-2.0-flash-001';
+                      const targetModel = selectedRecoveryModels[inspectingRecovery.runId || inspectingRecovery.id] || inspectingRecovery.model || selectableModels[0]?.id || '';
                       switchRunToModel(inspectingRecovery.runId || inspectingRecovery.id, targetModel);
                       setInspectingRecovery(null);
                     }}
@@ -1526,7 +1532,7 @@ export const CenterView: React.FC = () => {
               </div>
               <div className="flex items-center space-x-1.5 shrink-0">
                 <select
-                  value={selectedQuotaModel || 'openrouter/google/gemini-2.0-flash-001'}
+                  value={selectedQuotaModel || selectableModels[0]?.id || ''}
                   onChange={(e) => setSelectedQuotaModel(e.target.value)}
                   className="bg-black/60 border border-purple-500/40 text-purple-200 text-[10px] rounded px-2 py-1 max-w-[180px] truncate focus:outline-none focus:border-purple-400 cursor-pointer font-mono"
                   title="Select alternative model to resume immediately"
@@ -1540,7 +1546,7 @@ export const CenterView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    const target = selectedQuotaModel || 'openrouter/google/gemini-2.0-flash-001';
+                    const target = selectedQuotaModel || selectableModels[0]?.id || '';
                     switchRunToModel(quotaPauseState.runId || '', target);
                   }}
                   className="px-2.5 py-1 rounded bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-200 border border-cyan-500/40 text-[10px] font-bold transition cursor-pointer whitespace-nowrap"
@@ -1548,6 +1554,23 @@ export const CenterView: React.FC = () => {
                 >
                   ⚡ Switch & Resume
                 </button>
+                {ollamaStatus?.online && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const res = await switchRunToOllama(quotaPauseState.runId || '');
+                      if (!res.success) {
+                        addToast('Failed to switch to local Ollama', 'error');
+                      } else {
+                        addToast(`Switched run to Ollama (${res.model || 'local'})`, 'success');
+                      }
+                    }}
+                    className="px-2.5 py-1 rounded bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-200 border border-emerald-500/40 text-[10px] font-bold transition cursor-pointer whitespace-nowrap"
+                    title="Switch immediately to local Ollama (zero API cost/quota)"
+                  >
+                    🦙 Switch to Ollama
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => resumeRun(quotaPauseState.runId || '')}
@@ -1705,15 +1728,29 @@ export const CenterView: React.FC = () => {
 
                 <div className="flex items-center justify-end space-x-2 pt-1">
                   <button
-                    onClick={() => resolveApproval(appr.id, false)}
-                    className="flex items-center space-x-1 px-3 py-1 rounded bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/40 text-xs font-medium transition"
+                    onClick={async () => {
+                      const res = await resolveApproval(appr.id, false);
+                      if (!res?.success) {
+                        addToast(res?.error || 'Failed to reject approval request', 'error');
+                      } else {
+                        addToast('Action rejected', 'info');
+                      }
+                    }}
+                    className="flex items-center space-x-1 px-3 py-1 rounded bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/40 text-xs font-medium transition cursor-pointer"
                   >
                     <XCircle className="w-3.5 h-3.5" />
                     <span>Reject Action</span>
                   </button>
                   <button
-                    onClick={() => resolveApproval(appr.id, true)}
-                    className="flex items-center space-x-1 px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-lg shadow-emerald-900/30 transition"
+                    onClick={async () => {
+                      const res = await resolveApproval(appr.id, true);
+                      if (!res?.success) {
+                        addToast(res?.error || 'Failed to execute approved action', 'error');
+                      } else {
+                        addToast('Action approved and executing', 'success');
+                      }
+                    }}
+                    className="flex items-center space-x-1 px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-lg shadow-emerald-900/30 transition cursor-pointer"
                   >
                     <CheckCircle className="w-3.5 h-3.5" />
                     <span>Approve & Execute</span>

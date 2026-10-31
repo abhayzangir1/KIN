@@ -35,6 +35,7 @@ export const DesktopControlModal: React.FC = () => {
     fetchSchedules,
     createSchedule,
     cancelSchedule,
+    addToast,
   } = useKinStore();
 
   const routines = schedules;
@@ -103,6 +104,16 @@ export const DesktopControlModal: React.FC = () => {
       });
     }
     setTimeout(() => setLaunchFeedback(null), 5000);
+  };
+
+  const handleCloseWindow = async (win: any) => {
+    const res = await closeWindow(win.pid || win.handle || win.title);
+    if (!res?.success) {
+      addToast(res?.error || 'Failed to close window', 'error');
+    } else {
+      addToast(`Closed window "${win.title || win.processName || win.pid}"`, 'info');
+      await fetchActiveWindows();
+    }
   };
 
   const handleCreateRoutineSubmit = async (e: React.FormEvent) => {
@@ -410,8 +421,8 @@ export const DesktopControlModal: React.FC = () => {
                         Focus
                       </button>
                       <button
-                        onClick={() => closeWindow(win.pid || win.handle || win.title)}
-                        className="px-3 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/40 font-medium transition"
+                        onClick={() => handleCloseWindow(win)}
+                        className="px-3 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/40 font-medium transition cursor-pointer"
                         title="Close GUI window"
                       >
                         Close

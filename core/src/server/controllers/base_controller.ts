@@ -135,8 +135,8 @@ export abstract class BaseController {
     return this.server.pruneOldAdmissionFences(nowMs);
   }
 
-  public computeProductivityScore(agentId?: string): number {
-    return this.server.computeProductivityScore(agentId);
+  public resolveDefaultChannelForProject(projectId: string, explicitChannelId?: string): string {
+    return this.server.resolveDefaultChannelForProject(projectId, explicitChannelId);
   }
 
   public isWithinJail(jailRoot: string, targetPath: string): boolean {

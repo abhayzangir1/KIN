@@ -93,7 +93,7 @@ export const AutomationsView: React.FC = () => {
       setTargetAgentId(boss.id);
     }
     if (!targetChannelId) {
-      setTargetChannelId(activeChannelId || channels[0]?.id || 'chan-general');
+      setTargetChannelId(activeChannelId || channels.find((c: any) => c.isDefault)?.id || channels[0]?.id || '');
     }
   }, [agents, channels, activeChannelId, targetAgentId, targetChannelId]);
 
@@ -179,10 +179,15 @@ export const AutomationsView: React.FC = () => {
   };
 
   const handleCancel = async (id: string) => {
-    await cancelSchedule(id);
-    setActionFeedback('Cancelled schedule.');
-    addToast({ title: 'Schedule Cancelled', message: 'Automation was deactivated.', type: 'info' });
-    fetchSchedules();
+    const res = await cancelSchedule(id);
+    if (!res?.success) {
+      setActionFeedback(`Cancel failed: ${res?.error || 'Unknown error'}`);
+      addToast({ title: 'Cancel Failed', message: res?.error || 'Could not cancel schedule', type: 'error' });
+    } else {
+      setActionFeedback('Cancelled schedule.');
+      addToast({ title: 'Schedule Cancelled', message: 'Automation was deactivated.', type: 'info' });
+      fetchSchedules();
+    }
     setTimeout(() => setActionFeedback(null), 3000);
   };
 

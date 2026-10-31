@@ -278,9 +278,19 @@ export const ModelSelectorModal: React.FC = () => {
   const handleManualAssign = async () => {
     if (!customModelInput.trim()) return;
     const modelId = customModelInput.trim();
-    await addCustomModel(modelId);
+    const customRes = await addCustomModel(modelId);
+    if (!customRes?.success) {
+      setNotification({ message: customRes?.error || `Failed to register model "${modelId}".`, type: 'error' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
     if (targetAgent && !isAgentBusy) {
-      await updateAgentModel(targetAgent.id, modelId, selectedProjectId, selectedChannelId);
+      const ok = await updateAgentModel(targetAgent.id, modelId, selectedProjectId, selectedChannelId);
+      if (!ok) {
+        setNotification({ message: `Failed to assign model "${modelId}". Agent may be busy.`, type: 'error' });
+        setTimeout(() => setNotification(null), 3000);
+        return;
+      }
       setNotification({ message: `Assigned model "${modelId}" to @${targetAgent.name || targetAgent.displayName}`, type: 'success' });
       setTimeout(() => {
         setNotification(null);

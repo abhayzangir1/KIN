@@ -228,9 +228,7 @@ export class BrowserController {
               this.activePage = pages.find((p) => !p.isClosed()) || (await this.browser.newPage());
               return { browser: this.browser, page: this.activePage };
             }
-          } catch {
-            // Configured remote debugging port not active, fallback to local launch
-          }
+          } catch (err) { console.debug("[browser_controller] Suppressed exception in catch block:", err); }
         }
 
         const executablePath = this.findBrowserExecutable();
@@ -245,7 +243,6 @@ export class BrowserController {
         const launchArgs = [
           '--disable-infobars',
           '--window-size=1280,800',
-          '--remote-debugging-port=9222',
         ];
         const isContainerizedLinux = process.platform === 'linux' && (
           process.env.CI === 'true' ||
@@ -603,14 +600,12 @@ export class BrowserController {
   }
 
   /**
-   * Evaluates JavaScript directly in the active browser page context.
+   * Evaluates JavaScript directly in the active browser page context via Chrome DevTools Protocol.
+   * Avoids DOM window.eval to maintain strict compatibility with sites enforcing CSP 'unsafe-eval' restrictions.
    */
   public async evaluate(script: string): Promise<any> {
     const { page } = await this.ensureBrowser();
-    return page.evaluate((code) => {
-      // eslint-disable-next-line no-eval
-      return window.eval(code);
-    }, script);
+    return page.evaluate(script);
   }
 
   /**
@@ -742,11 +737,11 @@ export class BrowserController {
       const proc = typeof (this.browser as any).process === 'function' ? (this.browser as any).process() : null;
       try {
         await this.browser.close();
-      } catch {}
+      } catch (err) { console.debug("[browser_controller] Suppressed exception in catch block:", err); }
       if (proc && !proc.killed) {
         try {
           proc.kill('SIGKILL');
-        } catch {}
+        } catch (err) { console.debug("[browser_controller] Suppressed exception in catch block:", err); }
       }
       this.browser = null;
       this.activePage = null;
