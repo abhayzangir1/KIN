@@ -90,8 +90,8 @@ export class PolicyEngine {
       let isWhitelistedCommand = false;
       if ((isShellTool || !isPathTool) && request.subagentApprovedWhitelist.permittedCommands) {
         const cmdTrimmed = request.commandOrPath.trim();
-        // Disallow command chaining (&&, ||, ;, |, `) from bypassing prefix whitelisting
-        const hasChaining = /[;&|`\r\n]/.test(cmdTrimmed);
+        // Disallow command chaining and subshell execution (&&, ||, ;, |, `, $, (, ), <, >) from bypassing prefix whitelisting
+        const hasChaining = /[;&|`$\(\)<>\r\n]/.test(cmdTrimmed);
         if (!hasChaining) {
           isWhitelistedCommand = request.subagentApprovedWhitelist.permittedCommands.some((cmd) => {
             const c = cmd.trim();

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, Suspense } from 'react';
+import { TitleBar } from './components/layout/TitleBar.js';
+import { WorkbenchLayout } from './components/layout/WorkbenchLayout.js';
 import { HeaderBar } from './components/HeaderBar.js';
-import { Sidebar } from './components/Sidebar.js';
-import { CenterView } from './components/CenterView.js';
 import { AgentInspector } from './components/AgentInspector.js';
 import { NewProjectModal } from './components/NewProjectModal.js';
 import { CreateChannelModal } from './components/CreateChannelModal.js';
@@ -15,6 +15,7 @@ import { ToastContainer } from './components/ToastContainer.js';
 import { ModelOnboardingBanner } from './components/ModelOnboardingBanner.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { useKinStore } from './store/kinStore.js';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 
 // Lazy-loaded heavy modals to eliminate background hook overhead and optimize initial bundle
 const SettingsModal = React.lazy(() => import('./components/SettingsModal.js').then(m => ({ default: m.SettingsModal })));
@@ -27,12 +28,12 @@ const DecisionsModal = React.lazy(() => import('./components/DecisionsModal.js')
 const AgentSettingsModal = React.lazy(() => import('./components/AgentSettingsModal.js').then(m => ({ default: m.AgentSettingsModal })));
 
 export const App: React.FC = () => {
+  useKeyboardShortcuts();
+
   const {
     fetchState,
     initSSE,
     closeSSE,
-    setSidebarWidth,
-    setInspectorWidth,
     isInspectorOpen,
     setInspectorOpen,
     theme,
@@ -69,9 +70,6 @@ export const App: React.FC = () => {
       document.documentElement.classList.remove('light');
     }
   }, [theme]);
-
-  const [isDraggingLeft, setIsDraggingLeft] = useState(false);
-  const [isDraggingRight, setIsDraggingRight] = useState(false);
 
   useEffect(() => {
     (window as any).kinStore = useKinStore;
@@ -116,47 +114,12 @@ export const App: React.FC = () => {
     };
   }, [fetchState, initSSE, addToast]);
 
-  // Global mouse move and up listeners for fluid Antigravity-style dragging
-  useEffect(() => {
-    if (!isDraggingLeft && !isDraggingRight) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      e.preventDefault();
-      if (isDraggingLeft) {
-        // Left sidebar width is distance from left edge
-        const newWidth = Math.max(180, Math.min(480, Math.round(e.clientX)));
-        setSidebarWidth(newWidth);
-      } else if (isDraggingRight) {
-        // Right inspector width is distance from right edge
-        const newWidth = Math.max(280, Math.min(720, Math.round(window.innerWidth - e.clientX)));
-        setInspectorWidth(newWidth);
-      }
-    };
-
-    const handleMouseUp = () => {
-      setIsDraggingLeft(false);
-      setIsDraggingRight(false);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, [isDraggingLeft, isDraggingRight, setSidebarWidth, setInspectorWidth]);
-
   return (
     <ErrorBoundary name="KIN Root Workspace">
       <div className={`flex flex-col h-screen w-screen overflow-hidden font-sans antialiased select-none ${theme === 'light' ? 'bg-[#f6f8fa] text-slate-800' : 'bg-[#0d1117] text-kin-text'}`}>
+        {/* Desktop Frameless TitleBar */}
+        <TitleBar />
+
         {/* Top Application Header Bar */}
         <HeaderBar />
 
@@ -184,75 +147,8 @@ export const App: React.FC = () => {
         {/* First-Boot AI Model Onboarding Banner */}
         <ModelOnboardingBanner />
 
-        {/* Main 3-Column Draggable & Resizable Workspace Layout */}
-        <div className="flex flex-1 overflow-hidden min-h-0 relative">
-          {/* Column 1: Left Sidebar (Channels, Specialisms, Goals, Tasks, ADRs, Settings) */}
-          <ErrorBoundary name="Sidebar Channels & Direct Messages">
-            <Sidebar />
-          </ErrorBoundary>
-
-          {/* Left Draggable Splitter Handle */}
-          <div
-            onMouseDown={(e) => {
-              e.preventDefault();
-              setIsDraggingLeft(true);
-            }}
-            onDoubleClick={() => setSidebarWidth(260)}
-            className={`relative w-1 hover:w-1.5 cursor-col-resize z-20 shrink-0 transition-all duration-150 select-none group flex items-center justify-center ${
-              isDraggingLeft
-                ? 'bg-emerald-400 w-1.5 shadow-[0_0_8px_#34d399]'
-                : 'bg-[#1e293b]/70 hover:bg-emerald-500/80'
-            }`}
-            title="Drag to resize sidebar (Double-click to reset)"
-          >
-            {/* Expanded invisible touch hit area */}
-            <div
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                setSidebarWidth(260);
-              }}
-              className="absolute inset-y-0 -left-1.5 -right-1.5 w-4 cursor-col-resize"
-            />
-          </div>
-
-          {/* Column 2: Center Execution Workspace & Chat */}
-          <ErrorBoundary name="Center Chat & Execution Workspace">
-            <CenterView />
-          </ErrorBoundary>
-
-          {/* Right Draggable Splitter Handle & Column 3 (Desktop >= 1100px) */}
-          {isInspectorOpen && !isCompact && (
-            <>
-              <div
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  setIsDraggingRight(true);
-                }}
-                onDoubleClick={() => setInspectorWidth(390)}
-                className={`relative w-1 hover:w-1.5 cursor-col-resize z-20 shrink-0 transition-all duration-150 select-none group flex items-center justify-center ${
-                  isDraggingRight
-                    ? 'bg-blue-400 w-1.5 shadow-[0_0_8px_#60a5fa]'
-                    : 'bg-[#1e293b]/70 hover:bg-blue-500/80'
-                }`}
-                title="Drag to resize inspector (Double-click to reset)"
-              >
-                {/* Expanded invisible touch hit area */}
-                <div
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    setInspectorWidth(390);
-                  }}
-                  className="absolute inset-y-0 -left-1.5 -right-1.5 w-4 cursor-col-resize"
-                />
-              </div>
-
-              {/* Column 3: Right Inspector & Diagnostics */}
-              <ErrorBoundary name="Agent Inspector & Diagnostics">
-                <AgentInspector />
-              </ErrorBoundary>
-            </>
-          )}
-        </div>
+        {/* Main 4-Pane Workbench Layout */}
+        <WorkbenchLayout isCompact={isCompact} />
 
         {/* Compact Screen Slide-Over Inspector Drawer (< 1100px) */}
         {isInspectorOpen && isCompact && (

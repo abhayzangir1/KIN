@@ -30,6 +30,11 @@ export interface SentinelCheckRequest {
   riskLevel: RiskLevel;
   autonomyMode: AutonomyMode;
   agentCapabilities: string[];
+  parentCapabilities?: string[];
+  subagentApprovedWhitelist?: {
+    permittedPaths?: string[];
+    permittedCommands?: string[];
+  };
   authorizationToken?: string;
 }
 
@@ -301,8 +306,28 @@ export class Sentinel {
       return 'CRITICAL';
     }
 
-    const lowerTool = toolName.toLowerCase();
     const safeParams = params || {};
+
+    // Root security credential access elevation: direct access to vault.key, kin_storage.sqlite*, or ipc_auth.token is CRITICAL
+    const candidatePath = (
+      safeParams.filePath ||
+      safeParams.path ||
+      safeParams.targetFile ||
+      safeParams.targetPath ||
+      safeParams.dirPath ||
+      safeParams.file ||
+      ''
+    ).toLowerCase();
+
+    if (
+      candidatePath.includes('vault.key') ||
+      candidatePath.includes('ipc_auth.token') ||
+      candidatePath.includes('kin_storage.sqlite')
+    ) {
+      return 'CRITICAL';
+    }
+
+    const lowerTool = toolName.toLowerCase();
 
     if (
       lowerTool.includes('droptable') ||
@@ -416,14 +441,20 @@ export class Sentinel {
         return 'HIGH';
       }
 
+      // Root security credentials access in shell is CRITICAL
+      if (
+        /\.kin[\\\/](vault\.key|ipc_auth\.token)/i.test(cmd) ||
+        /\b(vault\.key|ipc_auth\.token)\b/i.test(cmd)
+      ) {
+        return 'CRITICAL';
+      }
+
       // Credential theft / private key access / secrets reconnaissance
       if (
         /\.env(\.[a-z0-9_-]+)?\b/i.test(cmd) ||
         /\.ssh[\\\/](id_rsa|id_ed25519|id_ecdsa|id_dsa|authorized_keys|known_hosts)/i.test(cmd) ||
         /\b(id_rsa|id_ed25519|id_ecdsa|id_dsa)\b/i.test(cmd) ||
-        /\.aws[\\\/]credentials/i.test(cmd) ||
-        /\.kin[\\\/](vault\.key|ipc_auth\.token)/i.test(cmd) ||
-        /\b(vault\.key|ipc_auth\.token)\b/i.test(cmd)
+        /\.aws[\\\/]credentials/i.test(cmd)
       ) {
         return 'HIGH';
       }
@@ -702,24 +733,26 @@ export class Sentinel {
       riskLevel: effectiveRisk,
       autonomyMode: request.autonomyMode,
       agentCapabilities: request.agentCapabilities,
+      parentCapabilities: request.parentCapabilities,
+      subagentApprovedWhitelist: request.subagentApprovedWhitelist,
     };
 
     const policyResult: PolicyEvaluationResult = this.policyEngine.evaluateAction(policyReq);
 
-    if (!policyResult.allowed) {
+    if (policyResult.requiresInteractiveApproval) {
       return {
-        allowed: false,
-        requiresApproval: false,
+        allowed: true,
+        requiresApproval: true,
         reason: policyResult.reason,
         isDestructive: false,
         sanitizedParams: request.params,
       };
     }
 
-    if (policyResult.requiresInteractiveApproval) {
+    if (!policyResult.allowed) {
       return {
-        allowed: true,
-        requiresApproval: true,
+        allowed: false,
+        requiresApproval: false,
         reason: policyResult.reason,
         isDestructive: false,
         sanitizedParams: request.params,

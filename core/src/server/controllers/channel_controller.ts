@@ -783,13 +783,8 @@ export class ChannelController extends BaseController {
           definitionsMap,
         });
 
-        // Auto-enroll any activated specialists that were mentioned or targeted
-        for (const targetAg of routing.targetAgents) {
-          if (!memberIds.includes(targetAg.id) && !channel.isPrivate) {
-            this.workspaceRepo.addChannelMember(channelId, targetAg.id);
-            this.broadcastEvent('channel:member_added', { channelId, agentId: targetAg.id });
-          }
-        }
+        // PRD § 6: Non-members are not silently auto-enrolled when mentioned;
+        // routing respects channel boundaries and routes unassigned mentions to @Boss.
 
         const triggeredCount = routing.targetAgents.length;
         this.broadcastEvent('channel:routing', { channelId, messageId: userMsg.id, routing });

@@ -114,8 +114,10 @@ export class MigrationRunner {
       }
     }
 
-    // Execute schema in a synchronous transaction
-    this.db.transactionSync(() => {
+    // Execute schema in a synchronous transaction with foreign keys disabled during alterations
+    this.db.exec('PRAGMA foreign_keys = OFF;');
+    try {
+      this.db.transactionSync(() => {
       // Pre-migration: If agent_identities already exists from an earlier version lacking project_id,
       // add the column before executing schemaSql which builds indexes on project_id.
       const existingTables = this.db.query<{ name: string }>(
@@ -221,9 +223,13 @@ export class MigrationRunner {
           "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'agent_runs';"
         )?.sql || '';
 
-        if (!agentRunsSql.includes('quota_paused')) {
+        if (!agentRunsSql.includes('cancelling') || !agentRunsSql.includes('interrupted') || !agentRunsSql.includes('quota_paused')) {
           const runCols = this.db.query<{ name: string }>("PRAGMA table_info(agent_runs);").map((c) => c.name);
           const hasModelId = runCols.includes('model_id');
+          const hasChannelId = runCols.includes('channel_id');
+          const hasTriggerMsgId = runCols.includes('trigger_message_id');
+          const hasQuotaResetsAt = runCols.includes('quota_resets_at');
+          const hasInterruptedTurn = runCols.includes('interrupted_turn');
           this.db.exec(`
             CREATE TABLE agent_runs_dg_tmp (
               id TEXT PRIMARY KEY,
@@ -233,7 +239,7 @@ export class MigrationRunner {
               task_id TEXT,
               channel_id TEXT REFERENCES channels(id) ON DELETE SET NULL,
               trigger_message_id TEXT,
-              state TEXT NOT NULL CHECK (state IN ('created', 'queued', 'running', 'waiting_for_tool', 'waiting_for_approval', 'waiting_for_agent', 'waiting_for_model', 'quota_paused', 'resuming', 'recovering', 'paused', 'completed', 'failed', 'cancelled')),
+              state TEXT NOT NULL CHECK (state IN ('created', 'queued', 'running', 'paused_approval', 'paused_rate_limit', 'paused_user', 'resuming', 'cancelling', 'cancelled', 'completed', 'failed', 'quota_paused', 'interrupted', 'waiting_for_tool', 'waiting_for_approval', 'waiting_for_agent', 'waiting_for_model', 'recovering', 'paused')),
               worktree_path TEXT,
               heartbeat_at INTEGER NOT NULL,
               allocated_tokens INTEGER NOT NULL DEFAULT 0,
@@ -244,8 +250,8 @@ export class MigrationRunner {
               created_at INTEGER NOT NULL,
               completed_at INTEGER
             );
-            INSERT INTO agent_runs_dg_tmp (id, agent_id, project_id, parent_run_id, task_id, channel_id, trigger_message_id, state, worktree_path, heartbeat_at, allocated_tokens, used_tokens, model_id, created_at, completed_at)
-            SELECT id, agent_id, project_id, parent_run_id, task_id, channel_id, trigger_message_id, state, worktree_path, heartbeat_at, allocated_tokens, used_tokens, ${hasModelId ? 'model_id' : 'NULL'}, created_at, completed_at
+            INSERT INTO agent_runs_dg_tmp (id, agent_id, project_id, parent_run_id, task_id, channel_id, trigger_message_id, state, worktree_path, heartbeat_at, allocated_tokens, used_tokens, quota_resets_at, interrupted_turn, model_id, created_at, completed_at)
+            SELECT id, agent_id, project_id, parent_run_id, task_id, ${hasChannelId ? 'channel_id' : 'NULL'}, ${hasTriggerMsgId ? 'trigger_message_id' : 'NULL'}, state, worktree_path, heartbeat_at, allocated_tokens, used_tokens, ${hasQuotaResetsAt ? 'quota_resets_at' : 'NULL'}, ${hasInterruptedTurn ? 'interrupted_turn' : '0'}, ${hasModelId ? 'model_id' : 'NULL'}, created_at, completed_at
             FROM agent_runs;
             DROP TABLE agent_runs;
             ALTER TABLE agent_runs_dg_tmp RENAME TO agent_runs;
@@ -267,6 +273,14 @@ export class MigrationRunner {
           if (!runCols.includes('model_id')) {
             this.db.exec('ALTER TABLE agent_runs ADD COLUMN model_id TEXT;');
           }
+        }
+      }
+
+      // Pre-migration: messages table is_background column
+      if (existingTables.includes('messages')) {
+        const msgCols = this.db.query<{ name: string }>("PRAGMA table_info(messages);").map((c) => c.name);
+        if (!msgCols.includes('is_background')) {
+          this.db.exec('ALTER TABLE messages ADD COLUMN is_background BOOLEAN NOT NULL DEFAULT 0;');
         }
       }
 
@@ -470,7 +484,6 @@ export class MigrationRunner {
 
         if (!providersSql.includes('xai') || !providersSql.includes('azure')) {
           this.db.exec(`
-            PRAGMA foreign_keys = OFF;
             CREATE TABLE providers_dg_tmp (
               id TEXT PRIMARY KEY,
               name TEXT NOT NULL,
@@ -484,7 +497,6 @@ export class MigrationRunner {
             SELECT id, name, provider_type, base_url, api_key_ref, is_active, created_at FROM providers;
             DROP TABLE providers;
             ALTER TABLE providers_dg_tmp RENAME TO providers;
-            PRAGMA foreign_keys = ON;
           `);
         }
       }
@@ -578,6 +590,14 @@ export class MigrationRunner {
 
       }
     });
+  } finally {
+    this.db.exec('PRAGMA foreign_keys = ON;');
+  }
+
+  const violations = this.db.query('PRAGMA foreign_key_check;');
+  if (violations.length > 0) {
+    throw new Error(`Foreign key integrity check failed after migration: ${JSON.stringify(violations)}`);
+  }
 
     // Run integrity check
     const integrityResult = this.db.queryOne<{ integrity_check: string }>('PRAGMA integrity_check(10);');

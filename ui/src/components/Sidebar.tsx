@@ -1,6 +1,6 @@
 import React from 'react';
 import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
-import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale, Trash2, Users, ShieldAlert, Edit2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale, Trash2, Users, ShieldAlert, Edit2, ChevronDown, ChevronRight, GitCommit } from 'lucide-react';
 import { AgentModelQuickSwitch } from './AgentModelQuickSwitch.js';
 
 export const Sidebar: React.FC = () => {
@@ -370,6 +370,18 @@ export const Sidebar: React.FC = () => {
             </div>
             <div className="flex items-center space-x-1">
               <button
+                onClick={() => setActiveMainView(activeMainView === 'dag' ? 'chat' : 'dag')}
+                className={`flex items-center space-x-0.5 px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  activeMainView === 'dag'
+                    ? 'bg-blue-600 text-white font-bold'
+                    : 'hover:bg-kin-card text-kin-muted hover:text-blue-500'
+                }`}
+                title="Toggle Task Topological DAG View"
+              >
+                <GitCommit className="w-3 h-3 text-blue-500" />
+                <span className="text-[9px] font-mono">DAG</span>
+              </button>
+              <button
                 onClick={() => setNewGoalModalOpen(true)}
                 className="flex items-center space-x-0.5 px-1.5 py-0.5 rounded hover:bg-kin-card text-kin-muted hover:text-emerald-500 transition cursor-pointer"
                 title="Create New Goal in Project"
@@ -393,7 +405,11 @@ export const Sidebar: React.FC = () => {
             {uniqueGoals.map((goal) => {
               const goalTasks = tasks.filter((t) => t.goalId === goal.id);
               const completedCount = goalTasks.filter((t) => t.status === 'completed').length;
-              const percent = goalTasks.length > 0 ? Math.round((completedCount / goalTasks.length) * 100) : 0;
+              const runningCount = goalTasks.filter((t) => t.status === 'running' || t.status === 'assigned').length;
+              const reviewCount = goalTasks.filter((t) => t.status === 'review').length;
+              const blockedCount = goalTasks.filter((t) => t.status === 'blocked').length;
+              const backlogCount = goalTasks.filter((t) => t.status === 'backlog' || t.status === 'ready').length;
+              const totalTasks = goalTasks.length || 1;
 
               return (
                 <div key={goal.id} className="p-2.5 rounded-xl bg-kin-card hover:bg-kin-cardHover border border-kin-border transition space-y-2 shadow-xs group/goal">
@@ -434,13 +450,42 @@ export const Sidebar: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Sleek Mini Progress Bar */}
+                  {/* Multi-State Segmented Progress Bar */}
                   {goalTasks.length > 0 && (
-                    <div className="w-full bg-kin-surface h-1 rounded-full overflow-hidden border border-kin-border/50">
-                      <div
-                        className="bg-emerald-500 h-full transition-all duration-300 rounded-full"
-                        style={{ width: `${percent}%` }}
-                      />
+                    <div
+                      className="w-full bg-kin-surface h-1.5 rounded-full overflow-hidden flex border border-kin-border/50"
+                      title={`Completed: ${completedCount}, Running: ${runningCount}, Review: ${reviewCount}, Blocked: ${blockedCount}, Backlog: ${backlogCount}`}
+                    >
+                      {completedCount > 0 && (
+                        <div
+                          className="bg-emerald-500 h-full transition-all"
+                          style={{ width: `${(completedCount / totalTasks) * 100}%` }}
+                        />
+                      )}
+                      {runningCount > 0 && (
+                        <div
+                          className="bg-blue-500 h-full transition-all"
+                          style={{ width: `${(runningCount / totalTasks) * 100}%` }}
+                        />
+                      )}
+                      {reviewCount > 0 && (
+                        <div
+                          className="bg-purple-500 h-full transition-all"
+                          style={{ width: `${(reviewCount / totalTasks) * 100}%` }}
+                        />
+                      )}
+                      {blockedCount > 0 && (
+                        <div
+                          className="bg-amber-500 h-full transition-all"
+                          style={{ width: `${(blockedCount / totalTasks) * 100}%` }}
+                        />
+                      )}
+                      {backlogCount > 0 && (
+                        <div
+                          className="bg-slate-400/40 dark:bg-slate-600/40 h-full transition-all"
+                          style={{ width: `${(backlogCount / totalTasks) * 100}%` }}
+                        />
+                      )}
                     </div>
                   )}
 

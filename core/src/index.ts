@@ -42,4 +42,15 @@ export * from './domain/memory_repository.js';
 export * from './execution/execution_node.js';
 export * from './execution/mcp_client.js';
 export * from './kernel/runner_adapter.js';
+export * from './kernel/state_machine.js';
+export * from './kernel/dynamic_hiring.js';
+export * from './execution/model_discovery.js';
+export * from './execution/quota_guard.js';
+export * from './execution/streaming_client.js';
 export * from './api/oauth_handler.js';
+export * from './domain/diff_parser.js';
+export * from './domain/task_dag.js';
+export * from './domain/transcript_sanitizer.js';
+export * from './domain/window_state.js';
+export * from './security/egress_policy.js';
+

@@ -639,3 +639,49 @@ html.light .border-\[\#1c2944\],
 html.light .border-\[\#1f2b45\] {
   border-color: rgba(31, 35, 40, 0.12) !important;
 }
+
+/* ============================================================================
+   ACCESSIBILITY: HIGH CONTRAST & REDUCED MOTION (Feature 33)
+   ============================================================================ */
+
+@media (forced-colors: active) {
+  * {
+    forced-color-adjust: auto;
+  }
+  button, input, select, textarea {
+    border: 1px solid ButtonText !important;
+  }
+  .border-kin-border,
+  [class*="border-"] {
+    border-color: CanvasText !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root, html.dark {
+    --kin-border: rgba(255, 255, 255, 0.25);
+    --kin-subtle: #9ca3af;
+  }
+  html.light {
+    --kin-border: rgba(0, 0, 0, 0.35);
+    --kin-subtle: #4b5563;
+  }
+  button, a {
+    outline-offset: 2px;
+  }
+  button:focus-visible, a:focus-visible, input:focus-visible {
+    outline: 2px solid currentColor !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+

@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     task_id TEXT,
     channel_id TEXT REFERENCES channels(id) ON DELETE SET NULL,
     trigger_message_id TEXT,
-    state TEXT NOT NULL CHECK (state IN ('created', 'queued', 'running', 'waiting_for_tool', 'waiting_for_approval', 'waiting_for_agent', 'waiting_for_model', 'quota_paused', 'resuming', 'recovering', 'paused', 'completed', 'failed', 'cancelled')),
+    state TEXT NOT NULL CHECK (state IN ('created', 'queued', 'running', 'paused_approval', 'paused_rate_limit', 'paused_user', 'resuming', 'cancelling', 'cancelled', 'completed', 'failed', 'quota_paused', 'interrupted', 'waiting_for_tool', 'waiting_for_approval', 'waiting_for_agent', 'waiting_for_model', 'recovering', 'paused')),
     worktree_path TEXT,
     heartbeat_at INTEGER NOT NULL,
     allocated_tokens INTEGER NOT NULL DEFAULT 0,
@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS messages (
     parent_message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
     mentions_json TEXT NOT NULL DEFAULT '[]',
     productivity_score INTEGER NOT NULL DEFAULT 0,
+    is_background BOOLEAN NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
 );
 

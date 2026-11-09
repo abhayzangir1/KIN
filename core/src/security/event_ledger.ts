@@ -7,6 +7,7 @@ import * as crypto from 'node:crypto';
 
 import { KinDatabase } from '../storage/db.js';
 import { SecretBroker } from './secret_broker.js';
+import { SecretVault } from './secret_vault.js';
 
 export type LedgerEventType =
   | 'USER_REQUEST'
@@ -73,6 +74,32 @@ export class EventLedger {
   }
 
   /**
+   * Computes cryptographic hash for an event journal record.
+   * Uses HMAC-SHA256 with master vault key where available, falling back to unkeyed SHA-256.
+   */
+  public computeEventHash(
+    prevHash: string,
+    eventType: string,
+    entityType: string,
+    entityId: string,
+    runId: string | null | undefined,
+    payloadJson: string,
+    createdAt: number
+  ): string {
+    const rawData = `${prevHash}:${eventType}:${entityType}:${entityId}:${runId || ''}:${payloadJson}:${createdAt}`;
+    try {
+      const vault = SecretVault.getInstance();
+      const masterKey = vault.getMasterKey();
+      if (masterKey && masterKey.length > 0) {
+        return crypto.createHmac('sha256', masterKey).update(rawData).digest('hex');
+      }
+    } catch {
+      // SecretVault unavailable, fallback to standard sha256
+    }
+    return crypto.createHash('sha256').update(rawData).digest('hex');
+  }
+
+  /**
    * Appends an authoritative, sanitized lifecycle event into event_journal.
    */
   public record(params: LedgerEventParams): number {
@@ -93,10 +120,15 @@ export class EventLedger {
         }
       } catch (err) { console.debug("[event_ledger] Suppressed exception in catch block:", err); }
 
-      const recordHash = crypto
-        .createHash('sha256')
-        .update(`${prevHash}:${params.eventType}:${entityType}:${entityId}:${params.runId || ''}:${payloadJson}:${now}`)
-        .digest('hex');
+      const recordHash = this.computeEventHash(
+        prevHash,
+        params.eventType,
+        entityType,
+        entityId,
+        params.runId,
+        payloadJson,
+        now
+      );
 
       const result = this.db.execute(
         `INSERT INTO event_journal (event_type, entity_type, entity_id, run_id, payload_json, record_hash, prev_hash, created_at)
@@ -179,6 +211,14 @@ export class EventLedger {
     let expectedPrevHash = 'GENESIS_HASH_0000000000000000';
     let verifiedCount = 0;
 
+    let masterKey: Buffer | null = null;
+    try {
+      const vault = SecretVault.getInstance();
+      masterKey = vault.getMasterKey();
+    } catch {
+      masterKey = null;
+    }
+
     for (const row of rows) {
       if (!row.record_hash) continue;
       if (row.prev_hash !== expectedPrevHash) {
@@ -189,11 +229,25 @@ export class EventLedger {
           error: `Broken chain link at event ID ${row.id}: expected prev_hash '${expectedPrevHash}', found '${row.prev_hash}'`,
         };
       }
-      const expectedHash = crypto
-        .createHash('sha256')
-        .update(`${row.prev_hash}:${row.event_type}:${row.entity_type}:${row.entity_id}:${row.run_id || ''}:${row.payload_json}:${row.created_at}`)
-        .digest('hex');
-      if (row.record_hash !== expectedHash) {
+      const expectedHash = this.computeEventHash(
+        row.prev_hash,
+        row.event_type,
+        row.entity_type,
+        row.entity_id,
+        row.run_id,
+        row.payload_json,
+        row.created_at
+      );
+      let matches = (row.record_hash === expectedHash);
+      if (!matches && (!masterKey || masterKey.length === 0)) {
+        // Fallback: check unkeyed sha256 only for backwards compatibility when no vault master key is active
+        const rawData = `${row.prev_hash}:${row.event_type}:${row.entity_type}:${row.entity_id}:${row.run_id || ''}:${row.payload_json}:${row.created_at}`;
+        const fallbackHash = crypto.createHash('sha256').update(rawData).digest('hex');
+        if (row.record_hash === fallbackHash) {
+          matches = true;
+        }
+      }
+      if (!matches) {
         return {
           valid: false,
           verifiedCount,

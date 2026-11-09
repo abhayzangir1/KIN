@@ -34,7 +34,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
-  AlertCircle,
   Users,
   Network,
   Target,
@@ -43,6 +42,7 @@ import {
   Edit2,
 } from 'lucide-react';
 import { ProviderIcon, formatContextWindow } from './ModelSelectorModal.js';
+import { UnifiedDiffViewer } from './code/UnifiedDiffViewer.js';
 
 export const AgentInspector: React.FC = () => {
   const {
@@ -577,48 +577,16 @@ export const AgentInspector: React.FC = () => {
                 </div>
               </div>
 
-              {/* Status Banner */}
-              <div className="px-3 py-1 bg-[#090d16] text-[10px] text-[#64748b] font-mono flex items-center justify-between border-b border-[#1e293b]">
-                <span>
-                  {activeGitDiff.isUntracked
-                    ? '⚠️ Untracked New File (Full Content Displayed)'
-                    : 'Unified Git Diff (Relative to HEAD)'}
-                </span>
-                <span className="text-[#94a3b8]">Review Mode</span>
-              </div>
-
-              {/* Diff Lines Container */}
-              <div className="flex-1 overflow-y-auto p-2 font-mono text-[11px] leading-relaxed text-[#cbd5e1] whitespace-pre bg-[#04060b]">
-                {isLoadingDiff ? (
-                  <div className="p-8 text-center text-[#64748b]">Loading diff...</div>
-                ) : activeGitDiff?.isBinary ? (
-                  <div className="p-8 text-center text-[#64748b]">
-                    <div className="text-amber-400 font-medium mb-1">Binary File Detected</div>
-                    <div>Text diff preview unavailable for binary files.</div>
-                  </div>
-                ) : activeGitDiff.diff ? (
-                  activeGitDiff.diff.split('\n').map((line, idx) => {
-                    const isAdd = line.startsWith('+') && !line.startsWith('+++');
-                    const isDel = line.startsWith('-') && !line.startsWith('---');
-                    const isHeader = line.startsWith('@@') || line.startsWith('diff --git');
-
-                    let lineStyle = 'text-[#94a3b8] px-2 py-0.5';
-                    if (isAdd) lineStyle = 'bg-emerald-950/40 text-emerald-300 border-l-2 border-emerald-500 px-2 py-0.5';
-                    else if (isDel) lineStyle = 'bg-red-950/40 text-red-300 border-l-2 border-red-500 px-2 py-0.5';
-                    else if (isHeader) lineStyle = 'bg-blue-950/40 text-blue-400 font-bold border-y border-blue-900/30 px-2 py-0.5';
-
-                    return (
-                      <div key={idx} className={`${lineStyle} hover:bg-white/5 transition-colors`}>
-                        <span className="inline-block w-8 text-[#475569] text-right pr-2 select-none">
-                          {idx + 1}
-                        </span>
-                        <span>{line}</span>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="p-8 text-center text-[#64748b]">No changes found for this file.</div>
-                )}
+              {/* Unified Diff View */}
+              <div className="flex-1 overflow-y-auto p-2">
+                <UnifiedDiffViewer
+                  diff={activeGitDiff.diff || ''}
+                  filePath={activeGitDiff.path}
+                  isBinary={activeGitDiff.isBinary}
+                  isLoading={isLoadingDiff}
+                  onStage={() => stageGitFile(activeGitDiff.path, true)}
+                  onRevert={() => revertGitFile(activeGitDiff.path)}
+                />
               </div>
             </div>
           ) : (
@@ -980,46 +948,15 @@ export const AgentInspector: React.FC = () => {
               )}
 
               {/* Diff Lines Container */}
-              <div className="flex-1 overflow-y-auto p-2 font-mono text-[11px] leading-relaxed text-[#cbd5e1] whitespace-pre bg-[#04060b]">
-                {isLoadingDiff ? (
-                  <div className="p-8 text-center text-[#64748b]">Loading diff...</div>
-                ) : (activeGitDiff?.isBinary || Boolean(activeGitDiff?.diff && (
-                  activeGitDiff.diff.includes('Binary files ') ||
-                  activeGitDiff.diff.includes('\0') ||
-                  activeGitDiff.diff.startsWith('GIT binary patch')
-                ))) ? (
-                  <div className="p-8 text-center text-amber-400/80 space-y-2">
-                    <AlertCircle className="w-8 h-8 mx-auto text-amber-400" />
-                    <p className="font-semibold">Binary File Detected</p>
-                    <p className="text-[11px] text-[#94a3b8]">Unified text diff cannot be computed for binary asset files.</p>
-                  </div>
-                ) : activeGitDiff?.diff ? (
-                  activeGitDiff.diff.split('\n').map((line, idx) => {
-                    const isAdd = line.startsWith('+') && !line.startsWith('+++');
-                    const isDel = line.startsWith('-') && !line.startsWith('---');
-                    const isHeader = line.startsWith('@@') || line.startsWith('diff --git');
-
-                    let lineStyle = 'text-[#94a3b8] px-2 py-0.5';
-                    if (isAdd) lineStyle = 'bg-emerald-950/40 text-emerald-300 border-l-2 border-emerald-500 px-2 py-0.5';
-                    else if (isDel) lineStyle = 'bg-red-950/40 text-red-300 border-l-2 border-red-500 px-2 py-0.5';
-                    else if (isHeader) lineStyle = 'bg-blue-950/40 text-blue-400 font-bold border-y border-blue-900/30 px-2 py-0.5';
-
-                    return (
-                      <div key={idx} className={`${lineStyle} hover:bg-white/5 transition-colors`}>
-                        <span className="inline-block w-8 text-[#475569] text-right pr-2 select-none">
-                          {idx + 1}
-                        </span>
-                        <span>{line}</span>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="p-8 text-center text-[#64748b] space-y-2">
-                    <FileCode className="w-8 h-8 mx-auto text-[#475569]" />
-                    <p className="text-xs">No active file selected or no differences detected.</p>
-                    <p className="text-[11px] text-[#64748b]">Select a file from the dropdown above to review its unified diff.</p>
-                  </div>
-                )}
+              <div className="flex-1 overflow-y-auto p-2">
+                <UnifiedDiffViewer
+                  diff={activeGitDiff?.diff || ''}
+                  filePath={activeGitDiff?.path}
+                  isBinary={activeGitDiff?.isBinary}
+                  isLoading={isLoadingDiff}
+                  onStage={() => activeGitDiff?.path && stageGitFile(activeGitDiff.path, true)}
+                  onRevert={() => activeGitDiff?.path && revertGitFile(activeGitDiff.path)}
+                />
               </div>
             </div>
           )}

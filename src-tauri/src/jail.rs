@@ -20,6 +20,52 @@ pub fn validate_jail_path(jail_root: String, target_path: String) -> JailValidat
 pub struct FilesystemJail;
 
 impl FilesystemJail {
+    /// Checks whether a given path matches sensitive file patterns (credentials, keys, sqlite databases, etc.)
+    pub fn is_sensitive_pattern<P: AsRef<Path>>(path: P) -> bool {
+        let p = path.as_ref();
+        let path_str = p.to_string_lossy().replace('\\', "/").to_lowercase();
+        let file_name = p
+            .file_name()
+            .map(|f| f.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+
+        // 1. Exact or suffix/prefix matches on file/dir name
+        if file_name == ".env"
+            || file_name.starts_with(".env.")
+            || file_name.ends_with(".env")
+            || file_name == "vault.key"
+            || file_name == "ipc_auth.token"
+            || file_name.starts_with("kin_storage.sqlite")
+            || file_name.ends_with(".sqlite")
+            || file_name.ends_with(".sqlite3")
+            || file_name.ends_with(".sqlite-wal")
+            || file_name.ends_with(".sqlite-shm")
+            || file_name == ".npmrc"
+            || file_name == ".pypirc"
+            || file_name == "id_rsa"
+            || file_name == "id_ed25519"
+            || file_name == "id_ecdsa"
+            || file_name == "id_dsa"
+        {
+            return true;
+        }
+
+        // 2. Specific directory and full path patterns
+        if path_str.ends_with("/.git/config")
+            || path_str == ".git/config"
+            || path_str.contains("/.ssh/")
+            || path_str.ends_with("/.ssh")
+            || path_str.contains("/.aws/")
+            || path_str.ends_with("/.aws")
+            || ((path_str.contains("/.kin/") || path_str.starts_with(".kin/"))
+                && !path_str.contains("/.kin/worktrees/"))
+        {
+            return true;
+        }
+
+        false
+    }
+
     /// Validates that `target_path` is strictly contained within `jail_root`.
     /// Resolves all symlinks, relative segments (`..`), and normalizes path separators.
     pub fn validate_path<P: AsRef<Path>, Q: AsRef<Path>>(
@@ -29,7 +75,19 @@ impl FilesystemJail {
         let root = jail_root.as_ref();
         let target = target_path.as_ref();
 
-        // 1. Canonicalize the root directory (must exist)
+        // 1. Immediate rejection of sensitive file patterns
+        if Self::is_sensitive_pattern(target) {
+            return JailValidationResult {
+                is_valid: false,
+                canonical_path: None,
+                error: Some(format!(
+                    "SECURITY JAIL VIOLATION: Access to sensitive file pattern is prohibited: '{:?}'",
+                    target
+                )),
+            };
+        }
+
+        // 2. Canonicalize the root directory (must exist)
         let canonical_root = match root.canonicalize() {
             Ok(p) => p,
             Err(e) => {
@@ -91,7 +149,19 @@ impl FilesystemJail {
             }
         };
 
-        // 4. Verify that canonical_target starts strictly with canonical_root
+        // 4. Verify canonical target does not match sensitive file patterns
+        if Self::is_sensitive_pattern(&resolved_target) || Self::is_sensitive_pattern(&canonical_target) {
+            return JailValidationResult {
+                is_valid: false,
+                canonical_path: None,
+                error: Some(format!(
+                    "SECURITY JAIL VIOLATION: Access to sensitive file pattern is prohibited: '{:?}'",
+                    canonical_target
+                )),
+            };
+        }
+
+        // 5. Verify that canonical_target starts strictly with canonical_root
         if canonical_target.starts_with(&canonical_root) {
             JailValidationResult {
                 is_valid: true,
@@ -110,3 +180,48 @@ impl FilesystemJail {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use std::fs;
+
+    #[test]
+    fn test_sensitive_patterns_denied() {
+        let temp_dir = env::temp_dir().join("kin_jail_sensitive_test");
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let sensitive_names = vec![
+            ".env",
+            ".env.local",
+            "production.env",
+            "vault.key",
+            "ipc_auth.token",
+            "kin_storage.sqlite",
+            "kin_storage.sqlite-wal",
+            "kin_storage.sqlite-shm",
+            "app.sqlite",
+            ".npmrc",
+            "id_rsa",
+            "id_ed25519",
+        ];
+
+        for name in sensitive_names {
+            let res = FilesystemJail::validate_path(&temp_dir, temp_dir.join(name));
+            assert!(
+                !res.is_valid,
+                "Expected '{}' to be blocked by sensitive pattern jail",
+                name
+            );
+            assert!(
+                res.error.unwrap().contains("SECURITY JAIL VIOLATION"),
+                "Expected SECURITY JAIL VIOLATION error for '{}'",
+                name
+            );
+        }
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+}
+

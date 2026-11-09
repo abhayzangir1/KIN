@@ -16,13 +16,48 @@ export interface SendMessageParams {
   content: string;
   parentMessageId?: string;
   productivityScore?: number;
+  isBackground?: boolean;
+  is_background?: boolean;
 }
 
 export class ChannelService {
   private db: KinDatabase;
+  private threadLeases: Map<string, { agentId: string; expiresAt: number }> = new Map();
 
   constructor(db: KinDatabase) {
     this.db = db;
+  }
+
+  public postMessage(params: SendMessageParams): Message {
+    return this.sendMessage(params);
+  }
+
+  public getChannel(channelId: string): { id: string; name: string; type: string; is_private: boolean } | undefined {
+    if (channelId.startsWith('dm-')) {
+      return { id: channelId, name: channelId, type: 'dm', is_private: true };
+    }
+    const row = this.db.queryOne<{ id: string; name: string; channel_type: string; is_private: number }>(
+      'SELECT id, name, channel_type, is_private FROM channels WHERE id = ?',
+      channelId
+    );
+    if (!row) return undefined;
+    return {
+      id: row.id,
+      name: row.name,
+      type: row.channel_type === 'direct_message' ? 'dm' : row.channel_type,
+      is_private: Boolean(row.is_private),
+    };
+  }
+
+  public listMembers(channelId: string): Array<{ id: string; displayName: string }> {
+    const rows = this.db.query<{ id: string; display_name: string }>(
+      `SELECT i.id, i.display_name
+       FROM channel_members cm
+       JOIN agent_identities i ON cm.agent_id = i.id
+       WHERE cm.channel_id = ?`,
+      channelId
+    );
+    return rows.map((r) => ({ id: r.id, displayName: r.display_name }));
   }
 
   public sendMessage(params: SendMessageParams): Message {
@@ -30,12 +65,15 @@ export class ChannelService {
       throw new Error(`Message content must be a non-empty string and cannot exceed 100,000 characters.`);
     }
 
-    // Verify membership for private channels and direct messages
+    // Verify membership for private channels and direct messages (including ad-hoc dm- channels)
     const chan = this.db.queryOne<{ is_private: number; channel_type: string }>(
       'SELECT is_private, channel_type FROM channels WHERE id = ?',
       params.channelId
     );
-    if (chan && (chan.is_private === 1 || chan.channel_type === 'dm' || chan.channel_type === 'direct_message' || params.channelId.startsWith('dm-'))) {
+    const isPrivateOrDm =
+      (chan && (chan.is_private === 1 || chan.channel_type === 'dm' || chan.channel_type === 'direct_message')) ||
+      params.channelId.startsWith('dm-');
+    if (isPrivateOrDm) {
       if (params.senderType === 'agent') {
         const isMember = this.db.queryOne<{ agent_id: string }>(
           'SELECT agent_id FROM channel_members WHERE channel_id = ? AND agent_id = ?',
@@ -52,6 +90,7 @@ export class ChannelService {
     const cleanContent = SecretBroker.getInstance(this.db).redactSecrets(params.content);
     const mentions = this.extractMentions(cleanContent);
     const score = params.productivityScore ?? this.calculateInitialProductivity(cleanContent);
+    const isBackground = Boolean(params.isBackground || params.is_background);
     const now = Date.now();
 
     const message: Message = {
@@ -63,12 +102,14 @@ export class ChannelService {
       parentMessageId: params.parentMessageId,
       mentions,
       productivityScore: score,
+      isBackground,
+      is_background: isBackground,
       createdAt: now,
     };
 
     this.db.execute(
-      `INSERT INTO messages (id, channel_id, sender_id, sender_type, content, parent_message_id, mentions_json, productivity_score, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO messages (id, channel_id, sender_id, sender_type, content, parent_message_id, mentions_json, productivity_score, is_background, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       message.id,
       message.channelId,
       message.senderId,
@@ -77,6 +118,7 @@ export class ChannelService {
       message.parentMessageId ?? null,
       JSON.stringify(message.mentions),
       message.productivityScore,
+      isBackground ? 1 : 0,
       message.createdAt
     );
 
@@ -87,7 +129,13 @@ export class ChannelService {
         eventType: 'message.created',
         entityType: 'message',
         entityId: message.id,
-        payload: { channelId: message.channelId, senderId: message.senderId, mentions },
+        payload: {
+          channelId: message.channelId,
+          senderId: message.senderId,
+          mentions,
+          isBackground,
+          is_background: isBackground,
+        },
       });
     } catch (err) {
       console.warn('[CHANNEL SERVICE] EventLedger recording failure:', err);
@@ -106,6 +154,7 @@ export class ChannelService {
       parent_message_id: string | null;
       mentions_json: string;
       productivity_score: number;
+      is_background?: number;
       created_at: number;
     }>(
       `SELECT * FROM (
@@ -124,8 +173,116 @@ export class ChannelService {
       parentMessageId: r.parent_message_id ?? undefined,
       mentions: safeJsonParseArray<string>(r.mentions_json, []),
       productivityScore: r.productivity_score,
+      isBackground: Boolean(r.is_background),
+      is_background: Boolean(r.is_background),
       createdAt: r.created_at,
     }));
+  }
+
+  public getThreadReplies(arg1: string, arg2?: string): Message[] {
+    const parentMessageId = arg2 !== undefined ? arg2 : arg1;
+    const channelId = arg2 !== undefined ? arg1 : undefined;
+
+    const rows = channelId
+      ? this.db.query<{
+          id: string;
+          channel_id: string;
+          sender_id: string;
+          sender_type: string;
+          content: string;
+          parent_message_id: string | null;
+          mentions_json: string;
+          productivity_score: number;
+          is_background?: number;
+          created_at: number;
+        }>(
+          'SELECT * FROM messages WHERE channel_id = ? AND parent_message_id = ? ORDER BY created_at ASC, id ASC',
+          channelId,
+          parentMessageId
+        )
+      : this.db.query<{
+          id: string;
+          channel_id: string;
+          sender_id: string;
+          sender_type: string;
+          content: string;
+          parent_message_id: string | null;
+          mentions_json: string;
+          productivity_score: number;
+          is_background?: number;
+          created_at: number;
+        }>(
+          'SELECT * FROM messages WHERE parent_message_id = ? ORDER BY created_at ASC, id ASC',
+          parentMessageId
+        );
+
+    return rows.map((r) => ({
+      id: r.id,
+      channelId: r.channel_id,
+      senderId: r.sender_id,
+      senderType: r.sender_type as SenderType,
+      content: r.content,
+      parentMessageId: r.parent_message_id ?? undefined,
+      mentions: safeJsonParseArray<string>(r.mentions_json, []),
+      productivityScore: r.productivity_score,
+      isBackground: Boolean(r.is_background),
+      is_background: Boolean(r.is_background),
+      createdAt: r.created_at,
+    }));
+  }
+
+  public acquireThreadLease(
+    arg1: string,
+    arg2: string,
+    arg3?: string | number,
+    arg4?: number
+  ): boolean {
+    const now = Date.now();
+    let threadKey: string;
+    let agentId: string;
+    let ttlMs: number = 30000;
+
+    if (typeof arg3 === 'string') {
+      threadKey = `${arg1}:${arg2}`;
+      agentId = arg3;
+      if (typeof arg4 === 'number') ttlMs = arg4;
+    } else {
+      threadKey = arg1;
+      agentId = arg2;
+      if (typeof arg3 === 'number') ttlMs = arg3;
+    }
+
+    const existing = this.threadLeases.get(threadKey);
+    if (!existing || existing.expiresAt <= now || existing.agentId === agentId) {
+      this.threadLeases.set(threadKey, {
+        agentId,
+        expiresAt: now + ttlMs,
+      });
+      return true;
+    }
+    return false;
+  }
+
+  public releaseThreadLease(
+    arg1: string,
+    arg2: string,
+    arg3?: string
+  ): void {
+    let threadKey: string;
+    let agentId: string;
+
+    if (arg3 !== undefined) {
+      threadKey = `${arg1}:${arg2}`;
+      agentId = arg3;
+    } else {
+      threadKey = arg1;
+      agentId = arg2;
+    }
+
+    const existing = this.threadLeases.get(threadKey);
+    if (existing && existing.agentId === agentId) {
+      this.threadLeases.delete(threadKey);
+    }
   }
 
   public getMessage(messageId: string): Message | undefined {
@@ -138,6 +295,7 @@ export class ChannelService {
       parent_message_id: string | null;
       mentions_json: string;
       productivity_score: number;
+      is_background?: number;
       created_at: number;
     }>('SELECT * FROM messages WHERE id = ?', messageId);
 
@@ -152,6 +310,8 @@ export class ChannelService {
       parentMessageId: r.parent_message_id ?? undefined,
       mentions: safeJsonParseArray<string>(r.mentions_json, []),
       productivityScore: r.productivity_score,
+      isBackground: Boolean(r.is_background),
+      is_background: Boolean(r.is_background),
       createdAt: r.created_at,
     };
   }

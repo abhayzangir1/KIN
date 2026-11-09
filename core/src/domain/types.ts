@@ -9,17 +9,22 @@ export type RunState =
   | 'created'
   | 'queued'
   | 'running'
+  | 'paused_approval'
+  | 'paused_rate_limit'
+  | 'paused_user'
+  | 'resuming'
+  | 'cancelling'
+  | 'cancelled'
+  | 'completed'
+  | 'failed'
+  | 'quota_paused'
+  | 'interrupted'
   | 'waiting_for_tool'
   | 'waiting_for_approval'
   | 'waiting_for_agent'
   | 'waiting_for_model'
-  | 'quota_paused'
-  | 'resuming'
   | 'recovering'
-  | 'paused'
-  | 'completed'
-  | 'failed'
-  | 'cancelled';
+  | 'paused';
 
 export type TaskStatus =
   | 'backlog'
@@ -34,7 +39,7 @@ export type TaskStatus =
 
 export type GoalStatus = 'draft' | 'active' | 'completed' | 'failed' | 'cancelled';
 export type DecisionStatus = 'proposed' | 'authoritative' | 'superseded' | 'rejected';
-export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired';
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'failed';
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type SenderType = 'human' | 'agent' | 'system';
 export type MemoryScope = 'global' | 'workspace' | 'project' | 'team' | 'channel' | 'agent_private' | 'task';
@@ -153,6 +158,8 @@ export interface Message {
   parentMessageId?: string;
   mentions: string[];
   productivityScore: number;
+  isBackground?: boolean;
+  is_background?: boolean;
   createdAt: number;
 }
 
@@ -191,6 +198,7 @@ export interface Task {
   claimedByRunId?: string | null;
   leaseExpiresAt?: number | null;
   retryCount?: number;
+  dependsOnTaskIds?: string[];
   createdAt: number;
   updatedAt: number;
 }

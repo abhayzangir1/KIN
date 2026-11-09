@@ -68,6 +68,10 @@ export class SecretVault {
     return this.keyFilePath;
   }
 
+  public getMasterKey(): Buffer {
+    return this.masterKey;
+  }
+
   private deriveKeyFromString(rawKey: string): Buffer {
     const trimmed = rawKey.trim();
     if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {

@@ -355,6 +355,8 @@ export interface MessageItem {
   createdAt: number;
   productivityScore?: number;
   isSteer?: boolean;
+  is_background?: boolean;
+  isBackground?: boolean;
   metadata?: any;
 }
 
@@ -526,6 +528,7 @@ export type SettingsTab =
   | 'general'
   | 'models'
   | 'credentials'
+  | 'egress'
   | 'skills'
   | 'connectors'
   | 'desktop'
@@ -549,6 +552,10 @@ export interface GoalItem {
   description: string;
   acceptanceCriteria: string[];
   status: 'draft' | 'active' | 'completed' | 'failed' | 'cancelled';
+  deadline?: number;
+  checkInPolicy?: string;
+  progressSummary?: string;
+  blockedState?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -580,6 +587,7 @@ export interface TaskItem {
   description: string;
   assignedAgentId?: string;
   status: 'backlog' | 'ready' | 'assigned' | 'running' | 'blocked' | 'review' | 'completed' | 'failed' | 'cancelled';
+  dependsOnTaskIds?: string[];
   verificationSpec?: any;
   createdAt: number;
   updatedAt: number;
@@ -610,6 +618,7 @@ export interface PendingRecoveryItem {
   checkpointReason?: string;
   checkpoint?: any;
   state?: string;
+  snapshotState?: any;
   interruptedAt?: number;
 }
 
@@ -1145,8 +1154,8 @@ interface KinState {
   toggleTheme: () => void;
 
   // Main View Navigation
-  activeMainView: 'chat' | 'automations';
-  setActiveMainView: (view: 'chat' | 'automations') => void;
+  activeMainView: 'chat' | 'automations' | 'dag';
+  setActiveMainView: (view: 'chat' | 'automations' | 'dag') => void;
 
   // System Diagnostics & Health
   systemHealth: {
@@ -1196,7 +1205,7 @@ interface KinState {
   setActiveProject: (projectId: string) => Promise<void>;
   createProject: (name: string, repoPath?: string) => Promise<void>;
   deleteProject: (projectId: string) => Promise<{ success: boolean; error?: string }>;
-  createGoal: (title: string, description?: string, acceptanceCriteria?: string[]) => Promise<{ success: boolean; error?: string; goal?: any }>;
+  createGoal: (title: string, description?: string, acceptanceCriteria?: string[], checkInPolicy?: string, deadline?: string | number) => Promise<{ success: boolean; error?: string; goal?: any }>;
   deleteGoal: (goalId: string) => Promise<{ success: boolean; error?: string }>;
   createTask: (goalId: string, title: string, description?: string, assignedAgentId?: string, dependsOnTaskIds?: string[]) => Promise<{ success: boolean; error?: string; task?: any }>;
   deleteTask: (taskId: string) => Promise<{ success: boolean; error?: string }>;
@@ -1222,7 +1231,7 @@ interface KinState {
   updateAgentContract: (agentId: string, roleTitle: string, activeModelId: string, systemPrompt?: string, capabilities?: string[]) => Promise<{ success: boolean; error?: string }>;
   sendMessage: (content: string, overrideChannelId?: string, isSteer?: boolean) => Promise<{ success: boolean; error?: string }>;
   setAutonomyMode: (mode: 'AUTO' | 'ALWAYS_ASK' | 'FULL_ACCESS') => Promise<{ success: boolean; error?: string }>;
-  resolveApproval: (approvalId: string, approved: boolean) => Promise<{ success: boolean; error?: string }>;
+  resolveApproval: (approvalId: string, approved: boolean | 'approved' | 'rejected') => Promise<{ success: boolean; error?: string }>;
   setActiveInspectorTab: (tab: KinState['activeInspectorTab']) => void;
   setSelectedAgentId: (agentId: string) => void;
   setNewProjectModalOpen: (open: boolean) => void;
@@ -1797,7 +1806,7 @@ export const useKinStore = create<KinState>((set, get) => ({
     }
   },
 
-  setActiveMainView: (view: 'chat' | 'automations') => {
+  setActiveMainView: (view: 'chat' | 'automations' | 'dag') => {
     const projId = get().activeProjectId;
     if (projId) {
       try {
@@ -2238,7 +2247,13 @@ export const useKinStore = create<KinState>((set, get) => ({
 
       sse.addEventListener('message:created', (e) => {
         try {
-          const msg: MessageItem = JSON.parse(e.data);
+          const raw = JSON.parse(e.data);
+          const isBg = raw.is_background !== undefined ? Boolean(raw.is_background) : (raw.isBackground !== undefined ? Boolean(raw.isBackground) : (raw.metadata && Boolean(raw.metadata.is_background)));
+          const msg: MessageItem = {
+            ...raw,
+            is_background: isBg,
+            isBackground: isBg,
+          };
           if (msg.senderType === 'agent' && msg.senderId && msg.content) {
             const allAgents = get().agents;
             const fromAgent = allAgents.find((a) => a.id === msg.senderId);
@@ -3291,9 +3306,13 @@ export const useKinStore = create<KinState>((set, get) => ({
             .then((r) => r.json())
             .then((data) => {
               if (get().activeChannelId === activeChan && data.messages) {
+                const normalized = (data.messages || []).map((m: any) => {
+                  const isBg = m.is_background !== undefined ? Boolean(m.is_background) : (m.isBackground !== undefined ? Boolean(m.isBackground) : (m.metadata && Boolean(m.metadata.is_background)));
+                  return { ...m, is_background: isBg, isBackground: isBg };
+                });
                 set((state) => ({
-                  messages: data.messages,
-                  channelMessagesCache: { ...state.channelMessagesCache, [activeChan]: data.messages },
+                  messages: normalized,
+                  channelMessagesCache: { ...state.channelMessagesCache, [activeChan]: normalized },
                 }));
               }
             })
@@ -3372,7 +3391,14 @@ export const useKinStore = create<KinState>((set, get) => ({
       const res = await fetch(`/api/channels/${channelId}/messages`);
       if (res.ok) {
         const data = await res.json();
-        const serverMsgs: MessageItem[] = data.messages || [];
+        const serverMsgs: MessageItem[] = (data.messages || []).map((m: any) => {
+          const isBg = m.is_background !== undefined ? Boolean(m.is_background) : (m.isBackground !== undefined ? Boolean(m.isBackground) : (m.metadata && Boolean(m.metadata.is_background)));
+          return {
+            ...m,
+            is_background: isBg,
+            isBackground: isBg,
+          };
+        });
         set((state) => {
           const nextCache = { ...state.channelMessagesCache, [channelId]: serverMsgs };
           if (state.activeChannelId === channelId) {
@@ -3731,7 +3757,8 @@ export const useKinStore = create<KinState>((set, get) => ({
     }
   },
 
-  resolveApproval: async (approvalId: string, approved: boolean) => {
+  resolveApproval: async (approvalId: string, approved: boolean | 'approved' | 'rejected') => {
+    const isApproved = typeof approved === 'boolean' ? approved : approved === 'approved';
     const prevApprovals = get().pendingApprovals;
     set((state) => ({
       pendingApprovals: state.pendingApprovals.filter((a) => a.id !== approvalId),
@@ -3741,7 +3768,7 @@ export const useKinStore = create<KinState>((set, get) => ({
       const res = await fetch(`/api/approvals/${approvalId}/resolve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ approved }),
+        body: JSON.stringify({ approved: isApproved }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({ error: 'Failed to resolve approval' }));
@@ -3760,13 +3787,13 @@ export const useKinStore = create<KinState>((set, get) => ({
     }
   },
 
-  createGoal: async (title: string, description?: string, acceptanceCriteria?: string[]) => {
+  createGoal: async (title: string, description?: string, acceptanceCriteria?: string[], checkInPolicy?: string, deadline?: string | number) => {
     const projectId = get().activeProjectId;
     try {
       const res = await fetch(`/api/projects/${projectId}/goals`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, description, acceptanceCriteria }),
+        body: JSON.stringify({ title, description, acceptanceCriteria, checkInPolicy, deadline }),
       });
       if (res.ok) {
         const data = await res.json();

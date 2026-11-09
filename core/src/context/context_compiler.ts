@@ -64,6 +64,7 @@ export interface ChannelRosterInfo {
 }
 
 export interface ContextCompileInput {
+  tokenBudget?: number;
   agentDefinition: AgentDefinition;
   agentIdentity: AgentIdentity;
   project?: Project;
@@ -100,6 +101,40 @@ export interface CompiledContextBlocks {
 }
 
 export class ContextCompiler {
+  public formatMemoryList(
+    mems?: Array<{ key?: string; type?: string; tier?: string; value?: unknown; content?: string; updatedAt?: number }>,
+    maxTierTokens: number = 1000,
+    enforceBudget: boolean = true
+  ): string {
+    if (!mems || mems.length === 0) return 'None recorded.';
+    const sorted = [...mems].sort((a: any, b: any) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    const formattedItems: string[] = [];
+    let currentTokens = 0;
+
+    for (const m of sorted.slice(0, 50)) {
+      const safeType = String(m.type || m.tier || 'memory').slice(0, 32).replace(/[\r\n]/g, ' ');
+      const safeKey = String(m.key || '').slice(0, 256).replace(/[\r\n]/g, ' ');
+      let rawVal = m.content !== undefined ? String(m.content) : (typeof m.value === 'object' ? JSON.stringify(m.value) : String(m.value ?? ''));
+      if (rawVal.length > 2000) {
+        rawVal = rawVal.slice(0, 2000) + '... [truncated]';
+      }
+      const safeVal = rawVal
+        .replace(/###\s+/g, '## ')
+        .replace(/<(tool_call|tool|function_call)>/gi, '&lt;$1&gt;')
+        .replace(/\[(SYSTEM|DEVELOPER|INSTRUCTION)\]/gi, '[$1-CONTEXT]');
+      const itemStr = `- [${safeType}] ${safeKey}: ${safeVal}`;
+      const itemTokens = Math.ceil(itemStr.length / 4);
+
+      if (enforceBudget && currentTokens + itemTokens > maxTierTokens && formattedItems.length > 0) {
+        break;
+      }
+      formattedItems.push(itemStr);
+      currentTokens += itemTokens;
+    }
+
+    return formattedItems.length > 0 ? formattedItems.join('\n') : 'None recorded.';
+  }
+
   /**
    * Assembles the context blocks in strict prefix-stable order.
    */
@@ -257,22 +292,13 @@ export class ContextCompiler {
           }).join('\n')
         : 'No specific project constraints configured yet.';
 
-    const formatMemoryList = (mems?: Array<{ key: string; type: string; value: unknown }>) => {
-      if (!mems || mems.length === 0) return 'None recorded.';
-      return mems.slice(0, 50).map((m) => {
-        const safeType = String(m.type || 'memory').slice(0, 32).replace(/[\r\n]/g, ' ');
-        const safeKey = String(m.key || '').slice(0, 256).replace(/[\r\n]/g, ' ');
-        let rawVal = typeof m.value === 'object' ? JSON.stringify(m.value) : String(m.value ?? '');
-        if (rawVal.length > 2000) {
-          rawVal = rawVal.slice(0, 2000) + '... [truncated]';
-        }
-        const safeVal = rawVal
-          .replace(/###\s+/g, '## ')
-          .replace(/<(tool_call|tool|function_call)>/gi, '&lt;$1&gt;')
-          .replace(/\[(SYSTEM|DEVELOPER|INSTRUCTION)\]/gi, '[$1-CONTEXT]');
-        return `- [${safeType}] ${safeKey}: ${safeVal}`;
-      }).join('\n');
-    };
+    const totalMemoryBudget = input.tokenBudget ? Math.floor(input.tokenBudget * 0.35) : 10000;
+    const perTierBudget = Math.max(250, Math.floor(totalMemoryBudget / 3));
+
+    const formatMemoryList = (
+      mems?: Array<{ key: string; type: string; value: unknown; updatedAt?: number }>,
+      maxTierTokens: number = perTierBudget
+    ) => this.formatMemoryList(mems, maxTierTokens, Boolean(input.tokenBudget));
 
     const effectiveProjectMemories = (input.projectMemories && input.projectMemories.length > 0)
       ? input.projectMemories
@@ -371,12 +397,31 @@ export class ContextCompiler {
       .filter(Boolean)
       .join('\n\n');
 
+    let dynamicTrajectoryBlock = input.trajectoryMessages;
+    if (input.tokenBudget && input.tokenBudget > 0) {
+      const estimatedSystemTokens = Math.ceil(fullAssembled.length / 4);
+      const remainingTrajectoryTokens = Math.max(200, input.tokenBudget - estimatedSystemTokens);
+
+      const packedMsgs: Message[] = [];
+      let trajectoryTokens = 0;
+      for (let i = input.trajectoryMessages.length - 1; i >= 0; i--) {
+        const msg = input.trajectoryMessages[i];
+        const msgTokens = Math.ceil((msg.content?.length || 0) / 4) + 10;
+        if (trajectoryTokens + msgTokens > remainingTrajectoryTokens && packedMsgs.length > 0) {
+          break;
+        }
+        packedMsgs.unshift(msg);
+        trajectoryTokens += msgTokens;
+      }
+      dynamicTrajectoryBlock = packedMsgs;
+    }
+
     return {
       systemPromptBlock: block1,
       toolSchemasBlock: block2,
       projectGroundingBlock: block3,
       compactionBlock: block4,
-      dynamicTrajectoryBlock: input.trajectoryMessages,
+      dynamicTrajectoryBlock,
       fullAssembledPrompt: fullAssembled,
     };
   }

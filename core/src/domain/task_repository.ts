@@ -62,8 +62,8 @@ export class TaskRepository {
         task.claimedByRunId ?? null,
         task.leaseExpiresAt ?? null,
         task.retryCount ?? 0,
-        task.createdAt,
-        task.updatedAt
+        task.createdAt ?? Date.now(),
+        task.updatedAt ?? Date.now()
       );
 
       for (const depId of dependsOnTaskIds) {
@@ -110,6 +110,64 @@ export class TaskRepository {
     return false;
   }
 
+  public getTaskDependencies(taskId: string): string[] {
+    const rows = this.db.query<{ depends_on_task_id: string }>(
+      'SELECT depends_on_task_id FROM task_dependencies WHERE task_id = ? ORDER BY depends_on_task_id ASC',
+      taskId
+    );
+    return rows.map((r) => r.depends_on_task_id);
+  }
+
+  public getTaskDependents(taskId: string): string[] {
+    const rows = this.db.query<{ task_id: string }>(
+      'SELECT task_id FROM task_dependencies WHERE depends_on_task_id = ? ORDER BY task_id ASC',
+      taskId
+    );
+    return rows.map((r) => r.task_id);
+  }
+
+  public addDependency(taskId: string, dependsOnTaskId: string): void {
+    if (taskId === dependsOnTaskId) {
+      throw new Error(`Self-dependency not permitted for task '${taskId}'.`);
+    }
+    if (this.wouldCreateCycle(taskId, dependsOnTaskId)) {
+      throw new Error(`Adding dependency '${taskId}' -> '${dependsOnTaskId}' would introduce a cycle.`);
+    }
+    this.db.execute(
+      'INSERT OR IGNORE INTO task_dependencies (task_id, depends_on_task_id) VALUES (?, ?)',
+      taskId,
+      dependsOnTaskId
+    );
+  }
+
+  public removeDependency(taskId: string, dependsOnTaskId: string): void {
+    this.db.execute(
+      'DELETE FROM task_dependencies WHERE task_id = ? AND depends_on_task_id = ?',
+      taskId,
+      dependsOnTaskId
+    );
+  }
+
+  public cascadeBlockDependents(failedOrCancelledTaskId: string): string[] {
+    const dependentTaskIds = this.getTaskDependents(failedOrCancelledTaskId);
+    const blockedTaskIds: string[] = [];
+
+    for (const depTaskId of dependentTaskIds) {
+      const res = this.db.execute(
+        `UPDATE tasks SET status = 'blocked', updated_at = ? WHERE id = ? AND status IN ('backlog', 'ready', 'assigned')`,
+        Date.now(),
+        depTaskId
+      );
+      if (Number(res.changes) > 0) {
+        blockedTaskIds.push(depTaskId);
+        const subBlocked = this.cascadeBlockDependents(depTaskId);
+        blockedTaskIds.push(...subBlocked);
+      }
+    }
+
+    return [...new Set(blockedTaskIds)];
+  }
+
   public getTask(id: string): Task | undefined {
     const row = this.db.queryOne<{
       id: string;
@@ -130,6 +188,7 @@ export class TaskRepository {
     if (!row) return undefined;
 
     const verificationSpec = safeJsonParseObject(row.verification_spec_json, {});
+    const dependsOnTaskIds = this.getTaskDependencies(row.id);
 
     return {
       id: row.id,
@@ -143,6 +202,7 @@ export class TaskRepository {
       claimedByRunId: row.claimed_by_run_id ?? undefined,
       leaseExpiresAt: row.lease_expires_at ?? undefined,
       retryCount: row.retry_count ?? 0,
+      dependsOnTaskIds,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -266,6 +326,10 @@ export class TaskRepository {
       taskId,
       runId
     );
+
+    if (newStatus === 'failed') {
+      this.cascadeBlockDependents(taskId);
+    }
   }
 
   /**
@@ -340,6 +404,9 @@ export class TaskRepository {
             );
         if (Number(res.changes) > 0) {
           reclaimedIds.push(row.id);
+          if (nextStatus === 'failed') {
+            this.cascadeBlockDependents(row.id);
+          }
         }
       }
     });
@@ -358,6 +425,9 @@ export class TaskRepository {
       Date.now(),
       taskId
     );
+    if (status === 'failed' || status === 'cancelled') {
+      this.cascadeBlockDependents(taskId);
+    }
   }
 
   /**
@@ -661,12 +731,13 @@ export class TaskRepository {
     const promotedTaskIds: string[] = [];
 
     for (const depTaskId of dependentTaskIds) {
-      // Check if all dependencies of depTaskId are completed
+      // Check if all dependencies of depTaskId are completed (completedTaskId is considered completed)
       const incompleteDeps = this.db.query<{ count: number }>(
         `SELECT COUNT(*) as count FROM task_dependencies td
          JOIN tasks t ON td.depends_on_task_id = t.id
-         WHERE td.task_id = ? AND t.status != 'completed'`,
-        depTaskId
+         WHERE td.task_id = ? AND td.depends_on_task_id != ? AND t.status != 'completed'`,
+        depTaskId,
+        completedTaskId
       );
 
       if (incompleteDeps[0]?.count === 0) {
@@ -721,6 +792,7 @@ export class TaskRepository {
       claimedByRunId: r.claimed_by_run_id ?? undefined,
       leaseExpiresAt: r.lease_expires_at ?? undefined,
       retryCount: r.retry_count ?? 0,
+      dependsOnTaskIds: this.getTaskDependencies(r.id),
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     }));
@@ -761,6 +833,7 @@ export class TaskRepository {
       claimedByRunId: r.claimed_by_run_id ?? undefined,
       leaseExpiresAt: r.lease_expires_at ?? undefined,
       retryCount: r.retry_count ?? 0,
+      dependsOnTaskIds: this.getTaskDependencies(r.id),
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     }));

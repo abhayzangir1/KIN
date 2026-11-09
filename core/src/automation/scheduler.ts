@@ -20,12 +20,15 @@ export interface CreateOneShotParams {
 }
 
 export interface CreateCronParams {
-  projectId: string;
+  projectId?: string;
   channelId: string;
   targetAgentId?: string;
-  prompt: string;
+  prompt?: string;
+  name?: string;
   cronExpression: string;
   maxIterations?: number;
+  exactTiming?: boolean;
+  jitterSeconds?: number;
 }
 
 export type ScheduleFireCallback = (schedule: Schedule) => Promise<void> | void;
@@ -128,15 +131,26 @@ export class SchedulerService {
     const id = `sched-${uuidv4()}`;
     const now = Date.now();
     const nextRunDate = getNextCronOccurrence(params.cronExpression, now);
-    const nextRunAt = nextRunDate.getTime();
+    let nextRunAt = nextRunDate.getTime();
+    if (!params.exactTiming) {
+      const jitterMs = (params.jitterSeconds !== undefined ? params.jitterSeconds : Math.floor(Math.random() * 4)) * 1000;
+      nextRunAt += jitterMs;
+    }
+
+    const derivedProjectId = params.projectId || this.db.queryOne<{ project_id: string }>(
+      'SELECT project_id FROM channels WHERE id = ?',
+      params.channelId
+    )?.project_id || 'proj-kin';
+
+    const prompt = params.prompt || params.name || 'Scheduled execution';
 
     const schedule: Schedule = {
       id,
-      projectId: params.projectId,
+      projectId: derivedProjectId,
       channelId: params.channelId,
       targetAgentId: params.targetAgentId,
       type: 'cron',
-      prompt: params.prompt,
+      prompt,
       cronExpression: params.cronExpression,
       maxIterations: params.maxIterations,
       currentIterations: 0,
@@ -326,7 +340,11 @@ export class SchedulerService {
           const hasReachedLimit = schedule.maxIterations !== undefined && newIterations >= schedule.maxIterations;
           const newStatus: ScheduleStatus = hasReachedLimit ? 'completed' : 'active';
           const nextRunDate = getNextCronOccurrence(schedule.cronExpression || '*/1 * * * *', now);
-          const nextRun = hasReachedLimit ? now : nextRunDate.getTime();
+          let nextRun = hasReachedLimit ? now : nextRunDate.getTime();
+          if (!hasReachedLimit) {
+            const jitterMs = Math.floor(Math.random() * 4) * 1000;
+            nextRun += jitterMs;
+          }
 
           this.db.execute(
             `UPDATE schedules SET status = ?, current_iterations = ?, last_run_at = ?, next_run_at = ?, last_error = NULL, updated_at = ? WHERE id = ?`,
@@ -611,3 +629,5 @@ export class SchedulerService {
     };
   }
 }
+
+export { SchedulerService as Scheduler };

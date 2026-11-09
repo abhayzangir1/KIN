@@ -30,6 +30,9 @@ import { SecretBroker } from '../security/secret_broker.js';
 import { ExecutionNodeRouter, ExecutionNodeInfo } from './execution_node.js';
 import { EventLedger } from '../security/event_ledger.js';
 import { OutputSpiller } from '../context/output_spiller.js';
+import { DynamicHiringService, HiringProposal } from '../kernel/dynamic_hiring.js';
+
+export { DynamicHiringService, HiringProposal };
 
 export class StaleWriteConflictError extends Error {
   public code = 'STALE_WRITE_CONFLICT';
@@ -1442,6 +1445,8 @@ export class ToolGateway {
       agentId: context.agentId,
       runId: context.runId,
       parentRunId: context.parentRunId,
+      parentCapabilities: context.parentCapabilities,
+      subagentApprovedWhitelist: context.subagentWhitelist,
       toolName,
       params,
       riskLevel: risk,
@@ -2867,338 +2872,27 @@ export class ToolGateway {
         case 'hireSpecialist':
         case 'hire_specialist':
         case 'hireAgent': {
-          const rawName = params.displayName || params.name || params.agentName || params.roleTitle;
-          const role = params.roleTitle || params.role || 'Specialist';
-          if (!rawName) {
-            throw new Error("hireSpecialist requires 'displayName' and 'roleTitle' parameters");
-          }
-
-          const cleanName = String(rawName).trim().replace(/\s+/g, '');
-          const normalizedName = cleanName.startsWith('@') ? cleanName : `@${cleanName}`;
           const projectId = context.projectId || 'proj-kin';
           const rawChan = context.channelId || 'chan-general';
           const { id: channelId } = this.resolveChannelId(rawChan, projectId);
-          const now = Date.now();
-          let callerModelId: string | undefined;
-          if (context.agentId) {
-            if (this.agentRepo) {
-              const caller = this.agentRepo.getIdentity(context.agentId);
-              if (caller?.activeModelId) {
-                callerModelId = caller.activeModelId;
-              } else if (caller?.definitionId) {
-                const def = this.agentRepo.getDefinition(caller.definitionId);
-                if (def?.defaultModelId) {
-                  callerModelId = def.defaultModelId;
-                }
-              }
-            }
-            if (!callerModelId && this.db) {
-              const callerRow = this.db.queryOne<{ active_model_id: string; definition_id: string }>(
-                `SELECT active_model_id, definition_id FROM agent_identities WHERE id = ?`,
-                context.agentId
-              );
-              if (callerRow?.active_model_id) {
-                callerModelId = callerRow.active_model_id;
-              } else if (callerRow?.definition_id) {
-                const defRow = this.db.queryOne<{ default_model_id: string }>(
-                  `SELECT default_model_id FROM agent_definitions WHERE id = ?`,
-                  callerRow.definition_id
-                );
-                if (defRow?.default_model_id) {
-                  callerModelId = defRow.default_model_id;
-                }
-              }
-            }
-          }
-          if (!callerModelId && projectId) {
-            if (this.agentRepo) {
-              const boss = this.agentRepo.listIdentitiesByProject(projectId).find((a) => a.isOrchestrator);
-              if (boss?.activeModelId) {
-                callerModelId = boss.activeModelId;
-              } else if (boss?.definitionId) {
-                const def = this.agentRepo.getDefinition(boss.definitionId);
-                if (def?.defaultModelId) {
-                  callerModelId = def.defaultModelId;
-                }
-              }
-            }
-            if (!callerModelId && this.db) {
-              const bossRow = this.db.queryOne<{ active_model_id: string; definition_id: string }>(
-                `SELECT active_model_id, definition_id FROM agent_identities WHERE project_id = ? AND is_orchestrator = 1 LIMIT 1`,
-                projectId
-              );
-              if (bossRow?.active_model_id) {
-                callerModelId = bossRow.active_model_id;
-              } else if (bossRow?.definition_id) {
-                const defRow = this.db.queryOne<{ default_model_id: string }>(
-                  `SELECT default_model_id FROM agent_definitions WHERE id = ?`,
-                  bossRow.definition_id
-                );
-                if (defRow?.default_model_id) {
-                  callerModelId = defRow.default_model_id;
-                }
-              }
-            }
-          }
-          if (!callerModelId && projectId && this.agentRepo) {
-            const peer = this.agentRepo.listIdentitiesByProject(projectId).find((a) => a.activeModelId);
-            if (peer?.activeModelId) {
-              callerModelId = peer.activeModelId;
-            }
-          }
-          let projectDefaultModel: string | undefined;
-          if (projectId && this.db) {
-            try {
-              const projRow = this.db.queryOne<{ settings_json: string }>(
-                `SELECT settings_json FROM projects WHERE id = ?`,
-                projectId
-              );
-              if (projRow?.settings_json) {
-                const parsed = JSON.parse(projRow.settings_json);
-                projectDefaultModel = parsed.defaultModel || parsed.model || parsed.activeModelId;
-              }
-            } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
-          }
-          let dynamicallyResolvedModel: string | undefined;
-          if (this.db) {
-            try {
-              const modelRow = this.db.queryOne<{ id: string }>('SELECT id FROM models ORDER BY created_at ASC LIMIT 1');
-              if (modelRow?.id) {
-                dynamicallyResolvedModel = modelRow.id;
-              } else {
-                const agentRow = this.db.queryOne<{ active_model_id: string }>(
-                  "SELECT active_model_id FROM agent_identities WHERE active_model_id IS NOT NULL AND active_model_id != '' ORDER BY is_orchestrator DESC LIMIT 1"
-                );
-                if (agentRow?.active_model_id) {
-                  dynamicallyResolvedModel = agentRow.active_model_id;
-                }
-              }
-            } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
+
+          const proposal = DynamicHiringService.createProposal(
+            { ...params, channelIds: [channelId] },
+            context,
+            this.db,
+            this.agentRepo
+          );
+
+          if (!this.db) {
+            throw new Error('Database is required for hiring specialists.');
           }
 
-          const resolvedModel =
-            params.suggestedModel ||
-            params.activeModelId ||
-            params.modelId ||
-            callerModelId ||
-            process.env.KIN_DEFAULT_MODEL ||
-            projectDefaultModel ||
-            dynamicallyResolvedModel ||
-            DEFAULT_FALLBACK_MODEL_ID;
-
-          const activeModelId = resolvedModel;
-          const domainAuthority = Array.isArray(params.domainAuthority) && params.domainAuthority.length > 0
-            ? params.domainAuthority
-            : [role];
-
-          // Principle of Attenuation: A hired specialist cannot possess capabilities exceeding their hiring agent
-          let callerCaps: string[] = ['*'];
-          if (context.agentId && this.db) {
-            const callerRow = this.db.queryOne<{ capabilities_json: string; is_orchestrator: number }>(
-              `SELECT d.capabilities_json, i.is_orchestrator 
-               FROM agent_identities i 
-               JOIN agent_definitions d ON i.definition_id = d.id 
-               WHERE i.id = ?`,
-              context.agentId
-            );
-            if (callerRow && !callerRow.is_orchestrator) {
-              try {
-                callerCaps = JSON.parse(callerRow.capabilities_json || '[]');
-              } catch {
-                callerCaps = [];
-              }
-            }
-          }
-
-          const defaultCaps = ['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate', 'mcp:call'];
-          const requestedCaps: string[] = Array.isArray(params.capabilities) && params.capabilities.length > 0
-            ? params.capabilities
-            : defaultCaps;
-
-          const hasWildcard = callerCaps.includes('*');
-          let capabilities = requestedCaps.filter((cap) => hasWildcard || (cap !== '*' && callerCaps.includes(cap)));
-          if (capabilities.length === 0 && !hasWildcard) {
-            if (callerCaps.includes('fs:read')) capabilities.push('fs:read');
-          }
-
-          const sysPrompt = params.systemPrompt ||
-            `You are ${normalizedName}, a ${role} specialist in project ${projectId}. Follow the capabilities and project scope provided for this run. Ask when access or authority is unclear.`;
-
-          let agentId = `agent-${now}-${crypto.randomBytes(3).toString('hex')}`;
-          let defId = `def-${now}-${crypto.randomBytes(3).toString('hex')}`;
-          let candidateParent = params.parentAgentId || context.agentId;
-
-          // Enforce delegation depth limit (max recursion depth = 3)
-          if (candidateParent && this.db) {
-            let depth = 0;
-            let currentParent: string | null = candidateParent;
-            while (currentParent && depth < 10) {
-              const ancestor = this.db.queryOne<{ parent_agent_id: string | null }>(
-                'SELECT parent_agent_id FROM agent_identities WHERE id = ?',
-                currentParent
-              );
-              if (ancestor && ancestor.parent_agent_id) {
-                depth++;
-                currentParent = ancestor.parent_agent_id;
-              } else {
-                break;
-              }
-            }
-            if (depth >= 3) {
-              throw new Error(`Maximum delegation depth reached (limit: 3). Agent '${candidateParent}' cannot hire further subagents.`);
-            }
-          }
-
-          // Enforce project specialist capacity limit (max 25 agents)
-          if (this.db) {
-            const countRow = this.db.queryOne<{ count: number }>(
-              'SELECT COUNT(*) as count FROM agent_identities WHERE project_id = ? AND is_ephemeral = 0',
-              projectId
-            );
-            if (countRow && countRow.count >= 25) {
-              throw new Error(`Specialist capacity limit reached for project '${projectId}' (limit: 25).`);
-            }
-          }
-
-          let verifiedParentId: string | null = null;
-          if (candidateParent) {
-            if (this.db) {
-              try {
-                const parentRow = this.db.queryOne<{ id: string }>(
-                  'SELECT id FROM agent_identities WHERE id = ?',
-                  candidateParent
-                );
-                if (parentRow) {
-                  verifiedParentId = candidateParent;
-                }
-              } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
-            } else if (this.agentRepo) {
-              try {
-                const parent = this.agentRepo.getIdentity(candidateParent);
-                if (parent) {
-                  verifiedParentId = candidateParent;
-                }
-              } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
-            }
-          }
-
-          let formattedAgent: any = {
-            id: agentId,
-            name: normalizedName.replace(/^@/, ''),
-            role,
-            displayName: normalizedName,
-            activeModelId,
-            parentAgentId: verifiedParentId || undefined,
-            systemPrompt: sysPrompt,
-            status: 'idle',
-            isOrchestrator: false,
-            projectId,
-            assignedChannels: [channelId],
-          };
-
-          if (this.db) {
-            const existing = this.db.queryOne<{ id: string; definition_id: string; display_name: string; active_model_id: string; parent_agent_id: string | null }>(
-              `SELECT id, definition_id, display_name, active_model_id, parent_agent_id FROM agent_identities 
-               WHERE project_id = ? AND display_name = ? COLLATE NOCASE`,
-              projectId,
-              normalizedName
-            );
-
-            if (existing) {
-              agentId = existing.id;
-              defId = existing.definition_id;
-              if (verifiedParentId && !existing.parent_agent_id) {
-                this.db.execute(
-                  'UPDATE agent_identities SET parent_agent_id = ?, updated_at = ? WHERE id = ?',
-                  verifiedParentId,
-                  now,
-                  agentId
-                );
-              }
-              this.db.execute(
-                `INSERT OR IGNORE INTO channel_members (channel_id, agent_id, joined_at) VALUES (?, ?, ?)`,
-                channelId,
-                agentId,
-                now
-              );
-              formattedAgent = {
-                id: agentId,
-                name: existing.display_name.replace(/^@/, ''),
-                role,
-                displayName: existing.display_name,
-                activeModelId: existing.active_model_id,
-                parentAgentId: existing.parent_agent_id || verifiedParentId || undefined,
-                systemPrompt: sysPrompt,
-                status: 'idle',
-                isOrchestrator: false,
-                projectId,
-                assignedChannels: [channelId],
-              };
-            } else {
-              // Ensure workspace, project, and channel records exist to satisfy foreign key constraints
-              this.db.execute(
-                `INSERT OR IGNORE INTO workspaces (id, name, root_path, default_autonomy_mode, created_at, updated_at)
-                 VALUES (?, ?, ?, 'AUTO', ?, ?)`,
-                'ws-default',
-                'Default Workspace',
-                context.worktreeRoot || '.',
-                now,
-                now
-              );
-              this.db.execute(
-                `INSERT OR IGNORE INTO projects (id, workspace_id, name, repo_path, settings_json, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, '{}', ?, ?)`,
-                projectId,
-                'ws-default',
-                projectId,
-                context.worktreeRoot || '.',
-                now,
-                now
-              );
-              this.db.execute(
-                `INSERT OR IGNORE INTO channels (id, project_id, name, is_private, created_at)
-                 VALUES (?, ?, ?, 0, ?)`,
-                channelId,
-                projectId,
-                channelId.replace(/^chan-/, ''),
-                now
-              );
-
-              this.db.execute(
-                `INSERT INTO agent_definitions (id, name, role, system_prompt, default_model_id, domain_authority_json, capabilities_json, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                defId,
-                normalizedName.replace(/^@/, ''),
-                role,
-                sysPrompt,
-                activeModelId,
-                JSON.stringify(domainAuthority),
-                JSON.stringify(capabilities),
-                now
-              );
-
-              this.db.execute(
-                `INSERT INTO agent_identities (id, workspace_id, project_id, definition_id, parent_agent_id, display_name, active_model_id, is_orchestrator, is_ephemeral, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`,
-                agentId,
-                'ws-default',
-                projectId,
-                defId,
-                verifiedParentId,
-                normalizedName,
-                activeModelId,
-                now,
-                now
-              );
-
-              this.db.execute(
-                `INSERT OR IGNORE INTO channel_members (channel_id, agent_id, joined_at) VALUES (?, ?, ?)`,
-                channelId,
-                agentId,
-                now
-              );
-            }
-          }
+          const formattedAgent = DynamicHiringService.executeHiring(
+            proposal,
+            context,
+            this.db,
+            this.agentRepo
+          );
 
           if (this.agentHiredCallback) {
             try {
@@ -3211,15 +2905,15 @@ export class ToolGateway {
           return {
             success: true,
             output: {
-              id: agentId,
-              agentId,
-              displayName: normalizedName,
-              role,
-              activeModelId,
+              id: formattedAgent.id,
+              agentId: formattedAgent.id,
+              displayName: proposal.displayName,
+              role: proposal.roleTitle,
+              activeModelId: proposal.suggestedModel,
               parentAgentId: formattedAgent.parentAgentId,
               channelId,
               projectId,
-              message: `Successfully onboarded ${normalizedName} (${role}) to channel #${channelId} in project ${projectId}. They are enrolled and ready to collaborate.`,
+              message: `Successfully onboarded ${proposal.displayName} (${proposal.roleTitle}) to channel #${channelId} in project ${projectId}. They are enrolled and ready to collaborate.`,
             } as T,
             riskLevel: risk,
           };

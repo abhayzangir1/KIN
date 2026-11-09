@@ -580,6 +580,14 @@ export class McpClientManager {
             isEndpointDispatched = true;
             resolveEndpoint(url);
           }
+          // Fast Rejection on SSE Disconnection
+          for (const [id, req] of this.pendingRequests.entries()) {
+            if (req.serverName === serverName) {
+              clearTimeout(req.timeout);
+              req.reject(new Error(`MCP SSE connection closed unexpectedly for server '${serverName}'.`));
+              this.pendingRequests.delete(id);
+            }
+          }
         }
       })();
 
@@ -746,7 +754,10 @@ export class McpClientManager {
 
     const isNodeExe = path.basename(process.execPath).toLowerCase().startsWith('node');
     const spawnCmd = (isWindows && cmdLower === 'node') ? (isNodeExe ? process.execPath : 'node') : resolvedCommand;
-    const proc = spawn(spawnCmd, resolvedArgs, {
+    const safeArgs = (isWindows && isShellNeeded)
+      ? resolvedArgs.map((arg) => (/[ &|<>^%"]/.test(arg) ? `"${arg.replace(/"/g, '""')}"` : arg))
+      : resolvedArgs;
+    const proc = spawn(spawnCmd, safeArgs, {
       cwd: targetRoot,
       env: cleanEnv,
       stdio: ['pipe', 'pipe', 'pipe'],

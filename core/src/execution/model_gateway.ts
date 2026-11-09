@@ -6,6 +6,11 @@
 
 import { SecretVault } from '../security/secret_vault.js';
 import { SecretBroker } from '../security/secret_broker.js';
+import { DiscoveredModel, ProviderReadiness, ModelDiscoveryService } from './model_discovery.js';
+import { QuotaGuard } from './quota_guard.js';
+import { StreamingInferenceClient } from './streaming_client.js';
+
+export { DiscoveredModel, ProviderReadiness, ModelDiscoveryService, QuotaGuard, StreamingInferenceClient };
 
 export interface ModelMessage {
   role: 'system' | 'user' | 'assistant';
@@ -140,32 +145,7 @@ export interface ModelInvocationResult {
   isError?: boolean;
   isAborted?: boolean;
   switchedModelId?: string;
-}
-
-export interface DiscoveredModel {
-  id: string;
-  name: string;
-  provider: string;
-  contextWindow?: number;
-  maxOutputTokens?: number;
-  supportsTools?: boolean;
-  supportsVision?: boolean;
-  supportsReasoning?: boolean;
-  isFree?: boolean;
-  description?: string;
-  isCustom?: boolean;
-  configured?: boolean;
-  validated?: boolean;
-}
-
-export interface ProviderReadiness {
-  provider: string;
-  configured: boolean;
-  validated: boolean;
-  ready?: boolean;
-  keyCount?: number;
-  modelCount: number;
-  message?: string;
+  toolCalls?: Array<{ name: string; parameters: any }>;
 }
 
 export interface ManagedKeyInfo {
@@ -187,9 +167,9 @@ export const DEFAULT_PROVIDER_BASE_URLS: Record<string, string> = {
   fireworks: 'https://api.fireworks.ai/inference/v1',
   perplexity: 'https://api.perplexity.ai',
   cerebras: 'https://api.cerebras.ai/v1',
-  lmstudio: 'http://localhost:1234/v1',
-  vllm: 'http://localhost:8000/v1',
-  openai_compatible: 'http://localhost:1234/v1',
+  lmstudio: 'http://127.0.0.1:1234/v1',
+  vllm: 'http://127.0.0.1:8000/v1',
+  openai_compatible: 'http://127.0.0.1:1234/v1',
 };
 
 export const KNOWN_OPENAI_COMPATIBLE_PROVIDERS: string[] = [
@@ -905,6 +885,10 @@ export class ModelGateway {
             description: m.description,
             configured: Boolean(apiKey),
             validated: true,
+            pricing: m.pricing ? {
+              prompt: m.pricing.prompt,
+              completion: m.pricing.completion,
+            } : undefined,
           };
         });
 
@@ -1279,6 +1263,10 @@ export class ModelGateway {
                 description: m.description || `OpenRouter model with ${m.context_length || 128000} context window`,
                 configured: Boolean(apiKey),
                 validated: Boolean(apiKey),
+                pricing: m.pricing ? {
+                  prompt: m.pricing.prompt,
+                  completion: m.pricing.completion,
+                } : undefined,
               };
             });
           }
@@ -1984,7 +1972,7 @@ export class ModelGateway {
       let buffer = '';
 
       while (true) {
-        const { done, value } = await reader.read();
+        const { done, value } = await readChunkWithTimeout(reader, 30000);
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
@@ -2161,11 +2149,11 @@ export class ModelGateway {
           return this.invokeOpenRouter(modelName, params, startTime, retryCount, next.key, attemptedKeys);
         }
       }
-      // Live 429 rate limit backoff retry
+      // Live 429 rate limit backoff retry with jitter
       if (retryCount < 3) {
         const retryAfterHeader = res.headers.get('retry-after');
-        const retryAfterSec = retryAfterHeader ? parseInt(retryAfterHeader, 10) : 3;
-        const backoffMs = Math.max(2500, (isNaN(retryAfterSec) ? 3 : retryAfterSec) * 1000) * (retryCount + 1);
+        const retryAfterSec = QuotaGuard.parseRetryAfter(retryAfterHeader);
+        const backoffMs = QuotaGuard.computeExponentialJitterBackoff(retryCount, retryAfterSec, 2500, 60000);
         console.warn(`[KIN MODEL GATEWAY] 429 rate limit for "${modelName}". Backing off ${backoffMs}ms (attempt ${retryCount + 1}/3)...`);
         await new Promise((resolve) => setTimeout(resolve, backoffMs));
         return this.invokeOpenRouter(modelName, params, startTime, retryCount + 1, apiKey, attemptedKeys);
@@ -2258,6 +2246,38 @@ export class ModelGateway {
               totalTokens = parsed.usage.total_tokens || totalTokens;
             }
           } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
+        }
+      }
+
+      if (buffer.trim()) {
+        const trimmed = buffer.trim();
+        if (trimmed.startsWith('data:')) {
+          const dataStr = trimmed.slice(5).trim();
+          if (dataStr && dataStr !== '[DONE]') {
+            try {
+              const parsed = JSON.parse(dataStr);
+              const delta = parsed.choices?.[0]?.delta;
+              if (delta?.content) {
+                content += delta.content;
+                if (params.onToken) params.onToken(delta.content);
+              }
+              if (delta?.reasoning || delta?.reasoning_content) {
+                fullThinking += (delta.reasoning || delta.reasoning_content);
+              }
+              if (delta?.tool_calls) {
+                for (const tc of delta.tool_calls) {
+                  const idx = tc.index ?? 0;
+                  if (!streamToolCalls.has(idx)) {
+                    streamToolCalls.set(idx, { id: tc.id || '', name: tc.function?.name || '', arguments: '' });
+                  }
+                  const current = streamToolCalls.get(idx)!;
+                  if (tc.id) current.id = tc.id;
+                  if (tc.function?.name) current.name += tc.function.name;
+                  if (tc.function?.arguments) current.arguments += tc.function.arguments;
+                }
+              }
+            } catch (err) { console.debug("[model_gateway] Suppressed exception in trailing buffer flush:", err); }
+          }
         }
       }
 
@@ -2394,11 +2414,11 @@ export class ModelGateway {
           return this.invokeOpenAiCompatible(nextUrl, next.key, modelName, params, startTime, provider, retryCount, attemptedKeys);
         }
       }
-      // 2. Exponential backoff retry
+      // 2. Exponential backoff retry with jitter
       if (retryCount < 2) {
         const retryAfterHeader = res.headers.get('retry-after');
-        const retryAfterSec = retryAfterHeader ? parseInt(retryAfterHeader, 10) : 1;
-        const backoffMs = (isNaN(retryAfterSec) ? 1 : retryAfterSec) * 1000 * (retryCount + 1);
+        const retryAfterSec = QuotaGuard.parseRetryAfter(retryAfterHeader);
+        const backoffMs = QuotaGuard.computeExponentialJitterBackoff(retryCount, retryAfterSec, 1500, 60000);
         await new Promise((resolve) => setTimeout(resolve, backoffMs));
         return this.invokeOpenAiCompatible(url, apiKey, modelName, params, startTime, provider, retryCount + 1, attemptedKeys);
       }
@@ -2474,6 +2494,39 @@ export class ModelGateway {
               totalTokens = parsed.usage.total_tokens || totalTokens;
             }
           } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
+        }
+      }
+
+      if (buffer.trim()) {
+        const trimmed = buffer.trim();
+        if (trimmed.startsWith('data:')) {
+          const dataStr = trimmed.slice(5).trim();
+          if (dataStr && dataStr !== '[DONE]') {
+            try {
+              const parsed = JSON.parse(dataStr);
+              const delta = parsed.choices?.[0]?.delta;
+              if (delta?.content) {
+                content += delta.content;
+                if (params.onToken) params.onToken(delta.content);
+              }
+              if (delta?.reasoning || delta?.reasoning_content) {
+                fullThinking += (delta.reasoning || delta.reasoning_content);
+              }
+              const toolCallsDelta = delta?.tool_calls;
+              if (Array.isArray(toolCallsDelta)) {
+                for (const tc of toolCallsDelta) {
+                  const idx = tc.index ?? 0;
+                  if (!streamToolCalls.has(idx)) {
+                    streamToolCalls.set(idx, { id: tc.id || '', name: tc.function?.name || '', arguments: '' });
+                  }
+                  const current = streamToolCalls.get(idx)!;
+                  if (tc.id) current.id = tc.id;
+                  if (tc.function?.name) current.name += tc.function.name;
+                  if (tc.function?.arguments) current.arguments += tc.function.arguments;
+                }
+              }
+            } catch (err) { console.debug("[model_gateway] Suppressed exception in trailing buffer flush:", err); }
+          }
         }
       }
 
@@ -2627,8 +2680,8 @@ export class ModelGateway {
       }
       if (retryCount < 2) {
         const retryAfterHeader = res.headers.get('retry-after');
-        const retryAfterSec = retryAfterHeader ? parseInt(retryAfterHeader, 10) : 1;
-        const backoffMs = (isNaN(retryAfterSec) ? 1 : retryAfterSec) * 1000 * (retryCount + 1);
+        const retryAfterSec = QuotaGuard.parseRetryAfter(retryAfterHeader);
+        const backoffMs = QuotaGuard.computeExponentialJitterBackoff(retryCount, retryAfterSec, 1500, 60000);
         await new Promise((resolve) => setTimeout(resolve, backoffMs));
         return this.invokeAnthropic(modelName, params, startTime, retryCount + 1, apiKey, url, attemptedKeys);
       }
@@ -2647,6 +2700,8 @@ export class ModelGateway {
     let fullThinking = '';
     let promptTokens = 0;
     let completionTokens = 0;
+    const streamToolCalls = new Map<number, { id: string; name: string; arguments: string }>();
+    const collectedToolCalls: Array<{ name: string; parameters: any }> = [];
 
     if (stream && res.body && typeof (res.body as any).getReader === 'function') {
       const reader = (res.body as any).getReader();
@@ -2664,16 +2719,35 @@ export class ModelGateway {
           const dataStr = trimmed.slice(5).trim();
           try {
             const parsed = JSON.parse(dataStr);
+            if (parsed.type === 'content_block_start' && parsed.content_block?.type === 'tool_use') {
+              const idx = parsed.index ?? streamToolCalls.size;
+              streamToolCalls.set(idx, {
+                id: parsed.content_block.id || '',
+                name: parsed.content_block.name || '',
+                arguments: '',
+              });
+            }
             if (parsed.type === 'content_block_delta') {
               if (parsed.delta?.type === 'thinking_delta' && parsed.delta?.thinking) {
                 fullThinking += parsed.delta.thinking;
                 if (params.onThinkingToken) {
                   params.onThinkingToken(parsed.delta.thinking);
                 }
+              } else if (parsed.delta?.type === 'text_delta' && parsed.delta?.text) {
+                content += parsed.delta.text;
+                if (params.onToken) {
+                  params.onToken(parsed.delta.text);
+                }
               } else if (parsed.delta?.text) {
                 content += parsed.delta.text;
                 if (params.onToken) {
                   params.onToken(parsed.delta.text);
+                }
+              } else if (parsed.delta?.type === 'input_json_delta' && parsed.delta?.partial_json) {
+                const idx = parsed.index ?? 0;
+                const tc = streamToolCalls.get(idx);
+                if (tc) {
+                  tc.arguments += parsed.delta.partial_json;
                 }
               }
             }
@@ -2686,9 +2760,55 @@ export class ModelGateway {
           } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
         }
       }
+
+      if (buffer.trim()) {
+        const trimmed = buffer.trim();
+        if (trimmed.startsWith('data:')) {
+          const dataStr = trimmed.slice(5).trim();
+          try {
+            const parsed = JSON.parse(dataStr);
+            if (parsed.type === 'content_block_delta') {
+              if (parsed.delta?.type === 'thinking_delta' && parsed.delta?.thinking) {
+                fullThinking += parsed.delta.thinking;
+                if (params.onThinkingToken) params.onThinkingToken(parsed.delta.thinking);
+              } else if (parsed.delta?.type === 'text_delta' && parsed.delta?.text) {
+                content += parsed.delta.text;
+                if (params.onToken) params.onToken(parsed.delta.text);
+              } else if (parsed.delta?.text) {
+                content += parsed.delta.text;
+                if (params.onToken) params.onToken(parsed.delta.text);
+              } else if (parsed.delta?.type === 'input_json_delta' && parsed.delta?.partial_json) {
+                const idx = parsed.index ?? 0;
+                const tc = streamToolCalls.get(idx);
+                if (tc) tc.arguments += parsed.delta.partial_json;
+              }
+            }
+          } catch (err) { console.debug("[model_gateway] Suppressed exception in trailing buffer flush:", err); }
+        }
+      }
+
+      for (const tc of streamToolCalls.values()) {
+        let parsedArgs: any = {};
+        if (tc.arguments) {
+          try { parsedArgs = JSON.parse(tc.arguments); } catch { parsedArgs = { raw: tc.arguments }; }
+        }
+        if (tc.name) {
+          collectedToolCalls.push({ name: tc.name, parameters: parsedArgs });
+        }
+      }
     } else {
       const data: any = await res.json();
-      content = data?.content?.[0]?.text || '';
+      if (Array.isArray(data?.content)) {
+        for (const item of data.content) {
+          if (item?.type === 'text') {
+            content += item.text || '';
+          } else if (item?.type === 'tool_use') {
+            collectedToolCalls.push({ name: item.name, parameters: item.input || {} });
+          }
+        }
+      } else {
+        content = data?.content?.[0]?.text || '';
+      }
       promptTokens = data?.usage?.input_tokens || 0;
       completionTokens = data?.usage?.output_tokens || 0;
       if (params.onToken && content) {
@@ -2715,6 +2835,7 @@ export class ModelGateway {
       provider: 'anthropic',
       tokensUsed,
       durationMs: Date.now() - startTime,
+      toolCalls: collectedToolCalls.length > 0 ? collectedToolCalls : undefined,
     };
   }
 }

@@ -820,6 +820,7 @@ export class CoreServer {
         senderType: 'agent',
         content: `[Automated Turn] [Scheduled Wakeup] ⏰ **Timer / Scheduled Alarm Triggered**\n- **Directive**: "${sched.prompt}"\n- **Type**: \`${sched.type}\`\n\nWaking agent to execute scheduled task without polling loop.`,
         productivityScore: 100,
+        isBackground: true,
       });
 
       this.broadcastEvent('message:created', {
@@ -831,6 +832,8 @@ export class CoreServer {
         content: wakeMsg.content,
         createdAt: wakeMsg.createdAt,
         productivityScore: wakeMsg.productivityScore,
+        isBackground: true,
+        is_background: true,
       });
       this.broadcastEvent('schedule:fired', sched);
       this.broadcastEvent('routine:fired', sched);
@@ -970,10 +973,10 @@ export class CoreServer {
             const runRow = this.db.queryOne<any>('SELECT * FROM agent_runs WHERE id = ?', qItem.id);
             if (!runRow) continue;
             const now = Date.now();
-            const elapsedSincePause = now - (runRow.heartbeat_at || runRow.created_at || now);
-            // If ancient (> 15 minutes), cleanly cancel and restore agent to idle
-            if (elapsedSincePause > 15 * 60 * 1000) {
-              console.log(`[KIN SUPERVISOR] Cleanly resetting ancient quota-paused run ${qItem.id}.`);
+            const elapsedSinceResetWindow = now - qItem.quotaResetsAt;
+            // Only cancel truly abandoned/ancient quota runs if more than 24 hours elapsed without intervention
+            if (elapsedSinceResetWindow > 24 * 60 * 60 * 1000) {
+              console.log(`[KIN SUPERVISOR] Cleanly resetting abandoned quota-paused run ${qItem.id} (>24h overdue).`);
               this.kernel.transitionState(qItem.id, 'cancelled');
               this.db.execute('UPDATE agent_runs SET quota_resets_at = NULL WHERE id = ?', qItem.id);
               this.activeAgentExecutions.delete(qItem.agentId);
@@ -3897,11 +3900,13 @@ export class CoreServer {
         }
       }
 
+      const threadParentId = triggerMsg?.parentMessageId || triggerMsg?.id;
       const agentReply = this.channelService.sendMessage({
         channelId,
         senderId: agent.id,
         senderType: 'agent',
         content: this.sanitizeTerminology(loopResult.finalContent),
+        parentMessageId: threadParentId,
         productivityScore,
       });
 

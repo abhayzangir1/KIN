@@ -20,6 +20,7 @@
         "minHeight": 650,
         "resizable": true,
         "fullscreen": false,
+        "decorations": false,
         "label": "main",
         "url": "index.html"
       }

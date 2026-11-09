@@ -114,6 +114,18 @@ const templateBinary = path.resolve(coreBinariesDir, `kin-core-template${binaryE
 
 try {
   fs.copyFileSync(nodeExecutable, templateBinary);
+
+  // Pre-injection signature removal to prevent PE / Mach-O header issues
+  if (platform === 'win32') {
+    try {
+      execSync(`signtool remove /s "${templateBinary}"`, { stdio: 'ignore' });
+    } catch {}
+  } else if (platform === 'darwin') {
+    try {
+      execSync(`codesign --remove-signature "${templateBinary}"`, { stdio: 'ignore' });
+    } catch {}
+  }
+
   console.log('[KIN PACKAGE] Injecting SEA blob into base binary template...');
   try {
     if (platform === 'win32') {
@@ -126,10 +138,6 @@ try {
         cwd: coreDir,
         stdio: 'inherit'
       });
-      // Re-sign binary on macOS to prevent SIGKILL from Mach-O signature invalidation
-      try {
-        execSync(`codesign --sign - --force "${templateBinary}"`, { stdio: 'ignore' });
-      } catch {}
     } else {
       execSync(`npx --yes postject "${templateBinary}" NODE_SEA_BLOB "${seaBlobPath}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`, {
         cwd: coreDir,
@@ -140,6 +148,20 @@ try {
   } catch (postjectErr) {
     console.error('[KIN PACKAGE] Postject injection failed:', postjectErr.message);
     throw postjectErr;
+  }
+
+  // Post-injection signature handling
+  if (platform === 'darwin') {
+    try {
+      execSync(`codesign --sign - --force "${templateBinary}"`, { stdio: 'ignore' });
+    } catch {}
+  } else if (platform === 'win32' && process.env.WIN_SIGN_CERT) {
+    try {
+      execSync(`signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f "${process.env.WIN_SIGN_CERT}" /p "${process.env.WIN_SIGN_PASS || ''}" "${templateBinary}"`, { stdio: 'inherit' });
+      console.log('[KIN PACKAGE] Successfully code-signed Windows binary template.');
+    } catch (signErr) {
+      console.warn('[KIN PACKAGE] Windows code signing notice:', signErr.message);
+    }
   }
 
   const destinations = [];
@@ -154,7 +176,8 @@ try {
       if (platform !== 'win32') {
         fs.chmodSync(dest, 0o755);
       }
-      console.log(`[KIN PACKAGE] Successfully populated sidecar binary: ${dest}`);
+      const stat = fs.statSync(dest);
+      console.log(`[KIN PACKAGE] Successfully populated sidecar binary: ${dest} (${(stat.size / (1024 * 1024)).toFixed(1)} MB)`);
     } catch (err) {
       console.error(`[KIN PACKAGE] Error copying sidecar binary to ${dest}:`, err.message);
     }
@@ -163,14 +186,12 @@ try {
   if (fs.existsSync(templateBinary)) {
     try { fs.unlinkSync(templateBinary); } catch {}
   }
-}
-
-// Clean up temporary blob
-if (fs.existsSync(seaBlobPath)) {
-  try { fs.unlinkSync(seaBlobPath); } catch {}
-}
-if (fs.existsSync(seaConfigPath)) {
-  try { fs.unlinkSync(seaConfigPath); } catch {}
+  if (fs.existsSync(seaBlobPath)) {
+    try { fs.unlinkSync(seaBlobPath); } catch {}
+  }
+  if (fs.existsSync(seaConfigPath)) {
+    try { fs.unlinkSync(seaConfigPath); } catch {}
+  }
 }
 
 // Copy schema.sql into distribution folders

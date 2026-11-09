@@ -34,6 +34,10 @@ import {
   Move,
   GripVertical,
   Hammer,
+  AlertTriangle,
+  ListTree,
+  Grid,
+  Maximize2,
 } from 'lucide-react';
 
 export const SwarmMap: React.FC = () => {
@@ -62,6 +66,8 @@ export const SwarmMap: React.FC = () => {
     availableModels,
     fetchAvailableModels,
     updateAgentModel,
+    pendingApprovals,
+    resolveApproval,
     addToast,
   } = useKinStore();
 
@@ -72,7 +78,8 @@ export const SwarmMap: React.FC = () => {
   );
   const [searchQuery, setSearchQuery] = useState('');
   const [hoveredAgentId, setHoveredAgentId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'flow' | 'hierarchy' | 'matrix'>(() => {
+  const [focusedTreeIndex, setFocusedTreeIndex] = useState(0);
+  const [viewMode, setViewMode] = useState<'flow' | 'hierarchy' | 'matrix' | 'accessible_tree'>(() => {
     try {
       const saved = localStorage.getItem(`kin_swarm_viewmode_${activeProjectId || 'default'}`);
       return (saved as any) || 'flow';
@@ -557,6 +564,28 @@ export const SwarmMap: React.FC = () => {
     };
   }, [draggingAgentId, zoom, activeProjectId]);
 
+  const handleAutoFit = () => {
+    const nodes = Object.values(nodePositions);
+    if (nodes.length === 0) return;
+    const pad = 80;
+    const minX = Math.min(...nodes.map((n) => n.x - 145)) - pad;
+    const maxX = Math.max(...nodes.map((n) => n.x + 145)) + pad;
+    const minY = Math.min(...nodes.map((n) => n.y - 85)) - pad;
+    const maxY = Math.max(...nodes.map((n) => n.y + 85)) + pad;
+    const w = canvasContainerRef.current?.clientWidth || 1000;
+    const h = canvasContainerRef.current?.clientHeight || 700;
+    const scaleX = w / Math.max(1, maxX - minX);
+    const scaleY = h / Math.max(1, maxY - minY);
+    const fitZoom = Math.min(1.5, Math.max(0.4, Math.min(scaleX, scaleY)));
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    setZoom(Number(fitZoom.toFixed(2)));
+    setPan({
+      x: Math.round(w / 2 - centerX * fitZoom),
+      y: Math.round(h / 2 - centerY * fitZoom),
+    });
+  };
+
   const handleResetLayout = () => {
     setUserPositions({});
     try {
@@ -566,12 +595,7 @@ export const SwarmMap: React.FC = () => {
     } catch (err) {
       console.warn('[SwarmMap] Failed to reset layout in localStorage:', err);
     }
-    const containerW = canvasContainerRef.current?.clientWidth || 1000;
-    const containerH = canvasContainerRef.current?.clientHeight || 700;
-    const targetPanX = Math.round(containerW / 2 - 700);
-    const targetPanY = Math.round(Math.max(20, containerH / 2 - 320));
-    setPan({ x: targetPanX, y: targetPanY });
-    setZoom(1.0);
+    handleAutoFit();
   };
 
   const toggleAccordion = (section: string) => {
@@ -652,7 +676,7 @@ export const SwarmMap: React.FC = () => {
                     ? 'bg-purple-600 text-white shadow-sm'
                     : 'text-slate-600 dark:text-[#64748b] hover:text-slate-900 dark:hover:text-white'
                 }`}
-                title="View multi-tier delegation hierarchy and channel bus"
+                title="View multi-tier delegation tree hierarchy"
               >
                 <GitFork className="w-3.5 h-3.5" />
                 <span>Hierarchy</span>
@@ -661,13 +685,25 @@ export const SwarmMap: React.FC = () => {
                 onClick={() => setViewMode('matrix')}
                 className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
                   viewMode === 'matrix'
-                    ? 'bg-purple-600 text-white shadow-sm'
+                    ? 'bg-indigo-600 text-white shadow-sm'
                     : 'text-slate-600 dark:text-[#64748b] hover:text-slate-900 dark:hover:text-white'
                 }`}
-                title="View workforce grouped by departmental channels"
+                title="View interactive Agent Capability Grid"
               >
-                <Layers className="w-3.5 h-3.5" />
-                <span>Departments</span>
+                <Grid className="w-3.5 h-3.5" />
+                <span>Capability Grid</span>
+              </button>
+              <button
+                onClick={() => setViewMode('accessible_tree')}
+                className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
+                  viewMode === 'accessible_tree'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-[#64748b] hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title="Accessible keyboard-navigable workforce tree"
+              >
+                <ListTree className="w-3.5 h-3.5" />
+                <span>Tree View</span>
               </button>
             </div>
 
@@ -812,7 +848,16 @@ export const SwarmMap: React.FC = () => {
                   title="Reset canvas zoom, pan, and restore auto-arranged layout"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Reset / Fit</span>
+                  <span>Reset</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAutoFit}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 transition cursor-pointer"
+                  title="Auto-fit all nodes to the canvas viewport"
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span>Auto-Fit</span>
                 </button>
               </div>
 
@@ -1256,6 +1301,49 @@ export const SwarmMap: React.FC = () => {
                         </div>
                       )}
 
+                      {/* SAFE Mode Pending Approvals Badge */}
+                      {(() => {
+                        const agentApprovals = (pendingApprovals || []).filter(
+                          (a) => a.agentName === agent.displayName || a.agentName === agent.name || (a as any).agentId === agent.id
+                        );
+                        if (agentApprovals.length === 0) return null;
+                        const app = agentApprovals[0];
+                        return (
+                          <div
+                            onClick={(e) => e.stopPropagation()}
+                            className="mt-2.5 p-2 rounded-xl bg-amber-500/20 border-2 border-amber-500 text-amber-900 dark:text-amber-200 shadow-md animate-pulse"
+                          >
+                            <div className="flex items-center justify-between text-[11px] font-bold">
+                              <span className="flex items-center space-x-1.5">
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                <span>Approval Required ({app.toolName || 'Tool'})</span>
+                              </span>
+                            </div>
+                            {app.actionSummary && (
+                              <p className="mt-0.5 text-[10px] text-amber-800 dark:text-amber-300 font-mono truncate">
+                                {app.actionSummary}
+                              </p>
+                            )}
+                            <div className="mt-2 flex items-center space-x-2">
+                              <button
+                                type="button"
+                                onClick={() => resolveApproval(app.id, 'approved')}
+                                className="px-2.5 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold shadow-xs transition"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => resolveApproval(app.id, 'rejected')}
+                                className="px-2.5 py-0.5 rounded bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold shadow-xs transition"
+                              >
+                                Deny
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
                       {/* Bottom Port Indicator (Outflow) */}
                       <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 flex items-center space-x-1 px-1.5 py-0.2 rounded-full bg-white dark:bg-[#0a0f1d] border border-blue-500/40 text-[9px] font-mono text-blue-600 dark:text-blue-300 shadow">
                         <span className="w-1 h-1 rounded-full bg-blue-400" />
@@ -1395,73 +1483,345 @@ export const SwarmMap: React.FC = () => {
                         <option value="__open_modal__">⚙️ Manage Models...</option>
                       </select>
                     </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Department Matrix vs Hierarchy Cards */}
-              {viewMode === 'matrix' ? (
-                <div className="w-full max-w-6xl space-y-4 pb-16">
-                  {channels
-                    .filter((c) => !c.id.startsWith('dm-'))
-                    .map((chan) => {
-                      const members = agents.filter((a) => chan.memberIds?.includes(a.id) || a.isOrchestrator);
+                    {/* SAFE Mode Pending Approvals Badge for Orchestrator */}
+                    {(() => {
+                      const orchApprovals = (pendingApprovals || []).filter(
+                        (a) => a.agentName === orchestrator.displayName || a.agentName === orchestrator.name || (a as any).agentId === orchestrator.id
+                      );
+                      if (orchApprovals.length === 0) return null;
+                      const app = orchApprovals[0];
                       return (
                         <div
-                          key={chan.id}
-                          className="p-4 rounded-2xl bg-white dark:bg-[#0c1427]/80 border border-slate-200 dark:border-[#1e293b] space-y-3 shadow-lg"
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-2.5 p-2 rounded-xl bg-amber-500/20 border-2 border-amber-500 text-amber-900 dark:text-amber-200 shadow-md animate-pulse"
                         >
-                          <div className="flex items-center justify-between border-b border-slate-200 dark:border-[#1e293b]/70 pb-2">
-                            <div className="flex items-center space-x-2">
-                              <span className="w-7 h-7 rounded-lg bg-blue-500/20 border border-blue-500/30 flex items-center justify-center font-mono font-bold text-blue-500">
-                                #
-                              </span>
-                              <div>
-                                <span className="font-bold text-slate-900 dark:text-white text-sm">#{chan.name}</span>
-                                <span className="text-[11px] text-slate-500 dark:text-[#64748b] ml-2">
-                                  {chan.topic || `Departmental channel #${chan.name}`}
-                                </span>
-                              </div>
-                            </div>
-                            <button
-                              onClick={() => {
-                                setSwarmMapOpen(false);
-                                setActiveChannel(chan.id);
-                              }}
-                              className="px-2.5 py-1 rounded-md bg-slate-100 dark:bg-[#1e293b] hover:bg-blue-600 hover:text-white text-blue-600 dark:text-blue-300 text-xs font-mono transition cursor-pointer"
-                            >
-                              Open Channel ➔
-                            </button>
+                          <div className="flex items-center justify-between text-[11px] font-bold">
+                            <span className="flex items-center space-x-1.5">
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                              <span>Approval Required ({app.toolName || 'Tool'})</span>
+                            </span>
                           </div>
-
-                          <div className="flex flex-wrap gap-3">
-                            {members.map((ag) => (
-                              <div
-                                key={ag.id}
-                                onClick={() => {
-                                  setSelectedSwarmAgentId(ag.id);
-                                  setIsDrawerOpen(true);
-                                }}
-                                className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-[#070b14] border border-slate-200 dark:border-[#1e293b] hover:border-blue-500 cursor-pointer flex items-center space-x-2.5 transition"
-                              >
-                                <div className="w-7 h-7 rounded-lg bg-blue-500/15 flex items-center justify-center text-blue-500 text-xs font-bold">
-                                  {ag.isOrchestrator ? <Shield className="w-3.5 h-3.5 text-amber-500" /> : <Bot className="w-3.5 h-3.5" />}
-                                </div>
-                                <div>
-                                  <div className="font-semibold text-slate-900 dark:text-white text-xs flex items-center space-x-1">
-                                    <span>{ag.displayName}</span>
-                                    <span className={`w-1.5 h-1.5 rounded-full ${ag.status === 'working' || ag.status === 'thinking' ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`} />
-                                  </div>
-                                  <span className="text-[10px] text-slate-500 dark:text-[#64748b] font-mono">{ag.role}</span>
-                                </div>
-                              </div>
-                            ))}
+                          {app.actionSummary && (
+                            <p className="mt-0.5 text-[10px] text-amber-800 dark:text-amber-300 font-mono truncate">
+                              {app.actionSummary}
+                            </p>
+                          )}
+                          <div className="mt-2 flex items-center space-x-2">
+                            <button
+                              type="button"
+                              onClick={() => resolveApproval(app.id, 'approved')}
+                              className="px-2.5 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold shadow-xs transition"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => resolveApproval(app.id, 'rejected')}
+                              className="px-2.5 py-0.5 rounded bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold shadow-xs transition"
+                            >
+                              Deny
+                            </button>
                           </div>
                         </div>
                       );
-                    })}
+                    })()}
+                  </div>
+
+                  {/* Hierarchy Tree Branch Connectors from Root Orchestrator */}
+                  {viewMode === 'hierarchy' && specialists.length > 0 && (
+                    <div className="w-full max-w-4xl flex flex-col items-center select-none my-3">
+                      <div className="w-0.5 h-6 bg-purple-500/60" />
+                      <div className="w-full h-0.5 bg-purple-500/60 relative">
+                        <div className="absolute left-1/2 -top-1 -translate-x-1/2 w-2 h-2 rounded-full bg-purple-500" />
+                      </div>
+                      <div className="w-full flex justify-around px-8">
+                        {specialists.map((s) => (
+                          <div key={s.id} className="w-0.5 h-6 bg-purple-500/60 relative">
+                            <div className="absolute bottom-0 -left-1 w-2.5 h-2.5 border-b-2 border-r-2 border-purple-500 -rotate-45" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* View Mode Switching: Matrix Grid vs Accessible Tree vs Hierarchy Cards */}
+              {viewMode === 'matrix' ? (
+                <div className="w-full max-w-6xl pb-16 overflow-x-auto">
+                  <div className="bg-white dark:bg-[#0c1427] border border-slate-200 dark:border-[#1e293b] rounded-2xl shadow-xl overflow-hidden">
+                    <div className="p-4 border-b border-slate-200 dark:border-[#1e293b] flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <Grid className="w-5 h-5 text-indigo-500" />
+                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                          Agent Capability & Policy Matrix
+                        </h3>
+                      </div>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                        {agents.length} Registered Workforce Agents
+                      </span>
+                    </div>
+
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 dark:bg-[#090d16] border-b border-slate-200 dark:border-[#1e293b] text-slate-600 dark:text-slate-400 font-mono text-[11px]">
+                          <th className="py-3 px-4">Agent</th>
+                          <th className="py-3 px-3">Assigned Model</th>
+                          <th className="py-3 px-3">Domain Authority</th>
+                          <th className="py-3 px-3">Filesystem</th>
+                          <th className="py-3 px-3">Terminal</th>
+                          <th className="py-3 px-3">Browser</th>
+                          <th className="py-3 px-3">Status & Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-[#1e293b]/60">
+                        {[orchestrator, ...specialists].filter(Boolean).map((ag) => {
+                          if (!ag) return null;
+                          const agApprovals = (pendingApprovals || []).filter(
+                            (a) => a.agentName === ag.displayName || a.agentName === ag.name || (a as any).agentId === ag.id
+                          );
+                          const isBusy = ag.status === 'working' || ag.status === 'thinking';
+
+                          return (
+                            <tr
+                              key={ag.id}
+                              onClick={() => {
+                                setSelectedSwarmAgentId(ag.id);
+                                setIsDrawerOpen(true);
+                              }}
+                              className="hover:bg-slate-50 dark:hover:bg-slate-900/40 cursor-pointer transition"
+                            >
+                              <td className="py-3 px-4">
+                                <div className="flex items-center space-x-2.5">
+                                  <div className="w-7 h-7 rounded-lg bg-indigo-500/15 text-indigo-500 flex items-center justify-center font-bold">
+                                    {ag.isOrchestrator ? <Shield className="w-4 h-4 text-amber-500" /> : <Bot className="w-4 h-4" />}
+                                  </div>
+                                  <div>
+                                    <div className="font-bold text-slate-900 dark:text-white flex items-center space-x-1">
+                                      <span>{ag.displayName}</span>
+                                      {ag.isOrchestrator && (
+                                        <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-600 dark:text-amber-300 font-mono">
+                                          ROOT
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                                      {ag.role}
+                                    </span>
+                                  </div>
+                                </div>
+                              </td>
+
+                              <td className="py-3 px-3" onClick={(e) => e.stopPropagation()}>
+                                <select
+                                  value={ag.activeModelId}
+                                  disabled={isBusy}
+                                  onChange={async (e) => {
+                                    if (e.target.value === '__open_modal__') {
+                                      openModelSelector(ag.id);
+                                    } else {
+                                      await updateAgentModel(ag.id, e.target.value, activeProjectId, activeChannelId);
+                                    }
+                                  }}
+                                  className="bg-slate-100 dark:bg-[#070b14] text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-kin-border rounded px-2 py-1 text-[11px] font-mono cursor-pointer"
+                                >
+                                  {!availableModels.some((m) => m.id === ag.activeModelId) && (
+                                    <option value={ag.activeModelId}>{ag.activeModelId}</option>
+                                  )}
+                                  {availableModels.map((m) => (
+                                    <option key={m.id} value={m.id}>
+                                      {m.provider ? `[${m.provider}] ` : ''}{m.name || m.id}
+                                    </option>
+                                  ))}
+                                  <option value="__open_modal__">⚙️ Manage Models...</option>
+                                </select>
+                              </td>
+
+                              <td className="py-3 px-3 text-[11px] text-slate-700 dark:text-slate-300 font-mono">
+                                {ag.isOrchestrator ? 'Workforce Orchestration' : (ag.capabilities?.[0] || 'Domain Specialist')}
+                              </td>
+
+                              <td className="py-3 px-3">
+                                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300">
+                                  Jail Sandboxed
+                                </span>
+                              </td>
+
+                              <td className="py-3 px-3">
+                                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300">
+                                  Safe PTY
+                                </span>
+                              </td>
+
+                              <td className="py-3 px-3">
+                                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300">
+                                  CDP Headless
+                                </span>
+                              </td>
+
+                              <td className="py-3 px-3" onClick={(e) => e.stopPropagation()}>
+                                {agApprovals.length > 0 ? (
+                                  <div className="flex items-center space-x-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => resolveApproval(agApprovals[0].id, 'approved')}
+                                      className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-semibold transition"
+                                    >
+                                      Approve
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => resolveApproval(agApprovals[0].id, 'rejected')}
+                                      className="px-2 py-0.5 rounded bg-red-600 hover:bg-red-500 text-white text-[10px] font-semibold transition"
+                                    >
+                                      Deny
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center space-x-1.5">
+                                    <span className={`w-2 h-2 rounded-full ${isBusy ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`} />
+                                    <span className="text-[11px] font-mono text-slate-600 dark:text-slate-400 capitalize">
+                                      {ag.status}
+                                    </span>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : viewMode === 'accessible_tree' ? (
+                /* ACCESSIBLE TREE VIEW ALTERNATIVE */
+                <div className="w-full max-w-4xl pb-16">
+                  <div
+                    role="tree"
+                    aria-label="Workforce Hierarchy Tree"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      const all = [orchestrator, ...specialists].filter(Boolean) as any[];
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setFocusedTreeIndex((i) => Math.min(all.length - 1, i + 1));
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setFocusedTreeIndex((i) => Math.max(0, i - 1));
+                      } else if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        const target = all[focusedTreeIndex];
+                        if (target) {
+                          setSelectedSwarmAgentId(target.id);
+                          setIsDrawerOpen(true);
+                        }
+                      }
+                    }}
+                    className="p-6 rounded-2xl bg-white dark:bg-[#0c1427] border border-slate-200 dark:border-[#1e293b] shadow-xl space-y-3 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  >
+                    <div className="pb-3 border-b border-slate-200 dark:border-[#1e293b] flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <ListTree className="w-5 h-5 text-emerald-500" />
+                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                          Accessible Workforce Hierarchy
+                        </h3>
+                      </div>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                        Use ↑/↓ keys to navigate, Enter to inspect
+                      </span>
+                    </div>
+
+                    <div role="status" aria-live="polite" className="sr-only">
+                      {(() => {
+                        const all = [orchestrator, ...specialists].filter(Boolean) as any[];
+                        const focused = all[focusedTreeIndex];
+                        return focused ? `Focused agent: ${focused.displayName}, role: ${focused.role}, status: ${focused.status}` : '';
+                      })()}
+                    </div>
+
+                    {/* Root Node */}
+                    {orchestrator && (
+                      <div
+                        role="treeitem"
+                        aria-expanded={true}
+                        aria-selected={focusedTreeIndex === 0}
+                        tabIndex={focusedTreeIndex === 0 ? 0 : -1}
+                        onClick={() => {
+                          setFocusedTreeIndex(0);
+                          setSelectedSwarmAgentId(orchestrator.id);
+                          setIsDrawerOpen(true);
+                        }}
+                        className={`p-3 rounded-xl border flex items-center justify-between transition cursor-pointer ${
+                          focusedTreeIndex === 0
+                            ? 'bg-amber-100/60 dark:bg-amber-950/40 border-amber-500 ring-2 ring-amber-400'
+                            : 'bg-slate-50 dark:bg-[#070b14] border-slate-200 dark:border-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-2.5">
+                          <Shield className="w-4 h-4 text-amber-500" />
+                          <span className="font-bold text-xs text-slate-900 dark:text-white">
+                            [Tier 1 Root] {orchestrator.displayName} ({orchestrator.role})
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-mono text-amber-600 dark:text-amber-300">
+                          Model: {orchestrator.activeModelId} • Status: {orchestrator.status}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Children Specialists */}
+                    <div role="group" className="pl-6 space-y-2 border-l-2 border-slate-200 dark:border-slate-800 ml-4">
+                      {specialists.map((spec, sIdx) => {
+                        const itemIndex = sIdx + (orchestrator ? 1 : 0);
+                        const isFocused = focusedTreeIndex === itemIndex;
+                        const specApprovals = (pendingApprovals || []).filter(
+                          (a) => a.agentName === spec.displayName || a.agentName === spec.name || (a as any).agentId === spec.id
+                        );
+
+                        return (
+                          <div
+                            key={spec.id}
+                            role="treeitem"
+                            aria-selected={isFocused}
+                            tabIndex={isFocused ? 0 : -1}
+                            onClick={() => {
+                              setFocusedTreeIndex(itemIndex);
+                              setSelectedSwarmAgentId(spec.id);
+                              setIsDrawerOpen(true);
+                            }}
+                            className={`p-3 rounded-xl border flex items-center justify-between transition cursor-pointer ${
+                              isFocused
+                                ? 'bg-blue-100/60 dark:bg-blue-950/40 border-blue-500 ring-2 ring-blue-400'
+                                : 'bg-slate-50 dark:bg-[#070b14] border-slate-200 dark:border-slate-800'
+                            }`}
+                          >
+                            <div className="flex items-center space-x-2.5">
+                              <Bot className="w-4 h-4 text-blue-500" />
+                              <span className="font-semibold text-xs text-slate-900 dark:text-white">
+                                {spec.displayName}
+                              </span>
+                              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                                — {spec.role}
+                              </span>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              {specApprovals.length > 0 && (
+                                <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-600 dark:text-amber-300 text-[10px] font-bold border border-amber-500/40">
+                                  Approval Needed
+                                </span>
+                              )}
+                              <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                                Model: {spec.activeModelId} • Status: {spec.status}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               ) : (
+                /* HIERARCHY CARDS VIEW */
                 <div className="flex flex-wrap justify-center gap-6 max-w-6xl w-full pb-16">
                   {specialists.map((spec) => {
                     const isSelected = selectedSwarmAgentId === spec.id;
@@ -1535,6 +1895,49 @@ export const SwarmMap: React.FC = () => {
                             <option value="__open_modal__">⚙️ Manage Models...</option>
                           </select>
                         </div>
+
+                        {/* SAFE Mode Pending Approvals Badge for Specialist */}
+                        {(() => {
+                          const specApprovals = (pendingApprovals || []).filter(
+                            (a) => a.agentName === spec.displayName || a.agentName === spec.name || (a as any).agentId === spec.id
+                          );
+                          if (specApprovals.length === 0) return null;
+                          const app = specApprovals[0];
+                          return (
+                            <div
+                              onClick={(e) => e.stopPropagation()}
+                              className="mt-2.5 p-2 rounded-xl bg-amber-500/20 border-2 border-amber-500 text-amber-900 dark:text-amber-200 shadow-md animate-pulse"
+                            >
+                              <div className="flex items-center justify-between text-[11px] font-bold">
+                                <span className="flex items-center space-x-1.5">
+                                  <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                  <span>Approval Required ({app.toolName || 'Tool'})</span>
+                                </span>
+                              </div>
+                              {app.actionSummary && (
+                                <p className="mt-0.5 text-[10px] text-amber-800 dark:text-amber-300 font-mono truncate">
+                                  {app.actionSummary}
+                                </p>
+                              )}
+                              <div className="mt-2 flex items-center space-x-2">
+                                <button
+                                  type="button"
+                                  onClick={() => resolveApproval(app.id, 'approved')}
+                                  className="px-2.5 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold shadow-xs transition"
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => resolveApproval(app.id, 'rejected')}
+                                  className="px-2.5 py-0.5 rounded bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold shadow-xs transition"
+                                >
+                                  Deny
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     );
                   })}

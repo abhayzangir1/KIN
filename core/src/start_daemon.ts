@@ -33,6 +33,9 @@ for (const envPath of envCandidates) {
 
 function resolveDbPath(): string {
   if (process.env.KIN_DB_PATH) {
+    if (process.env.KIN_DB_PATH === ':memory:') {
+      return ':memory:';
+    }
     return path.resolve(process.env.KIN_DB_PATH);
   }
   const dataDir = getDataDirectory();

@@ -423,32 +423,106 @@ export class ToolEngine {
         try {
           const { handlerCode, cleanParams, cleanContext, worktreeRoot } = workerData;
 
-          // Canonical jail helper inside worker
-          function isPathContained(targetPath, baseDir) {
+          // Sensitive file patterns rejection
+          function isSensitivePattern(p, base) {
+            return (
+              base === 'ipc_auth.token' ||
+              base === 'vault.key' ||
+              base === '.env' ||
+              base.startsWith('.env.') ||
+              base.endsWith('.env') ||
+              base === '.npmrc' ||
+              base === '.pypirc' ||
+              base === 'id_rsa' ||
+              base === 'id_ed25519' ||
+              base === 'id_ecdsa' ||
+              base === 'id_dsa' ||
+              base.startsWith('kin_storage.sqlite') ||
+              base.endsWith('.sqlite') ||
+              base.endsWith('.sqlite3') ||
+              base.endsWith('.sqlite-wal') ||
+              base.endsWith('.sqlite-shm') ||
+              p.includes('/.git/config') ||
+              p === '.git/config' ||
+              p.includes('/.ssh/') ||
+              p.startsWith('.ssh/') ||
+              p.includes('/.aws/') ||
+              p.startsWith('.aws/') ||
+              ((p.startsWith('.kin/') || p.includes('/.kin/')) && !p.includes('/.kin/worktrees/'))
+            );
+          }
+
+          // Canonical jail helper inside worker with symlink defense & sensitive pattern check
+          function validateJailedPath(targetPath, baseDir) {
+            let canonicalBase;
             try {
-              const rel = path.relative(baseDir, path.resolve(baseDir, targetPath));
-              return !rel.startsWith('..') && !path.isAbsolute(rel);
+              canonicalBase = fs.existsSync(baseDir) ? fs.realpathSync(baseDir) : path.resolve(baseDir);
             } catch {
-              return false;
+              canonicalBase = path.resolve(baseDir);
+            }
+
+            const resolved = path.resolve(canonicalBase, targetPath);
+
+            // 1. Initial relative containment check
+            const rel = path.relative(canonicalBase, resolved);
+            if (rel.startsWith('..') || path.isAbsolute(rel)) {
+              throw new Error("Path jail traversal blocked: " + targetPath);
+            }
+
+            // 2. Sensitive pattern check on unresolved target
+            const normalizedP = rel.split('\\\\').join('/').toLowerCase();
+            const base = path.basename(resolved).toLowerCase();
+            if (isSensitivePattern(normalizedP, base)) {
+              throw new Error("Path jail access to sensitive file blocked: " + targetPath);
+            }
+
+            // 3. Canonical path check (resolves symlinks)
+            if (fs.existsSync(resolved)) {
+              const realTarget = fs.realpathSync(resolved);
+              const realRel = path.relative(canonicalBase, realTarget);
+              if (realRel.startsWith('..') || path.isAbsolute(realRel)) {
+                throw new Error("Path jail symlink traversal blocked: " + targetPath);
+              }
+              const realNormalized = realRel.split('\\\\').join('/').toLowerCase();
+              const realBase = path.basename(realTarget).toLowerCase();
+              if (isSensitivePattern(realNormalized, realBase)) {
+                throw new Error("Path jail access to sensitive file blocked: " + targetPath);
+              }
+              return realTarget;
+            } else {
+              // Non-existent target: verify closest existing ancestor is contained within jail
+              let current = path.dirname(resolved);
+              while (current && !fs.existsSync(current) && current !== canonicalBase && current !== path.dirname(current)) {
+                current = path.dirname(current);
+              }
+              if (fs.existsSync(current)) {
+                const realAncestor = fs.realpathSync(current);
+                const realAncestorRel = path.relative(canonicalBase, realAncestor);
+                if (realAncestorRel.startsWith('..') || path.isAbsolute(realAncestorRel)) {
+                  throw new Error("Path jail ancestor symlink traversal blocked: " + targetPath);
+                }
+              }
+              return resolved;
             }
           }
 
           // Safe restricted FS module
           const jailedFs = {
             readFileSync: (p, enc) => {
-              const resolved = path.resolve(worktreeRoot, p);
-              if (!isPathContained(resolved, worktreeRoot)) throw new Error("Path jail traversal blocked: " + p);
-              return fs.readFileSync(resolved, enc || 'utf-8');
+              const validPath = validateJailedPath(p, worktreeRoot);
+              return fs.readFileSync(validPath, enc || 'utf-8');
             },
             writeFileSync: (p, data) => {
-              const resolved = path.resolve(worktreeRoot, p);
-              if (!isPathContained(resolved, worktreeRoot)) throw new Error("Path jail traversal blocked: " + p);
-              return fs.writeFileSync(resolved, data, 'utf-8');
+              const validPath = validateJailedPath(p, worktreeRoot);
+              return fs.writeFileSync(validPath, data, 'utf-8');
             },
             existsSync: (p) => {
-              const resolved = path.resolve(worktreeRoot, p);
-              if (!isPathContained(resolved, worktreeRoot)) return false;
-              return fs.existsSync(resolved);
+              try {
+                const validPath = validateJailedPath(p, worktreeRoot);
+                return fs.existsSync(validPath);
+              } catch {
+                return false;
+              }
             }
           };
 

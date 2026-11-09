@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useKinStore } from '../store/kinStore.js';
-import { Folder, Plus, X, Copy, Check, Activity, Network, PanelRight, PanelRightClose, Server } from 'lucide-react';
+import { Folder, Plus, X, Copy, Check, Activity, Network, PanelRight, PanelRightClose, Server, Sun, Moon } from 'lucide-react';
 import { ConfirmDialog, requestConfirmation } from './ConfirmDialog.js';
 
 export const HeaderBar: React.FC = () => {
@@ -23,6 +23,8 @@ export const HeaderBar: React.FC = () => {
     agents,
     isInspectorOpen,
     toggleInspector,
+    theme,
+    toggleTheme,
     addToast,
   } = useKinStore();
 
@@ -203,6 +205,21 @@ export const HeaderBar: React.FC = () => {
             <PanelRight className="w-3.5 h-3.5 text-kin-muted shrink-0" />
           )}
           <span>Inspector</span>
+        </button>
+
+        {/* Dual-Theme Quick Toggle */}
+        <button
+          onClick={toggleTheme}
+          className="flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-kin-card hover:bg-kin-cardHover border border-kin-border text-kin-muted hover:text-kin-text transition cursor-pointer"
+          title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+          aria-label={`Toggle theme: currently ${theme}`}
+        >
+          {theme === 'dark' ? (
+            <Sun className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          ) : (
+            <Moon className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+          )}
+          <span className="hidden sm:inline capitalize">{theme === 'dark' ? 'Light' : 'Dark'}</span>
         </button>
 
         {/* Machine Control Indicator */}

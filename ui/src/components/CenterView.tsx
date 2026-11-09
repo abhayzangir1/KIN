@@ -1,13 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
 import {
-  MessageSquare,
   Send,
   Mic,
   Paperclip,
   AtSign,
-  User,
-  Bot,
   UserPlus,
   X,
   Shield,
@@ -20,25 +17,21 @@ import {
   Timer,
   Clock,
   Monitor,
-  Quote,
   FileUp,
   Loader2,
   ChevronDown,
-  ChevronRight,
   Flame,
-  Lightbulb,
-  Info,
-  Compass,
   Plus,
   Cpu,
   Wrench,
 } from 'lucide-react';
 import { HumanTakeoverBanner } from './HumanTakeoverBanner.js';
+import { QuotaPauseBanner } from './banners/QuotaPauseBanner.js';
+import { InterruptedRecoveryDock } from './banners/InterruptedRecoveryDock.js';
 import { AutomationsView } from './AutomationsView.js';
-import { DecisionCard } from './DecisionCard.js';
+import { TaskDagView } from './tasks/TaskDagView.js';
 import { AgentModelQuickSwitch } from './AgentModelQuickSwitch.js';
-import { ThinkingAccordion } from './ThinkingAccordion.js';
-import { CodeBlock } from './CodeBlock.js';
+import { ChatTimeline } from './chat/ChatTimeline.js';
 
 export const CenterView: React.FC = () => {
   const {
@@ -54,7 +47,6 @@ export const CenterView: React.FC = () => {
     availableModels,
     messages,
     schedules,
-    latestRoutingByChannel,
     cancelSchedule,
     sendMessage,
     removeChannelMember,
@@ -82,18 +74,10 @@ export const CenterView: React.FC = () => {
     activeMainView,
     setActiveMainView,
     systemHealth,
-    pendingRecoveries,
-    quotaPauseState,
     grillMeSession,
     fetchRecoveryState,
-    resumeAllRecoveries,
-    discardRecoveries,
-    resumeRun,
-    switchRunToModel,
-    switchRunToOllama,
     submitGrillMeAnswers,
     dismissGrillMe,
-    clearQuotaPause,
     skills,
     fetchSkills,
     setSettingsModalOpen,
@@ -181,7 +165,6 @@ export const CenterView: React.FC = () => {
   const [isListening, setIsListening] = useState(false);
   const [isDragOverChat, setIsDragOverChat] = useState(false);
   const [chatUploadStatus, setChatUploadStatus] = useState<string | null>(null);
-  const [expandedBackgroundTurns, setExpandedBackgroundTurns] = useState<Record<string, boolean>>({});
   const [dismissHealthBanner, setDismissHealthBanner] = useState(() => {
     try {
       return sessionStorage.getItem('kin_dismiss_health_banner') === 'true';
@@ -190,11 +173,7 @@ export const CenterView: React.FC = () => {
       return false;
     }
   });
-  const [dismissedRoutingChannels, setDismissedRoutingChannels] = useState<Record<string, boolean>>({});
   const [grillMeAnswers, setGrillMeAnswers] = useState<Record<string, string>>({});
-  const [inspectingRecovery, setInspectingRecovery] = useState<any | null>(null);
-  const [selectedRecoveryModels, setSelectedRecoveryModels] = useState<Record<string, string>>({});
-  const [selectedQuotaModel, setSelectedQuotaModel] = useState<string>('');
 
   const selectableModels = React.useMemo(() => {
     const list: { id: string; name: string; provider: string }[] = [];
@@ -515,199 +494,8 @@ export const CenterView: React.FC = () => {
     inputRef.current?.focus();
   };
 
-  const handleQuoteMessage = (msg: any) => {
-    let sender = msg.senderType === 'human' ? 'Human' : msg.senderName;
-    if (sender && sender.startsWith('@')) {
-      sender = sender.slice(1);
-    }
-    const cleanContent = msg.content.length > 250 ? msg.content.slice(0, 250) + '...' : msg.content;
-    const formatted = `> [Quote @${sender}]: "${cleanContent.replace(/\r?\n/g, ' ')}"\n\n`;
-    setInputText((prev) => formatted + prev);
-    inputRef.current?.focus();
-  };
 
-  const formatInlineTokens = (text: string) => {
-    const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*|@[a-zA-Z0-9_-]+)/g);
-    return parts.map((part, i) => {
-      if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
-        return (
-          <code
-            key={i}
-            className="px-1.5 py-0.5 mx-0.5 rounded bg-slate-100 dark:bg-[#0d1117] text-emerald-800 dark:text-emerald-300 font-mono text-[11px] border border-slate-300 dark:border-[#30363d]"
-          >
-            {part.slice(1, -1)}
-          </code>
-        );
-      }
-      if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
-        return (
-          <strong key={i} className="font-bold text-kin-text">
-            {part.slice(2, -2)}
-          </strong>
-        );
-      }
-      if (part.startsWith('@') && part.length > 1) {
-        return (
-          <span
-            key={i}
-            className="px-1.5 py-0.2 mx-0.5 rounded bg-blue-500/15 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 font-mono text-[10px] font-bold border border-blue-500/30 inline-flex items-center"
-          >
-            {part}
-          </span>
-        );
-      }
-      return part;
-    });
-  };
 
-  const isSlashCard = (text: string) => {
-    return (
-      text.includes('🚀 **Compound Pipeline Engaged**') ||
-      text.includes('⚡ **Compound Pipeline Engaged**') ||
-      text.includes('🎯 **Compound Pipeline Engaged**') ||
-      text.includes('🚀 **Boost Mode Engaged**') ||
-      text.includes('👥 **Workforce Collaboration Matrix**') ||
-      text.includes('📋 **Execution Plan Initialized**') ||
-      text.includes('🎯 **Goal Registered**') ||
-      text.includes('⏱️ **Timer Initialized**') ||
-      text.includes('🔄 **Proactive Personal Routine Configured**') ||
-      text.includes('🛡️ **Supervisor Self-Healing**') ||
-      text.includes('💡 **[Side Query / BTW]**') ||
-      text.includes('🔥 **Adversarial Architectural Assessment (/grill-me)**') ||
-      text.includes('🛡️ **Hardened Architecture Decision Record (ADR)**')
-    );
-  };
-
-  const stripThoughtsAndToolSyntax = (raw: string): string => {
-    if (!raw) return '';
-    let text = raw;
-    // Strip <think>...</think>, <thought>...</thought>, <reasoning>...</reasoning>, <tool_call>...</tool_call>
-    text = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
-    text = text.replace(/<thought>[\s\S]*?<\/thought>/gi, '');
-    text = text.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '');
-    text = text.replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '');
-    // Strip unclosed <think> or <reasoning> tags
-    text = text.replace(/<(?:think|thought|reasoning)>[\s\S]*$/gi, '');
-    // Strip leading "Thinking Process: ... \n\n"
-    text = text.replace(/^Thinking Process:[\s\S]*?\n\n/i, '');
-    return text.trim();
-  };
-
-  const renderMessageContent = (content: string, isHumanMsg?: boolean) => {
-    let thoughtText = '';
-    if (!isHumanMsg) {
-      const thinkMatch = content.match(/<(?:think|thought|reasoning)>([\s\S]*?)<\/(?:think|thought|reasoning)>/i);
-      if (thinkMatch) {
-        thoughtText = thinkMatch[1].trim();
-      }
-    }
-    const cleaned = isHumanMsg ? content : stripThoughtsAndToolSyntax(content);
-    const textToRender = cleaned || content;
-
-    // Check for fenced code blocks ```lang ... ```
-    if (textToRender.includes('```')) {
-      const segments = textToRender.split(/(```[a-zA-Z0-9_-]*[\s\S]*?```)/g);
-      return segments.map((seg, sIdx) => {
-        if (seg.startsWith('```') && seg.endsWith('```')) {
-          const firstLineBreak = seg.indexOf('\n');
-          const lang = firstLineBreak !== -1 ? seg.slice(3, firstLineBreak).trim() : '';
-          const codeBody = firstLineBreak !== -1 ? seg.slice(firstLineBreak + 1, -3) : seg.slice(3, -3);
-          return <CodeBlock key={sIdx} language={lang} code={codeBody} />;
-        }
-        const paras = seg.split(/\n\n+/);
-        return paras.map((p, pIdx) => {
-          const trimmed = p.trim();
-          if (!trimmed) return null;
-          if (trimmed.startsWith('>')) {
-            const quoteContent = trimmed.replace(/^>\s*/gm, '');
-            return (
-              <blockquote
-                key={`${sIdx}-${pIdx}`}
-                className="border-l-2 border-emerald-500/70 bg-emerald-50 dark:bg-emerald-950/20 pl-2.5 py-1 my-1 text-emerald-800 dark:text-emerald-200/90 font-mono text-[11px] rounded-r italic whitespace-pre-wrap"
-              >
-                {formatInlineTokens(quoteContent)}
-              </blockquote>
-            );
-          }
-          return (
-            <div key={`${sIdx}-${pIdx}`} className="whitespace-pre-wrap">
-              {formatInlineTokens(p)}
-            </div>
-          );
-        });
-      });
-    }
-
-    const paragraphs = textToRender.split(/\n\n+/);
-    const renderedParagraphs = paragraphs.map((para, pIdx) => {
-      const trimmed = para.trim();
-      if (trimmed.startsWith('>')) {
-        const quoteContent = trimmed.replace(/^>\s*/gm, '');
-        return (
-          <blockquote
-            key={pIdx}
-            className="border-l-2 border-emerald-500/70 bg-emerald-50 dark:bg-emerald-950/20 pl-2.5 py-1 my-1 text-emerald-800 dark:text-emerald-200/90 font-mono text-[11px] rounded-r italic whitespace-pre-wrap"
-          >
-            {formatInlineTokens(quoteContent)}
-          </blockquote>
-        );
-      }
-      return (
-        <div key={pIdx} className="whitespace-pre-wrap">
-          {formatInlineTokens(para)}
-        </div>
-      );
-    });
-
-    if (thoughtText) {
-      return (
-        <div className="space-y-1">
-          <ThinkingAccordion thinking={thoughtText} isStreaming={false} />
-          {renderedParagraphs}
-        </div>
-      );
-    }
-    return renderedParagraphs;
-  };
-
-  const parseDecisionProposal = (content: string) => {
-    const cardMatch = content.match(/\[DECISION_CARD\]([\s\S]*?)\[\/DECISION_CARD\]/);
-    if (cardMatch) {
-      try {
-        return JSON.parse(cardMatch[1]);
-      } catch (err) {
-        console.warn('[KIN UI] Failed to parse decision proposal card:', err);
-      }
-    }
-    if (content.includes('### Architectural Tie-Breaker') || content.includes('Tie-Breaker Escalation') || content.includes('Decision Card:')) {
-      const titleMatch = content.match(/(?:### Architectural Tie-Breaker|Proposed Plan Decision|Decision Card:)\s*:?\s*([^\n]+)/);
-      const optAMatch = content.match(/Option A:\s*([^\n]+)/);
-      const optBMatch = content.match(/Option B:\s*([^\n]+)/);
-      if (optAMatch && optBMatch) {
-        const optAProsMatch = content.match(/Option A Pros?:\s*([^\n]+)/i);
-        const optAConsMatch = content.match(/Option A Cons?:\s*([^\n]+)/i);
-        const optBProsMatch = content.match(/Option B Pros?:\s*([^\n]+)/i);
-        const optBConsMatch = content.match(/Option B Cons?:\s*([^\n]+)/i);
-        const recMatch = content.match(/Recommendation:\s*([^\n]+)/i);
-        return {
-          title: titleMatch ? titleMatch[1].trim() : 'Architectural Plan Decision',
-          topic: 'Interactive plan review',
-          optionA: {
-            label: optAMatch[1].trim(),
-            pros: optAProsMatch ? optAProsMatch[1].trim() : '',
-            cons: optAConsMatch ? optAConsMatch[1].trim() : '',
-          },
-          optionB: {
-            label: optBMatch[1].trim(),
-            pros: optBProsMatch ? optBProsMatch[1].trim() : '',
-            cons: optBConsMatch ? optBConsMatch[1].trim() : '',
-          },
-          recommendation: recMatch ? recMatch[1].trim() : undefined,
-        };
-      }
-    }
-    return null;
-  };
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -740,6 +528,10 @@ export const CenterView: React.FC = () => {
 
   if (activeMainView === 'automations') {
     return <AutomationsView />;
+  }
+
+  if (activeMainView === 'dag') {
+    return <TaskDagView />;
   }
 
   return (
@@ -860,7 +652,7 @@ export const CenterView: React.FC = () => {
       </div>
 
       {/* Notifications and Diagnostics Banners */}
-      {(isAgentToAgentDm || (systemHealth && systemHealth.status !== 'healthy' && !dismissHealthBanner) || (latestRoutingByChannel[activeChannelId] && !dismissedRoutingChannels[activeChannelId])) && (
+      {(isAgentToAgentDm || (systemHealth && systemHealth.status !== 'healthy' && !dismissHealthBanner)) && (
         <div className="w-full max-w-4xl mx-auto px-6 space-y-2 mt-2">
           {/* Operator Inspection Mode Banner for Coworker DMs */}
           {isAgentToAgentDm && (
@@ -912,293 +704,33 @@ export const CenterView: React.FC = () => {
             </div>
           )}
 
-          {/* Dynamic Agent Routing Observability Banner */}
-          {latestRoutingByChannel[activeChannelId] && !dismissedRoutingChannels[activeChannelId] && (
-            <div className="px-3 py-1.5 rounded-lg bg-cyan-50 dark:bg-[#0e1628] border border-cyan-200 dark:border-cyan-800/40 text-[11px] text-cyan-900 dark:text-cyan-300 flex items-center justify-between shadow-sm">
-              <div className="flex items-center space-x-2 truncate">
-                <Compass className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400 shrink-0" />
-                <span className="font-semibold text-cyan-950 dark:text-white">Agent Routing:</span>
-                <span className="truncate">
-                  {latestRoutingByChannel[activeChannelId].routing.reason}
-                  {latestRoutingByChannel[activeChannelId].routing.matchReason && (
-                    <span className="ml-1.5 px-1.5 py-0.5 rounded bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-400 font-mono text-[10px] border border-cyan-300 dark:border-cyan-700/50">
-                      {latestRoutingByChannel[activeChannelId].routing.matchReason}
-                    </span>
-                  )}
-                </span>
-                {latestRoutingByChannel[activeChannelId].routing.matchedKeywords &&
-                  latestRoutingByChannel[activeChannelId].routing.matchedKeywords.length > 0 && (
-                    <div className="flex items-center space-x-1 shrink-0 ml-1.5">
-                      {latestRoutingByChannel[activeChannelId].routing.matchedKeywords.map((kw, idx) => (
-                        <span
-                          key={idx}
-                          className="px-1.5 py-0.5 rounded bg-cyan-200/60 dark:bg-cyan-900/60 text-cyan-900 dark:text-cyan-200 font-mono text-[9px] border border-cyan-400/40 dark:border-cyan-600/40"
-                          title={`Matched keyword: ${kw}`}
-                        >
-                          #{kw}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-              </div>
-              <div className="flex items-center space-x-2 shrink-0 ml-2">
-                <span className="text-kin-muted text-[10px] font-mono">
-                  {latestRoutingByChannel[activeChannelId].routing.action}
-                </span>
-                <button
-                  onClick={() => setDismissedRoutingChannels((prev) => ({ ...prev, [activeChannelId]: true }))}
-                  className="text-cyan-700 dark:text-[#64748b] hover:text-cyan-950 dark:hover:text-white p-0.5 cursor-pointer"
-                  title="Dismiss routing info"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-          )}
+          {/* Pure prose transcript: routing telemetry relegated exclusively to Swarm Map */}
         </div>
       )}
 
-      {/* Main Conversation Stream */}
-      <div className="flex-1 overflow-y-auto font-sans text-xs">
-        <div className="max-w-4xl mx-auto px-6 py-5 space-y-4">
-        {channelMessages.map((msg) => {
-          const isHuman = msg.senderType === 'human';
-          const agent = agents.find((a) => a.id === msg.senderId);
-
-          const isBackgroundTurn =
-            msg.content.includes('[Automated Turn]') ||
-            msg.content.includes('[Scheduled Wakeup]') ||
-            msg.content.includes('[Background Task]') ||
-            msg.content.includes('⏰ Wakeup Timer Fired') ||
-            msg.content.includes('Timer / Scheduled Alarm') ||
-            msg.content.includes('⏰ **Timer') ||
-            msg.content.includes('🔄 Proactive Routine') ||
-            msg.content.includes('🤖 [Automated Wakeup]');
-
-          if (isBackgroundTurn) {
-            const isExpanded = !!expandedBackgroundTurns[msg.id];
-            return (
-              <div
-                key={msg.id}
-                className="p-3 rounded-xl bg-cyan-50/90 dark:bg-[#090f1d] border border-cyan-200 dark:border-cyan-500/40 shadow-sm space-y-2"
-              >
-                <div
-                  onClick={() =>
-                    setExpandedBackgroundTurns((prev) => ({ ...prev, [msg.id]: !prev[msg.id] }))
-                  }
-                  className="flex items-center justify-between cursor-pointer select-none group"
-                >
-                  <div className="flex items-center space-x-2">
-                    <span className="p-1 rounded bg-cyan-100 dark:bg-cyan-500/20 text-cyan-700 dark:text-cyan-300">
-                      <Clock className="w-3.5 h-3.5" />
-                    </span>
-                    <span className="text-[11px] font-bold text-cyan-900 dark:text-cyan-200">
-                      Background Turn — {agent?.displayName || msg.senderName}
-                    </span>
-                    <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-cyan-100 dark:bg-cyan-500/15 text-cyan-800 dark:text-cyan-300 font-mono border border-cyan-300 dark:border-cyan-500/30">
-                      Automated
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-[10px] text-kin-muted">
-                      {new Date(msg.createdAt).toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>
-                    {isExpanded ? (
-                      <ChevronDown className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
-                    ) : (
-                      <ChevronRight className="w-4 h-4 text-kin-muted group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition" />
-                    )}
-                  </div>
-                </div>
-
-                {isExpanded ? (
-                  <div className="text-kin-text text-xs leading-relaxed font-sans p-2.5 rounded-lg border bg-white dark:bg-[#0f172a]/90 border-cyan-500/20 dark:border-[#1e293b]">
-                    {renderMessageContent(msg.content)}
-                  </div>
-                ) : (
-                  <div
-                    onClick={() =>
-                      setExpandedBackgroundTurns((prev) => ({ ...prev, [msg.id]: true }))
-                    }
-                    className="text-[11px] text-kin-muted truncate italic pl-6 cursor-pointer hover:text-cyan-700 dark:hover:text-cyan-300 transition"
-                  >
-                    {msg.content.slice(0, 140)}... (click to expand)
-                  </div>
-                )}
-              </div>
-            );
-          }
-
-          return (
-            <div key={msg.id} className="flex space-x-3 group relative">
-              {/* Avatar */}
-              <div
-                className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 text-white ${
-                  isHuman
-                    ? 'bg-emerald-600'
-                    : agent?.isOrchestrator
-                    ? 'bg-[#1e293b] border border-amber-500/40 text-amber-300 font-bold'
-                    : 'bg-[#1e293b] border border-blue-500/40 text-blue-300 font-bold'
-                }`}
-              >
-                {isHuman ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
-              </div>
-
-              {/* Message Body */}
-              <div className="flex-1 space-y-1">
-                <div className="flex items-center space-x-2">
-                  <span className="font-semibold text-kin-text">
-                    {isHuman ? 'Human' : agent?.displayName || msg.senderName}
-                  </span>
-
-                  {/* Role Badge */}
-                  {isHuman ? (
-                    <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 font-mono font-bold">
-                      Human
-                    </span>
-                  ) : agent?.isOrchestrator ? (
-                    <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono font-bold">
-                      Workspace Orchestrator
-                    </span>
-                  ) : (
-                    <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 font-mono font-bold">
-                      {agent?.role || 'Specialist'}
-                    </span>
-                  )}
-
-                  {/* Model Tag & Quick Switch for Agents */}
-                  {!isHuman && agent && (
-                    <AgentModelQuickSwitch
-                      agent={agent}
-                      availableModels={availableModels}
-                      updateAgentModel={updateAgentModel}
-                      projectId={activeProjectId}
-                      channelId={activeChannelId}
-                      compact
-                    />
-                  )}
-
-                  <span className="text-[10px] text-[#64748b]">
-                    {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-
-                  {/* Steering Directive Badge */}
-                  {msg.isSteer && (
-                    <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono font-bold flex items-center space-x-1 border border-amber-500/30">
-                      <Zap className="w-2.5 h-2.5 text-amber-400" />
-                      <span>Steer Directive</span>
-                    </span>
-                  )}
-
-                  {/* Quote action button on hover */}
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity ml-auto flex items-center space-x-1">
-                    <button
-                      type="button"
-                      onClick={() => handleQuoteMessage(msg)}
-                      className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-[#1e293b] hover:bg-emerald-600/30 hover:text-emerald-300 text-[#94a3b8] text-[10px] font-mono transition"
-                      title="Quote this message in reply"
-                    >
-                      <Quote className="w-2.5 h-2.5 text-emerald-400" />
-                      <span>Quote</span>
-                    </button>
-                  </div>
-                </div>
-
-                {(() => {
-                  const isSideQuery = msg.content.startsWith('/btw') || msg.content.includes('💡 **[Side Query / BTW]**') || (msg.metadata && msg.metadata.isSideQuery);
-                  const decision = parseDecisionProposal(msg.content);
-                  return (
-                    <div
-                      className={`text-kin-text text-xs leading-relaxed font-sans p-3 rounded-xl border transition ${
-                        isSideQuery
-                          ? 'bg-amber-500/10 border-amber-500/30'
-                          : isSlashCard(msg.content)
-                          ? 'bg-blue-500/10 border-blue-500/30'
-                          : isHuman
-                          ? 'bg-emerald-500/10 border-emerald-500/20'
-                          : 'bg-kin-card border-kin-border'
-                      }`}
-                    >
-                      {isSideQuery && (
-                        <div className="flex items-center space-x-1.5 mb-2 pb-1.5 border-b border-amber-500/30 text-amber-300 font-mono text-[10px] font-bold">
-                          <Lightbulb className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                          <span>EPHEMERAL SIDE QUERY (/btw) — UNPOLLUTED ACTIVE CONTEXT</span>
-                        </div>
-                      )}
-                      {renderMessageContent(msg.content, isHuman)}
-                      {decision && (
-                        <DecisionCard
-                          title={decision.title}
-                          topic={decision.topic || 'Workforce Plan Review'}
-                          optionA={decision.optionA}
-                          optionB={decision.optionB}
-                          recommendation={decision.recommendation}
-                          onSelect={(opt) => {
-                            sendMessage(`/decisions choose ${opt === 'compromise' ? 'Compromise' : `Option ${opt}`}: ${opt === 'A' ? decision.optionA.label : opt === 'B' ? decision.optionB.label : decision.recommendation || 'Compromise'}`);
-                          }}
-                        />
-                      )}
-                    </div>
-                  );
-                })()}
-              </div>
-            </div>
-          );
-        })}
-        {channelMessages.length === 0 && (
-          <div className="h-56 flex flex-col items-center justify-center text-center p-6 space-y-2 border border-dashed border-slate-300 dark:border-[#1e293b] rounded-xl bg-slate-50/60 dark:bg-[#0c1222]/40 my-6">
-            <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
-              <MessageSquare className="w-5 h-5" />
-            </div>
-            <div className="font-semibold text-kin-text text-sm">
-              {isDm ? `Direct Message with ${targetAgent?.displayName || '@Agent'}` : `Welcome to #${activeChannel?.name || 'general'}`}
-            </div>
-            <div className="text-kin-muted text-[11px] max-w-sm">
-              {isDm
-                ? `${targetAgent?.displayName || 'This agent'} will respond directly to all prompts in this private 1-on-1 thread.`
-                : `Start the conversation by sending a message, or mention specific specialists with @ to coordinate their turns.`}
-            </div>
-          </div>
-        )}
-
-        {/* Live In-Flight Streaming Reasoning Accordion */}
-        {thinkingDrafts && thinkingDrafts[activeChannelId] && (
-          <ThinkingAccordion
-            thinking={thinkingDrafts[activeChannelId]}
-            isStreaming={true}
-          />
-        )}
-
-        {/* Live In-Flight Streaming Token Draft Bubble */}
-        {streamingDrafts && Object.entries(streamingDrafts)
-          .filter(([key, val]) => (key === activeChannelId || key.startsWith(`${activeChannelId}:`)) && stripThoughtsAndToolSyntax(val))
-          .map(([draftKey, draftContent]) => {
-            const agentIdInKey = draftKey.includes(':') ? draftKey.split(':')[1] : undefined;
-            const draftingAgent = agentIdInKey ? agents.find((a) => a.id === agentIdInKey) : undefined;
-            const agentLabel = draftingAgent?.displayName ? `${draftingAgent.displayName} streaming...` : 'Streaming Response...';
-            return (
-              <div key={draftKey} className="p-3.5 rounded-2xl bg-blue-50/90 dark:bg-gradient-to-r dark:from-[#091122]/90 dark:to-[#0c1830]/90 border border-blue-400/40 shadow-xl space-y-2 animate-fadeIn backdrop-blur-md">
-                <div className="flex items-center justify-between text-xs text-blue-700 dark:text-blue-300 font-mono">
-                  <div className="flex items-center space-x-2">
-                    <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                    <span className="font-bold">{agentLabel}</span>
-                  </div>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20">Live</span>
-                </div>
-                <div className="font-mono text-xs text-slate-800 dark:text-[#cbd5e1] whitespace-pre-wrap leading-relaxed">
-                  {stripThoughtsAndToolSyntax(draftContent)}
-                  <span className="inline-block w-1.5 h-3.5 bg-blue-500 ml-1 animate-pulse align-middle" />
-                </div>
-              </div>
-            );
-          })}
-
-        <div ref={messagesEndRef} />
-        </div>
-      </div>
+      {/* Main Conversation Stream — Rendered via ChatTimeline and MessageItem */}
+      <ChatTimeline
+        messages={channelMessages}
+        agents={agents}
+        availableModels={availableModels}
+        updateAgentModel={updateAgentModel}
+        activeProjectId={activeProjectId}
+        activeChannelId={activeChannelId}
+        isDm={isDm}
+        targetAgent={targetAgent}
+        activeChannelName={activeChannel?.name}
+        onQuoteReply={(quote) => {
+          setInputText((prev) => quote + prev);
+          inputRef.current?.focus();
+        }}
+        onSelectDecision={(choice) => {
+          sendMessage(`/decisions choose ${choice}`);
+        }}
+        thinkingDraft={thinkingDrafts ? thinkingDrafts[activeChannelId] : undefined}
+        streamingDrafts={streamingDrafts}
+      >
+        <div ref={messagesEndRef} className="h-0" />
+      </ChatTimeline>
 
       {/* Bottom Message Input Box & Security Approvals */}
       <div className="border-t border-kin-border bg-kin-surface relative">
@@ -1298,291 +830,11 @@ export const CenterView: React.FC = () => {
           </div>
         )}
 
-        {/* Interrupted run recovery banner */}
-        {pendingRecoveries.length > 0 && (
-          <div className="p-3 bg-[#1e1008]/95 backdrop-blur-sm border border-amber-500/60 rounded-xl space-y-2.5 shadow-2xl animate-fadeIn overflow-hidden">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center space-x-2 min-w-0">
-                <AlertTriangle className="w-4 h-4 text-amber-400 animate-pulse shrink-0" />
-                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300 font-mono truncate">
-                  Interrupted run recovery ({pendingRecoveries.length} run{pendingRecoveries.length > 1 ? 's' : ''})
-                </span>
-              </div>
-              <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setInspectingRecovery(inspectingRecovery ? null : pendingRecoveries[0])}
-                  className="px-2.5 py-1 rounded bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-[10px] font-mono transition cursor-pointer whitespace-nowrap"
-                  title="Inspect turn checkpoint state and execution snapshot"
-                >
-                  {inspectingRecovery ? 'Close Inspection' : 'Inspect State'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => discardRecoveries()}
-                  className="px-2.5 py-1 rounded bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/40 text-[10px] font-mono transition cursor-pointer whitespace-nowrap"
-                  title="Discard interrupted runs and start clean"
-                >
-                  Discard All
-                </button>
-                <button
-                  type="button"
-                  onClick={() => resumeAllRecoveries()}
-                  className="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold font-mono transition flex items-center space-x-1 shadow-lg shadow-amber-900/40 cursor-pointer whitespace-nowrap"
-                  title="Resume all runs from their exact saved turn checkpoints"
-                >
-                  <Zap className="w-3 h-3 text-black fill-current shrink-0" />
-                  <span>Resume All ({pendingRecoveries.length})</span>
-                </button>
-              </div>
-            </div>
-            <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-              {pendingRecoveries.map((rec) => (
-                <div
-                  key={rec.runId || rec.id}
-                  className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg bg-[#0b0805] border border-amber-900/40 text-xs font-mono"
-                >
-                  <div className="flex items-center space-x-2 min-w-0 pr-2 flex-1">
-                    <span className="text-amber-400 font-bold shrink-0">{rec.agentName}</span>
-                    <span className="text-[#94a3b8] text-[11px] truncate">
-                      Turn #{rec.interruptedTurn} ({rec.model || 'default'})
-                    </span>
-                    <span className="text-[#64748b] text-[10px] truncate max-w-[200px]">
-                      {rec.checkpointReason}
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-1.5 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setInspectingRecovery(rec)}
-                      className="px-2 py-0.5 rounded bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-[10px] transition cursor-pointer whitespace-nowrap"
-                      title="Inspect turn snapshot"
-                    >
-                      Inspect
-                    </button>
-                    <select
-                      value={selectedRecoveryModels[rec.runId || rec.id] || rec.model || selectableModels[0]?.id || ''}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setSelectedRecoveryModels((prev) => ({ ...prev, [rec.runId || rec.id]: val }));
-                      }}
-                      className="bg-black/60 border border-amber-500/40 text-amber-200 text-[10px] rounded px-1.5 py-0.5 max-w-[130px] sm:max-w-[170px] truncate focus:outline-none focus:border-amber-400 cursor-pointer"
-                      title="Select target model for failover/resume"
-                    >
-                      {selectableModels.map((m) => (
-                        <option key={m.id} value={m.id} className="bg-[#121212] text-white">
-                          {m.name} ({m.provider})
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const targetModel = selectedRecoveryModels[rec.runId || rec.id] || rec.model || selectableModels[0]?.id || '';
-                        switchRunToModel(rec.runId || rec.id, targetModel);
-                      }}
-                      className="px-2 py-0.5 rounded bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-200 border border-cyan-500/40 text-[10px] font-bold transition cursor-pointer whitespace-nowrap"
-                      title="Switch to selected LLM and resume from checkpoint"
-                    >
-                      Switch & Resume
-                    </button>
-                    {ollamaStatus?.online && (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const res = await switchRunToOllama(rec.runId || rec.id);
-                          if (!res.success) {
-                            addToast('Failed to switch to local Ollama', 'error');
-                          } else {
-                            addToast(`Switched run to Ollama (${res.model || 'local'})`, 'success');
-                          }
-                        }}
-                        className="px-2 py-0.5 rounded bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-200 border border-emerald-500/40 text-[10px] font-bold transition cursor-pointer whitespace-nowrap"
-                        title="Switch immediately to local Ollama"
-                      >
-                        🦙 Ollama
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => resumeRun(rec.runId || rec.id)}
-                      className="px-2 py-0.5 rounded bg-amber-600/30 hover:bg-amber-600/50 text-amber-200 border border-amber-500/50 text-[10px] font-bold transition cursor-pointer whitespace-nowrap"
-                      title="Resume this specific run"
-                    >
-                      Resume
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+        {/* Interrupted Run Recovery Dock */}
+        <InterruptedRecoveryDock selectableModels={selectableModels} />
 
-            {/* Detailed State Inspector Panel */}
-            {inspectingRecovery && (
-              <div className="p-3 rounded-lg bg-[#070503] border border-amber-500/40 space-y-2 text-xs font-mono animate-fadeIn">
-                <div className="flex items-center justify-between border-b border-amber-900/40 pb-1.5 text-amber-300 font-bold">
-                  <div className="flex items-center space-x-1.5">
-                    <Info className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Turn Checkpoint State: {inspectingRecovery.agentName} ({inspectingRecovery.id || inspectingRecovery.runId})</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setInspectingRecovery(null)}
-                    className="p-0.5 hover:text-white text-[#94a3b8] cursor-pointer"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-[#cbd5e1] pt-1">
-                  <div>
-                    <span className="text-[#64748b] block text-[9px] uppercase">Interrupted Turn</span>
-                    <strong className="text-amber-300">Turn #{inspectingRecovery.interruptedTurn || 1}</strong>
-                  </div>
-                  <div>
-                    <span className="text-[#64748b] block text-[9px] uppercase">Active Model</span>
-                    <span>{inspectingRecovery.model || 'qwen2.5-coder'}</span>
-                  </div>
-                  <div>
-                    <span className="text-[#64748b] block text-[9px] uppercase">Associated Task</span>
-                    <span>{inspectingRecovery.taskId || inspectingRecovery.taskTitle || 'Autonomous task'}</span>
-                  </div>
-                  <div>
-                    <span className="text-[#64748b] block text-[9px] uppercase">Interruption Reason</span>
-                    <span className="text-amber-200/90">{inspectingRecovery.checkpointReason || 'Process termination / stale heartbeat lease'}</span>
-                  </div>
-                </div>
-                {inspectingRecovery.checkpoint?.snapshotJson && (
-                  <div className="space-y-1 pt-1">
-                    <span className="text-[#64748b] block text-[9px] uppercase">Persisted Snapshot Preview</span>
-                    <pre className="p-2 rounded bg-black/60 border border-amber-950/60 text-[10px] text-amber-200/80 overflow-x-auto max-h-24">
-                      {inspectingRecovery.checkpoint.snapshotJson.slice(0, 500)}
-                    </pre>
-                  </div>
-                )}
-                <div className="flex items-center justify-end space-x-2 pt-1 border-t border-amber-900/30">
-                  <select
-                    value={selectedRecoveryModels[inspectingRecovery.runId || inspectingRecovery.id] || inspectingRecovery.model || selectableModels[0]?.id || ''}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setSelectedRecoveryModels((prev) => ({ ...prev, [inspectingRecovery.runId || inspectingRecovery.id]: val }));
-                    }}
-                    className="bg-black/60 border border-amber-500/40 text-amber-200 text-[10px] rounded px-2 py-1 max-w-[190px] truncate focus:outline-none focus:border-amber-400 cursor-pointer"
-                    title="Select target model for failover"
-                  >
-                    {selectableModels.map((m) => (
-                      <option key={m.id} value={m.id} className="bg-[#121212] text-white">
-                        {m.name} ({m.provider})
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const targetModel = selectedRecoveryModels[inspectingRecovery.runId || inspectingRecovery.id] || inspectingRecovery.model || selectableModels[0]?.id || '';
-                      switchRunToModel(inspectingRecovery.runId || inspectingRecovery.id, targetModel);
-                      setInspectingRecovery(null);
-                    }}
-                    className="px-2.5 py-1 rounded bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-200 border border-cyan-500/40 text-[10px] font-bold cursor-pointer whitespace-nowrap"
-                    title="Switch to selected LLM and resume"
-                  >
-                    Switch & Resume
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      resumeRun(inspectingRecovery.runId || inspectingRecovery.id);
-                      setInspectingRecovery(null);
-                    }}
-                    className="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-black text-[10px] font-bold cursor-pointer"
-                  >
-                    Resume Run from Turn #{inspectingRecovery.interruptedTurn || 1}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Provider quota pause banner */}
-        {quotaPauseState?.isPaused && (
-          <div className="p-3 bg-[#130d22]/95 backdrop-blur-sm border border-purple-500/60 rounded-xl space-y-2 shadow-2xl animate-fadeIn">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Timer className="w-4 h-4 text-purple-400 animate-spin" />
-                <span className="text-[11px] font-bold uppercase tracking-wider text-purple-300 font-mono">
-                  Quota Guard: Execution Paused (HTTP 429 Rate Limit)
-                </span>
-                <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-mono text-[10px] border border-purple-500/30">
-                  Auto-resumes in {Math.max(0, Math.ceil(((quotaPauseState.resetsAt || quotaPauseState.quotaResetsAt || now) - now) / 1000))}s
-                </span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <button
-                  type="button"
-                  onClick={() => clearQuotaPause()}
-                  className="p-1 text-[#64748b] hover:text-purple-300 transition cursor-pointer"
-                  title="Dismiss Quota Banner"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-            <div className="flex items-center justify-between text-xs font-mono p-2 rounded-lg bg-[#0b0616] border border-purple-900/40">
-              <div className="text-[#cbd5e1] text-[11px] truncate mr-2">
-                Agent <strong className="text-purple-300">{quotaPauseState.agentName ? (quotaPauseState.agentName.startsWith('@') ? quotaPauseState.agentName : `@${quotaPauseState.agentName}`) : 'specialist'}</strong> on provider <strong className="text-purple-300">{quotaPauseState.provider || 'frontier API'}</strong> hit token rate limits. State preserved atomically in SQLite.
-              </div>
-              <div className="flex items-center space-x-1.5 shrink-0">
-                <select
-                  value={selectedQuotaModel || selectableModels[0]?.id || ''}
-                  onChange={(e) => setSelectedQuotaModel(e.target.value)}
-                  className="bg-black/60 border border-purple-500/40 text-purple-200 text-[10px] rounded px-2 py-1 max-w-[180px] truncate focus:outline-none focus:border-purple-400 cursor-pointer font-mono"
-                  title="Select alternative model to resume immediately"
-                >
-                  {selectableModels.map((m) => (
-                    <option key={m.id} value={m.id} className="bg-[#121212] text-white">
-                      {m.name} ({m.provider})
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const target = selectedQuotaModel || selectableModels[0]?.id || '';
-                    switchRunToModel(quotaPauseState.runId || '', target);
-                  }}
-                  className="px-2.5 py-1 rounded bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-200 border border-cyan-500/40 text-[10px] font-bold transition cursor-pointer whitespace-nowrap"
-                  title="Switch to selected LLM and resume execution immediately"
-                >
-                  ⚡ Switch & Resume
-                </button>
-                {ollamaStatus?.online && (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const res = await switchRunToOllama(quotaPauseState.runId || '');
-                      if (!res.success) {
-                        addToast('Failed to switch to local Ollama', 'error');
-                      } else {
-                        addToast(`Switched run to Ollama (${res.model || 'local'})`, 'success');
-                      }
-                    }}
-                    className="px-2.5 py-1 rounded bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-200 border border-emerald-500/40 text-[10px] font-bold transition cursor-pointer whitespace-nowrap"
-                    title="Switch immediately to local Ollama (zero API cost/quota)"
-                  >
-                    🦙 Switch to Ollama
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => resumeRun(quotaPauseState.runId || '')}
-                  className="px-2.5 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-bold transition shadow cursor-pointer"
-                  title="Force resume execution now"
-                >
-                  Resume Now
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Provider Quota Pause Banner */}
+        <QuotaPauseBanner selectableModels={selectableModels} />
 
         {/* Interactive Adversarial Grill-Me Assessment Card */}
         {grillMeSession && (

@@ -9,6 +9,9 @@ import { AgentRun, RunState } from '../domain/types.js';
 import { EventLedger } from '../security/event_ledger.js';
 import { SecretBroker } from '../security/secret_broker.js';
 import { v4 as uuidv4 } from 'uuid';
+import { RunStateMachine, StateTransitionError, RUN_STATE_TRANSITIONS, AuthoritativeRunState } from './state_machine.js';
+
+export { RunStateMachine, StateTransitionError, RUN_STATE_TRANSITIONS, AuthoritativeRunState };
 
 export interface SpawnRunParams {
   agentId: string;
@@ -287,9 +290,7 @@ export class AgentKernel {
       return; // Idempotent transition
     }
 
-    if (run.state === 'completed' || run.state === 'failed' || run.state === 'cancelled') {
-      throw new Error(`Cannot transition run from terminal state '${run.state}' to '${newState}'.`);
-    }
+    RunStateMachine.validateTransition(run.state, newState);
 
     const now = Date.now();
     const completedAt = (newState === 'completed' || newState === 'failed' || newState === 'cancelled') ? now : null;

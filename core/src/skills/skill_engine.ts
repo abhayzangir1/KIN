@@ -128,6 +128,19 @@ export class SkillEngine {
     return this.skillsDir;
   }
 
+  public static sanitizeForWorker(val: any): any {
+    if (val === null || val === undefined) return val;
+    try {
+      return JSON.parse(JSON.stringify(val, (k, v) => {
+        if (typeof v === 'bigint') return v.toString();
+        if (typeof v === 'function' || typeof v === 'symbol') return undefined;
+        return v;
+      }));
+    } catch {
+      return {};
+    }
+  }
+
   /**
    * Seeds foundational procedural skills into SQLite if not present.
    */
@@ -534,17 +547,7 @@ export class SkillEngine {
       terminateTarget(params);
     };
 
-    const sanitizeForWorker = (val: any): any => {
-      if (val === null || val === undefined) return val;
-      try {
-        return JSON.parse(JSON.stringify(val, (k, v) => {
-          if (typeof v === 'function' || typeof v === 'symbol') return undefined;
-          return v;
-        }));
-      } catch {
-        return {};
-      }
-    };
+    const sanitizeForWorker = (val: any): any => SkillEngine.sanitizeForWorker(val);
 
     const transpileSkillCode = (code: string): string => {
       try {

@@ -42,6 +42,7 @@ export interface ChannelRoutingResult {
   matchedSpecialists?: SpecialistMatchInfo[];
   fallbackOrchestrator?: AgentIdentity;
   fallbackReason?: string;
+  explanation?: string;
 }
 
 export interface ChannelRoutingInput {
@@ -54,7 +55,114 @@ export interface ChannelRoutingInput {
   definitionsMap: Map<string, AgentDefinition>;
 }
 
+export class GreetingClassifier {
+  private static readonly DIRECTIVE_PATTERNS = [
+    /\b(build|test|deploy|run|fix|create|update|delete|modify|refactor|implement|inspect|check|analyze|investigate|start|stop|restart|pause|resume|cancel|ship|push|commit|rebase|merge|review|write|read|exec|execute|install|download|upload|schedule|assign|hire|verify|lint|eval|benchmark|reproduce|debug)\b/i,
+    /\b(pr|pull request|issue|bug|task|goal|error|exception|failure|crash|database|schema|api|endpoint|token|key|branch|repo|worktree|channel|model|ollama|mcp|server|architecture|design|pipeline)\b/i,
+    /\b(can you|could you|please|let's|lets|should we|why is|what is the status|how to)\b/i,
+    /\/[a-z_]+/i,
+  ];
+
+  public static classify(content: string): { isGreeting: boolean } {
+    return { isGreeting: this.isPureGreeting(content) };
+  }
+
+  public static isPureGreeting(content: string): boolean {
+    if (!content || !content.trim()) return false;
+    const trimmed = content.trim();
+
+    const withoutMentions = trimmed.replace(/@[a-zA-Z0-9_-]+/g, '').trim();
+    if (!withoutMentions) return false;
+
+    for (const pattern of this.DIRECTIVE_PATTERNS) {
+      if (pattern.test(withoutMentions)) {
+        return false;
+      }
+    }
+
+    const clean = withoutMentions.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!clean) return false;
+
+    const pleasantryPhrases = new Set([
+      'hello',
+      'hi',
+      'hey',
+      'hey there',
+      'hello there',
+      'hi there',
+      'good morning',
+      'good afternoon',
+      'good evening',
+      'good day',
+      'how are you',
+      'how are you doing',
+      'how is it going',
+      'hows it going',
+      'hope you are well',
+      'hope all is well',
+      'nice to meet you',
+      'great to meet you',
+      'hello everyone',
+      'hi everyone',
+      'hey everyone',
+      'hello team',
+      'hi team',
+      'hey team',
+      'good morning team',
+      'good afternoon team',
+      'good evening team',
+      'good morning everyone',
+      'good afternoon everyone',
+      'good evening everyone',
+      'good morning all',
+      'good afternoon all',
+      'good evening all',
+      'whats up',
+      'sup',
+      'yo',
+      'happy monday',
+      'happy friday',
+      'have a good day',
+      'have a great day',
+      'thank you',
+      'thanks',
+      'thanks team',
+      'thank you team',
+    ]);
+
+    if (pleasantryPhrases.has(clean)) {
+      return true;
+    }
+
+    const greetingWords = new Set(['hi', 'hello', 'hey', 'how', 'greetings', 'howdy', 'hola', 'yo', 'morning', 'afternoon', 'evening', 'welcome', 'thanks', 'thank', 'thx', 'cheers']);
+    const fillerWords = new Set(['there', 'all', 'everyone', 'team', 'folks', 'you', 'are', 'doing', 'is', 'it', 'going', 'to', 'hope', 'well', 'good', 'day', 'today', 'tonight', 'a', 'have', 'great', 'nice', 'meet', 'kin', 'bot', 'assistant', 'workforce']);
+
+    const tokens = clean.split(' ').filter(Boolean);
+    const allGreetingOrFiller = tokens.every((t) => greetingWords.has(t) || fillerWords.has(t));
+    const hasAtLeastOneGreeting = tokens.some((t) => greetingWords.has(t));
+
+    return allGreetingOrFiller && hasAtLeastOneGreeting;
+  }
+}
+
 export class ActivationEngine {
+  /**
+   * Evaluates if a given message is strictly a conversational greeting
+   * without any substantive task directives or special recipient requests.
+   * Per PRD § 6: Pure greetings route exclusively to @Boss without waking specialists.
+   */
+  public static isPureGreeting(content: string): boolean {
+    return GreetingClassifier.isPureGreeting(content);
+  }
+
+  public isPureGreeting(content: string): boolean {
+    return GreetingClassifier.isPureGreeting(content);
+  }
+
+  public routeChannelMessage(input: ChannelRoutingInput): ChannelRoutingResult {
+    return this.evaluateChannelRouting(input);
+  }
+
   /**
    * Evaluates if a given agent should be woken for inference by the incoming event.
    * Records and returns the exact match reason for complete routing observability.
@@ -238,14 +346,31 @@ export class ActivationEngine {
       };
     }
 
+    // Greeting check per PRD § 6:
+    // "If the complete meaning is only a greeting, with no task, special recipient, or broader participation request, one brief reply comes from Boss and no specialists are woken."
+    if (this.isPureGreeting(message.content)) {
+      const boss =
+        channelMembers.find((a) => a.isOrchestrator) ||
+        channelMembers[0] ||
+        allProjectAgents.find((a) => a.isOrchestrator) ||
+        allProjectAgents[0];
+      return {
+        action: 'orchestrator_fallback',
+        targetAgents: boss ? [boss] : [],
+        reason: 'pure_greeting',
+        matchReason: 'greeting_filter',
+      };
+    }
+
     // 2. Condition 2: Explicit @mentions
     if (message.mentions && message.mentions.length > 0) {
       const mentionedClean = message.mentions.map((m) => m.toLowerCase().replace(/^@/, ''));
       const isSenderAuthorizedForAll = message.senderType === 'human' || message.senderId === 'user-operator' || message.senderId === 'system';
       const isAll = mentionedClean.includes('all') && isSenderAuthorizedForAll;
 
-      // In private channels, candidate pool is strictly restricted to channel members
-      const candidatePool = (isAll || isPrivate) ? channelMembers : allProjectAgents;
+      // PRD § 6: Exact agent mention activates that agent only if it is a member of the current channel!
+      // All directly selected agents must be channel members.
+      const candidatePool = channelMembers;
       const matchedAgents = candidatePool.filter((agent) => {
         if (agent.id === message.senderId) return false;
         if (isAll) return true;
@@ -259,6 +384,32 @@ export class ActivationEngine {
           targetAgents: matchedAgents,
           reason: isAll ? 'all_channel_members' : 'explicit_mentions',
           matchReason: 'direct_mention',
+        };
+      }
+
+      // Check if non-channel project agents were mentioned
+      const nonMemberMatches = allProjectAgents.filter((agent) => {
+        if (channelMembers.some((m) => m.id === agent.id)) return false;
+        const cleanName = agent.displayName.replace(/^@/, '').toLowerCase();
+        return mentionedClean.includes(cleanName) || mentionedClean.includes(agent.id.toLowerCase());
+      });
+
+      if (nonMemberMatches.length > 0) {
+        // PRD § 6: "A project agent outside the channel cannot be activated directly; Boss explains and offers the ordinary channel-staffing flow."
+        const boss =
+          channelMembers.find((a) => a.isOrchestrator) ||
+          allProjectAgents.find((a) => a.isOrchestrator) ||
+          channelMembers[0] ||
+          allProjectAgents[0];
+        const names = nonMemberMatches
+          .map((a) => (a.displayName.startsWith('@') ? a.displayName : `@${a.displayName}`))
+          .join(', ');
+        return {
+          action: 'orchestrator_fallback',
+          targetAgents: boss ? [boss] : [],
+          reason: 'unassigned_agent_mention',
+          matchReason: 'non_member_mention_fallback',
+          explanation: `${names} is not a member of this channel. @Boss can staff this channel upon operator confirmation.`,
         };
       }
     }
