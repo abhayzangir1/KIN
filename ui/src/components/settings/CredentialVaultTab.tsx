@@ -256,6 +256,7 @@ export const CredentialVaultTab: React.FC = () => {
                 <option value="groq">Groq (Llama 3.3 70B, Ultra-fast LPU)</option>
                 <option value="deepseek">DeepSeek (DeepSeek V3, DeepSeek R1)</option>
                 <option value="xai">xAI (Grok)</option>
+                <option value="nvidia">NVIDIA NIM (Nemotron, Llama 3.3, DeepSeek R1)</option>
                 <option value="together">Together AI</option>
                 <option value="deepinfra">DeepInfra</option>
                 <option value="fireworks">Fireworks AI</option>

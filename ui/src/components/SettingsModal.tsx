@@ -733,6 +733,7 @@ export const SettingsModal: React.FC = () => {
                       { id: 'deepseek', name: 'DeepSeek', desc: 'DeepSeek-V3, DeepSeek-R1 Full-scale reasoning' },
                       { id: 'groq', name: 'Groq', desc: 'Ultra low latency LPU (Llama 3.3 70B, Mixtral)' },
                       { id: 'xai', name: 'xAI (Grok)', desc: 'Grok 2, Grok 2 Vision' },
+                      { id: 'nvidia', name: 'NVIDIA NIM', desc: 'NVIDIA NIM Cloud Inference (Nemotron, Llama 3.3, DeepSeek R1)' },
                       { id: 'openrouter', name: 'OpenRouter', desc: 'Unified gateway across 200+ frontier models' },
                       { id: 'azure', name: 'Azure OpenAI', desc: 'Enterprise private Azure deployment models' },
                     ].map((p) => {

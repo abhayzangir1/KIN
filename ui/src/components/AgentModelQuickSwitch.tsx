@@ -34,7 +34,7 @@ export const AgentModelQuickSwitch: React.FC<AgentModelQuickSwitchProps> = ({
   const activeModelObj = availableModels.find((m) => m.id === currentModelId);
   const displayLabel =
     activeModelObj?.name ||
-    currentModelId.replace(/^(ollama|openai|anthropic|openrouter|gemini|groq|deepseek|xai)\//i, '') ||
+    currentModelId.replace(/^(ollama|openai|anthropic|openrouter|gemini|groq|deepseek|xai|nvidia)\//i, '') ||
     'Select Model';
 
   const handleChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {

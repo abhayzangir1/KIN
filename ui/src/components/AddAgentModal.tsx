@@ -283,7 +283,7 @@ export const AddAgentModal: React.FC = () => {
                 )}
 
                 {/* 2. Discovered External Providers */}
-                {['anthropic', 'openai', 'gemini', 'deepseek', 'groq', 'openrouter'].map((prov) => {
+                {['anthropic', 'openai', 'gemini', 'deepseek', 'groq', 'nvidia', 'xai', 'openrouter'].map((prov) => {
                   const provModels = filteredModels.filter((m) => m.provider === prov && m.configured !== false);
                   if (provModels.length === 0) return null;
                   const provLabel =
@@ -292,6 +292,8 @@ export const AddAgentModal: React.FC = () => {
                     prov === 'gemini' ? 'Google Gemini Models' :
                     prov === 'deepseek' ? 'DeepSeek Models' :
                     prov === 'groq' ? 'Groq LPU Models' :
+                    prov === 'nvidia' ? 'NVIDIA NIM Models' :
+                    prov === 'xai' ? 'xAI Grok Models' :
                     prov === 'openrouter' ? 'OpenRouter Catalog' : `${prov.toUpperCase()} Models`;
 
                   return (

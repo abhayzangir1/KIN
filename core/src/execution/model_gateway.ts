@@ -161,6 +161,7 @@ export const DEFAULT_PROVIDER_BASE_URLS: Record<string, string> = {
   gemini: 'https://generativelanguage.googleapis.com/v1beta/openai',
   groq: 'https://api.groq.com/openai/v1',
   xai: 'https://api.x.ai/v1',
+  nvidia: 'https://integrate.api.nvidia.com/v1',
   anthropic: 'https://api.anthropic.com/v1',
   together: 'https://api.together.xyz/v1',
   deepinfra: 'https://api.deepinfra.com/v1/openai',
@@ -178,6 +179,7 @@ export const KNOWN_OPENAI_COMPATIBLE_PROVIDERS: string[] = [
   'gemini',
   'groq',
   'xai',
+  'nvidia',
   'together',
   'deepinfra',
   'fireworks',
@@ -200,6 +202,7 @@ export interface ModelGatewayOptions {
   geminiApiKey?: string;
   groqApiKey?: string;
   xaiApiKey?: string;
+  nvidiaApiKey?: string;
   ollamaHost?: string;
 }
 
@@ -212,6 +215,7 @@ export class ModelGateway {
   private geminiApiKey?: string;
   private groqApiKey?: string;
   private xaiApiKey?: string;
+  private nvidiaApiKey?: string;
   private apiKeyResolver?: (provider: string, callerAgentId?: string) => string | undefined;
   private allKeysResolver?: (provider: string, callerAgentId?: string) => ManagedKeyInfo[];
   private onUsage?: (provider: string, tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }) => void;
@@ -230,6 +234,7 @@ export class ModelGateway {
     this.geminiApiKey = options?.geminiApiKey || process.env.GEMINI_API_KEY;
     this.groqApiKey = options?.groqApiKey || process.env.GROQ_API_KEY;
     this.xaiApiKey = options?.xaiApiKey || process.env.XAI_API_KEY;
+    this.nvidiaApiKey = options?.nvidiaApiKey || process.env.NVIDIA_API_KEY || process.env.NVIDIA_NIM_API_KEY;
     this.apiKeyResolver = options?.apiKeyResolver;
     this.allKeysResolver = options?.allKeysResolver;
     this.onUsage = options?.onUsage;
@@ -281,6 +286,7 @@ export class ModelGateway {
       else if (provider === 'gemini') rawKey = this.geminiApiKey || process.env.GEMINI_API_KEY;
       else if (provider === 'groq') rawKey = this.groqApiKey || process.env.GROQ_API_KEY;
       else if (provider === 'xai') rawKey = this.xaiApiKey || process.env.XAI_API_KEY;
+      else if (provider === 'nvidia') rawKey = this.nvidiaApiKey || process.env.NVIDIA_API_KEY || process.env.NVIDIA_NIM_API_KEY;
       else {
         const custom = this.customEndpoints.get(provider.toLowerCase());
         if (custom && custom.apiKey) {
@@ -966,6 +972,70 @@ export class ModelGateway {
         };
       }
 
+      if (norm === 'nvidia') {
+        const endpoint = customBaseUrl || this.customEndpoints.get('nvidia')?.baseUrl || 'https://integrate.api.nvidia.com/v1';
+        const cleanBase = endpoint.replace(/\/+$/, '');
+        const modelsUrl = cleanBase.endsWith('/models') ? cleanBase : `${cleanBase}/models`;
+        const res = await fetch(modelsUrl, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(10000),
+        }).catch((err) => { throw new Error(`Network failure connecting to NVIDIA NIM: ${err.message}`); });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData.error?.message || errData.detail || `HTTP ${res.status}: ${res.statusText}`;
+          return {
+            valid: false,
+            working: false,
+            message: `NVIDIA NIM API Key invalid or rejected: ${errMsg}`,
+            modelCount: 0,
+            models: [],
+          };
+        }
+
+        const data: any = await res.json().catch(() => ({}));
+        const list: any[] = data.data || data.models || [];
+        const filtered = list.filter((m: any) => {
+          const idLower = String(m.id || m.name || '').toLowerCase();
+          return (
+            idLower.length > 0 &&
+            !idLower.includes('embed') &&
+            !idLower.includes('rerank') &&
+            !idLower.includes('nvclip') &&
+            !idLower.includes('streampetr') &&
+            !idLower.includes('guard') &&
+            !idLower.includes('shield') &&
+            !idLower.includes('parse')
+          );
+        });
+        const models: DiscoveredModel[] = filtered.map((m: any) => {
+          const rawId = String(m.id || m.name);
+          const idLower = rawId.toLowerCase();
+          return {
+            id: `nvidia/${rawId}`,
+            name: `NVIDIA ${rawId}`,
+            provider: 'nvidia',
+            contextWindow: m.context_window || 128000,
+            maxOutputTokens: 8192,
+            supportsTools: true,
+            supportsVision: Boolean(idLower.includes('vision') || idLower.includes('vl') || idLower.includes('neva') || idLower.includes('vlm')),
+            supportsReasoning: Boolean(idLower.includes('r1') || idLower.includes('reason') || idLower.includes('thinking') || idLower.includes('nemotron') || idLower.includes('qwq')),
+            configured: true,
+            validated: true,
+          };
+        });
+
+        this.validatedProviders.set('nvidia', true);
+        this.providerModelCounts.set('nvidia', models.length);
+        return {
+          valid: true,
+          working: true,
+          message: `NVIDIA NIM verified successfully (${models.length} model(s) available)`,
+          modelCount: models.length,
+          models,
+        };
+      }
+
       const isOpenAiCompatible =
         norm === 'custom' ||
         norm === 'openai_compatible' ||
@@ -1120,7 +1190,8 @@ export class ModelGateway {
         normProvider !== 'ollama' &&
         normProvider !== 'openrouter' &&
         normProvider !== 'anthropic' &&
-        normProvider !== 'azure'
+        normProvider !== 'azure' &&
+        normProvider !== 'nvidia'
       ) {
         const result: DiscoveredModel[] = [];
         const endpoints: Array<[string, { baseUrl: string; apiKey?: string }]> = [];
@@ -1544,6 +1615,67 @@ export class ModelGateway {
         this.providerModelCounts.set('azure', standardAzure.length);
         return standardAzure;
       }
+
+      if (normProvider === 'nvidia') {
+        const standardNvidia: DiscoveredModel[] = [
+          { id: 'nvidia/meta/llama-3.3-70b-instruct', name: 'NVIDIA Llama 3.3 70B Instruct', provider: 'nvidia', contextWindow: 128000, supportsTools: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'nvidia/nvidia/llama-3.1-nemotron-70b-instruct', name: 'NVIDIA Llama 3.1 Nemotron 70B Instruct', provider: 'nvidia', contextWindow: 128000, supportsTools: true, supportsReasoning: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'nvidia/deepseek-ai/deepseek-r1', name: 'NVIDIA DeepSeek R1', provider: 'nvidia', contextWindow: 128000, supportsTools: true, supportsReasoning: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'nvidia/qwen/qwen2.5-coder-32b-instruct', name: 'NVIDIA Qwen 2.5 Coder 32B', provider: 'nvidia', contextWindow: 32768, supportsTools: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+        ];
+        if (!apiKey) return shouldOmit ? [] : standardNvidia;
+
+        try {
+          const endpoint = customBaseUrl || this.customEndpoints.get('nvidia')?.baseUrl || 'https://integrate.api.nvidia.com/v1';
+          const cleanBase = endpoint.replace(/\/+$/, '');
+          const modelsUrl = cleanBase.endsWith('/models') ? cleanBase : `${cleanBase}/models`;
+          const res = await fetch(modelsUrl, {
+            headers: { Authorization: `Bearer ${apiKey}` },
+            signal: AbortSignal.timeout(10000),
+          }).catch(() => null);
+
+          if (res && res.ok) {
+            const data: any = await res.json().catch(() => ({}));
+            const list: any[] = data.data || data.models || [];
+            const filtered = list.filter((m: any) => {
+              const idLower = String(m.id || m.name || '').toLowerCase();
+              return (
+                idLower.length > 0 &&
+                !idLower.includes('embed') &&
+                !idLower.includes('rerank') &&
+                !idLower.includes('nvclip') &&
+                !idLower.includes('streampetr') &&
+                !idLower.includes('guard') &&
+                !idLower.includes('shield') &&
+                !idLower.includes('parse')
+              );
+            });
+            if (filtered.length > 0) {
+              this.validatedProviders.set('nvidia', true);
+              this.providerModelCounts.set('nvidia', filtered.length);
+              return filtered.map((m: any) => {
+                const rawId = String(m.id || m.name);
+                const idLower = rawId.toLowerCase();
+                return {
+                  id: `nvidia/${rawId}`,
+                  name: `NVIDIA ${rawId}`,
+                  provider: 'nvidia',
+                  contextWindow: m.context_window || 128000,
+                  maxOutputTokens: 8192,
+                  supportsTools: true,
+                  supportsVision: Boolean(idLower.includes('vision') || idLower.includes('vl') || idLower.includes('neva') || idLower.includes('vlm')),
+                  supportsReasoning: Boolean(idLower.includes('r1') || idLower.includes('reason') || idLower.includes('thinking') || idLower.includes('nemotron') || idLower.includes('qwq')),
+                  configured: true,
+                  validated: true,
+                };
+              });
+            }
+          }
+        } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
+        this.validatedProviders.set('nvidia', false);
+        if (shouldOmit) return [];
+        return standardNvidia;
+      }
     } catch (err) {
       console.warn(`[KIN MODEL GATEWAY] Error discovering models for ${provider}:`, err);
     }
@@ -1720,6 +1852,20 @@ export class ModelGateway {
           startTime,
           'xai'
         );
+      } else if (provider === 'nvidia') {
+        const custom = this.customEndpoints.get('nvidia');
+        const apiKey = custom?.apiKey || this.resolveApiKey('nvidia', params.callerAgentId);
+        const url = custom?.baseUrl
+          ? (custom.baseUrl.endsWith('/chat/completions') ? custom.baseUrl : `${custom.baseUrl.replace(/\/+$/, '')}/chat/completions`)
+          : 'https://integrate.api.nvidia.com/v1/chat/completions';
+        return await this.invokeOpenAiCompatible(
+          url,
+          apiKey,
+          modelName,
+          params,
+          startTime,
+          'nvidia'
+        );
       } else if (provider === 'azure') {
         const apiKey = this.resolveApiKey('azure', params.callerAgentId);
         const custom = this.customEndpoints.get('azure');
@@ -1851,7 +1997,7 @@ export class ModelGateway {
     if (colonIdx !== -1 && (slashIdx === -1 || colonIdx < slashIdx)) {
       const prefix = modelId.substring(0, colonIdx).toLowerCase();
       if (
-        ['ollama', 'openai', 'anthropic', 'gemini', 'groq', 'deepseek', 'xai', 'azure', 'custom', 'openrouter', 'together', 'deepinfra', 'vllm', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'openai_compatible'].includes(prefix) ||
+        ['ollama', 'openai', 'anthropic', 'gemini', 'groq', 'deepseek', 'xai', 'azure', 'nvidia', 'custom', 'openrouter', 'together', 'deepinfra', 'vllm', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'openai_compatible'].includes(prefix) ||
         this.customEndpoints.has(prefix)
       ) {
         return [prefix, modelId.substring(colonIdx + 1)];
@@ -1859,8 +2005,11 @@ export class ModelGateway {
     }
     if (slashIdx !== -1) {
       const prefix = modelId.substring(0, slashIdx).toLowerCase();
+      if (prefix === 'nvidia' && modelId.endsWith(':free')) {
+        return ['openrouter', modelId];
+      }
       if (
-        ['ollama', 'openai', 'anthropic', 'gemini', 'groq', 'deepseek', 'xai', 'azure', 'custom', 'openrouter', 'together', 'deepinfra', 'vllm', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'openai_compatible'].includes(prefix) ||
+        ['ollama', 'openai', 'anthropic', 'gemini', 'groq', 'deepseek', 'xai', 'azure', 'nvidia', 'custom', 'openrouter', 'together', 'deepinfra', 'vllm', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'openai_compatible'].includes(prefix) ||
         this.customEndpoints.has(prefix)
       ) {
         return [prefix, modelId.substring(slashIdx + 1)];
@@ -1880,15 +2029,18 @@ export class ModelGateway {
     if (colonIdx !== -1 && (slashIdx === -1 || colonIdx < slashIdx)) {
       const prefix = modelId.substring(0, colonIdx).toLowerCase();
       if (
-        ['ollama', 'openai', 'anthropic', 'gemini', 'groq', 'deepseek', 'xai', 'azure', 'custom', 'openrouter', 'together', 'deepinfra', 'vllm', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'openai_compatible'].includes(prefix)
+        ['ollama', 'openai', 'anthropic', 'gemini', 'groq', 'deepseek', 'xai', 'azure', 'nvidia', 'custom', 'openrouter', 'together', 'deepinfra', 'vllm', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'openai_compatible'].includes(prefix)
       ) {
         return [prefix, modelId.substring(colonIdx + 1)];
       }
     }
     if (slashIdx !== -1) {
       const prefix = modelId.substring(0, slashIdx).toLowerCase();
+      if (prefix === 'nvidia' && modelId.endsWith(':free')) {
+        return ['openrouter', modelId];
+      }
       if (
-        ['ollama', 'openai', 'anthropic', 'gemini', 'groq', 'deepseek', 'xai', 'azure', 'custom', 'openrouter', 'together', 'deepinfra', 'vllm', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'openai_compatible'].includes(prefix)
+        ['ollama', 'openai', 'anthropic', 'gemini', 'groq', 'deepseek', 'xai', 'azure', 'nvidia', 'custom', 'openrouter', 'together', 'deepinfra', 'vllm', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'openai_compatible'].includes(prefix)
       ) {
         return [prefix, modelId.substring(slashIdx + 1)];
       }

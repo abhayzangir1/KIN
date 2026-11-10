@@ -309,6 +309,7 @@ export class CoreServer {
         if (provider === 'gemini') return process.env.GEMINI_API_KEY;
         if (provider === 'groq') return process.env.GROQ_API_KEY;
         if (provider === 'xai') return process.env.XAI_API_KEY;
+        if (provider === 'nvidia') return process.env.NVIDIA_API_KEY || process.env.NVIDIA_NIM_API_KEY;
         if (provider === 'azure') return process.env.AZURE_OPENAI_API_KEY || process.env.AZURE_API_KEY;
         if (provider === 'together') return process.env.TOGETHER_API_KEY;
         if (provider === 'deepinfra') return process.env.DEEPINFRA_API_KEY;
@@ -1152,8 +1153,9 @@ export class CoreServer {
           ('gemini', 'Google Gemini', 'gemini', 1, ?),
           ('deepseek', 'DeepSeek', 'custom', 1, ?),
           ('groq', 'Groq', 'custom', 1, ?),
+          ('nvidia', 'NVIDIA NIM', 'nvidia', 1, ?),
           ('custom', 'Custom Provider', 'custom', 1, ?)
-      `, now, now, now, now, now, now, now, now);
+      `, now, now, now, now, now, now, now, now, now);
     } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
 
     // Ensure strictly ONE default agent: @Boss (Orchestrator)
@@ -4932,7 +4934,7 @@ export class CoreServer {
   public getConfiguredProviders(): { configuredProviders: Set<string>; activeCredsCount: number } {
     const activeCreds = this.db.query<any>('SELECT DISTINCT provider, key_alias FROM managed_credentials WHERE is_active = 1');
     const customEndpoints = this.modelGateway.getCustomEndpointNames();
-    const envProviders = ['openrouter', 'openai', 'anthropic', 'deepseek', 'gemini', 'groq', 'xai', 'azure'].filter((p) => {
+    const envProviders = ['openrouter', 'openai', 'anthropic', 'deepseek', 'gemini', 'groq', 'xai', 'azure', 'nvidia'].filter((p) => {
       if (p === 'openrouter') return Boolean(process.env.OPENROUTER_API_KEY);
       if (p === 'openai') return Boolean(process.env.OPENAI_API_KEY);
       if (p === 'anthropic') return Boolean(process.env.ANTHROPIC_API_KEY);
@@ -4941,6 +4943,7 @@ export class CoreServer {
       if (p === 'groq') return Boolean(process.env.GROQ_API_KEY);
       if (p === 'xai') return Boolean(process.env.XAI_API_KEY);
       if (p === 'azure') return Boolean(process.env.AZURE_OPENAI_API_KEY || process.env.AZURE_API_KEY);
+      if (p === 'nvidia') return Boolean(process.env.NVIDIA_API_KEY || process.env.NVIDIA_NIM_API_KEY);
       return false;
     });
     const set = new Set<string>([
@@ -4977,7 +4980,7 @@ export class CoreServer {
       prov = modelId.substring(0, slashIdx).toLowerCase();
     } else if (colonIdx !== -1) {
       const cand = modelId.substring(0, colonIdx).toLowerCase();
-      if (configuredProviders.has(cand) || ['openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure', 'custom'].includes(cand)) {
+      if (configuredProviders.has(cand) || ['openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure', 'nvidia', 'custom'].includes(cand)) {
         prov = cand;
       }
     }

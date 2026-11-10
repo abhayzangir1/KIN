@@ -48,6 +48,9 @@ export const ProviderIcon: React.FC<{ provider: string; className?: string }> = 
   if (norm.includes('azure')) {
     return <Server className={`${className} text-sky-400`} />;
   }
+  if (norm.includes('nvidia')) {
+    return <Cpu className={`${className} text-lime-400`} />;
+  }
   if (norm.includes('copilot')) {
     return <Cpu className={`${className} text-cyan-400`} />;
   }
@@ -174,6 +177,7 @@ export const ModelSelectorModal: React.FC = () => {
             deepseek: 'DeepSeek',
             groq: 'Groq',
             xai: 'xAI',
+            nvidia: 'NVIDIA NIM',
             ollama: 'Ollama',
             copilot: 'Copilot',
             openai_compatible: 'OpenAI Compatible',
@@ -204,6 +208,7 @@ export const ModelSelectorModal: React.FC = () => {
           deepseek: 'DeepSeek',
           groq: 'Groq',
           xai: 'xAI',
+          nvidia: 'NVIDIA NIM',
           ollama: 'Ollama',
           copilot: 'Copilot',
           openai_compatible: 'OpenAI Compatible',
@@ -406,6 +411,7 @@ export const ModelSelectorModal: React.FC = () => {
                     { id: 'openai', name: 'OpenAI' },
                     { id: 'openrouter', name: 'OpenRouter' },
                     { id: 'xai', name: 'xAI' },
+                    { id: 'nvidia', name: 'NVIDIA NIM' },
                     { id: 'ollama', name: 'Ollama' },
                     { id: 'openai_compatible', name: 'OpenAI Compatible' },
                     { id: 'custom', name: 'Custom Endpoint' },

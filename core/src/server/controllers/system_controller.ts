@@ -80,7 +80,7 @@ export class SystemController extends BaseController {
         }
         
         const standardProvidersList = [
-          'ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure',
+          'ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure', 'nvidia',
           'together', 'deepinfra', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'vllm',
           'openai_compatible', 'custom'
         ];
@@ -111,7 +111,7 @@ export class SystemController extends BaseController {
         );
 
         const standardProviderSet = new Set([
-          'ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure',
+          'ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure', 'nvidia',
           'together', 'deepinfra', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'vllm',
           'openai_compatible', 'custom'
         ]);
@@ -239,7 +239,7 @@ export class SystemController extends BaseController {
       // 2b. GET /api/models/readiness or /api/system/models/readiness — Provider Readiness States
       if (req.method === 'GET' && (pathname === '/api/models/readiness' || pathname === '/api/system/models/readiness')) {
         const standardProviders = [
-          'ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure',
+          'ollama', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure', 'nvidia',
           'together', 'deepinfra', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'vllm',
           'openai_compatible', 'custom'
         ];
@@ -285,7 +285,7 @@ export class SystemController extends BaseController {
         const discovered = await this.modelGateway.fetchProviderModels(body.provider, body.apiKey, body.baseUrl ? { baseUrl: body.baseUrl } : undefined);
         const now = Date.now();
         const validTypes = [
-          'ollama', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure', 'openrouter',
+          'ollama', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure', 'nvidia', 'openrouter',
           'together', 'deepinfra', 'fireworks', 'perplexity', 'cerebras', 'lmstudio', 'vllm',
           'openai_compatible', 'custom'
         ];
@@ -411,7 +411,7 @@ export class SystemController extends BaseController {
         const detectedProvider = slashIdx !== -1 ? trimmed.substring(0, slashIdx).toLowerCase() : (body.provider || 'custom');
         const modelName = body.name?.trim() || trimmed;
         const now = Date.now();
-        const validTypes = ['ollama', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'openrouter', 'openai_compatible', 'custom'];
+        const validTypes = ['ollama', 'openai', 'anthropic', 'gemini', 'deepseek', 'groq', 'xai', 'azure', 'nvidia', 'openrouter', 'openai_compatible', 'custom'];
         const providerType = validTypes.includes(detectedProvider) ? detectedProvider : 'custom';
 
         const existingProv = this.db.queryOne<any>('SELECT id, base_url, api_key_ref FROM providers WHERE id = ?', detectedProvider);

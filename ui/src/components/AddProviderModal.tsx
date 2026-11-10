@@ -57,6 +57,12 @@ const PROVIDER_DEFAULTS: Record<string, { name: string; defaultBaseUrl: string; 
     requiresKey: true,
     placeholderKey: 'xai-...',
   },
+  nvidia: {
+    name: 'NVIDIA NIM',
+    defaultBaseUrl: 'https://integrate.api.nvidia.com/v1',
+    requiresKey: true,
+    placeholderKey: 'nvapi-...',
+  },
   ollama: {
     name: 'Ollama (Local)',
     defaultBaseUrl: 'http://localhost:11434',
@@ -305,6 +311,7 @@ export const AddProviderModal: React.FC = () => {
               <option value="deepseek">DeepSeek (DeepSeek V3, DeepSeek R1)</option>
               <option value="groq">Groq (Ultra-Fast LPU Inference)</option>
               <option value="xai">xAI (Grok 2, Grok Beta)</option>
+              <option value="nvidia">NVIDIA NIM (Nemotron, Llama 3.3, DeepSeek R1)</option>
               <option value="together">Together AI (Llama 3.3, DeepSeek, Mistral)</option>
               <option value="deepinfra">DeepInfra (High-Throughput Open Models)</option>
               <option value="fireworks">Fireworks AI (Fast Function Calling & Reasoning)</option>
