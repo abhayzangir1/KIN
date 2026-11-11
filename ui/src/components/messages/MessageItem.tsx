@@ -8,8 +8,6 @@ export interface MessageItemProps {
   message: MessageItemType;
   onQuoteReply?: (quote: string) => void;
   agents?: any[];
-  availableModels?: any[];
-  updateAgentModel?: (agentId: string, modelId: string, projectId?: string, channelId?: string) => Promise<boolean>;
   activeProjectId?: string;
   activeChannelId?: string;
   onSelectDecision?: (decisionChoice: string) => void;
@@ -82,8 +80,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   message,
   onQuoteReply,
   agents = [],
-  availableModels: _availableModels = [],
-  updateAgentModel: _updateAgentModel,
   activeProjectId: _activeProjectId,
   activeChannelId: _activeChannelId,
   onSelectDecision,

@@ -1,7 +1,7 @@
 import React from 'react';
 import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
 import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale, Trash2, Users, ShieldAlert, Edit2, ChevronDown, ChevronRight, GitCommit } from 'lucide-react';
-import { AgentModelQuickSwitch } from './AgentModelQuickSwitch.js';
+import { AgentModelBadge } from './AgentModelBadge.js';
 
 export const Sidebar: React.FC = () => {
   const {
@@ -11,7 +11,6 @@ export const Sidebar: React.FC = () => {
     setActiveChannel,
     deleteChannel,
     agents,
-    updateAgentModel,
     ollamaStatus,
     credentials,
     availableModels,
@@ -247,12 +246,9 @@ export const Sidebar: React.FC = () => {
                         <Edit2 className="w-3 h-3" />
                       </button>
 
-                      <AgentModelQuickSwitch
+                      <AgentModelBadge
                         agent={agent}
                         availableModels={availableModels}
-                        updateAgentModel={updateAgentModel}
-                        projectId={activeProject?.id}
-                        channelId={activeChannelId}
                         compact
                       />
                       {agent.isOrchestrator ? (

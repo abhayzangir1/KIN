@@ -350,10 +350,10 @@ export const AgentInspector: React.FC = () => {
           {/* 1. Agent */}
           <button
             onClick={() => setActiveRightTab('Agent')}
-            className={`flex items-center space-x-1 px-2 py-1 rounded text-xs font-semibold transition shrink-0 ${
+            className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-t text-xs transition shrink-0 ${
               activeRightTab === 'Agent'
-                ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30'
-                : 'text-[#64748b] hover:text-kin-text'
+                ? 'bg-kin-card text-kin-primary font-semibold border-b-2 border-kin-primary'
+                : 'text-kin-muted hover:text-kin-text hover:bg-kin-card/50'
             }`}
             title="Agent Contract & Telemetry"
           >
@@ -367,17 +367,17 @@ export const AgentInspector: React.FC = () => {
               setActiveRightTab('Changes');
               fetchGitStatus();
             }}
-            className={`flex items-center space-x-1 px-2 py-1 rounded text-xs font-semibold transition shrink-0 ${
+            className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-t text-xs transition shrink-0 ${
               activeRightTab === 'Changes'
-                ? 'bg-amber-600/20 text-amber-400 border border-amber-500/30'
-                : 'text-[#64748b] hover:text-kin-text'
+                ? 'bg-kin-card text-kin-primary font-semibold border-b-2 border-kin-primary'
+                : 'text-kin-muted hover:text-kin-text hover:bg-kin-card/50'
             }`}
             title="Files Changed & Git Status"
           >
             <GitBranch className="w-3.5 h-3.5" />
             <span>Changes</span>
             {gitStatus.summary.totalChanged > 0 && (
-              <span className="text-[10px] px-1 py-0.2 rounded-full bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
+              <span className="text-[10px] px-1 py-0.2 rounded-full bg-amber-500/10 text-amber-500 font-bold border border-amber-500/20">
                 {gitStatus.summary.totalChanged}
               </span>
             )}
@@ -392,10 +392,10 @@ export const AgentInspector: React.FC = () => {
                 fetchGitDiff(gitStatus.files[0].path);
               }
             }}
-            className={`flex items-center space-x-1 px-2 py-1 rounded text-xs font-semibold transition shrink-0 ${
+            className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-t text-xs transition shrink-0 ${
               activeRightTab === 'Review'
-                ? 'bg-rose-600/20 text-rose-400 border border-rose-500/30'
-                : 'text-[#64748b] hover:text-kin-text'
+                ? 'bg-kin-card text-kin-primary font-semibold border-b-2 border-kin-primary'
+                : 'text-kin-muted hover:text-kin-text hover:bg-kin-card/50'
             }`}
             title="Code Review & AI Diff Analysis"
           >
@@ -403,57 +403,57 @@ export const AgentInspector: React.FC = () => {
             <span>Review</span>
           </button>
 
-          {/* 3. Artifacts */}
+          {/* 4. Artifacts */}
           <button
             onClick={() => {
               setActiveRightTab('Artifacts');
               fetchArtifacts();
             }}
-            className={`flex items-center space-x-1 px-2 py-1 rounded text-xs font-semibold transition shrink-0 ${
+            className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-t text-xs transition shrink-0 ${
               activeRightTab === 'Artifacts'
-                ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
-                : 'text-[#64748b] hover:text-kin-text'
+                ? 'bg-kin-card text-kin-primary font-semibold border-b-2 border-kin-primary'
+                : 'text-kin-muted hover:text-kin-text hover:bg-kin-card/50'
             }`}
             title="Project Deliverables & Artifacts"
           >
             <FileCode className="w-3.5 h-3.5" />
             <span>Artifacts</span>
             {artifacts.length > 0 && (
-              <span className="text-[10px] px-1 rounded-full bg-[#1e293b] text-[#94a3b8]">
+              <span className="text-[10px] px-1 rounded-full bg-kin-card text-kin-muted border border-kin-borderSubtle">
                 {artifacts.length}
               </span>
             )}
           </button>
 
-          {/* 4. Uploads */}
+          {/* 5. Uploads */}
           <button
             onClick={() => {
               setActiveRightTab('Uploads');
               fetchUploads();
             }}
-            className={`flex items-center space-x-1 px-2 py-1 rounded text-xs font-semibold transition shrink-0 ${
+            className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-t text-xs transition shrink-0 ${
               activeRightTab === 'Uploads'
-                ? 'bg-cyan-600/20 text-cyan-400 border border-cyan-500/30'
-                : 'text-[#64748b] hover:text-kin-text'
+                ? 'bg-kin-card text-kin-primary font-semibold border-b-2 border-kin-primary'
+                : 'text-kin-muted hover:text-kin-text hover:bg-kin-card/50'
             }`}
             title="Project Uploads & Attachments"
           >
             <UploadCloud className="w-3.5 h-3.5" />
             <span>Uploads</span>
             {uploads.length > 0 && (
-              <span className="text-[10px] px-1 rounded-full bg-[#1e293b] text-[#94a3b8]">
+              <span className="text-[10px] px-1 rounded-full bg-kin-card text-kin-muted border border-kin-borderSubtle">
                 {uploads.length}
               </span>
             )}
           </button>
 
-          {/* 5. Terminal */}
+          {/* 6. Terminal */}
           <button
             onClick={() => setActiveRightTab('Terminal')}
-            className={`flex items-center space-x-1 px-2 py-1 rounded text-xs font-semibold transition shrink-0 ${
+            className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-t text-xs transition shrink-0 ${
               activeRightTab === 'Terminal'
-                ? 'bg-purple-600/20 text-purple-400 border border-purple-500/30'
-                : 'text-[#64748b] hover:text-kin-text'
+                ? 'bg-kin-card text-kin-primary font-semibold border-b-2 border-kin-primary'
+                : 'text-kin-muted hover:text-kin-text hover:bg-kin-card/50'
             }`}
             title="Interactive PowerShell Terminal"
           >
@@ -465,7 +465,7 @@ export const AgentInspector: React.FC = () => {
         {/* Collapse Inspector Button */}
         <button
           onClick={() => setInspectorOpen(false)}
-          className="p-1 rounded hover:bg-[#1e293b] text-[#64748b] hover:text-kin-text transition ml-1 shrink-0 cursor-pointer"
+          className="p-1 rounded hover:bg-kin-cardHover text-kin-muted hover:text-kin-text transition ml-1 shrink-0 cursor-pointer"
           title="Collapse Inspector Panel"
         >
           <PanelRightClose className="w-4 h-4" />
@@ -476,13 +476,13 @@ export const AgentInspector: React.FC = () => {
       {activeRightTab === 'Agent' && (
         <div className="h-8 border-b border-kin-border px-3 flex items-center justify-between bg-kin-surface shrink-0 select-none">
           <div className="flex items-center space-x-1.5">
-            <span className="text-[10px] uppercase font-bold tracking-wider text-[#64748b] mr-1">View:</span>
+            <span className="text-[10px] uppercase font-bold tracking-wider text-kin-muted mr-1">View:</span>
             <button
               onClick={() => setActiveInspectorTab('Telemetry')}
               className={`px-2 py-0.5 rounded text-[11px] font-medium transition cursor-pointer ${
                 activeInspectorTab === 'Telemetry'
                   ? 'bg-blue-600/30 text-blue-300 border border-blue-500/40 font-semibold shadow-sm'
-                  : 'text-[#8b949e] hover:text-kin-text hover:bg-[#161b22]'
+                  : 'text-kin-muted hover:text-kin-text hover:bg-kin-cardHover'
               }`}
             >
               Telemetry
@@ -492,7 +492,7 @@ export const AgentInspector: React.FC = () => {
               className={`px-2 py-0.5 rounded text-[11px] font-medium transition cursor-pointer ${
                 activeInspectorTab === 'Contract'
                   ? 'bg-blue-600/30 text-blue-300 border border-blue-500/40 font-semibold shadow-sm'
-                  : 'text-[#8b949e] hover:text-kin-text hover:bg-[#161b22]'
+                  : 'text-kin-muted hover:text-kin-text hover:bg-kin-cardHover'
               }`}
             >
               Contract
@@ -502,7 +502,7 @@ export const AgentInspector: React.FC = () => {
               className={`px-2 py-0.5 rounded text-[11px] font-medium transition cursor-pointer ${
                 activeInspectorTab === 'Teamwork'
                   ? 'bg-blue-600/30 text-blue-300 border border-blue-500/40 font-semibold shadow-sm'
-                  : 'text-[#8b949e] hover:text-kin-text hover:bg-[#161b22]'
+                  : 'text-kin-muted hover:text-kin-text hover:bg-kin-cardHover'
               }`}
             >
               Teamwork
@@ -515,14 +515,14 @@ export const AgentInspector: React.FC = () => {
               className={`px-2 py-0.5 rounded text-[11px] font-medium transition cursor-pointer flex items-center space-x-1 ${
                 activeInspectorTab === 'Evaluations'
                   ? 'bg-blue-600/30 text-blue-300 border border-blue-500/40 font-semibold shadow-sm'
-                  : 'text-[#8b949e] hover:text-kin-text hover:bg-[#161b22]'
+                  : 'text-kin-muted hover:text-kin-text hover:bg-kin-cardHover'
               }`}
             >
               <Award className="w-3 h-3 text-amber-400" />
               <span>Evals</span>
             </button>
           </div>
-          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-[#161b22] text-kin-muted border border-[#30363d] truncate max-w-[120px]">
+          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-kin-card text-kin-muted border border-kin-border truncate max-w-[120px]">
             {currentAgent?.displayName}
           </span>
         </div>
@@ -535,13 +535,13 @@ export const AgentInspector: React.FC = () => {
         <div className="flex-1 flex flex-col min-h-0">
           {activeGitDiff ? (
             /* REVIEW OPTION: UNIFIED GIT DIFF VIEW */
-            <div className="flex-1 flex flex-col min-h-0 bg-[#070b12]">
+            <div className="flex-1 flex flex-col min-h-0 bg-kin-bg">
               {/* Header with Back, File Info, Additions/Deletions, Revert & Stage */}
-              <div className="p-2 border-b border-[#1e293b] bg-[#0c1222] flex items-center justify-between">
+              <div className="p-2 border-b border-kin-border bg-kin-surface flex items-center justify-between">
                 <div className="flex items-center space-x-1.5 truncate mr-2">
                   <button
                     onClick={clearGitDiff}
-                    className="p-1 rounded hover:bg-[#1e293b] text-[#94a3b8] hover:text-kin-text transition shrink-0"
+                    className="p-1 rounded hover:bg-kin-cardHover text-kin-muted hover:text-kin-text transition shrink-0"
                     title="Back to changed files"
                   >
                     <ArrowLeft className="w-3.5 h-3.5" />
@@ -560,7 +560,7 @@ export const AgentInspector: React.FC = () => {
                   </span>
                   <button
                     onClick={() => handleCopyPath(activeGitDiff.path)}
-                    className="p-1 rounded hover:bg-[#1e293b] text-[#94a3b8] hover:text-emerald-400 transition"
+                    className="p-1 rounded hover:bg-kin-cardHover text-kin-muted hover:text-emerald-400 transition"
                     title="Copy File Path"
                   >
                     {copiedPath ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -593,7 +593,7 @@ export const AgentInspector: React.FC = () => {
             /* CHANGED FILES LIST & STATUS */
             <div className="flex-1 flex flex-col min-h-0">
               {/* Summary Header */}
-              <div className="p-2.5 border-b border-[#1e293b] bg-[#0c1222] space-y-2">
+              <div className="p-2.5 border-b border-kin-border bg-kin-surface space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
                     <span className="font-bold text-kin-text text-xs">Live Changes</span>
@@ -603,7 +603,7 @@ export const AgentInspector: React.FC = () => {
                   </div>
                   <button
                     onClick={() => fetchGitStatus()}
-                    className="p-1 rounded bg-[#1e293b] hover:bg-[#253248] text-[#94a3b8] hover:text-kin-text transition"
+                    className="p-1 rounded bg-kin-card hover:bg-kin-cardHover text-kin-muted hover:text-kin-text transition"
                     title="Refresh Git Status"
                   >
                     <RefreshCw className="w-3 h-3" />
@@ -641,13 +641,13 @@ export const AgentInspector: React.FC = () => {
 
                 {/* Filter / Search */}
                 <div className="relative">
-                  <Search className="w-3 h-3 text-[#64748b] absolute left-2 top-2" />
+                  <Search className="w-3 h-3 text-kin-muted absolute left-2 top-2" />
                   <input
                     type="text"
                     value={changesSearch}
                     onChange={(e) => setChangesSearch(e.target.value)}
                     placeholder="Filter changed files..."
-                    className="w-full bg-[#0a0f1d] border border-[#1e293b] rounded pl-7 pr-2 py-1 text-xs text-kin-text placeholder-[#64748b] focus:outline-none focus:border-amber-500 font-mono"
+                    className="w-full bg-kin-card border border-kin-border rounded pl-7 pr-2 py-1 text-xs text-kin-text placeholder-kin-subtle focus:outline-none focus:border-amber-500 font-mono"
                   />
                 </div>
               </div>
@@ -671,7 +671,7 @@ export const AgentInspector: React.FC = () => {
                     return (
                       <div
                         key={file.path}
-                        className="p-2 rounded bg-[#0f172a] border border-[#1e293b] hover:border-amber-500/40 transition group flex items-center justify-between"
+                        className="p-2 rounded bg-kin-card border border-kin-border hover:border-amber-500/40 transition group flex items-center justify-between"
                       >
                         <div
                           onClick={() => {
@@ -690,7 +690,7 @@ export const AgentInspector: React.FC = () => {
                             <div className="font-semibold text-kin-text truncate group-hover:text-amber-300">
                               {file.path.split('/').pop()}
                             </div>
-                            <div className="text-[10px] text-[#64748b] font-mono truncate">
+                            <div className="text-[10px] text-kin-muted font-mono truncate">
                               {file.path}
                             </div>
                           </div>
@@ -708,7 +708,7 @@ export const AgentInspector: React.FC = () => {
                             className={`p-1 rounded text-[10px] transition ${
                               file.staged
                                 ? 'bg-purple-600/30 text-purple-300 hover:bg-purple-600/50'
-                                : 'bg-[#1e293b] text-[#94a3b8] hover:text-kin-text hover:bg-[#253248]'
+                                : 'bg-kin-card text-kin-muted hover:text-kin-text hover:bg-kin-cardHover'
                             }`}
                             title={file.staged ? 'Unstage file' : 'Stage file'}
                           >
@@ -718,7 +718,7 @@ export const AgentInspector: React.FC = () => {
                           <button
                             onClick={() => handleRevert(file.path)}
                             disabled={revertingPath === file.path}
-                            className="p-1 rounded bg-[#1e293b] hover:bg-red-950/60 text-[#94a3b8] hover:text-red-300 transition"
+                            className="p-1 rounded bg-kin-card hover:bg-red-950/60 text-kin-muted hover:text-red-300 transition"
                             title="Revert file changes"
                           >
                             <Undo2 className="w-3.5 h-3.5" />
@@ -739,7 +739,7 @@ export const AgentInspector: React.FC = () => {
                     );
                   })
                 ) : (
-                  <div className="p-8 text-center text-[#64748b] space-y-2">
+                  <div className="p-8 text-center text-kin-muted space-y-2">
                     <CheckCircle2 className="w-8 h-8 mx-auto text-emerald-500/60" />
                     <p className="text-xs font-semibold text-kin-text">Working tree clean</p>
                     <p className="text-[11px]">No modified, added, or untracked files detected in this repository.</p>
@@ -755,17 +755,17 @@ export const AgentInspector: React.FC = () => {
       {/* TAB 2: REVIEW (INTERACTIVE CODE REVIEW & AI DIFF ANALYSIS)                */}
       {/* ========================================================================= */}
       {activeRightTab === 'Review' && (
-        <div className="flex-1 flex flex-col min-h-0 bg-[#070b12]">
+        <div className="flex-1 flex flex-col min-h-0 bg-kin-bg">
           {gitStatus.files.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-[#64748b] space-y-3">
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-kin-muted space-y-3">
               <CheckCircle2 className="w-10 h-10 text-emerald-400" />
               <div className="text-sm font-semibold text-kin-text">No Files to Review</div>
-              <p className="text-xs text-[#94a3b8] max-w-[260px]">
+              <p className="text-xs text-kin-muted max-w-[260px]">
                 Your git working tree is completely clean. Make changes to project files or check out another branch to review diffs.
               </p>
               <button
                 onClick={() => fetchGitStatus()}
-                className="flex items-center space-x-1 px-3 py-1.5 rounded bg-[#1e293b] hover:bg-[#253248] text-kin-text font-medium text-xs transition"
+                className="flex items-center space-x-1 px-3 py-1.5 rounded bg-kin-card hover:bg-kin-cardHover text-kin-text font-medium text-xs transition"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 <span>Check Again</span>
@@ -774,13 +774,13 @@ export const AgentInspector: React.FC = () => {
           ) : (
             <div className="flex-1 flex flex-col min-h-0">
               {/* Review Top Control Bar */}
-              <div className="p-2 border-b border-[#1e293b] bg-[#0c1222] space-y-2">
+              <div className="p-2 border-b border-kin-border bg-kin-surface space-y-2">
                 {/* File Navigator Row */}
                 <div className="flex items-center space-x-1.5">
                   {/* Prev File Button */}
                   <button
                     onClick={handlePrevReviewFile}
-                    className="p-1 rounded bg-[#1e293b] hover:bg-[#253248] text-[#94a3b8] hover:text-kin-text transition shrink-0"
+                    className="p-1 rounded bg-kin-card hover:bg-kin-cardHover text-kin-muted hover:text-kin-text transition shrink-0"
                     title="Previous Changed File"
                   >
                     <ChevronLeft className="w-3.5 h-3.5" />
@@ -792,7 +792,7 @@ export const AgentInspector: React.FC = () => {
                     onChange={(e) => {
                       if (e.target.value) fetchGitDiff(e.target.value);
                     }}
-                    className="flex-1 min-w-0 bg-[#070b12] border border-[#1e293b] rounded px-2 py-1 text-xs text-kin-text focus:outline-none focus:border-rose-500 font-mono truncate"
+                    className="flex-1 min-w-0 bg-kin-bg border border-kin-border rounded px-2 py-1 text-xs text-kin-text focus:outline-none focus:border-rose-500 font-mono truncate"
                   >
                     {!activeGitDiff && <option value="">Select a file to review...</option>}
                     {gitStatus.files.map((f) => (
@@ -805,7 +805,7 @@ export const AgentInspector: React.FC = () => {
                   {/* Next File Button */}
                   <button
                     onClick={handleNextReviewFile}
-                    className="p-1 rounded bg-[#1e293b] hover:bg-[#253248] text-[#94a3b8] hover:text-kin-text transition shrink-0"
+                    className="p-1 rounded bg-kin-card hover:bg-kin-cardHover text-kin-muted hover:text-kin-text transition shrink-0"
                     title="Next Changed File"
                   >
                     <ChevronRight className="w-3.5 h-3.5" />
@@ -817,7 +817,7 @@ export const AgentInspector: React.FC = () => {
                       fetchGitStatus();
                       if (activeGitDiff) fetchGitDiff(activeGitDiff.path);
                     }}
-                    className="p-1 rounded bg-[#1e293b] hover:bg-[#253248] text-[#94a3b8] hover:text-kin-text transition shrink-0"
+                    className="p-1 rounded bg-kin-card hover:bg-kin-cardHover text-kin-muted hover:text-kin-text transition shrink-0"
                     title="Refresh Diff"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
@@ -837,7 +837,7 @@ export const AgentInspector: React.FC = () => {
                         </span>
                         <button
                           onClick={() => handleCopyPath(activeGitDiff.path)}
-                          className="p-1 rounded hover:bg-[#1e293b] text-[#94a3b8] hover:text-emerald-400 transition"
+                          className="p-1 rounded hover:bg-kin-cardHover text-kin-muted hover:text-emerald-400 transition"
                           title="Copy File Path"
                         >
                           {copiedPath ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -864,7 +864,7 @@ export const AgentInspector: React.FC = () => {
                               className={`flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-medium border transition ${
                                 isStaged
                                   ? 'bg-purple-600/20 text-purple-300 border-purple-500/30 hover:bg-purple-600/30'
-                                  : 'bg-[#1e293b] text-[#94a3b8] border-[#334155] hover:text-kin-text'
+                                  : 'bg-kin-card text-kin-muted border-kin-border hover:text-kin-text'
                               }`}
                               title={isStaged ? 'Unstage file' : 'Stage file'}
                             >
@@ -912,7 +912,7 @@ export const AgentInspector: React.FC = () => {
 
               {/* Collapsible AI Review Verdict Card */}
               {aiReviewResult && showAiReviewCard && (
-                <div className="p-3 bg-[#0f172a] border-b border-rose-500/30 text-xs space-y-2">
+                <div className="p-3 bg-kin-card border-b border-rose-500/30 text-xs space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
                       <Sparkles className="w-4 h-4 text-amber-400" />
@@ -931,16 +931,16 @@ export const AgentInspector: React.FC = () => {
                     </div>
                     <button
                       onClick={() => setShowAiReviewCard(false)}
-                      className="text-[#64748b] hover:text-kin-text text-[11px]"
+                      className="text-kin-muted hover:text-kin-text text-[11px]"
                       title="Dismiss review card"
                     >
                       ✕
                     </button>
                   </div>
-                  <div className="text-[11px] text-[#cbd5e1] whitespace-pre-wrap font-sans max-h-48 overflow-y-auto bg-[#070b12] p-2.5 rounded border border-[#1e293b]">
+                  <div className="text-[11px] text-kin-text whitespace-pre-wrap font-sans max-h-48 overflow-y-auto bg-kin-bg p-2.5 rounded border border-kin-border">
                     {aiReviewResult.review}
                   </div>
-                  <div className="text-[10px] text-[#64748b] flex items-center justify-between font-mono">
+                  <div className="text-[10px] text-kin-muted flex items-center justify-between font-mono">
                     <span>Target: {aiReviewResult.path || 'Entire Project'}</span>
                     <span>Dispatched to Channel Stream</span>
                   </div>
@@ -970,12 +970,12 @@ export const AgentInspector: React.FC = () => {
         <div className="flex-1 flex flex-col min-h-0">
           {selectedArtifact ? (
             /* Deliverable Content View */
-            <div className="flex-1 flex flex-col min-h-0 bg-[#070b12]">
-              <div className="p-2 border-b border-[#1e293b] bg-[#0c1222] flex items-center justify-between">
+            <div className="flex-1 flex flex-col min-h-0 bg-kin-bg">
+              <div className="p-2 border-b border-kin-border bg-kin-surface flex items-center justify-between">
                 <div className="flex items-center space-x-1.5 truncate mr-2">
                   <button
                     onClick={clearSelectedArtifact}
-                    className="p-1 rounded hover:bg-[#1e293b] text-[#94a3b8] hover:text-kin-text transition shrink-0"
+                    className="p-1 rounded hover:bg-kin-cardHover text-kin-muted hover:text-kin-text transition shrink-0"
                     title="Back to Deliverables list"
                   >
                     <ArrowLeft className="w-3.5 h-3.5" />
@@ -983,12 +983,12 @@ export const AgentInspector: React.FC = () => {
                   <span className="font-semibold text-kin-text truncate">{selectedArtifact.name}</span>
                 </div>
                 <div className="flex items-center space-x-1.5 shrink-0">
-                  <span className="text-[10px] text-[#64748b] font-mono">
+                  <span className="text-[10px] text-kin-muted font-mono">
                     {formatFileSize(selectedArtifact.size)}
                   </span>
                   <button
                     onClick={handleCopyArtifactContent}
-                    className="p-1 rounded hover:bg-[#1e293b] text-[#94a3b8] hover:text-emerald-400 transition"
+                    className="p-1 rounded hover:bg-kin-cardHover text-kin-muted hover:text-emerald-400 transition"
                     title="Copy File Content"
                   >
                     {copiedFile ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -996,12 +996,12 @@ export const AgentInspector: React.FC = () => {
                 </div>
               </div>
 
-              <div className="px-3 py-1 bg-[#090d16] text-[10px] text-[#64748b] font-mono truncate border-b border-[#1e293b] flex items-center justify-between">
+              <div className="px-3 py-1 bg-kin-surface text-[10px] text-kin-muted font-mono truncate border-b border-kin-border flex items-center justify-between">
                 <span className="truncate">{selectedArtifact.relativePath}</span>
                 <span className="text-blue-400 shrink-0 font-medium">Deliverable</span>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-3 font-mono text-[11px] leading-relaxed text-[#cbd5e1] whitespace-pre bg-[#04060b]">
+              <div className="flex-1 overflow-y-auto p-3 font-mono text-[11px] leading-relaxed text-kin-text whitespace-pre bg-kin-bg">
                 {selectedArtifact.content}
               </div>
             </div>
@@ -1009,21 +1009,21 @@ export const AgentInspector: React.FC = () => {
             /* Deliverables List */
             <div className="flex-1 flex flex-col min-h-0">
               {/* Search & Category Filter */}
-              <div className="p-2.5 border-b border-[#1e293b] bg-[#0c1222] space-y-2">
+              <div className="p-2.5 border-b border-kin-border bg-kin-surface space-y-2">
                 <div className="flex items-center space-x-2">
                   <div className="relative flex-1">
-                    <Search className="w-3 h-3 text-[#64748b] absolute left-2 top-2" />
+                    <Search className="w-3 h-3 text-kin-muted absolute left-2 top-2" />
                     <input
                       type="text"
                       value={artifactSearch}
                       onChange={(e) => setArtifactSearch(e.target.value)}
                       placeholder="Search deliverables..."
-                      className="w-full bg-[#0a0f1d] border border-[#1e293b] rounded pl-7 pr-2 py-1 text-xs text-kin-text placeholder-[#64748b] focus:outline-none focus:border-blue-500 font-mono"
+                      className="w-full bg-kin-card border border-kin-border rounded pl-7 pr-2 py-1 text-xs text-kin-text placeholder-kin-subtle focus:outline-none focus:border-blue-500 font-mono"
                     />
                   </div>
                   <button
                     onClick={() => fetchArtifacts()}
-                    className="p-1.5 rounded bg-[#1e293b] hover:bg-[#253248] text-[#94a3b8] hover:text-kin-text transition shrink-0"
+                    className="p-1.5 rounded bg-kin-card hover:bg-kin-cardHover text-kin-muted hover:text-kin-text transition shrink-0"
                     title="Refresh Artifacts"
                   >
                     <RefreshCw className="w-3 h-3" />
@@ -1039,7 +1039,7 @@ export const AgentInspector: React.FC = () => {
                       className={`px-2 py-0.5 rounded capitalize transition ${
                         artifactCategory === cat
                           ? 'bg-blue-600 text-white font-semibold'
-                          : 'bg-[#1e293b] text-[#94a3b8] hover:text-kin-text'
+                          : 'bg-kin-card text-kin-muted hover:text-kin-text'
                       }`}
                     >
                       {cat === 'all' ? 'All Files' : cat === 'spec' ? 'Specs/Docs' : cat === 'code' ? 'Code' : 'Configs'}
@@ -1055,7 +1055,7 @@ export const AgentInspector: React.FC = () => {
                     <button
                       key={art.relativePath}
                       onClick={() => selectArtifact(art.relativePath)}
-                      className="w-full text-left p-2 rounded bg-[#0f172a] hover:bg-[#162035] border border-[#1e293b] hover:border-blue-500/40 transition group"
+                      className="w-full text-left p-2 rounded bg-kin-card hover:bg-kin-cardHover border border-kin-border hover:border-blue-500/40 transition group"
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2 truncate">
@@ -1064,18 +1064,18 @@ export const AgentInspector: React.FC = () => {
                             {art.name}
                           </span>
                         </div>
-                        <span className="text-[10px] text-[#64748b] font-mono shrink-0">
+                        <span className="text-[10px] text-kin-muted font-mono shrink-0">
                           {formatFileSize(art.size)}
                         </span>
                       </div>
-                      <div className="text-[10px] text-[#64748b] font-mono truncate pt-1 pl-5">
+                      <div className="text-[10px] text-kin-muted font-mono truncate pt-1 pl-5">
                         {art.relativePath}
                       </div>
                     </button>
                   ))
                 ) : (
-                  <div className="p-8 text-center text-[#64748b] space-y-2">
-                    <FileCode className="w-8 h-8 mx-auto text-[#334155]" />
+                  <div className="p-8 text-center text-kin-muted space-y-2">
+                    <FileCode className="w-8 h-8 mx-auto text-kin-subtle" />
                     <p className="text-xs">No matching deliverables found.</p>
                   </div>
                 )}
@@ -1089,9 +1089,9 @@ export const AgentInspector: React.FC = () => {
       {/* TAB 3: UPLOADS & ATTACHMENTS (DROPZONE & PROJECT ASSETS)                  */}
       {/* ========================================================================= */}
       {activeRightTab === 'Uploads' && (
-        <div className="flex-1 flex flex-col min-h-0 bg-[#070b12]">
+        <div className="flex-1 flex flex-col min-h-0 bg-kin-bg">
           {/* Dropzone Header */}
-          <div className="p-3 border-b border-[#1e293b] bg-[#0c1222] space-y-2">
+          <div className="p-3 border-b border-kin-border bg-kin-surface space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <span className="font-bold text-kin-text text-xs">Project Uploads</span>
@@ -1101,7 +1101,7 @@ export const AgentInspector: React.FC = () => {
               </div>
               <button
                 onClick={() => fetchUploads()}
-                className="p-1 rounded bg-[#1e293b] hover:bg-[#253248] text-[#94a3b8] hover:text-kin-text transition"
+                className="p-1 rounded bg-kin-card hover:bg-kin-cardHover text-kin-muted hover:text-kin-text transition"
                 title="Refresh Uploads"
               >
                 <RefreshCw className="w-3 h-3" />
@@ -1120,7 +1120,7 @@ export const AgentInspector: React.FC = () => {
               className={`p-3 rounded-xl border-2 border-dashed text-center cursor-pointer transition ${
                 isDragging
                   ? 'border-cyan-400 bg-cyan-500/10'
-                  : 'border-[#1e293b] hover:border-cyan-500/50 bg-[#0a0f1d]'
+                  : 'border-kin-border hover:border-cyan-500/50 bg-kin-card'
               }`}
             >
               <input
@@ -1134,7 +1134,7 @@ export const AgentInspector: React.FC = () => {
               <div className="font-medium text-kin-text text-xs">
                 {isUploading ? 'Uploading file...' : 'Drop files here or click to browse'}
               </div>
-              <div className="text-[10px] text-[#64748b] mt-0.5">
+              <div className="text-[10px] text-kin-muted mt-0.5">
                 Saved in <code className="text-cyan-400">.kin/uploads</code> & persisted in SQLite
               </div>
             </div>
@@ -1147,13 +1147,13 @@ export const AgentInspector: React.FC = () => {
 
             {/* Filter Search */}
             <div className="relative">
-              <Search className="w-3 h-3 text-[#64748b] absolute left-2 top-2" />
+              <Search className="w-3 h-3 text-kin-muted absolute left-2 top-2" />
               <input
                 type="text"
                 value={uploadSearch}
                 onChange={(e) => setUploadSearch(e.target.value)}
                 placeholder="Search uploaded files..."
-                className="w-full bg-[#0a0f1d] border border-[#1e293b] rounded pl-7 pr-2 py-1 text-xs text-kin-text placeholder-[#64748b] focus:outline-none focus:border-cyan-500 font-mono"
+                className="w-full bg-kin-card border border-kin-border rounded pl-7 pr-2 py-1 text-xs text-kin-text placeholder-kin-subtle focus:outline-none focus:border-cyan-500 font-mono"
               />
             </div>
           </div>
@@ -1164,7 +1164,7 @@ export const AgentInspector: React.FC = () => {
               filteredUploads.map((upl) => (
                 <div
                   key={upl.id}
-                  className="p-2 rounded bg-[#0f172a] border border-[#1e293b] hover:border-cyan-500/40 transition group flex items-center justify-between"
+                  className="p-2 rounded bg-kin-card border border-kin-border hover:border-cyan-500/40 transition group flex items-center justify-between"
                 >
                   <div className="flex items-center space-x-2 truncate flex-1 mr-2">
                     <FolderOpen className="w-4 h-4 text-cyan-400 shrink-0" />
@@ -1172,7 +1172,7 @@ export const AgentInspector: React.FC = () => {
                       <div className="font-semibold text-kin-text truncate group-hover:text-cyan-300">
                         {upl.originalName}
                       </div>
-                      <div className="text-[10px] text-[#64748b] font-mono flex items-center space-x-2">
+                      <div className="text-[10px] text-kin-muted font-mono flex items-center space-x-2">
                         <span>{formatFileSize(upl.size)}</span>
                         <span>•</span>
                         <span>{new Date(upl.createdAt).toLocaleDateString()}</span>
@@ -1183,7 +1183,7 @@ export const AgentInspector: React.FC = () => {
                   <div className="flex items-center space-x-1 shrink-0">
                     <button
                       onClick={() => handleCopyPath(upl.relativePath)}
-                      className="p-1 rounded bg-[#1e293b] hover:bg-[#253248] text-[#94a3b8] hover:text-cyan-300 transition"
+                      className="p-1 rounded bg-kin-card hover:bg-kin-cardHover text-kin-muted hover:text-cyan-300 transition"
                       title="Copy relative path for agents"
                     >
                       <Copy className="w-3.5 h-3.5" />
@@ -1207,7 +1207,7 @@ export const AgentInspector: React.FC = () => {
                           addToast(`Download failed: ${e.message}`, 'error');
                         }
                       }}
-                      className="p-1 rounded bg-[#1e293b] hover:bg-[#253248] text-[#94a3b8] hover:text-emerald-400 transition"
+                      className="p-1 rounded bg-kin-card hover:bg-kin-cardHover text-kin-muted hover:text-emerald-400 transition"
                       title="Download file"
                     >
                       <Download className="w-3.5 h-3.5" />
@@ -1225,7 +1225,7 @@ export const AgentInspector: React.FC = () => {
                           await deleteUpload(upl.id);
                         }
                       }}
-                      className="p-1 rounded bg-[#1e293b] hover:bg-red-950/60 text-[#94a3b8] hover:text-red-400 transition cursor-pointer"
+                      className="p-1 rounded bg-kin-card hover:bg-red-950/60 text-kin-muted hover:text-red-400 transition cursor-pointer"
                       title="Delete upload"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -1234,8 +1234,8 @@ export const AgentInspector: React.FC = () => {
                 </div>
               ))
             ) : (
-              <div className="p-8 text-center text-[#64748b] space-y-2">
-                <UploadCloud className="w-8 h-8 mx-auto text-[#334155]" />
+              <div className="p-8 text-center text-kin-muted space-y-2">
+                <UploadCloud className="w-8 h-8 mx-auto text-kin-subtle" />
                 <p className="text-xs">No project uploads yet.</p>
                 <p className="text-[10px]">Drop files above to make them accessible to your workforce.</p>
               </div>
@@ -1248,16 +1248,16 @@ export const AgentInspector: React.FC = () => {
       {/* TAB 4: INTEGRATED POWERSHELL TERMINAL                                     */}
       {/* ========================================================================= */}
       {activeRightTab === 'Terminal' && (
-        <div className="flex-1 flex flex-col min-h-0 bg-[#070b12] font-mono text-[11px]">
+        <div className="flex-1 flex flex-col min-h-0 bg-kin-bg font-mono text-[11px]">
           {/* Quick preset commands bar */}
-          <div className="px-2 py-1.5 border-b border-[#1e293b] bg-[#0c1222] flex items-center justify-between text-[10px] overflow-x-auto">
+          <div className="px-2 py-1.5 border-b border-kin-border bg-kin-surface flex items-center justify-between text-[10px] overflow-x-auto">
             <div className="flex items-center space-x-1 shrink-0">
-              <span className="text-[#64748b] mr-1">Presets:</span>
+              <span className="text-kin-muted mr-1">Presets:</span>
               {['git status', 'git diff', 'npm test', 'dir', 'git log -n 5'].map((preset) => (
                 <button
                   key={preset}
                   onClick={() => runTerminalCommand(preset)}
-                  className="px-1.5 py-0.5 rounded bg-[#1e293b] hover:bg-purple-600/30 hover:text-purple-300 text-[#94a3b8] border border-[#2d3748] transition"
+                  className="px-1.5 py-0.5 rounded bg-kin-card hover:bg-purple-600/30 hover:text-purple-300 text-kin-muted border border-kin-border transition"
                 >
                   {preset}
                 </button>
@@ -1266,7 +1266,7 @@ export const AgentInspector: React.FC = () => {
 
             <button
               onClick={clearTerminalHistory}
-              className="p-1 rounded hover:bg-[#1e293b] text-[#64748b] hover:text-red-300 transition shrink-0 ml-1"
+              className="p-1 rounded hover:bg-kin-cardHover text-kin-muted hover:text-red-300 transition shrink-0 ml-1"
               title="Clear Terminal Output"
             >
               <RotateCcw className="w-3 h-3" />
@@ -1274,9 +1274,9 @@ export const AgentInspector: React.FC = () => {
           </div>
 
           {/* Terminal Output */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-2 text-[#cbd5e1] leading-tight select-text">
-            <div className="text-[#64748b]">Windows PowerShell [KIN Integrated Kernel]</div>
-            <div className="text-[#64748b]">Jail confinement: {activeProject?.repoPath || '.'}</div>
+          <div className="flex-1 overflow-y-auto p-3 space-y-2 text-kin-text leading-tight select-text">
+            <div className="text-kin-muted">Windows PowerShell [KIN Integrated Kernel]</div>
+            <div className="text-kin-muted">Jail confinement: {activeProject?.repoPath || '.'}</div>
             <div className="text-emerald-400">PS {activeProject?.repoPath || '.'}&gt;</div>
 
             {terminalHistory.slice(-100).map((item, idx) => (
@@ -1295,7 +1295,7 @@ export const AgentInspector: React.FC = () => {
                 </div>
                 <div
                   className={`whitespace-pre-wrap font-mono break-all ${
-                    item.exitCode === 0 ? 'text-[#94a3b8]' : 'text-red-400'
+                    item.exitCode === 0 ? 'text-kin-muted' : 'text-red-400'
                   }`}
                 >
                   {cleanAnsiOutput(item.output)}
@@ -1308,7 +1308,7 @@ export const AgentInspector: React.FC = () => {
           {/* Terminal Input Form */}
           <form
             onSubmit={handleTerminalSubmit}
-            className="p-2 border-t border-[#1e293b] flex items-center space-x-1 bg-[#0a0f1d]"
+            className="p-2 border-t border-kin-border flex items-center space-x-1 bg-kin-card"
           >
             <span className="text-emerald-400 text-xs pl-1 font-bold">&gt;</span>
             <input
@@ -1317,12 +1317,12 @@ export const AgentInspector: React.FC = () => {
               onChange={(e) => setTerminalInput(e.target.value)}
               onKeyDown={handleTerminalKeyDown}
               placeholder="Run command in project jail..."
-              className="flex-1 bg-transparent text-xs text-kin-text placeholder-[#64748b] focus:outline-none font-mono"
+              className="flex-1 bg-transparent text-xs text-kin-text placeholder-kin-subtle focus:outline-none font-mono"
             />
             <button
               type="submit"
               disabled={!terminalInput.trim()}
-              className="p-1.5 text-emerald-400 hover:text-emerald-300 disabled:opacity-30 rounded hover:bg-[#1e293b] transition"
+              className="p-1.5 text-emerald-400 hover:text-emerald-300 disabled:opacity-30 rounded hover:bg-kin-cardHover transition"
             >
               <Send className="w-3.5 h-3.5" />
             </button>
@@ -1337,7 +1337,7 @@ export const AgentInspector: React.FC = () => {
         <div className="flex-1 flex flex-col min-h-0">
           <div className="flex-1 overflow-y-auto p-3 space-y-3">
             {/* Selected Agent Identity Card */}
-            <div className="p-3 rounded-lg bg-[#0f172a] border border-[#1e293b] space-y-2">
+            <div className="p-3 rounded-lg bg-kin-card border border-kin-border space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <div
@@ -1351,7 +1351,7 @@ export const AgentInspector: React.FC = () => {
                   </div>
                   <div>
                     <div className="font-semibold text-kin-text">{currentAgent?.displayName || '@Boss'}</div>
-                    <div className="text-[10px] text-[#64748b]">{currentAgent?.role || 'Specialist'}</div>
+                    <div className="text-[10px] text-kin-muted">{currentAgent?.role || 'Specialist'}</div>
                   </div>
                 </div>
 
@@ -1373,8 +1373,8 @@ export const AgentInspector: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between pt-1 border-t border-[#1e293b] text-[10px]">
-                <span className="text-[#64748b] flex items-center space-x-1">
+              <div className="flex items-center justify-between pt-1 border-t border-kin-border text-[10px]">
+                <span className="text-kin-muted flex items-center space-x-1">
                   <ShieldCheck className="w-3 h-3 text-emerald-400" />
                   <span>Workspace Boundary</span>
                 </span>
@@ -1383,13 +1383,13 @@ export const AgentInspector: React.FC = () => {
             </div>
 
             {/* Assigned Channels Section */}
-            <div className="p-3 rounded-lg bg-[#0f172a] border border-[#1e293b] space-y-2">
+            <div className="p-3 rounded-lg bg-kin-card border border-kin-border space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-1.5 text-kin-text font-semibold text-[11px]">
                   <Hash className="w-3.5 h-3.5 text-emerald-400" />
                   <span>Assigned Channels</span>
                 </div>
-                <span className="text-[10px] text-[#64748b]">
+                <span className="text-[10px] text-kin-muted">
                   {assignedChannels.length} {assignedChannels.length === 1 ? 'channel' : 'channels'}
                 </span>
               </div>
@@ -1403,22 +1403,22 @@ export const AgentInspector: React.FC = () => {
                       className={`px-2 py-0.5 rounded text-[11px] font-mono border transition ${
                         c.id === activeChannelId
                           ? 'bg-emerald-600/25 border-emerald-500/50 text-emerald-300 font-semibold'
-                          : 'bg-[#1e293b] border-[#2d3748] text-[#94a3b8] hover:text-kin-text hover:bg-[#253248]'
+                          : 'bg-kin-card border-kin-border text-kin-muted hover:text-kin-text hover:bg-kin-cardHover'
                       }`}
                     >
                       #{c.name}
                     </button>
                   ))
                 ) : (
-                  <span className="text-[11px] text-[#64748b] italic">No public channels assigned yet</span>
+                  <span className="text-[11px] text-kin-muted italic">No public channels assigned yet</span>
                 )}
               </div>
             </div>
 
             {/* Sub-tab 1: Contract & Prompts -> Modern Specialist Profile Overview */}
             {activeInspectorTab === 'Contract' ? (
-              <div className="p-3.5 rounded-xl bg-[#0f172a] border border-[#1e293b] space-y-4">
-                <div className="flex items-center justify-between pb-2 border-b border-[#1e293b]">
+              <div className="p-3.5 rounded-xl bg-kin-card border border-kin-border space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-kin-border">
                   <div className="flex items-center space-x-2">
                     <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-xs">
                       {currentAgent?.displayName?.charAt(0) || 'A'}
@@ -1440,9 +1440,9 @@ export const AgentInspector: React.FC = () => {
                 </div>
 
                 {/* Active Model Pill Card */}
-                <div className="p-2.5 rounded-lg bg-[#080d1a] border border-[#1e293b] flex items-center justify-between">
+                <div className="p-2.5 rounded-lg bg-kin-card border border-kin-border flex items-center justify-between">
                   <div className="flex items-center space-x-2 truncate mr-2">
-                    <div className="w-6 h-6 rounded bg-[#0e1726] border border-[#23314d] flex items-center justify-center shrink-0">
+                    <div className="w-6 h-6 rounded bg-kin-surface border border-kin-border flex items-center justify-center shrink-0">
                       <ProviderIcon provider={activeModelItem.provider || activeModelId} className="w-3.5 h-3.5" />
                     </div>
                     <div className="truncate">
@@ -1476,11 +1476,11 @@ export const AgentInspector: React.FC = () => {
                   </div>
                   <div
                     onClick={() => currentAgent && openAgentSettings(currentAgent.id)}
-                    className="p-3 rounded-lg bg-[#070b14] border border-[#1e293b] hover:border-blue-500/40 text-[11px] font-mono text-gray-300 leading-relaxed max-h-28 overflow-hidden relative cursor-pointer group"
+                    className="p-3 rounded-lg bg-kin-surface border border-kin-border hover:border-blue-500/40 text-[11px] font-mono text-gray-300 leading-relaxed max-h-28 overflow-hidden relative cursor-pointer group"
                     title="Click to edit full instructions in Agent Settings Modal"
                   >
                     <p className="line-clamp-4 select-none whitespace-pre-wrap">{customInstructions || 'No custom instructions defined. Click to configure persona and principles.'}</p>
-                    <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-[#070b14] to-transparent pointer-events-none group-hover:from-blue-950/40 transition" />
+                    <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-kin-surface to-transparent pointer-events-none group-hover:from-blue-950/40 transition" />
                   </div>
                 </div>
 
@@ -1497,7 +1497,7 @@ export const AgentInspector: React.FC = () => {
             ) : activeInspectorTab === 'Telemetry' ? (
               /* Sub-tab 2: Telemetry */
               <div className="space-y-3">
-                <div className="p-3 rounded-lg bg-[#0f172a] border border-[#1e293b] space-y-2.5">
+                <div className="p-3 rounded-lg bg-kin-card border border-kin-border space-y-2.5">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-1.5 text-kin-text font-semibold text-[11px]">
                       <Activity className="w-3.5 h-3.5 text-emerald-400" />
@@ -1509,32 +1509,32 @@ export const AgentInspector: React.FC = () => {
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 text-[10px]">
-                    <div className="p-2 rounded bg-[#090d16] border border-[#1e293b]">
-                      <div className="text-[#64748b] flex items-center space-x-1 mb-1">
+                    <div className="p-2 rounded bg-kin-surface border border-kin-border">
+                      <div className="text-kin-muted flex items-center space-x-1 mb-1">
                         <MessageSquare className="w-3 h-3 text-blue-400" />
                         <span>Messages</span>
                       </div>
                       <div className="text-base font-bold text-kin-text font-mono">
                         {currentAgent?.analytics?.messagesCount ?? 0}
                       </div>
-                      <div className="text-[9px] text-[#64748b]">Total authored</div>
+                      <div className="text-[9px] text-kin-muted">Total authored</div>
                     </div>
 
-                    <div className="p-2 rounded bg-[#090d16] border border-[#1e293b]">
-                      <div className="text-[#64748b] flex items-center space-x-1 mb-1">
+                    <div className="p-2 rounded bg-kin-surface border border-kin-border">
+                      <div className="text-kin-muted flex items-center space-x-1 mb-1">
                         <Zap className="w-3 h-3 text-amber-400" />
                         <span>Productivity</span>
                       </div>
                       <div className="text-base font-bold text-amber-300 font-mono">
                         +{currentAgent?.analytics?.avgProductivityScore ?? 0}
                       </div>
-                      <div className="text-[9px] text-[#64748b]">Average pts/msg</div>
+                      <div className="text-[9px] text-kin-muted">Average pts/msg</div>
                     </div>
                   </div>
 
-                  <div className="flex justify-between items-center text-[11px] pt-1 border-t border-[#1e293b]">
-                    <span className="text-[#64748b] flex items-center space-x-1">
-                      <Clock className="w-3 h-3 text-[#64748b]" />
+                  <div className="flex justify-between items-center text-[11px] pt-1 border-t border-kin-border">
+                    <span className="text-kin-muted flex items-center space-x-1">
+                      <Clock className="w-3 h-3 text-kin-muted" />
                       <span>Last Active</span>
                     </span>
                     <span className="font-mono text-kin-text text-[10px]">
@@ -1549,7 +1549,7 @@ export const AgentInspector: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="p-3 rounded-lg bg-[#0f172a] border border-[#1e293b] space-y-2.5">
+                <div className="p-3 rounded-lg bg-kin-card border border-kin-border space-y-2.5">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-1.5 text-kin-text font-semibold text-[11px]">
                       <CheckCircle2 className="w-3.5 h-3.5 text-blue-400" />
@@ -1562,14 +1562,14 @@ export const AgentInspector: React.FC = () => {
 
                   <div className="space-y-1.5 text-[11px]">
                     <div className="flex justify-between items-center">
-                      <span className="text-[#64748b]">Assigned Tasks</span>
+                      <span className="text-kin-muted">Assigned Tasks</span>
                       <span className="font-mono text-kin-text font-bold">
                         {currentAgent?.analytics?.completedTasksCount ?? 0} /{' '}
                         {currentAgent?.analytics?.assignedTasksCount ?? 0} completed
                       </span>
                     </div>
 
-                    <div className="w-full bg-[#090d16] rounded-full h-1.5 overflow-hidden border border-[#1e293b]">
+                    <div className="w-full bg-kin-surface rounded-full h-1.5 overflow-hidden border border-kin-border">
                       <div
                         className="bg-blue-500 h-full rounded-full transition-all duration-500"
                         style={{
@@ -1584,8 +1584,8 @@ export const AgentInspector: React.FC = () => {
                       />
                     </div>
 
-                    <div className="flex justify-between items-center pt-1 border-t border-[#1e293b]">
-                      <span className="text-[#64748b]">Agent Execution Runs</span>
+                    <div className="flex justify-between items-center pt-1 border-t border-kin-border">
+                      <span className="text-kin-muted">Agent Execution Runs</span>
                       <span className="font-mono text-emerald-400 font-medium">
                         {currentAgent?.analytics?.agentRunsCount ?? 0} runs
                       </span>
@@ -1593,27 +1593,27 @@ export const AgentInspector: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="p-3 rounded-lg bg-[#0f172a] border border-[#1e293b] space-y-2">
+                <div className="p-3 rounded-lg bg-kin-card border border-kin-border space-y-2">
                   <div className="flex items-center space-x-1.5 text-kin-text font-semibold text-[11px]">
                     <Cpu className="w-3.5 h-3.5 text-purple-400" />
                     <span>Governance & Resources</span>
                   </div>
 
                   <div className="space-y-1.5 text-[11px]">
-                    <div className="flex justify-between items-center py-0.5 border-b border-[#1e293b]">
-                      <span className="text-[#64748b]">Active Model Engine</span>
+                    <div className="flex justify-between items-center py-0.5 border-b border-kin-border">
+                      <span className="text-kin-muted">Active Model Engine</span>
                       <span className="font-mono text-emerald-400 font-medium">{activeModelId}</span>
                     </div>
 
-                    <div className="flex justify-between items-center py-0.5 border-b border-[#1e293b]">
-                      <span className="text-[#64748b]">Allocated Tokens</span>
+                    <div className="flex justify-between items-center py-0.5 border-b border-kin-border">
+                      <span className="text-kin-muted">Allocated Tokens</span>
                       <span className="font-mono text-kin-text">
                         {(currentAgent?.analytics?.allocatedTokens ?? 100000).toLocaleString()} max
                       </span>
                     </div>
 
-                    <div className="flex justify-between items-center py-0.5 border-b border-[#1e293b]">
-                      <span className="text-[#64748b]">Pending Action Gates</span>
+                    <div className="flex justify-between items-center py-0.5 border-b border-kin-border">
+                      <span className="text-kin-muted">Pending Action Gates</span>
                       <span
                         className={`font-mono font-bold ${
                           (currentAgent?.analytics?.pendingApprovalsCount ?? 0) > 0
@@ -1626,7 +1626,7 @@ export const AgentInspector: React.FC = () => {
                     </div>
 
                     <div className="flex justify-between items-center py-0.5">
-                      <span className="text-[#64748b]">Workspace Jail</span>
+                      <span className="text-kin-muted">Workspace Jail</span>
                       <span className="text-purple-400 font-medium">Enforced ({activeProject?.name || 'KIN'})</span>
                     </div>
                   </div>
@@ -1636,7 +1636,7 @@ export const AgentInspector: React.FC = () => {
               /* Sub-tab 3: Teamwork (Workforce Collaboration & Readiness Matrix) */
               <div className="space-y-3 font-sans">
                 {/* Project Pulse & Ollama Readiness Card */}
-                <div className="p-3 rounded-lg bg-[#0f172a] border border-[#1e293b] space-y-2.5">
+                <div className="p-3 rounded-lg bg-kin-card border border-kin-border space-y-2.5">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-1.5 text-kin-text font-semibold text-[11px]">
                       <Users className="w-3.5 h-3.5 text-purple-400" />
@@ -1654,16 +1654,16 @@ export const AgentInspector: React.FC = () => {
                   </div>
 
                   <div className="grid grid-cols-3 gap-2 text-[10px]">
-                    <div className="p-2 rounded bg-[#090d16] border border-[#1e293b]">
-                      <div className="text-[#64748b]">Agents</div>
+                    <div className="p-2 rounded bg-kin-surface border border-kin-border">
+                      <div className="text-kin-muted">Agents</div>
                       <div className="text-sm font-bold text-kin-text font-mono mt-0.5">{agents.length}</div>
                     </div>
-                    <div className="p-2 rounded bg-[#090d16] border border-[#1e293b]">
-                      <div className="text-[#64748b]">Goals</div>
+                    <div className="p-2 rounded bg-kin-surface border border-kin-border">
+                      <div className="text-kin-muted">Goals</div>
                       <div className="text-sm font-bold text-kin-text font-mono mt-0.5">{goals.length}</div>
                     </div>
-                    <div className="p-2 rounded bg-[#090d16] border border-[#1e293b]">
-                      <div className="text-[#64748b]">Tasks Done</div>
+                    <div className="p-2 rounded bg-kin-surface border border-kin-border">
+                      <div className="text-kin-muted">Tasks Done</div>
                       <div className="text-sm font-bold text-emerald-400 font-mono mt-0.5">
                         {tasks.filter((t) => t.status === 'completed').length}/{tasks.length}
                       </div>
@@ -1672,7 +1672,7 @@ export const AgentInspector: React.FC = () => {
 
                   {/* Task Completion Progress Bar */}
                   <div className="space-y-1">
-                    <div className="flex justify-between text-[10px] text-[#64748b]">
+                    <div className="flex justify-between text-[10px] text-kin-muted">
                       <span>DAG Execution Progress</span>
                       <span className="font-mono text-emerald-400 font-bold">
                         {tasks.length > 0
@@ -1683,7 +1683,7 @@ export const AgentInspector: React.FC = () => {
                         %
                       </span>
                     </div>
-                    <div className="w-full bg-[#090d16] h-1.5 rounded-full overflow-hidden border border-[#1e293b]">
+                    <div className="w-full bg-kin-surface h-1.5 rounded-full overflow-hidden border border-kin-border">
                       <div
                         className="bg-emerald-500 h-full rounded-full transition-all duration-500"
                         style={{
@@ -1730,7 +1730,7 @@ export const AgentInspector: React.FC = () => {
 
                 {/* Agents Collaboration Matrix List */}
                 <div className="space-y-2">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-[#64748b] px-1">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-kin-muted px-1">
                     Topology & Model Readiness ({agents.length})
                   </div>
                   {agents.map((ag) => {
@@ -1754,8 +1754,8 @@ export const AgentInspector: React.FC = () => {
                         key={ag.id}
                         className={`p-2.5 rounded-lg border transition space-y-1.5 ${
                           ag.id === selectedAgentId
-                            ? 'bg-[#131b2e] border-blue-500/50'
-                            : 'bg-[#0f172a] border-[#1e293b] hover:border-[#2d3748]'
+                            ? 'bg-kin-cardHover border-blue-500/50'
+                            : 'bg-kin-card border-kin-border hover:border-kin-border'
                         }`}
                       >
                         <div className="flex items-center justify-between">
@@ -1783,15 +1783,15 @@ export const AgentInspector: React.FC = () => {
                           </span>
                         </div>
 
-                        <div className="text-[10px] text-[#94a3b8] flex items-center justify-between">
+                        <div className="text-[10px] text-kin-muted flex items-center justify-between">
                           <span>{ag.role}</span>
-                          <span className="font-mono text-[#cbd5e1]">{ag.activeModelId}</span>
+                          <span className="font-mono text-kin-text">{ag.activeModelId}</span>
                         </div>
 
                         {/* Assigned Channels strictly scoped to active project */}
                         {ag.assignedChannels &&
                           ag.assignedChannels.filter((cId) => channels.some((ch) => ch.id === cId || '#' + ch.name === cId || ch.name === cId)).length > 0 && (
-                          <div className="flex flex-wrap gap-1 pt-1 border-t border-[#1e293b]/60">
+                          <div className="flex flex-wrap gap-1 pt-1 border-t border-kin-border/60">
                             {ag.assignedChannels
                               .filter((cId) => channels.some((ch) => ch.id === cId || '#' + ch.name === cId || ch.name === cId))
                               .map((cId) => {
@@ -1803,7 +1803,7 @@ export const AgentInspector: React.FC = () => {
                                   <button
                                     key={cId}
                                     onClick={() => setActiveChannel(targetId)}
-                                    className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#090d16] text-[#94a3b8] hover:text-emerald-300 border border-[#1e293b] hover:border-emerald-500/40 transition cursor-pointer shadow-sm hover:shadow"
+                                    className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-kin-surface text-kin-muted hover:text-emerald-300 border border-kin-border hover:border-emerald-500/40 transition cursor-pointer shadow-sm hover:shadow"
                                   >
                                     {displayName}
                                   </button>
@@ -1819,7 +1819,7 @@ export const AgentInspector: React.FC = () => {
             ) : (
               <div className="space-y-3 font-sans">
                 {/* Header & Run Benchmark Eval Action */}
-                <div className="p-3 rounded-lg bg-[#0f172a] border border-[#1e293b] space-y-2.5">
+                <div className="p-3 rounded-lg bg-kin-card border border-kin-border space-y-2.5">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-1.5 text-kin-text font-semibold text-[11px]">
                       <Award className="w-3.5 h-3.5 text-amber-400" />
@@ -1830,7 +1830,7 @@ export const AgentInspector: React.FC = () => {
                     </span>
                   </div>
 
-                  <p className="text-[10px] text-[#94a3b8] leading-relaxed">
+                  <p className="text-[10px] text-kin-muted leading-relaxed">
                     Evaluates agent alignment against adversarial test cases, tool sandbox compliance, and verification grounding.
                   </p>
 
@@ -1850,7 +1850,7 @@ export const AgentInspector: React.FC = () => {
 
                 {/* Evaluations list */}
                 <div className="space-y-2">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-[#64748b] px-1">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-kin-muted px-1">
                     Evaluation History
                   </div>
 
@@ -1862,7 +1862,7 @@ export const AgentInspector: React.FC = () => {
                       return (
                         <div
                           key={ev.id}
-                          className="p-3 rounded-lg bg-[#0f172a] border border-[#1e293b] space-y-2"
+                          className="p-3 rounded-lg bg-kin-card border border-kin-border space-y-2"
                         >
                           <div className="flex items-center justify-between">
                             <div className="flex items-center space-x-2 truncate">
@@ -1883,7 +1883,7 @@ export const AgentInspector: React.FC = () => {
 
                           {/* Overall score bar */}
                           <div className="space-y-1">
-                            <div className="w-full bg-[#090d16] h-1.5 rounded-full overflow-hidden border border-[#1e293b]">
+                            <div className="w-full bg-kin-surface h-1.5 rounded-full overflow-hidden border border-kin-border">
                               <div
                                 className={`h-full rounded-full transition-all duration-500 ${
                                   (score > 1 ? score / 100 : score) >= 0.8
@@ -1899,9 +1899,9 @@ export const AgentInspector: React.FC = () => {
 
                           {/* Rubric Breakdown */}
                           {ev.rubricMetrics && (
-                            <div className="space-y-1 pt-1 border-t border-[#1e293b]/60 text-[10px]">
+                            <div className="space-y-1 pt-1 border-t border-kin-border/60 text-[10px]">
                               {Object.entries(ev.rubricMetrics).map(([metric, val]) => (
-                                <div key={metric} className="flex justify-between items-center text-[#94a3b8] font-mono">
+                                <div key={metric} className="flex justify-between items-center text-kin-muted font-mono">
                                   <span className="capitalize">{metric.replace(/([A-Z])/g, ' $1')}</span>
                                   <span className="text-white font-bold">{Math.round((val as number) > 1 ? (val as number) : (val as number) * 100)}%</span>
                                 </div>
@@ -1910,20 +1910,20 @@ export const AgentInspector: React.FC = () => {
                           )}
 
                           {ev.evaluatorNotes && (
-                            <div className="p-2 rounded bg-[#090d16] text-[10px] text-[#cbd5e1] font-mono border border-[#1e293b]">
+                            <div className="p-2 rounded bg-kin-surface text-[10px] text-kin-text font-mono border border-kin-border">
                               {ev.evaluatorNotes}
                             </div>
                           )}
 
-                          <div className="text-[9px] text-[#64748b] text-right font-mono">
+                          <div className="text-[9px] text-kin-muted text-right font-mono">
                             {new Date(createdAt).toLocaleString()}
                           </div>
                         </div>
                       );
                     })
                   ) : (
-                    <div className="p-6 text-center text-[#64748b] border border-dashed border-[#1e293b] rounded-lg bg-[#0c1222]/30 space-y-1.5">
-                      <Award className="w-6 h-6 mx-auto text-[#334155]" />
+                    <div className="p-6 text-center text-kin-muted border border-dashed border-kin-border rounded-lg bg-kin-surface/30 space-y-1.5">
+                      <Award className="w-6 h-6 mx-auto text-kin-subtle" />
                       <div className="text-xs text-kin-text font-medium">No benchmark evaluations recorded yet</div>
                       <div className="text-[10px]">Run a formal evaluation above to assess precision, safety, and rubric scores.</div>
                     </div>

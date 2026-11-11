@@ -159,7 +159,7 @@ export const DecisionsModal: React.FC = () => {
         );
       default:
         return (
-          <span className="px-2 py-0.5 rounded-full bg-[#1e293b] text-[#94a3b8] text-[10px] font-semibold uppercase">
+          <span className="px-2 py-0.5 rounded-full bg-kin-card text-kin-muted text-[10px] font-semibold uppercase">
             {status}
           </span>
         );
@@ -168,9 +168,9 @@ export const DecisionsModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-[#0b101d] border border-[#1e293b] rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden font-sans">
+      <div className="bg-kin-surface border border-kin-border rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden font-sans">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-[#1e293b] flex items-center justify-between bg-[#0e1424]">
+        <div className="px-6 py-4 border-b border-kin-border flex items-center justify-between bg-kin-surface">
           <div className="flex items-center space-x-3">
             <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400">
               <Scale className="w-5 h-5" />
@@ -182,14 +182,14 @@ export const DecisionsModal: React.FC = () => {
                   {activeProject?.name || 'Project'}
                 </span>
               </div>
-              <p className="text-xs text-[#64748b] mt-0.5">
+              <p className="text-xs text-kin-muted mt-0.5">
                 Authoritative architectural consensus and invariants compiled into LLM context Block 3.
               </p>
             </div>
           </div>
           <button
             onClick={() => setDecisionsModalOpen(false)}
-            className="p-1.5 rounded-lg hover:bg-[#1e293b] text-[#64748b] hover:text-kin-text transition"
+            className="p-1.5 rounded-lg hover:bg-kin-cardHover text-kin-muted hover:text-kin-text transition"
             title="Close ADR Modal (Esc)"
           >
             <X className="w-5 h-5" />
@@ -220,10 +220,10 @@ export const DecisionsModal: React.FC = () => {
         )}
 
         {/* Control Toolbar */}
-        <div className="px-6 py-3 border-b border-[#1e293b] bg-[#090d18] flex flex-wrap items-center justify-between gap-3">
+        <div className="px-6 py-3 border-b border-kin-border bg-kin-card flex flex-wrap items-center justify-between gap-3">
           {/* Status Filter Tabs */}
-          <div className="flex items-center space-x-1 bg-[#060a12] p-1 rounded-xl border border-[#1e293b]">
-            <Filter className="w-3.5 h-3.5 text-[#64748b] ml-1.5 mr-0.5" />
+          <div className="flex items-center space-x-1 bg-kin-card p-1 rounded-xl border border-kin-border">
+            <Filter className="w-3.5 h-3.5 text-kin-muted ml-1.5 mr-0.5" />
             {(['all', 'authoritative', 'proposed', 'rejected', 'superseded'] as const).map((tab) => (
               <button
                 key={tab}
@@ -231,7 +231,7 @@ export const DecisionsModal: React.FC = () => {
                 className={`px-3 py-1 rounded-lg text-xs font-medium capitalize transition ${
                   statusFilter === tab
                     ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-[#64748b] hover:text-kin-text hover:bg-[#1e293b]/50'
+                    : 'text-kin-muted hover:text-kin-text hover:bg-kin-cardHover'
                 }`}
               >
                 <span>{tab}</span>
@@ -243,13 +243,13 @@ export const DecisionsModal: React.FC = () => {
           <div className="flex items-center space-x-2">
             {/* Search Input */}
             <div className="relative">
-              <Search className="w-3.5 h-3.5 text-[#64748b] absolute left-2.5 top-2.5" />
+              <Search className="w-3.5 h-3.5 text-kin-muted absolute left-2.5 top-2.5" />
               <input
                 type="text"
                 placeholder="Search ADRs..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-8 pr-3 py-1.5 rounded-lg bg-[#0e1424] border border-[#1e293b] text-xs text-kin-text placeholder-[#64748b] focus:outline-none focus:border-blue-500/50 w-44"
+                className="pl-8 pr-3 py-1.5 rounded-lg bg-kin-surface border border-kin-border text-xs text-kin-text placeholder-kin-subtle focus:outline-none focus:border-blue-500/50 w-44"
               />
             </div>
 
@@ -266,18 +266,18 @@ export const DecisionsModal: React.FC = () => {
 
         {/* Propose Form Drawer */}
         {showProposeForm && (
-          <form onSubmit={handleProposeSubmit} className="p-5 border-b border-[#1e293b] bg-[#0c1222] space-y-3">
+          <form onSubmit={handleProposeSubmit} className="p-5 border-b border-kin-border bg-kin-surface space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center space-x-1.5">
                 <FileText className="w-3.5 h-3.5" />
                 <span>Propose New Architecture Decision Record</span>
               </h3>
               <div className="flex items-center space-x-2">
-                <span className="text-[11px] text-[#64748b]">Initial Status:</span>
+                <span className="text-[11px] text-kin-muted">Initial Status:</span>
                 <select
                   value={newInitialStatus}
                   onChange={(e) => setNewInitialStatus(e.target.value as any)}
-                  className="bg-[#090d18] border border-[#1e293b] rounded px-2 py-0.5 text-xs text-kin-text focus:outline-none"
+                  className="bg-kin-card border border-kin-border rounded px-2 py-0.5 text-xs text-kin-text focus:outline-none"
                 >
                   <option value="proposed">Proposed (Under Review)</option>
                   <option value="authoritative">Authoritative (Active Law)</option>
@@ -286,31 +286,31 @@ export const DecisionsModal: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-[11px] text-[#94a3b8] mb-1 font-medium">Decision Title / Invariant:</label>
+              <label className="block text-[11px] text-kin-muted mb-1 font-medium">Decision Title / Invariant:</label>
               <input
                 type="text"
                 placeholder="e.g., Use SQLite WAL mode with 15000ms busyTimeout for IPC state persistence"
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
-                className="w-full px-3 py-1.5 rounded-lg bg-[#090d18] border border-[#1e293b] text-xs text-kin-text placeholder-[#64748b] focus:outline-none focus:border-amber-500/50"
+                className="w-full px-3 py-1.5 rounded-lg bg-kin-card border border-kin-border text-xs text-kin-text placeholder-kin-subtle focus:outline-none focus:border-amber-500/50"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-[11px] text-[#94a3b8] mb-1 font-medium">Rationale & Context:</label>
+              <label className="block text-[11px] text-kin-muted mb-1 font-medium">Rationale & Context:</label>
               <textarea
                 placeholder="Explain why this decision is necessary, trade-offs accepted, and how agents must obey it..."
                 value={newRationale}
                 onChange={(e) => setNewRationale(e.target.value)}
                 rows={3}
-                className="w-full px-3 py-1.5 rounded-lg bg-[#090d18] border border-[#1e293b] text-xs text-kin-text placeholder-[#64748b] focus:outline-none focus:border-amber-500/50"
+                className="w-full px-3 py-1.5 rounded-lg bg-kin-card border border-kin-border text-xs text-kin-text placeholder-kin-subtle focus:outline-none focus:border-amber-500/50"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-[11px] text-[#94a3b8] mb-1 font-medium">
+              <label className="block text-[11px] text-kin-muted mb-1 font-medium">
                 Alternatives Considered (one per line):
               </label>
               <textarea
@@ -318,7 +318,7 @@ export const DecisionsModal: React.FC = () => {
                 value={newAlternatives}
                 onChange={(e) => setNewAlternatives(e.target.value)}
                 rows={2}
-                className="w-full px-3 py-1.5 rounded-lg bg-[#090d18] border border-[#1e293b] text-xs text-kin-text placeholder-[#64748b] focus:outline-none focus:border-amber-500/50"
+                className="w-full px-3 py-1.5 rounded-lg bg-kin-card border border-kin-border text-xs text-kin-text placeholder-kin-subtle focus:outline-none focus:border-amber-500/50"
               />
             </div>
 
@@ -326,7 +326,7 @@ export const DecisionsModal: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setShowProposeForm(false)}
-                className="px-3 py-1.5 rounded-lg bg-[#1e293b] text-xs text-[#94a3b8] hover:text-kin-text transition"
+                className="px-3 py-1.5 rounded-lg bg-kin-card text-xs text-kin-muted hover:text-kin-text transition"
               >
                 Cancel
               </button>
@@ -357,12 +357,12 @@ export const DecisionsModal: React.FC = () => {
                 key={dec.id}
                 className={`p-4 rounded-xl border transition ${
                   dec.status === 'authoritative'
-                    ? 'bg-[#0d1627] border-emerald-500/30 shadow-md shadow-emerald-950/20'
+                    ? 'bg-kin-card border-emerald-500/30 shadow-md shadow-emerald-950/20'
                     : dec.status === 'proposed'
-                    ? 'bg-[#121626] border-amber-500/30'
+                    ? 'bg-kin-card border-amber-500/30'
                     : dec.status === 'rejected'
-                    ? 'bg-[#150f14] border-red-500/20 opacity-80'
-                    : 'bg-[#0e1322] border-slate-700/30 opacity-70'
+                    ? 'bg-kin-card border-red-500/20 opacity-80'
+                    : 'bg-kin-card border-slate-700/30 opacity-70'
                 }`}
               >
                 {/* Top Row: Title, Status Badge, and Date */}
@@ -372,19 +372,19 @@ export const DecisionsModal: React.FC = () => {
                       {getStatusBadge(dec.status)}
                       <h3 className="font-bold text-kin-text text-sm">{dec.title}</h3>
                     </div>
-                    <div className="flex items-center space-x-2 text-[11px] text-[#64748b]">
+                    <div className="flex items-center space-x-2 text-[11px] text-kin-muted">
                       <span>Decided by: <strong className="text-blue-400">{dec.decidedById || 'System / Operator'}</strong></span>
                       <span>•</span>
                       <span>Recorded on: {dateStr}</span>
                       <span>•</span>
-                      <span className="font-mono text-[10px] text-[#475569]">{dec.id}</span>
+                      <span className="font-mono text-[10px] text-kin-subtle">{dec.id}</span>
                     </div>
                   </div>
 
                   {/* Quick Action Delete */}
                   <button
                     onClick={() => handleDelete(dec.id)}
-                    className="p-1.5 rounded hover:bg-red-500/20 text-[#64748b] hover:text-red-400 transition"
+                    className="p-1.5 rounded hover:bg-red-500/20 text-kin-muted hover:text-red-400 transition"
                     title="Delete Decision Record"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -392,21 +392,21 @@ export const DecisionsModal: React.FC = () => {
                 </div>
 
                 {/* Rationale Content */}
-                <div className="mt-3 p-3 rounded-lg bg-[#060a12] border border-[#1e293b]/70 text-xs text-[#cbd5e1] leading-relaxed whitespace-pre-wrap">
+                <div className="mt-3 p-3 rounded-lg bg-kin-card border border-kin-borderSubtle text-xs text-kin-text leading-relaxed whitespace-pre-wrap">
                   {dec.rationale}
                 </div>
 
                 {/* Alternatives Considered */}
                 {Array.isArray(dec.alternativesConsidered) && dec.alternativesConsidered.length > 0 && (
                   <div className="mt-3 space-y-1.5">
-                    <span className="text-[10px] uppercase font-bold tracking-wider text-[#64748b]">
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-kin-muted">
                       Alternatives Considered & Trade-offs:
                     </span>
                     <div className="flex flex-wrap gap-1.5">
                       {dec.alternativesConsidered.map((alt, idx) => (
                         <div
                           key={idx}
-                          className="px-2.5 py-1 rounded-md bg-[#0a0f1d] border border-[#1e293b] text-[11px] text-[#94a3b8]"
+                          className="px-2.5 py-1 rounded-md bg-kin-card border border-kin-border text-[11px] text-kin-muted"
                         >
                           {alt}
                         </div>
@@ -416,8 +416,8 @@ export const DecisionsModal: React.FC = () => {
                 )}
 
                 {/* Status Resolution Actions */}
-                <div className="mt-3 pt-3 border-t border-[#1e293b]/60 flex items-center justify-between text-xs">
-                  <span className="text-[11px] text-[#64748b]">Change Resolution:</span>
+                <div className="mt-3 pt-3 border-t border-kin-borderSubtle flex items-center justify-between text-xs">
+                  <span className="text-[11px] text-kin-muted">Change Resolution:</span>
                   <div className="flex items-center space-x-1.5">
                     {dec.status !== 'authoritative' && (
                       <button
@@ -462,10 +462,10 @@ export const DecisionsModal: React.FC = () => {
           })}
 
           {filteredDecisions.length === 0 && (
-            <div className="h-48 flex flex-col items-center justify-center text-center p-6 border border-dashed border-[#1e293b] rounded-xl bg-[#0c1222]/30 space-y-2">
-              <Scale className="w-8 h-8 text-[#64748b]" />
+            <div className="h-48 flex flex-col items-center justify-center text-center p-6 border border-dashed border-kin-border rounded-xl bg-kin-card/30 space-y-2">
+              <Scale className="w-8 h-8 text-kin-muted" />
               <div className="text-xs font-semibold text-kin-text">No architecture decisions found</div>
-              <p className="text-[11px] text-[#64748b] max-w-sm">
+              <p className="text-[11px] text-kin-muted max-w-sm">
                 {searchQuery || statusFilter !== 'all'
                   ? 'No records match your active search or filter.'
                   : 'Architecture Decision Records allow agents and engineers to codify immutable invariants into SQLite.'}

@@ -8,8 +8,6 @@ import { MessageSquare } from 'lucide-react';
 export interface ChatTimelineProps {
   messages: MessageItemType[];
   agents?: any[];
-  availableModels?: any[];
-  updateAgentModel?: (agentId: string, modelId: string, projectId?: string, channelId?: string) => Promise<boolean>;
   activeProjectId?: string;
   activeChannelId?: string;
   isDm?: boolean;
@@ -25,8 +23,6 @@ export interface ChatTimelineProps {
 export const ChatTimeline: React.FC<ChatTimelineProps> = ({
   messages,
   agents = [],
-  availableModels = [],
-  updateAgentModel,
   activeProjectId,
   activeChannelId,
   isDm,
@@ -102,8 +98,6 @@ export const ChatTimeline: React.FC<ChatTimelineProps> = ({
                 message={msg}
                 onQuoteReply={onQuoteReply}
                 agents={agents}
-                availableModels={availableModels}
-                updateAgentModel={updateAgentModel}
                 activeProjectId={activeProjectId}
                 activeChannelId={activeChannelId}
                 onSelectDecision={onSelectDecision}

@@ -230,8 +230,8 @@ export abstract class BaseController {
     return this.server.parseScheduleDurationAndPrompt(rawParams);
   }
 
-  public runSupervisorSelfHealing(staleThresholdMs: number = 45000): Array<{ id: string; agentId: string; projectId?: string; taskId?: string }> {
-    return this.server.runSupervisorSelfHealing(staleThresholdMs);
+  public runSupervisorSelfHealing(staleThresholdMs: number = 300000, isStartupRecovery: boolean = false): Array<{ id: string; agentId: string; projectId?: string; taskId?: string }> {
+    return this.server.runSupervisorSelfHealing(staleThresholdMs, isStartupRecovery);
   }
 
   public abstract handle(

@@ -14,9 +14,6 @@ import {
   Terminal,
   Zap,
   Inbox,
-  Timer,
-  Clock,
-  Monitor,
   FileUp,
   Loader2,
   ChevronDown,
@@ -30,7 +27,8 @@ import { QuotaPauseBanner } from './banners/QuotaPauseBanner.js';
 import { InterruptedRecoveryDock } from './banners/InterruptedRecoveryDock.js';
 import { AutomationsView } from './AutomationsView.js';
 import { TaskDagView } from './tasks/TaskDagView.js';
-import { AgentModelQuickSwitch } from './AgentModelQuickSwitch.js';
+import { AgentModelBadge } from './AgentModelBadge.js';
+import { ActiveTimersPill, ActiveTimersDrawer, ActiveTimersNewButton } from './ActiveTimersBadge.js';
 import { ChatTimeline } from './chat/ChatTimeline.js';
 
 export const CenterView: React.FC = () => {
@@ -41,7 +39,6 @@ export const CenterView: React.FC = () => {
     agents,
     autonomyMode,
     setAutonomyMode,
-    updateAgentModel,
     ollamaStatus,
     credentials,
     availableModels,
@@ -161,7 +158,7 @@ export const CenterView: React.FC = () => {
   const [showSlashMenu, setShowSlashMenu] = useState(false);
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
   const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0);
-  const [now, setNow] = useState(Date.now());
+  const [expandedOperationalTab, setExpandedOperationalTab] = useState<'timers' | 'queue' | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [isDragOverChat, setIsDragOverChat] = useState(false);
   const [chatUploadStatus, setChatUploadStatus] = useState<string | null>(null);
@@ -173,6 +170,25 @@ export const CenterView: React.FC = () => {
       return false;
     }
   });
+
+  const shouldShowHealthBanner = React.useMemo(() => {
+    if (!systemHealth || systemHealth.status === 'healthy' || dismissHealthBanner) {
+      return false;
+    }
+    const isOnlyOllamaDegraded = Boolean(
+      (systemHealth.activeAlerts?.length === 1 && systemHealth.activeAlerts[0]?.toLowerCase().includes('ollama')) ||
+      (systemHealth.checks && Object.entries(systemHealth.checks).every(([k, v]) => k === 'ollama' || v.status === 'ok'))
+    );
+    const usesCloudProviders = Boolean(
+      (credentials && credentials.some((c) => c.status === 'active' && c.provider !== 'ollama')) ||
+      availableModels.some((m) => m.provider !== 'ollama' && (m.configured || m.validated)) ||
+      agents.some((a) => a.activeModelId && !a.activeModelId.toLowerCase().includes('ollama'))
+    );
+    if (isOnlyOllamaDegraded && usesCloudProviders) {
+      return false;
+    }
+    return true;
+  }, [systemHealth, dismissHealthBanner, credentials, availableModels, agents]);
   const [grillMeAnswers, setGrillMeAnswers] = useState<Record<string, string>>({});
 
   const selectableModels = React.useMemo(() => {
@@ -257,12 +273,10 @@ export const CenterView: React.FC = () => {
 
   useEffect(() => {
     fetchRecoveryState();
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
   }, []);
 
-  const activeSchedules = (schedules || []).filter(
-    (s) => s.status === 'active' && (s.channelId === activeChannelId || !s.channelId) && s.nextRunAt > now
+  const hasActiveTimers = (schedules || []).some(
+    (s) => s.status === 'active' && (s.channelId === activeChannelId || !s.channelId) && s.nextRunAt > Date.now()
   );
 
   const toggleVoiceDictation = () => {
@@ -541,40 +555,37 @@ export const CenterView: React.FC = () => {
         <div className="max-w-4xl mx-auto w-full px-6 flex items-center justify-between text-xs">
         {isAgentToAgentDm ? (
           <div className="flex items-center space-x-2 truncate">
-            <span className="w-2.5 h-2.5 rounded-full bg-indigo-400 shadow-[0_0_6px_#818cf8]" />
+            <span className="w-2.5 h-2.5 rounded-full bg-indigo-400 shadow-[0_0_6px_rgba(129,140,248,0.5)]" />
             <div className="flex items-center space-x-2">
               <span className="font-bold text-indigo-300 text-sm">{activeChannel?.name || activeChannelId}</span>
               <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono">
                 Operator Inspection Mode
               </span>
             </div>
-            <span className="text-[#64748b] text-[11px] truncate hidden md:inline">
+            <span className="text-kin-muted text-[11px] truncate hidden md:inline">
               Private coworker direct message thread
             </span>
           </div>
         ) : isDm ? (
           <div className="flex items-center justify-between w-full min-w-0 overflow-hidden">
             <div className="flex items-center space-x-2 truncate">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]" />
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.5)]" />
               <div className="flex items-center space-x-2">
                 <span className="font-bold text-kin-text text-sm">{targetAgent?.displayName || '@Agent'}</span>
                 <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono">
                   {targetAgent?.role || 'Specialist'}
                 </span>
               </div>
-              <span className="text-[#64748b] text-[11px] truncate hidden md:inline">
+              <span className="text-kin-muted text-[11px] truncate hidden md:inline">
                 Private 1-on-1 Direct Message thread
               </span>
             </div>
             {targetAgent && (
               <div className="flex items-center space-x-2 shrink-0 ml-2">
                 <span className="text-[10px] text-kin-muted hidden sm:inline font-mono">Model:</span>
-                <AgentModelQuickSwitch
+                <AgentModelBadge
                   agent={targetAgent}
                   availableModels={availableModels}
-                  updateAgentModel={updateAgentModel}
-                  projectId={activeProjectId}
-                  channelId={activeChannelId}
                 />
               </div>
             )}
@@ -586,7 +597,7 @@ export const CenterView: React.FC = () => {
               <span className="text-emerald-400 font-mono font-bold text-sm shrink-0">#</span>
               <span className="font-bold text-kin-text text-sm shrink-0 truncate max-w-[160px]">{activeChannel?.name || 'general'}</span>
               {activeChannel?.topic && (
-                <span className="text-[#64748b] text-[11px] truncate hidden xl:inline max-w-[200px]">
+                <span className="text-kin-muted text-[11px] truncate hidden xl:inline max-w-[200px]">
                   — {activeChannel.topic}
                 </span>
               )}
@@ -611,12 +622,9 @@ export const CenterView: React.FC = () => {
                     >
                       {member.displayName}
                     </span>
-                    <AgentModelQuickSwitch
+                    <AgentModelBadge
                       agent={member}
                       availableModels={availableModels}
-                      updateAgentModel={updateAgentModel}
-                      projectId={activeProjectId}
-                      channelId={activeChannelId}
                       compact
                     />
                     {member.isOrchestrator ? (
@@ -639,7 +647,7 @@ export const CenterView: React.FC = () => {
               {/* Add Agent Button */}
               <button
                 onClick={() => setAddAgentModalOpen(true)}
-                className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-[#1e293b] hover:bg-emerald-600/30 hover:text-emerald-300 text-kin-text border border-[#2d3748] text-[11px] transition shrink-0"
+                className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-kin-card hover:bg-emerald-600/30 hover:text-emerald-300 text-kin-text border border-kin-border text-[11px] transition shrink-0"
                 title="Assign Existing Agent or Hire Specialist"
               >
                 <UserPlus className="w-3 h-3 text-emerald-400" />
@@ -652,37 +660,37 @@ export const CenterView: React.FC = () => {
       </div>
 
       {/* Notifications and Diagnostics Banners */}
-      {(isAgentToAgentDm || (systemHealth && systemHealth.status !== 'healthy' && !dismissHealthBanner)) && (
+      {(isAgentToAgentDm || shouldShowHealthBanner) && (
         <div className="w-full max-w-4xl mx-auto px-6 space-y-2 mt-2">
           {/* Operator Inspection Mode Banner for Coworker DMs */}
           {isAgentToAgentDm && (
-            <div className="px-3.5 py-2 rounded-xl bg-indigo-950/70 border border-indigo-500/50 text-indigo-200 text-xs flex items-center justify-between shadow-lg animate-fadeIn">
+            <div className="px-3.5 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-500/50 text-indigo-900 dark:text-indigo-200 text-xs flex items-center justify-between shadow-xs animate-fadeIn">
               <div className="flex items-center space-x-2">
-                <Shield className="w-4 h-4 text-indigo-400 shrink-0" />
+                <Shield className="w-4 h-4 text-indigo-500 dark:text-indigo-400 shrink-0" />
                 <span>
                   <strong>Operator Inspection Mode:</strong> Live confidential coworker direct message. Non-member agents cannot access this transcript.
                 </span>
               </div>
-              <span className="font-mono text-[10px] uppercase bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/30">
+              <span className="font-mono text-[10px] uppercase bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/30">
                 Read-Only Audit Visibility
               </span>
             </div>
           )}
 
           {/* System Health Diagnostics Subtle Alert */}
-          {systemHealth && systemHealth.status !== 'healthy' && !dismissHealthBanner && (
-            <div className="px-3 py-1.5 rounded-lg bg-amber-950/40 border border-amber-500/30 text-amber-200 text-[11px] flex items-center justify-between shadow-xs animate-fadeIn">
+          {shouldShowHealthBanner && systemHealth && (
+            <div className="px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-500/30 text-amber-800 dark:text-amber-200 text-[11px] flex items-center justify-between shadow-xs animate-fadeIn">
               <div className="flex items-center space-x-2">
-                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 shrink-0" />
                 <span>
-                  <strong>Diagnostics:</strong> Health status is <span className="font-mono uppercase font-bold text-amber-300">{systemHealth.status}</span>
+                  <strong>Diagnostics:</strong> Health status is <span className="font-mono uppercase font-bold text-amber-700 dark:text-amber-300">{systemHealth.status}</span>
                   {systemHealth.activeAlerts && systemHealth.activeAlerts.length > 0 && ` (${systemHealth.activeAlerts.join(', ')})`}
                 </span>
               </div>
               <div className="flex items-center space-x-2">
                 <button
                   onClick={() => setActiveMainView('automations')}
-                  className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-mono text-[10px] border border-amber-500/30 cursor-pointer"
+                  className="px-2 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-800 dark:text-amber-300 font-mono text-[10px] border border-amber-500/30 cursor-pointer"
                 >
                   View Details
                 </button>
@@ -695,7 +703,7 @@ export const CenterView: React.FC = () => {
                       console.warn('[KIN UI] Failed to persist health banner dismissal:', err);
                     }
                   }}
-                  className="text-amber-400 hover:text-amber-200 p-0.5 cursor-pointer"
+                  className="text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 p-0.5 cursor-pointer"
                   title="Dismiss alert"
                 >
                   ✕
@@ -712,8 +720,6 @@ export const CenterView: React.FC = () => {
       <ChatTimeline
         messages={channelMessages}
         agents={agents}
-        availableModels={availableModels}
-        updateAgentModel={updateAgentModel}
         activeProjectId={activeProjectId}
         activeChannelId={activeChannelId}
         isDm={isDm}
@@ -736,86 +742,122 @@ export const CenterView: React.FC = () => {
       <div className="border-t border-kin-border bg-kin-surface relative">
         <div className="max-w-4xl mx-auto p-3.5 sm:px-6 space-y-2.5">
 
-        {/* Antigravity In-App Scheduler & Timers Bar */}
-        {activeSchedules.length > 0 && (
-          <div className="p-2.5 bg-emerald-500/10 dark:bg-[#071318] border border-emerald-500/30 rounded-xl space-y-1.5 shadow-sm overflow-hidden">
-            <div className="flex flex-wrap items-center justify-between gap-1.5">
-              <div className="flex items-center space-x-2 min-w-0">
-                <button
-                  type="button"
-                  onClick={() => setAutomationsModalOpen(true)}
-                  className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-mono text-[10px] font-bold border border-emerald-500/30 transition cursor-pointer whitespace-nowrap shrink-0"
-                  title="Open Automations & Routines Manager"
-                >
-                  <Timer className="w-3 h-3 text-emerald-400" />
-                  <span>ACTIVE TIMERS ({activeSchedules.length})</span>
-                </button>
-                <span className="text-[#64748b] text-[10px] truncate hidden sm:inline">
-                  Non-blocking sleeping agents will wake automatically
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAutomationsModalOpen(true)}
-                className="text-[10px] text-cyan-400 hover:text-cyan-300 font-mono hover:underline cursor-pointer whitespace-nowrap"
-              >
-                + New / Manage
-              </button>
-            </div>
-            <div className="space-y-1 max-h-28 overflow-y-auto pr-1">
-              {activeSchedules.map((s) => {
-                const remainingSec = Math.max(0, Math.ceil((s.nextRunAt - now) / 1000));
-                return (
-                  <div
-                    key={s.id}
-                    className="flex items-center justify-between p-1.5 bg-[#060a12] border border-[#1e293b] rounded-lg text-xs"
-                  >
-                    <div className="flex items-center space-x-2 min-w-0 pr-2">
-                      <span className="flex items-center space-x-1 text-emerald-400 font-mono font-bold shrink-0 text-[10px] bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/40">
-                        <Clock className="w-2.5 h-2.5" />
-                        <span>{remainingSec}s</span>
-                      </span>
-                      <span className="text-[#cbd5e1] text-[11px] truncate font-sans">{s.prompt}</span>
-                      <span className="text-[#64748b] text-[9px] font-mono shrink-0 uppercase">[{s.type}]</span>
-                    </div>
+        {/* Consolidated Compact Operational Dock (Timers, Machine Control, Queue, Uploads) */}
+        {(hasActiveTimers || isMachineControlActive || channelQueuedMessages.length > 0 || chatUploadStatus) && (
+          <div className="rounded-xl bg-kin-card border border-kin-border p-2 space-y-2 shadow-xs transition-all">
+            <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs">
+              <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                {/* 1. Live Machine Control Session Pill */}
+                {isMachineControlActive && (
+                  <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-red-500/10 dark:bg-red-950/60 border border-red-500/30 text-red-600 dark:text-red-300 text-[11px] font-mono">
+                    <span className="relative flex h-2 w-2 shrink-0">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+                    </span>
+                    <span className="font-semibold">{activeMachineAgent}</span>
+                    <span className="text-kin-muted hidden sm:inline">controlling machine</span>
                     <button
                       type="button"
-                      onClick={() => cancelSchedule(s.id)}
-                      className="p-1 hover:text-red-400 text-[#64748b] transition shrink-0"
-                      title="Cancel timer"
+                      onClick={() => setDesktopControlModalOpen(true)}
+                      className="ml-1 text-[10px] font-semibold text-red-500 dark:text-red-300 hover:underline cursor-pointer"
                     >
-                      <X className="w-3 h-3" />
+                      [Inspect]
                     </button>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+                )}
 
-        {/* Live Machine Control Session Indicator */}
-        {isMachineControlActive && (
-          <div className="p-2.5 rounded-xl bg-red-50 dark:bg-[#1c080d]/90 border border-red-200 dark:border-red-500/80 text-red-900 dark:text-red-200 text-xs flex flex-wrap items-center justify-between gap-2 shadow-xs dark:shadow-[0_0_20px_rgba(239,68,68,0.3)] animate-fadeIn overflow-hidden">
-            <div className="flex items-center space-x-2.5 min-w-0">
-              <span className="relative flex h-3 w-3 shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500 shadow-[0_0_8px_#ef4444]" />
-              </span>
-              <div className="flex items-center space-x-1.5 font-mono truncate">
-                <span className="font-bold text-red-700 dark:text-red-300 text-[12px] shrink-0">🔴 {activeMachineAgent}</span>
-                <span className="text-slate-700 dark:text-gray-300 truncate font-sans">Controlling Local Machine</span>
-                <span className="text-slate-500 dark:text-gray-400 text-[11px] shrink-0">({activeMachineTool || 'Desktop & Browser'})</span>
+                {/* 2. Active In-App Timers Pill */}
+                <ActiveTimersPill
+                  channelId={activeChannelId}
+                  isExpanded={expandedOperationalTab === 'timers'}
+                  onToggleExpand={() => setExpandedOperationalTab(expandedOperationalTab === 'timers' ? null : 'timers')}
+                />
+
+                {/* 3. Queued Messages Pill */}
+                {channelQueuedMessages.length > 0 && (
+                  <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-600 dark:text-blue-300 text-[11px] font-mono">
+                    <Inbox className="w-3 h-3 text-blue-500 shrink-0" />
+                    <span>{channelQueuedMessages.length} Queued</span>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedOperationalTab(expandedOperationalTab === 'queue' ? null : 'queue')}
+                      className="ml-1 text-[10px] font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                    >
+                      {expandedOperationalTab === 'queue' ? 'Hide' : 'View'}
+                    </button>
+                  </div>
+                )}
+
+                {/* 4. Chat File Upload Pill */}
+                {chatUploadStatus && (
+                  <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-600 dark:text-cyan-300 text-[11px] font-mono animate-pulse">
+                    <FileUp className="w-3 h-3 text-cyan-500 shrink-0" />
+                    <span className="truncate max-w-[160px]">{chatUploadStatus}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Quick Action Buttons */}
+              <div className="flex items-center space-x-2 shrink-0">
+                <ActiveTimersNewButton
+                  channelId={activeChannelId}
+                  onClick={() => setAutomationsModalOpen(true)}
+                />
+                {chatUploadStatus && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveRightTab('Uploads')}
+                    className="text-[10px] text-cyan-500 hover:underline font-mono cursor-pointer"
+                  >
+                    View Uploads
+                  </button>
+                )}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setDesktopControlModalOpen(true)}
-              className="px-2.5 py-1 rounded-lg bg-red-100 hover:bg-red-200 dark:bg-red-600/30 dark:hover:bg-red-600/50 text-red-800 dark:text-red-200 border border-red-300 dark:border-red-500/50 text-xs font-semibold transition flex items-center space-x-1 cursor-pointer whitespace-nowrap shrink-0"
-              title="Inspect live machine interaction and windows"
-            >
-              <Monitor className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
-              <span>[Inspect Session]</span>
-            </button>
+
+            {/* Expanded Active Timers Drawer */}
+            {expandedOperationalTab === 'timers' && (
+              <ActiveTimersDrawer
+                channelId={activeChannelId}
+                onCancelSchedule={cancelSchedule}
+              />
+            )}
+
+            {/* Expanded Queued Messages Drawer */}
+            {expandedOperationalTab === 'queue' && channelQueuedMessages.length > 0 && (
+              <div className="space-y-1 max-h-32 overflow-y-auto pr-1 pt-1 border-t border-kin-border">
+                {channelQueuedMessages.map((qm, idx) => (
+                  <div
+                    key={qm.id}
+                    className="flex items-center justify-between p-1.5 rounded-lg bg-kin-surface border border-kin-border text-xs font-mono"
+                  >
+                    <div className="flex items-center space-x-2 truncate mr-2">
+                      <span className="text-blue-500 font-bold shrink-0 text-[10px]">#{idx + 1}</span>
+                      <span className="text-kin-text text-[11px] truncate">{qm.content}</span>
+                    </div>
+                    <div className="flex items-center space-x-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => promoteQueuedToSteer(qm.id)}
+                        className="flex items-center space-x-1 px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-500 dark:text-amber-300 border border-amber-500/40 text-[10px] transition cursor-pointer"
+                        title="Promote to Immediate Priority Steer Directive"
+                      >
+                        <Zap className="w-2.5 h-2.5" />
+                        <span>Steer Now</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => dequeueMessage(qm.id)}
+                        className="p-1 hover:text-red-500 text-kin-muted transition cursor-pointer"
+                        title="Remove from queue"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -838,18 +880,18 @@ export const CenterView: React.FC = () => {
 
         {/* Interactive Adversarial Grill-Me Assessment Card */}
         {grillMeSession && (
-          <div className="p-3.5 bg-[#170a0f]/95 backdrop-blur-sm border border-rose-500/60 rounded-xl space-y-3 shadow-2xl animate-fadeIn">
-            <div className="flex items-center justify-between border-b border-rose-900/40 pb-2">
+          <div className="p-3.5 bg-rose-500/10 dark:bg-rose-950/40 backdrop-blur-sm border border-rose-500/40 rounded-xl space-y-3 shadow-xl animate-fadeIn">
+            <div className="flex items-center justify-between border-b border-rose-500/20 pb-2">
               <div className="flex items-center space-x-2">
-                <Flame className="w-4 h-4 text-rose-400" />
-                <span className="text-[12px] font-bold uppercase tracking-wider text-rose-300 font-mono">
+                <Flame className="w-4 h-4 text-rose-500" />
+                <span className="text-[12px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-300 font-mono">
                   Adversarial Assessment: {grillMeSession.topic}
                 </span>
               </div>
               <button
                 type="button"
                 onClick={() => dismissGrillMe()}
-                className="p-1 text-[#64748b] hover:text-rose-300 transition cursor-pointer"
+                className="p-1 text-kin-muted hover:text-rose-500 transition cursor-pointer"
                 title="Dismiss questionnaire"
               >
                 <X className="w-3.5 h-3.5" />
@@ -857,8 +899,8 @@ export const CenterView: React.FC = () => {
             </div>
             <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
               {grillMeSession.questions.map((q, qIdx) => (
-                <div key={q.id} className="p-2.5 rounded-lg bg-[#0d0508] border border-rose-900/30 space-y-1.5">
-                  <div className="text-[11px] font-semibold text-rose-200 font-mono">
+                <div key={q.id} className="p-2.5 rounded-lg bg-kin-card border border-rose-500/20 space-y-1.5">
+                  <div className="text-[11px] font-semibold text-rose-600 dark:text-rose-300 font-mono">
                     {qIdx + 1}. {q.prompt || q.question || 'Architecture Specification'}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1">
@@ -871,11 +913,11 @@ export const CenterView: React.FC = () => {
                           onClick={() => setGrillMeAnswers((prev) => ({ ...prev, [q.id]: opt }))}
                           className={`px-2.5 py-1.5 rounded text-left text-[11px] font-mono transition border cursor-pointer ${
                             isSelected
-                              ? 'bg-rose-600/30 border-rose-500 text-white font-bold ring-1 ring-rose-400'
-                              : 'bg-[#150a0f] border-rose-900/40 text-[#cbd5e1] hover:bg-rose-950/40'
+                              ? 'bg-rose-600/30 border-rose-500 text-kin-text font-bold ring-1 ring-rose-400'
+                              : 'bg-kin-surface border-kin-border text-kin-text hover:bg-rose-500/10'
                           }`}
                         >
-                          <span className="text-rose-400 mr-1.5">{isSelected ? '◉' : '○'}</span>
+                          <span className="text-rose-500 mr-1.5">{isSelected ? '◉' : '○'}</span>
                           {opt}
                         </button>
                       );
@@ -885,7 +927,7 @@ export const CenterView: React.FC = () => {
               ))}
             </div>
             <div className="flex items-center justify-between pt-1">
-              <span className="text-[10px] text-[#64748b] font-mono">
+              <span className="text-[10px] text-kin-muted font-mono">
                 {Object.keys(grillMeAnswers).length} of {grillMeSession.questions.length} questions answered
               </span>
               <button
@@ -912,26 +954,26 @@ export const CenterView: React.FC = () => {
 
         {/* Security Gate: Action Approval Required - docked right above message box */}
         {scopedPendingApprovals.length > 0 && (
-          <div className="p-3 bg-[#1e1307]/95 backdrop-blur-sm border border-amber-500/40 rounded-xl space-y-2.5 shadow-2xl animate-fadeIn">
+          <div className="p-3 bg-amber-500/10 dark:bg-amber-950/40 backdrop-blur-sm border border-amber-500/40 rounded-xl space-y-2.5 shadow-xl animate-fadeIn">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
-                <AlertTriangle className="w-4 h-4 text-amber-400 animate-pulse" />
-                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300 font-mono">
+                <AlertTriangle className="w-4 h-4 text-amber-500 animate-pulse" />
+                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-300 font-mono">
                   Security Gate: Action Approval Required ({scopedPendingApprovals.length})
                 </span>
               </div>
-              <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono">
+              <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-600 dark:text-amber-300 border border-amber-500/30 font-mono">
                 Autonomy Gate
               </span>
             </div>
 
             {scopedPendingApprovals.map((appr) => (
-              <div key={appr.id} className="p-2.5 rounded-lg bg-[#0b0f19] border border-[#2d3748] space-y-2">
+              <div key={appr.id} className="p-2.5 rounded-lg bg-kin-card border border-kin-border space-y-2">
                 <div className="flex items-center justify-between text-[11px]">
                   <div className="flex items-center space-x-2 font-mono truncate mr-2">
                     <span className="font-bold text-amber-400">{appr.agentName}</span>
-                    <span className="text-[#64748b]">requests execution:</span>
-                    <span className="flex items-center space-x-1 px-1.5 py-0.2 rounded bg-[#1e293b] text-blue-300 font-bold shrink-0">
+                    <span className="text-kin-muted">requests execution:</span>
+                    <span className="flex items-center space-x-1 px-1.5 py-0.2 rounded bg-kin-card text-blue-300 font-bold shrink-0">
                       <Terminal className="w-3 h-3 text-blue-400" />
                       <span>{appr.toolName}</span>
                     </span>
@@ -956,7 +998,7 @@ export const CenterView: React.FC = () => {
                       <span className="text-[10px] text-kin-muted">Worker Sandbox Isolated</span>
                     </div>
                     {appr.parameters?.description && (
-                      <p className="text-[11px] text-[#94a3b8]">{appr.parameters.description}</p>
+                      <p className="text-[11px] text-kin-muted">{appr.parameters.description}</p>
                     )}
                     {appr.parameters?.rationale && (
                       <div className="text-[11px] text-amber-300/90 font-mono">
@@ -965,15 +1007,15 @@ export const CenterView: React.FC = () => {
                     )}
                     {appr.parameters?.handlerCode && (
                       <div className="mt-1">
-                        <span className="text-[10px] text-[#64748b] font-mono">Sandboxed Code Preview:</span>
-                        <pre className="p-2 rounded bg-black/80 font-mono text-[10px] text-emerald-300 overflow-x-auto max-h-36 border border-[#1e293b]">
+                        <span className="text-[10px] text-kin-muted font-mono">Sandboxed Code Preview:</span>
+                        <pre className="p-2 rounded bg-black/80 font-mono text-[10px] text-emerald-300 overflow-x-auto max-h-36 border border-kin-border">
                           {appr.parameters.handlerCode}
                         </pre>
                       </div>
                     )}
                   </div>
                 ) : (
-                  <div className="p-2 rounded bg-black/60 font-mono text-[11px] text-[#e2e8f0] break-all border border-[#1e293b]">
+                  <div className="p-2 rounded bg-black/60 font-mono text-[11px] text-kin-text break-all border border-kin-border">
                     {appr.actionSummary}
                   </div>
                 )}
@@ -984,8 +1026,6 @@ export const CenterView: React.FC = () => {
                       const res = await resolveApproval(appr.id, false);
                       if (!res?.success) {
                         addToast(res?.error || 'Failed to reject approval request', 'error');
-                      } else {
-                        addToast('Action rejected', 'info');
                       }
                     }}
                     className="flex items-center space-x-1 px-3 py-1 rounded bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/40 text-xs font-medium transition cursor-pointer"
@@ -998,8 +1038,6 @@ export const CenterView: React.FC = () => {
                       const res = await resolveApproval(appr.id, true);
                       if (!res?.success) {
                         addToast(res?.error || 'Failed to execute approved action', 'error');
-                      } else {
-                        addToast('Action approved and executing', 'success');
                       }
                     }}
                     className="flex items-center space-x-1 px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-lg shadow-emerald-900/30 transition cursor-pointer"
@@ -1013,81 +1051,17 @@ export const CenterView: React.FC = () => {
           </div>
         )}
 
-        {/* Antigravity Queued Messages Tray - docked directly above the composer input box */}
-        {channelQueuedMessages.length > 0 && (
-          <div className="p-2.5 bg-[#0b1020]/95 backdrop-blur-sm border border-blue-500/40 rounded-xl space-y-1.5 shadow-xl animate-fadeIn">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <span className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono text-[10px] font-bold border border-blue-500/30">
-                  <Inbox className="w-3 h-3 text-blue-400" />
-                  <span>QUEUED ({channelQueuedMessages.length})</span>
-                </span>
-                <span className="text-[#64748b] text-[10px] hidden sm:inline">
-                  Will execute automatically once active agent finishes
-                </span>
-              </div>
-            </div>
-            <div className="space-y-1 max-h-28 overflow-y-auto pr-1">
-              {channelQueuedMessages.map((qm, idx) => (
-                <div
-                  key={qm.id}
-                  className="flex items-center justify-between p-1.5 rounded bg-[#070b14] border border-[#1e293b] text-xs font-mono"
-                >
-                  <div className="flex items-center space-x-2 truncate mr-2">
-                    <span className="text-blue-400 font-bold shrink-0 text-[10px]">#{idx + 1}</span>
-                    <span className="text-[#cbd5e1] text-[11px] truncate">{qm.content}</span>
-                  </div>
-                  <div className="flex items-center space-x-1.5 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => promoteQueuedToSteer(qm.id)}
-                      className="flex items-center space-x-1 px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[10px] transition"
-                      title="Promote to Immediate Priority Steer Directive"
-                    >
-                      <Zap className="w-2.5 h-2.5" />
-                      <span>Steer Now</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => dequeueMessage(qm.id)}
-                      className="p-1 hover:text-red-400 text-[#64748b] transition"
-                      title="Remove from queue"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {chatUploadStatus && (
-          <div className="px-3 py-1 bg-cyan-950/60 border border-cyan-500/30 rounded-lg text-[11px] text-cyan-300 flex items-center justify-between animate-pulse">
-            <div className="flex items-center space-x-1.5">
-              <FileUp className="w-3 h-3 text-cyan-400" />
-              <span>{chatUploadStatus}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setActiveRightTab('Uploads')}
-              className="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono ml-2 cursor-pointer"
-            >
-              View Uploads
-            </button>
-          </div>
-        )}
 
         {sendError && (
-          <div className="px-3 py-2 bg-red-950/80 border border-red-500/60 rounded-xl text-xs text-red-200 flex items-center justify-between shadow-lg animate-fadeIn">
+          <div className="px-3 py-2 bg-red-50 dark:bg-red-950/80 border border-red-200 dark:border-red-500/60 rounded-xl text-xs text-red-800 dark:text-red-200 flex items-center justify-between shadow-xs animate-fadeIn">
             <div className="flex items-center space-x-2">
-              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+              <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
               <span>{sendError}</span>
             </div>
             <button
               type="button"
               onClick={() => setSendError(null)}
-              className="text-red-400 hover:text-white p-0.5 cursor-pointer"
+              className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-white p-0.5 cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -1112,10 +1086,10 @@ export const CenterView: React.FC = () => {
         >
           {/* Mention Autocomplete Overlay */}
           {showMentionMenu && matchingAgents.length > 0 && (
-            <div className="absolute bottom-full mb-2 left-0 bg-[#0f172a] border border-[#2d3748] rounded-xl shadow-2xl p-2 z-30 w-80 max-h-64 overflow-y-auto space-y-1 animate-fadeIn">
-              <div className="text-[10px] text-[#64748b] uppercase font-bold px-2 py-0.5 flex items-center justify-between border-b border-[#1e293b] pb-1">
+            <div className="absolute bottom-full mb-2 left-0 bg-kin-surface border border-kin-border rounded-xl shadow-2xl p-2 z-30 w-80 max-h-64 overflow-y-auto space-y-1 animate-fadeIn">
+              <div className="text-[10px] text-kin-muted uppercase font-bold px-2 py-0.5 flex items-center justify-between border-b border-kin-border pb-1">
                 <span>Project Agents ({matchingAgents.length})</span>
-                <span className="text-[9px] font-mono lowercase text-[#94a3b8]">↑↓ Tab/Enter</span>
+                <span className="text-[9px] font-mono lowercase text-kin-muted">↑↓ Tab/Enter</span>
               </div>
               <div className="space-y-0.5 pt-1">
                 {matchingAgents.map((ag, idx) => (
@@ -1126,14 +1100,14 @@ export const CenterView: React.FC = () => {
                     className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition cursor-pointer ${
                       idx === mentionSelectedIndex
                         ? 'bg-blue-600/25 ring-1 ring-blue-500/50 text-white'
-                        : 'hover:bg-[#1e293b]/70 text-[#cbd5e1]'
+                        : 'hover:bg-kin-card/70 text-kin-text'
                     }`}
                   >
                     <div className="flex items-center space-x-2 shrink-0">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 shadow-[0_0_4px_#34d399]" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 shadow-[0_0_4px_rgba(52,211,153,0.5)]" />
                       <span className="font-semibold text-kin-text text-xs whitespace-nowrap">{ag.displayName}</span>
                     </div>
-                    <span className="text-[10px] text-[#64748b] font-mono truncate ml-2 text-right">{ag.role}</span>
+                    <span className="text-[10px] text-kin-muted font-mono truncate ml-2 text-right">{ag.role}</span>
                   </button>
                 ))}
               </div>
@@ -1516,17 +1490,17 @@ export const CenterView: React.FC = () => {
                 ? `Direct message with ${targetAgent?.displayName || '@Agent'}... (Shift+Enter for newline)`
                 : `Message #${activeChannel?.name || 'general'} (Shift+Enter for newline, '/' for commands, '@' for agents)...`
             }
-            className="flex-1 bg-transparent text-xs text-kin-text placeholder-[#64748b] focus:outline-none resize-none overflow-y-auto leading-relaxed py-1 min-h-[38px] max-h-[180px]"
+            className="flex-1 bg-transparent text-xs text-kin-text placeholder-kin-subtle focus:outline-none resize-none overflow-y-auto leading-relaxed py-1 min-h-[38px] max-h-[180px]"
           />
 
-          <div className="flex items-center space-x-1.5 ml-2 text-[#64748b]">
+          <div className="flex items-center space-x-1.5 ml-2 text-kin-muted">
             <button
               type="button"
               onClick={toggleVoiceDictation}
               className={`p-1 transition ${
                 isListening
                   ? 'text-red-400 animate-pulse bg-red-500/20 rounded'
-                  : 'hover:text-kin-text text-[#64748b]'
+                  : 'hover:text-kin-text text-kin-muted'
               }`}
               title={isListening ? 'Voice recording active... (click to stop)' : 'Voice Input (Web Speech API)'}
             >

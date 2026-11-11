@@ -1,18 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useKinStore, isDesktopApp } from '../../store/kinStore.js';
-import { Minus, Square, X, Plus } from 'lucide-react';
+import { Minus, Square, X } from 'lucide-react';
 
 export const TitleBar: React.FC = () => {
-  const {
-    projects,
-    activeProjectId,
-    activeProject,
-    setActiveProject,
-    setNewProjectModalOpen,
-    isConnected,
-    channels,
-    activeChannelId,
-  } = useKinStore();
+  const { activeProject } = useKinStore();
 
   const [isMaximized, setIsMaximized] = useState(false);
   const isDesktop = isDesktopApp();
@@ -69,54 +60,17 @@ export const TitleBar: React.FC = () => {
     await invokeTauri('close_window');
   };
 
-  const activeChannel = channels.find((c) => c.id === activeChannelId);
-
   return (
     <div
       data-tauri-drag-region
-      className="h-9 bg-kin-surface border-b border-kin-border px-3 flex items-center justify-between text-xs select-none transition-colors shrink-0 z-50"
+      className="h-8 bg-kin-surface border-b border-kin-border px-3 flex items-center justify-between text-xs select-none transition-colors shrink-0 z-50"
     >
-      {/* Left: Brand & Project Selector */}
-      <div className="flex items-center space-x-3 pointer-events-auto" data-tauri-drag-region="false">
-        <div className="flex items-center space-x-1.5 font-bold tracking-wide text-kin-text">
-          <span
-            className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`}
-            title={isConnected ? 'KIN Core Connected (WAL Mode)' : 'KIN Core Offline / Connecting...'}
-          />
-          <span className="text-sm font-semibold tracking-wider text-kin-text">KIN</span>
-        </div>
-
-        <span className="text-kin-muted/40">|</span>
-
-        {/* Project Selector */}
-        <div className="flex items-center space-x-1.5">
-          <span className="text-kin-muted text-[11px]">Project:</span>
-          <select
-            value={activeProjectId}
-            onChange={(e) => setActiveProject(e.target.value)}
-            className="bg-kin-card border border-kin-border rounded px-2 py-0.5 text-xs text-kin-text font-medium focus:outline-none focus:border-kin-primary cursor-pointer hover:bg-kin-cardHover transition"
-          >
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-
-          <button
-            onClick={() => setNewProjectModalOpen(true)}
-            className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-kin-card hover:bg-kin-cardHover text-kin-text border border-kin-border font-medium text-xs transition"
-            title="Create New Project Workspace"
-          >
-            <Plus className="w-3 h-3 text-emerald-400" />
-            <span>New</span>
-          </button>
-        </div>
-
-        {activeChannel && (
-          <span className="text-kin-muted/70 text-[11px] hidden sm:inline-flex items-center space-x-1">
-            <span>•</span>
-            <span className="font-mono text-kin-primary">{activeChannel.name}</span>
+      {/* Left: Clean Desktop Window Branding */}
+      <div className="flex items-center space-x-2 select-none" data-tauri-drag-region>
+        <span className="text-xs font-semibold tracking-wider text-kin-muted">KIN</span>
+        {activeProject?.name && (
+          <span className="text-[11px] text-kin-muted/60 font-mono hidden md:inline truncate max-w-xs">
+            / {activeProject.name}
           </span>
         )}
       </div>
@@ -124,7 +78,7 @@ export const TitleBar: React.FC = () => {
       {/* Middle: Draggable center zone with window title */}
       <div
         data-tauri-drag-region
-        className="flex-1 h-full flex items-center justify-center text-[11px] text-kin-muted/60 font-mono truncate px-4 pointer-events-auto cursor-default"
+        className="flex-1 h-full flex items-center justify-center text-[11px] text-kin-muted/60 font-mono truncate px-4 cursor-default"
       >
         {activeProject?.name ? `${activeProject.name} — KIN` : 'KIN — Local-First AI Workspace'}
       </div>

@@ -593,6 +593,14 @@ export class AgentLoopRunner {
           if (lastMsg && lastMsg.role === 'user' && lastMsg.content.includes('[PRIORITY MID-EXECUTION STEERING DIRECTIVE')) {
             continue;
           }
+
+          return {
+            finalContent: 'Execution cancelled.',
+            turnCount: currentTurn,
+            actions,
+            isAborted: true,
+            reason: err?.message || 'Execution cancelled',
+          };
         }
         const errMsg = err?.message || String(err);
         if (this.isQuotaError(errMsg)) {
@@ -871,23 +879,25 @@ export class AgentLoopRunner {
 
         let toolWatchdogTimer: NodeJS.Timeout | null = null;
         let toolLeaseLost = false;
-        if (options.taskId && options.onRenewLease) {
-          toolWatchdogTimer = setInterval(async () => {
-            try {
-              options.onHeartbeat?.();
-              const renewed = await options.onRenewLease!(options.taskId!);
+        toolWatchdogTimer = setInterval(async () => {
+          try {
+            options.onHeartbeat?.();
+            if (options.taskId && options.onRenewLease) {
+              const renewed = await options.onRenewLease(options.taskId);
               if (renewed === false) {
                 toolLeaseLost = true;
                 toolAbortController.abort('Task lease expired or was revoked during tool execution');
               }
-            } catch {
+            }
+          } catch {
+            if (options.taskId && options.onRenewLease) {
               toolLeaseLost = true;
               toolAbortController.abort('Task lease expired or was revoked during tool execution');
             }
-          }, watchdogIntervalMs);
-          if (toolWatchdogTimer && typeof (toolWatchdogTimer as any).unref === 'function') {
-            (toolWatchdogTimer as any).unref();
           }
+        }, watchdogIntervalMs);
+        if (toolWatchdogTimer && typeof (toolWatchdogTimer as any).unref === 'function') {
+          (toolWatchdogTimer as any).unref();
         }
 
         let res;

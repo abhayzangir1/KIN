@@ -117,11 +117,8 @@ export const AutomationsView: React.FC = () => {
       }
     }
     setIsCreating(true);
-    addToast({
-      title: `Loaded ${bp.title}`,
-      message: 'Blueprint loaded into schedule composer. Review and click Arm & Schedule.',
-      type: 'info',
-    });
+    setActionFeedback(`Loaded ${bp.title}: Blueprint loaded into schedule composer.`);
+    setTimeout(() => setActionFeedback(null), 3000);
   };
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -147,11 +144,6 @@ export const AutomationsView: React.FC = () => {
 
     if (res.success) {
       setActionFeedback('Automation registered and armed successfully!');
-      addToast({
-        title: 'Schedule Armed',
-        message: schedType === 'cron' ? translateCronToEnglish(cronExpression) : `Wakeup in ${durationSeconds}s`,
-        type: 'success',
-      });
       setPrompt('');
       setIsCreating(false);
       fetchSchedules();
@@ -170,7 +162,6 @@ export const AutomationsView: React.FC = () => {
     const res = await triggerScheduleNow(id);
     if (res.success) {
       setActionFeedback('Triggered automation execution successfully.');
-      addToast({ title: 'Schedule Triggered', message: 'Executing now...', type: 'info' });
       fetchSchedules();
       setTimeout(() => setActionFeedback(null), 3000);
     } else {
@@ -245,13 +236,13 @@ export const AutomationsView: React.FC = () => {
   };
 
   return (
-    <main className="flex-1 flex flex-col h-full bg-[#0a0f1d] min-w-0 overflow-y-auto text-kin-text select-none">
+    <main className="flex-1 flex flex-col h-full bg-kin-surface min-w-0 overflow-y-auto text-kin-text select-none">
       {/* Top Header */}
-      <div className="px-6 py-4 border-b border-[#1e293b] bg-[#0c1222] flex items-center justify-between">
+      <div className="px-6 py-4 border-b border-kin-border bg-kin-surface flex items-center justify-between">
         <div className="flex items-center space-x-3">
           <button
             onClick={() => setActiveMainView('chat')}
-            className="p-1.5 rounded-lg bg-[#1e293b] hover:bg-emerald-600/30 text-emerald-400 hover:text-emerald-300 border border-[#2d3748] transition cursor-pointer"
+            className="p-1.5 rounded-lg bg-kin-card hover:bg-emerald-600/30 text-emerald-400 hover:text-emerald-300 border border-kin-border transition cursor-pointer"
             title="Return to Channel Chat Workspace"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -259,14 +250,14 @@ export const AutomationsView: React.FC = () => {
           <div>
             <div className="flex items-center space-x-2">
               <Timer className="w-5 h-5 text-cyan-400" />
-              <h1 className="text-base font-bold text-white tracking-wide">
+              <h1 className="text-base font-bold text-kin-text tracking-wide">
                 Automations & Schedules Control Hub
               </h1>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-600 dark:text-cyan-300 border border-cyan-500/40">
                 {activeCount} Active
               </span>
             </div>
-            <p className="text-xs text-[#94a3b8] mt-0.5">
+            <p className="text-xs text-kin-muted mt-0.5">
               Visual cadence scheduling, natural language intervals, and autonomous directive routines
             </p>
           </div>
@@ -278,7 +269,7 @@ export const AutomationsView: React.FC = () => {
               fetchSchedules();
               fetchSystemHealth();
             }}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#1e293b] hover:bg-[#283548] text-xs font-medium text-[#cbd5e1] border border-[#2d3748] transition cursor-pointer"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-kin-card hover:bg-kin-cardHover text-xs font-medium text-kin-text border border-kin-border transition cursor-pointer"
             title="Refresh Automations & Health"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -313,11 +304,11 @@ export const AutomationsView: React.FC = () => {
 
       {/* Dynamic Resource Governor Telemetry Bar */}
       {systemHealth && (
-        <div className="mx-6 mt-4 p-3 rounded-xl bg-[#0e1628] border border-[#1e293b] flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="mx-6 mt-4 p-3 rounded-xl bg-kin-card border border-kin-border flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex items-center space-x-3">
             <div className="flex items-center space-x-1.5 font-mono">
               <Activity className="w-4 h-4 text-emerald-400" />
-              <span className="text-[#94a3b8]">System Status:</span>
+              <span className="text-kin-muted">System Status:</span>
               <span
                 className={`font-bold px-1.5 py-0.5 rounded text-[10px] uppercase ${
                   systemHealth.status === 'healthy'
@@ -336,10 +327,10 @@ export const AutomationsView: React.FC = () => {
                 freeRatio: ((systemHealth as any).components?.memory?.freeMemBytes || 0) / ((systemHealth as any).components?.memory?.totalMemBytes || 1),
               };
               return (
-                <div className="flex items-center space-x-1.5 font-mono text-[#94a3b8]">
+                <div className="flex items-center space-x-1.5 font-mono text-kin-muted">
                   <Cpu className="w-4 h-4 text-cyan-400" />
                   <span>Free RAM:</span>
-                  <span className="text-white font-semibold">
+                  <span className="text-kin-text font-semibold">
                     {mem.freeMb} MB / {mem.totalMb} MB (
                     {Math.round((mem.freeRatio || 0) * 100)}%)
                   </span>
@@ -354,11 +345,11 @@ export const AutomationsView: React.FC = () => {
               maxConcurrentBrowser: (systemHealth as any).components?.memory?.maxBrowserContexts || 2,
             };
             return (
-              <div className="flex items-center space-x-3 font-mono text-[11px] text-[#94a3b8]">
-                <span className="px-2 py-0.5 rounded bg-[#1e293b] text-blue-300">
+              <div className="flex items-center space-x-3 font-mono text-[11px] text-kin-muted">
+                <span className="px-2 py-0.5 rounded bg-kin-card text-blue-300">
                   Max Shells: {lim.maxConcurrentShell}
                 </span>
-                <span className="px-2 py-0.5 rounded bg-[#1e293b] text-indigo-300">
+                <span className="px-2 py-0.5 rounded bg-kin-card text-indigo-300">
                   Max Browsers: {lim.maxConcurrentBrowser}
                 </span>
               </div>
@@ -368,22 +359,22 @@ export const AutomationsView: React.FC = () => {
       )}
 
       {/* 1-Click Autonomous Directive Blueprints Bar */}
-      <div className="mx-6 mt-4 p-4 rounded-xl bg-gradient-to-r from-[#0c162d] to-[#0f172a] border border-[#1e293b] space-y-3">
+      <div className="mx-6 mt-4 p-4 rounded-xl bg-gradient-to-r from-kin-card to-kin-surface border border-kin-border space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <Sparkles className="w-4 h-4 text-cyan-400" />
-            <h2 className="text-xs font-semibold text-white uppercase tracking-wider">
+            <h2 className="text-xs font-semibold text-kin-text uppercase tracking-wider">
               1-Click Autonomous Directive Blueprints
             </h2>
           </div>
-          <span className="text-[11px] text-[#64748b]">Click any blueprint to populate schedule</span>
+          <span className="text-[11px] text-kin-muted">Click any blueprint to populate schedule</span>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-2.5">
           {DIRECTIVE_BLUEPRINTS.map((bp) => (
             <button
               key={bp.id}
               onClick={() => handleApplyBlueprint(bp)}
-              className="p-3 rounded-lg bg-[#070d19]/80 hover:bg-[#131f38] border border-[#1e293b] hover:border-cyan-500/40 text-left transition group cursor-pointer flex flex-col justify-between"
+              className="p-3 rounded-lg bg-kin-surface/80 hover:bg-kin-cardHover border border-kin-border hover:border-cyan-500/40 text-left transition group cursor-pointer flex flex-col justify-between"
             >
               <div>
                 <div className="flex items-center justify-between mb-1">
@@ -392,14 +383,14 @@ export const AutomationsView: React.FC = () => {
                     {bp.humanCadence}
                   </span>
                 </div>
-                <div className="text-xs font-bold text-white group-hover:text-cyan-300 transition">
+                <div className="text-xs font-bold text-kin-text group-hover:text-cyan-500 dark:group-hover:text-cyan-300 transition">
                   {bp.title}
                 </div>
-                <div className="text-[11px] text-[#94a3b8] mt-1 line-clamp-2 leading-relaxed">
+                <div className="text-[11px] text-kin-muted mt-1 line-clamp-2 leading-relaxed">
                   {bp.description}
                 </div>
               </div>
-              <div className="mt-2 pt-2 border-t border-[#1e293b] flex items-center justify-between text-[10px] text-cyan-400 font-medium">
+              <div className="mt-2 pt-2 border-t border-kin-border flex items-center justify-between text-[10px] text-cyan-400 font-medium">
                 <span>Arm Blueprint</span>
                 <span className="group-hover:translate-x-0.5 transition-transform">→</span>
               </div>
@@ -410,15 +401,15 @@ export const AutomationsView: React.FC = () => {
 
       {/* Visual Cadence Creation Drawer */}
       {isCreating && (
-        <div className="mx-6 mt-4 p-5 rounded-xl bg-[#0f172a] border border-cyan-500/40 space-y-4 shadow-2xl">
-          <div className="flex items-center justify-between border-b border-[#1e293b] pb-3">
+        <div className="mx-6 mt-4 p-5 rounded-xl bg-kin-card border border-cyan-500/40 space-y-4 shadow-2xl">
+          <div className="flex items-center justify-between border-b border-kin-border pb-3">
             <div className="flex items-center space-x-2">
               <Zap className="w-4 h-4 text-cyan-400" />
-              <h2 className="text-sm font-semibold text-white">Visual Cadence Schedule Composer</h2>
+              <h2 className="text-sm font-semibold text-kin-text">Visual Cadence Schedule Composer</h2>
             </div>
             <button
               onClick={() => setIsCreating(false)}
-              className="text-[#64748b] hover:text-white text-xs p-1"
+              className="text-kin-muted hover:text-kin-text text-xs p-1"
             >
               <X className="w-4 h-4" />
             </button>
@@ -427,7 +418,7 @@ export const AutomationsView: React.FC = () => {
           <form onSubmit={handleCreate} className="space-y-4 text-xs">
             {/* Cadence Mode Selector Tabs */}
             <div className="space-y-2">
-              <label className="block text-[#94a3b8] font-medium">Choose Cadence Mode</label>
+              <label className="block text-kin-muted font-medium">Choose Cadence Mode</label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <button
                   type="button"
@@ -439,7 +430,7 @@ export const AutomationsView: React.FC = () => {
                   className={`py-2 px-3 rounded-lg border text-left transition cursor-pointer ${
                     cadenceMode === 'interval'
                       ? 'bg-cyan-950/60 border-cyan-500 text-cyan-200'
-                      : 'bg-[#1e293b]/70 border-[#2d3748] text-[#94a3b8] hover:text-white'
+                      : 'bg-kin-card/70 border-kin-border text-kin-muted hover:text-kin-text'
                   }`}
                 >
                   <div className="font-bold text-xs">Quick Interval</div>
@@ -456,7 +447,7 @@ export const AutomationsView: React.FC = () => {
                   className={`py-2 px-3 rounded-lg border text-left transition cursor-pointer ${
                     cadenceMode === 'timer'
                       ? 'bg-cyan-950/60 border-cyan-500 text-cyan-200'
-                      : 'bg-[#1e293b]/70 border-[#2d3748] text-[#94a3b8] hover:text-white'
+                      : 'bg-kin-card/70 border-kin-border text-kin-muted hover:text-kin-text'
                   }`}
                 >
                   <div className="font-bold text-xs">One-Shot Timer</div>
@@ -473,7 +464,7 @@ export const AutomationsView: React.FC = () => {
                   className={`py-2 px-3 rounded-lg border text-left transition cursor-pointer ${
                     cadenceMode === 'natural'
                       ? 'bg-cyan-950/60 border-cyan-500 text-cyan-200'
-                      : 'bg-[#1e293b]/70 border-[#2d3748] text-[#94a3b8] hover:text-white'
+                      : 'bg-kin-card/70 border-kin-border text-kin-muted hover:text-kin-text'
                   }`}
                 >
                   <div className="font-bold text-xs">Daily Natural Time</div>
@@ -489,7 +480,7 @@ export const AutomationsView: React.FC = () => {
                   className={`py-2 px-3 rounded-lg border text-left transition cursor-pointer ${
                     cadenceMode === 'cron'
                       ? 'bg-cyan-950/60 border-cyan-500 text-cyan-200'
-                      : 'bg-[#1e293b]/70 border-[#2d3748] text-[#94a3b8] hover:text-white'
+                      : 'bg-kin-card/70 border-kin-border text-kin-muted hover:text-kin-text'
                   }`}
                 >
                   <div className="font-bold text-xs">Advanced Cron</div>
@@ -499,10 +490,10 @@ export const AutomationsView: React.FC = () => {
             </div>
 
             {/* Cadence Specific Chips / Inputs */}
-            <div className="p-3.5 rounded-lg bg-[#090f1d] border border-[#1e293b] space-y-2.5">
+            <div className="p-3.5 rounded-lg bg-kin-card border border-kin-border space-y-2.5">
               {cadenceMode === 'interval' && (
                 <div className="space-y-2">
-                  <div className="text-[11px] text-[#94a3b8]">Select execution interval:</div>
+                  <div className="text-[11px] text-kin-muted">Select execution interval:</div>
                   <div className="flex flex-wrap gap-2">
                     {QUICK_INTERVALS.map((q) => (
                       <button
@@ -512,7 +503,7 @@ export const AutomationsView: React.FC = () => {
                         className={`px-3 py-1.5 rounded-lg border text-xs font-mono transition cursor-pointer ${
                           cronExpression === q.expr
                             ? 'bg-cyan-600 text-white border-cyan-400 font-bold shadow'
-                            : 'bg-[#1e293b] border-[#2d3748] text-[#cbd5e1] hover:text-white'
+                            : 'bg-kin-card border-kin-border text-kin-text hover:text-kin-text hover:bg-kin-cardHover'
                         }`}
                       >
                         {q.label} ({q.desc})
@@ -524,7 +515,7 @@ export const AutomationsView: React.FC = () => {
 
               {cadenceMode === 'timer' && (
                 <div className="space-y-3">
-                  <div className="text-[11px] text-[#94a3b8]">Select or enter wakeup duration:</div>
+                  <div className="text-[11px] text-kin-muted">Select or enter wakeup duration:</div>
                   <div className="flex flex-wrap gap-2">
                     {QUICK_TIMERS.map((t) => (
                       <button
@@ -534,7 +525,7 @@ export const AutomationsView: React.FC = () => {
                         className={`px-3 py-1.5 rounded-lg border text-xs font-mono transition cursor-pointer ${
                           durationSeconds === t.seconds
                             ? 'bg-blue-600 text-white border-blue-400 font-bold shadow'
-                            : 'bg-[#1e293b] border-[#2d3748] text-[#cbd5e1] hover:text-white'
+                            : 'bg-kin-card border-kin-border text-kin-text hover:text-kin-text hover:bg-kin-cardHover'
                         }`}
                       >
                         {t.label}
@@ -542,14 +533,14 @@ export const AutomationsView: React.FC = () => {
                     ))}
                   </div>
                   <div className="flex items-center space-x-2 pt-1">
-                    <span className="text-[11px] text-[#94a3b8]">Custom Duration (seconds):</span>
+                    <span className="text-[11px] text-kin-muted">Custom Duration (seconds):</span>
                     <input
                       type="number"
                       min={1}
                       max={86400}
                       value={durationSeconds}
                       onChange={(e) => setDurationSeconds(Math.max(1, Number(e.target.value)))}
-                      className="w-28 bg-[#1e293b] border border-[#2d3748] rounded px-2 py-1 text-white font-mono text-xs focus:border-cyan-500 focus:outline-none"
+                      className="w-28 bg-kin-card border border-kin-border rounded px-2 py-1 text-kin-text font-mono text-xs focus:border-cyan-500 focus:outline-none"
                     />
                   </div>
                 </div>
@@ -557,7 +548,7 @@ export const AutomationsView: React.FC = () => {
 
               {cadenceMode === 'natural' && (
                 <div className="space-y-2">
-                  <div className="text-[11px] text-[#94a3b8]">Select natural daily schedule:</div>
+                  <div className="text-[11px] text-kin-muted">Select natural daily schedule:</div>
                   <div className="flex flex-wrap gap-2">
                     {NATURAL_DAILY_TIMES.map((n) => (
                       <button
@@ -567,7 +558,7 @@ export const AutomationsView: React.FC = () => {
                         className={`px-3 py-1.5 rounded-lg border text-xs transition cursor-pointer ${
                           cronExpression === n.expr
                             ? 'bg-purple-600 text-white border-purple-400 font-bold shadow'
-                            : 'bg-[#1e293b] border-[#2d3748] text-[#cbd5e1] hover:text-white'
+                            : 'bg-kin-card border-kin-border text-kin-text hover:text-kin-text hover:bg-kin-cardHover'
                         }`}
                       >
                         {n.label}
@@ -579,30 +570,30 @@ export const AutomationsView: React.FC = () => {
 
               {cadenceMode === 'cron' && (
                 <div className="space-y-2">
-                  <div className="text-[11px] text-[#94a3b8]">Enter standard 5-part cron (Minute Hour Day-of-Month Month Day-of-Week):</div>
+                  <div className="text-[11px] text-kin-muted">Enter standard 5-part cron (Minute Hour Day-of-Month Month Day-of-Week):</div>
                   <input
                     type="text"
                     value={cronExpression}
                     onChange={(e) => setCronExpression(e.target.value)}
                     placeholder="*/15 * * * *"
-                    className="w-full bg-[#1e293b] border border-[#2d3748] rounded px-3 py-1.5 text-white font-mono text-xs focus:border-cyan-500 focus:outline-none"
+                    className="w-full bg-kin-card border border-kin-border rounded px-3 py-1.5 text-kin-text font-mono text-xs focus:border-cyan-500 focus:outline-none"
                   />
                 </div>
               )}
 
               {/* Real-time English Cron Translation pill */}
-              <div className="pt-2 border-t border-[#1e293b] flex items-center justify-between text-[11px]">
-                <div className="flex items-center space-x-1.5 text-cyan-300">
-                  <Clock className="w-3.5 h-3.5 text-cyan-400" />
+              <div className="pt-2 border-t border-kin-border flex items-center justify-between text-[11px]">
+                <div className="flex items-center space-x-1.5 text-cyan-600 dark:text-cyan-300">
+                  <Clock className="w-3.5 h-3.5 text-cyan-500 dark:text-cyan-400" />
                   <span className="font-medium">Cadence Preview:</span>
-                  <span className="font-semibold text-white">
+                  <span className="font-semibold text-kin-text">
                     {schedType === 'one_shot'
                       ? `Fires once after ${durationSeconds} seconds`
                       : translateCronToEnglish(cronExpression)}
                   </span>
                 </div>
                 {schedType === 'cron' && (
-                  <span className="font-mono text-[10px] text-[#64748b]">
+                  <span className="font-mono text-[10px] text-kin-muted">
                     expr: {cronExpression}
                   </span>
                 )}
@@ -612,11 +603,11 @@ export const AutomationsView: React.FC = () => {
             {/* Target Agent & Channel */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-[#94a3b8] mb-1 font-medium">Assigned Agent Specialist</label>
+                <label className="block text-kin-muted mb-1 font-medium">Assigned Agent Specialist</label>
                 <select
                   value={targetAgentId}
                   onChange={(e) => setTargetAgentId(e.target.value)}
-                  className="w-full bg-[#1e293b] border border-[#2d3748] rounded-lg px-2.5 py-1.5 text-white focus:border-cyan-500 focus:outline-none"
+                  className="w-full bg-kin-card border border-kin-border rounded-lg px-2.5 py-1.5 text-kin-text focus:border-cyan-500 focus:outline-none"
                 >
                   {agents.map((ag) => (
                     <option key={ag.id} value={ag.id}>
@@ -627,11 +618,11 @@ export const AutomationsView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-[#94a3b8] mb-1 font-medium">Target Broadcast Channel</label>
+                <label className="block text-kin-muted mb-1 font-medium">Target Broadcast Channel</label>
                 <select
                   value={targetChannelId}
                   onChange={(e) => setTargetChannelId(e.target.value)}
-                  className="w-full bg-[#1e293b] border border-[#2d3748] rounded-lg px-2.5 py-1.5 text-white focus:border-cyan-500 focus:outline-none"
+                  className="w-full bg-kin-card border border-kin-border rounded-lg px-2.5 py-1.5 text-kin-text focus:border-cyan-500 focus:outline-none"
                 >
                   {channels.map((ch) => (
                     <option key={ch.id} value={ch.id}>
@@ -644,7 +635,7 @@ export const AutomationsView: React.FC = () => {
 
             {/* Directive Prompt */}
             <div>
-              <label className="block text-[#94a3b8] mb-1 font-medium">
+              <label className="block text-kin-muted mb-1 font-medium">
                 Directive Prompt to Execute Upon Trigger
               </label>
               <textarea
@@ -652,7 +643,7 @@ export const AutomationsView: React.FC = () => {
                 onChange={(e) => setPrompt(e.target.value)}
                 placeholder="e.g. Inspect git diff for uncommitted changes, verify project dependencies, and post findings..."
                 rows={3}
-                className="w-full bg-[#1e293b] border border-[#2d3748] rounded-lg p-2.5 text-white font-sans text-xs focus:border-cyan-500 focus:outline-none"
+                className="w-full bg-kin-card border border-kin-border rounded-lg p-2.5 text-kin-text font-sans text-xs focus:border-cyan-500 focus:outline-none"
               />
             </div>
 
@@ -660,7 +651,7 @@ export const AutomationsView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsCreating(false)}
-                className="px-3.5 py-1.5 rounded-lg bg-[#1e293b] hover:bg-[#283548] text-[#94a3b8] text-xs font-medium cursor-pointer"
+                className="px-3.5 py-1.5 rounded-lg bg-kin-card hover:bg-kin-cardHover text-kin-muted text-xs font-medium cursor-pointer"
               >
                 Cancel
               </button>
@@ -681,22 +672,22 @@ export const AutomationsView: React.FC = () => {
         <div className="flex items-center space-x-2">
           {/* Search */}
           <div className="relative">
-            <Search className="w-3.5 h-3.5 text-[#64748b] absolute left-2.5 top-2.5" />
+            <Search className="w-3.5 h-3.5 text-kin-muted absolute left-2.5 top-2.5" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search prompt, agent, channel..."
-              className="bg-[#111827] border border-[#1e293b] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-[#64748b] focus:border-cyan-500 focus:outline-none w-56"
+              className="bg-kin-surface border border-kin-border rounded-lg pl-8 pr-3 py-1.5 text-xs text-kin-text placeholder-kin-subtle focus:border-cyan-500 focus:outline-none w-56"
             />
           </div>
 
           {/* Type Filter */}
-          <div className="flex rounded-lg overflow-hidden border border-[#1e293b]">
+          <div className="flex rounded-lg overflow-hidden border border-kin-border">
             <button
               onClick={() => setFilterType('all')}
               className={`px-2.5 py-1 text-[11px] font-mono cursor-pointer ${
-                filterType === 'all' ? 'bg-[#1e293b] text-cyan-400 font-bold' : 'bg-[#0f172a] text-[#94a3b8]'
+                filterType === 'all' ? 'bg-kin-card text-cyan-400 font-bold' : 'bg-kin-card text-kin-muted'
               }`}
             >
               All
@@ -704,7 +695,7 @@ export const AutomationsView: React.FC = () => {
             <button
               onClick={() => setFilterType('one_shot')}
               className={`px-2.5 py-1 text-[11px] font-mono cursor-pointer ${
-                filterType === 'one_shot' ? 'bg-[#1e293b] text-cyan-400 font-bold' : 'bg-[#0f172a] text-[#94a3b8]'
+                filterType === 'one_shot' ? 'bg-kin-card text-cyan-400 font-bold' : 'bg-kin-card text-kin-muted'
               }`}
             >
               Timers
@@ -712,7 +703,7 @@ export const AutomationsView: React.FC = () => {
             <button
               onClick={() => setFilterType('cron')}
               className={`px-2.5 py-1 text-[11px] font-mono cursor-pointer ${
-                filterType === 'cron' ? 'bg-[#1e293b] text-cyan-400 font-bold' : 'bg-[#0f172a] text-[#94a3b8]'
+                filterType === 'cron' ? 'bg-kin-card text-cyan-400 font-bold' : 'bg-kin-card text-kin-muted'
               }`}
             >
               Routines
@@ -720,11 +711,11 @@ export const AutomationsView: React.FC = () => {
           </div>
 
           {/* Status Filter */}
-          <div className="flex rounded-lg overflow-hidden border border-[#1e293b]">
+          <div className="flex rounded-lg overflow-hidden border border-kin-border">
             <button
               onClick={() => setFilterStatus('all')}
               className={`px-2.5 py-1 text-[11px] font-mono cursor-pointer ${
-                filterStatus === 'all' ? 'bg-[#1e293b] text-emerald-400 font-bold' : 'bg-[#0f172a] text-[#94a3b8]'
+                filterStatus === 'all' ? 'bg-kin-card text-emerald-400 font-bold' : 'bg-kin-card text-kin-muted'
               }`}
             >
               All Status
@@ -732,7 +723,7 @@ export const AutomationsView: React.FC = () => {
             <button
               onClick={() => setFilterStatus('active')}
               className={`px-2.5 py-1 text-[11px] font-mono cursor-pointer ${
-                filterStatus === 'active' ? 'bg-[#1e293b] text-emerald-400 font-bold' : 'bg-[#0f172a] text-[#94a3b8]'
+                filterStatus === 'active' ? 'bg-kin-card text-emerald-400 font-bold' : 'bg-kin-card text-kin-muted'
               }`}
             >
               Active
@@ -740,7 +731,7 @@ export const AutomationsView: React.FC = () => {
             <button
               onClick={() => setFilterStatus('completed')}
               className={`px-2.5 py-1 text-[11px] font-mono cursor-pointer ${
-                filterStatus === 'completed' ? 'bg-[#1e293b] text-emerald-400 font-bold' : 'bg-[#0f172a] text-[#94a3b8]'
+                filterStatus === 'completed' ? 'bg-kin-card text-emerald-400 font-bold' : 'bg-kin-card text-kin-muted'
               }`}
             >
               Completed
@@ -748,7 +739,7 @@ export const AutomationsView: React.FC = () => {
             <button
               onClick={() => setFilterStatus('failed')}
               className={`px-2.5 py-1 text-[11px] font-mono cursor-pointer ${
-                filterStatus === 'failed' ? 'bg-[#1e293b] text-red-400 font-bold' : 'bg-[#0f172a] text-[#94a3b8]'
+                filterStatus === 'failed' ? 'bg-kin-card text-red-400 font-bold' : 'bg-kin-card text-kin-muted'
               }`}
             >
               Failed
@@ -756,7 +747,7 @@ export const AutomationsView: React.FC = () => {
           </div>
         </div>
 
-        <div className="text-xs text-[#94a3b8] font-mono">
+        <div className="text-xs text-kin-muted font-mono">
           Showing {filteredSchedules.length} of {totalCount} automations
         </div>
       </div>
@@ -778,10 +769,10 @@ export const AutomationsView: React.FC = () => {
               key={s.id}
               className={`p-3.5 rounded-xl border transition-all ${
                 s.status === 'active'
-                  ? 'bg-[#0d1424] border-[#1e293b] hover:border-cyan-500/50 shadow-md'
+                  ? 'bg-kin-card border-kin-border hover:border-cyan-500/50 shadow-md'
                   : s.status === 'failed'
-                  ? 'bg-[#180d12] border-red-900/40 shadow-md'
-                  : 'bg-[#070b14]/70 border-[#1a2234] opacity-75'
+                  ? 'bg-kin-card border-red-900/40 shadow-md'
+                  : 'bg-kin-surface/70 border-kin-border opacity-75'
               }`}
             >
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -824,13 +815,13 @@ export const AutomationsView: React.FC = () => {
                     </span>
 
                     {s.cronExpression && (
-                      <span className="font-mono text-[10px] text-[#64748b] bg-[#1e293b] px-1.5 py-0.5 rounded">
+                      <span className="font-mono text-[10px] text-kin-muted bg-kin-card px-1.5 py-0.5 rounded">
                         {s.cronExpression}
                       </span>
                     )}
                   </div>
 
-                  <div className="text-white text-xs font-medium font-sans leading-relaxed break-words">
+                  <div className="text-kin-text text-xs font-medium font-sans leading-relaxed break-words">
                     {s.prompt}
                   </div>
 
@@ -841,7 +832,7 @@ export const AutomationsView: React.FC = () => {
                     </div>
                   )}
 
-                  <div className="flex flex-wrap items-center gap-3 text-[11px] text-[#94a3b8]">
+                  <div className="flex flex-wrap items-center gap-3 text-[11px] text-kin-muted">
                     <span className="flex items-center space-x-1">
                       <Bot className="w-3 h-3 text-emerald-400" />
                       <span>{targetAgent?.displayName || s.targetAgentId || '@Boss'}</span>
@@ -858,7 +849,7 @@ export const AutomationsView: React.FC = () => {
                     </span>
 
                     {s.lastRunAt && (
-                      <span className="text-[#64748b]">
+                      <span className="text-kin-muted">
                         Last ran: {new Date(s.lastRunAt).toLocaleTimeString()}
                       </span>
                     )}
@@ -891,7 +882,7 @@ export const AutomationsView: React.FC = () => {
 
                   <button
                     onClick={() => handleViewAttempts(s.id)}
-                    className="p-1.5 rounded-lg bg-[#1e293b] hover:bg-[#283548] text-[#94a3b8] hover:text-white border border-[#2d3748] transition cursor-pointer"
+                    className="p-1.5 rounded-lg bg-kin-card hover:bg-kin-cardHover text-kin-muted hover:text-kin-text border border-kin-border transition cursor-pointer"
                     title="View execution attempt history"
                   >
                     <Activity className="w-3.5 h-3.5 text-purple-400" />
@@ -913,10 +904,10 @@ export const AutomationsView: React.FC = () => {
         })}
 
         {filteredSchedules.length === 0 && (
-          <div className="py-16 text-center border border-dashed border-[#1e293b] rounded-2xl bg-[#0c1222]/30 space-y-3">
+          <div className="py-16 text-center border border-dashed border-kin-border rounded-2xl bg-kin-surface/30 space-y-3">
             <Timer className="w-10 h-10 text-cyan-400/40 mx-auto" />
-            <div className="text-sm font-semibold text-white">No schedules match the criteria</div>
-            <p className="text-xs text-[#64748b] max-w-sm mx-auto">
+            <div className="text-sm font-semibold text-kin-text">No schedules match the criteria</div>
+            <p className="text-xs text-kin-muted max-w-sm mx-auto">
               Create an automated wakeup timer or proactive routine using the blueprints or button above.
             </p>
           </div>
@@ -926,15 +917,15 @@ export const AutomationsView: React.FC = () => {
       {/* Execution Attempts History Modal */}
       {attemptsScheduleId && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#0e1628] border border-[#1e293b] rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
-            <div className="px-5 py-3.5 border-b border-[#1e293b] flex items-center justify-between bg-[#0a0f1d]">
+          <div className="bg-kin-card border border-kin-border rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+            <div className="px-5 py-3.5 border-b border-kin-border flex items-center justify-between bg-kin-surface">
               <div className="flex items-center space-x-2">
                 <Activity className="w-4 h-4 text-purple-400" />
-                <h3 className="text-sm font-semibold text-white">Execution Attempts History</h3>
+                <h3 className="text-sm font-semibold text-kin-text">Execution Attempts History</h3>
               </div>
               <button
                 onClick={() => setAttemptsScheduleId(null)}
-                className="p-1 text-[#94a3b8] hover:text-white rounded-lg hover:bg-[#1e293b] transition"
+                className="p-1 text-kin-muted hover:text-kin-text rounded-lg hover:bg-kin-cardHover transition"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -942,20 +933,20 @@ export const AutomationsView: React.FC = () => {
 
             <div className="p-4 overflow-y-auto space-y-2.5 flex-1">
               {loadingAttempts ? (
-                <div className="py-8 text-center text-xs text-[#64748b]">Loading attempts...</div>
+                <div className="py-8 text-center text-xs text-kin-muted">Loading attempts...</div>
               ) : attemptsList.length === 0 ? (
-                <div className="py-8 text-center text-xs text-[#64748b]">
+                <div className="py-8 text-center text-xs text-kin-muted">
                   No execution attempts recorded yet for this schedule.
                 </div>
               ) : (
                 attemptsList.map((att) => (
                   <div
                     key={att.id}
-                    className="p-3 rounded-xl border border-[#1e293b] bg-[#070b14] flex flex-col space-y-1 text-xs"
+                    className="p-3 rounded-xl border border-kin-border bg-kin-surface flex flex-col space-y-1 text-xs"
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2">
-                        <span className="font-mono text-[#94a3b8]">Attempt #{att.attemptNumber}</span>
+                        <span className="font-mono text-kin-muted">Attempt #{att.attemptNumber}</span>
                         <span
                           className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
                             att.status === 'success'
@@ -966,7 +957,7 @@ export const AutomationsView: React.FC = () => {
                           {att.status}
                         </span>
                       </div>
-                      <span className="text-[11px] text-[#64748b] font-mono">
+                      <span className="text-[11px] text-kin-muted font-mono">
                         {new Date(att.executedAt).toLocaleTimeString()}
                       </span>
                     </div>
@@ -980,10 +971,10 @@ export const AutomationsView: React.FC = () => {
               )}
             </div>
 
-            <div className="px-5 py-3 border-t border-[#1e293b] bg-[#0a0f1d] flex justify-end">
+            <div className="px-5 py-3 border-t border-kin-border bg-kin-surface flex justify-end">
               <button
                 onClick={() => setAttemptsScheduleId(null)}
-                className="px-3 py-1.5 rounded-lg bg-[#1e293b] hover:bg-[#283548] text-[#94a3b8] text-xs font-medium cursor-pointer"
+                className="px-3 py-1.5 rounded-lg bg-kin-card hover:bg-kin-cardHover text-kin-muted text-xs font-medium cursor-pointer"
               >
                 Close
               </button>

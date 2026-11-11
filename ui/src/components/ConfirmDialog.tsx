@@ -95,7 +95,7 @@ export const ConfirmDialog: React.FC = () => {
       aria-modal="true"
     >
       <div
-        className="relative w-full max-w-md bg-[#0c1017] border border-[#1e293b] rounded-xl shadow-2xl overflow-hidden text-kin-text animate-scaleUp p-5 space-y-4"
+        className="relative w-full max-w-md bg-kin-surface border border-kin-border rounded-xl shadow-2xl overflow-hidden text-kin-text animate-scaleUp p-5 space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between">
@@ -116,7 +116,7 @@ export const ConfirmDialog: React.FC = () => {
           <button
             type="button"
             onClick={handleCancel}
-            className="p-1 rounded-md text-kin-muted hover:text-kin-text hover:bg-slate-800 transition"
+            className="p-1 rounded-md text-kin-muted hover:text-kin-text hover:bg-kin-cardHover transition cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -124,11 +124,11 @@ export const ConfirmDialog: React.FC = () => {
 
         <p className="text-xs text-kin-muted leading-relaxed pl-1">{message}</p>
 
-        <div className="flex items-center justify-end space-x-2 pt-2 border-t border-[#1e293b]/60">
+        <div className="flex items-center justify-end space-x-2 pt-2 border-t border-kin-border">
           <button
             type="button"
             onClick={handleCancel}
-            className="px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 text-kin-muted hover:text-kin-text text-xs font-medium transition cursor-pointer"
+            className="px-3 py-1.5 rounded-lg bg-kin-card hover:bg-kin-cardHover text-kin-muted hover:text-kin-text border border-kin-border text-xs font-medium transition cursor-pointer"
           >
             {cancelLabel}
           </button>

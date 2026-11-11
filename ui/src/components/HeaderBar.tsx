@@ -119,7 +119,7 @@ export const HeaderBar: React.FC = () => {
                   }
                 }
               }}
-              className="p-1 rounded hover:bg-red-900/30 text-kin-muted hover:text-red-400 transition"
+              className="p-1 rounded hover:bg-red-500/10 text-kin-muted hover:text-red-600 dark:hover:text-red-400 transition"
               title="Delete Active Project"
             >
               <X className="w-3 h-3" />
@@ -143,10 +143,10 @@ export const HeaderBar: React.FC = () => {
         {/* Swarm Map Top Navigation Button */}
         <button
           onClick={() => setSwarmMapOpen(true)}
-          className="flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/20 text-xs font-sans font-medium transition cursor-pointer"
+          className="flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-purple-500/10 hover:bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/20 text-xs font-sans font-medium transition cursor-pointer"
           title="Open Swarm Map Hierarchy & Workforce Topology"
         >
-          <Network className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+          <Network className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
           <span>Swarm Map</span>
         </button>
       </div>
@@ -157,10 +157,10 @@ export const HeaderBar: React.FC = () => {
         <div className="flex items-center space-x-2 px-2.5 py-0.5 rounded-md bg-kin-card border border-kin-border text-kin-muted">
           {/* Real DB Status */}
           <div
-            className={`flex items-center space-x-1 ${isConnected ? 'text-emerald-400' : 'text-amber-400'}`}
+            className={`flex items-center space-x-1 ${isConnected ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}
             title={isConnected ? 'SQLite 3 WAL Engine Active' : 'Connecting to Core Daemon...'}
           >
-            <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
+            <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
             <span>DB: {isConnected ? 'WAL' : 'Connecting...'}</span>
           </div>
 
@@ -185,7 +185,7 @@ export const HeaderBar: React.FC = () => {
           className="hidden sm:flex items-center space-x-1 px-2.5 py-0.5 rounded-md bg-kin-card hover:bg-kin-cardHover border border-kin-border text-kin-muted hover:text-kin-text transition cursor-pointer"
           title="Open Model Context Protocol (MCP) Connectors Hub in Settings"
         >
-          <Server className="w-3 h-3 text-emerald-400 shrink-0" />
+          <Server className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
           <span className="text-[10px]">MCP: {mcpConnectors.filter((c) => !c.disabled).length}</span>
         </button>
 
@@ -194,13 +194,13 @@ export const HeaderBar: React.FC = () => {
           onClick={toggleInspector}
           className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md border text-xs font-sans font-medium transition cursor-pointer ${
             isInspectorOpen
-              ? 'bg-blue-500/15 border-blue-500/30 text-blue-300'
+              ? 'bg-blue-500/15 border-blue-500/30 text-blue-700 dark:text-blue-300'
               : 'bg-kin-card border-kin-border text-kin-muted hover:text-kin-text hover:bg-kin-cardHover'
           }`}
           title={isInspectorOpen ? 'Collapse Inspector (Gain Full Workspace Width)' : 'Expand Inspector & Diagnostics'}
         >
           {isInspectorOpen ? (
-            <PanelRightClose className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <PanelRightClose className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
           ) : (
             <PanelRight className="w-3.5 h-3.5 text-kin-muted shrink-0" />
           )}

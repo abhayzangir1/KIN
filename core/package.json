@@ -7,6 +7,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
+    "typecheck": "tsc --noEmit",
     "build": "tsc && node -e \"import('node:fs').then(fs => { fs.mkdirSync('dist/storage', {recursive:true}); fs.copyFileSync('src/storage/schema.sql', 'dist/storage/schema.sql'); })\"",
     "dev": "tsc -w",
     "daemon": "node dist/start_daemon.js",

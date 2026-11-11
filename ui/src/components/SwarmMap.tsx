@@ -610,23 +610,23 @@ export const SwarmMap: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-2 sm:p-5 animate-fadeIn select-none font-sans">
-      <div className="bg-white dark:bg-[#090d16] border border-slate-200 dark:border-[#1e293b] rounded-2xl w-full max-w-[96vw] h-[95vh] flex flex-col shadow-2xl overflow-hidden transition-colors">
+      <div className="bg-kin-surface border border-kin-border rounded-2xl w-full max-w-[96vw] h-[95vh] flex flex-col shadow-2xl overflow-hidden transition-colors">
         {/* TOP CONTROL BAR */}
-        <div className="px-5 py-3 border-b border-slate-200 dark:border-[#1e293b] bg-slate-50 dark:bg-[#0c1222] flex items-center justify-between shrink-0 flex-wrap gap-2.5 transition-colors">
+        <div className="px-5 py-3 border-b border-kin-border bg-kin-surface flex items-center justify-between shrink-0 flex-wrap gap-2.5 transition-colors">
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
               <Network className="w-4 h-4" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <span className="font-bold text-slate-900 dark:text-white text-sm tracking-wide">
+                <span className="font-bold text-kin-text text-sm tracking-wide">
                   Autonomous Workforce Swarm Map
                 </span>
                 <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-bold">
                   {viewMode === 'flow' ? 'Free-Form Dynamic Canvas' : viewMode === 'hierarchy' ? 'Dynamic Bus Hierarchy' : 'Department Matrix'}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 dark:text-[#64748b]">
+              <p className="text-[11px] text-kin-muted">
                 Real-time peer coordination, live execution indicators, and seamless in-map model switching
               </p>
             </div>
@@ -635,19 +635,19 @@ export const SwarmMap: React.FC = () => {
           {/* Scope Filters & Canvas Actions */}
           <div className="flex items-center space-x-2 shrink-0 flex-wrap gap-1.5">
             {/* Quick Search */}
-            <div className="flex items-center space-x-1.5 bg-slate-100 dark:bg-[#070b12] px-2.5 py-1 rounded-lg border border-slate-300 dark:border-[#1e293b] text-xs">
-              <Search className="w-3.5 h-3.5 text-slate-400 dark:text-[#64748b] shrink-0" />
+            <div className="flex items-center space-x-1.5 bg-kin-card px-2.5 py-1 rounded-lg border border-kin-border text-xs">
+              <Search className="w-3.5 h-3.5 text-kin-muted shrink-0" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search specialists, models..."
-                className="bg-transparent text-slate-900 dark:text-white text-xs focus:outline-none placeholder:text-slate-400 dark:placeholder:text-[#64748b] w-28 sm:w-36"
+                className="bg-transparent text-kin-text text-xs focus:outline-none placeholder:text-kin-muted w-28 sm:w-36"
               />
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
-                  className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-0.5"
+                  className="text-kin-muted hover:text-kin-text p-0.5"
                   title="Clear search"
                 >
                   <X className="w-3 h-3" />
@@ -656,13 +656,13 @@ export const SwarmMap: React.FC = () => {
             </div>
 
             {/* View Mode Switcher */}
-            <div className="flex items-center bg-slate-100 dark:bg-[#070b12] p-0.5 rounded-lg border border-slate-300 dark:border-[#1e293b]">
+            <div className="flex items-center bg-kin-card p-0.5 rounded-lg border border-kin-border">
               <button
                 onClick={() => setViewMode('flow')}
                 className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
                   viewMode === 'flow'
                     ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-[#64748b] hover:text-slate-900 dark:hover:text-white'
+                    : 'text-kin-muted hover:text-kin-text'
                 }`}
                 title="View free-form draggable & zoomable swarm canvas"
               >
@@ -674,7 +674,7 @@ export const SwarmMap: React.FC = () => {
                 className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
                   viewMode === 'hierarchy'
                     ? 'bg-purple-600 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-[#64748b] hover:text-slate-900 dark:hover:text-white'
+                    : 'text-kin-muted hover:text-kin-text'
                 }`}
                 title="View multi-tier delegation tree hierarchy"
               >
@@ -686,7 +686,7 @@ export const SwarmMap: React.FC = () => {
                 className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
                   viewMode === 'matrix'
                     ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-[#64748b] hover:text-slate-900 dark:hover:text-white'
+                    : 'text-kin-muted hover:text-kin-text'
                 }`}
                 title="View interactive Agent Capability Grid"
               >
@@ -698,7 +698,7 @@ export const SwarmMap: React.FC = () => {
                 className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
                   viewMode === 'accessible_tree'
                     ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-[#64748b] hover:text-slate-900 dark:hover:text-white'
+                    : 'text-kin-muted hover:text-kin-text'
                 }`}
                 title="Accessible keyboard-navigable workforce tree"
               >
@@ -708,13 +708,13 @@ export const SwarmMap: React.FC = () => {
             </div>
 
             {/* Filter Scope Toggle */}
-            <div className="flex items-center bg-slate-100 dark:bg-[#070b12] p-0.5 rounded-lg border border-slate-300 dark:border-[#1e293b]">
+            <div className="flex items-center bg-kin-card p-0.5 rounded-lg border border-kin-border">
               <button
                 onClick={() => setFilterScope('all')}
                 className={`px-2 py-1 rounded-md text-xs font-semibold transition ${
                   filterScope === 'all'
                     ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-[#64748b] hover:text-slate-900 dark:hover:text-white'
+                    : 'text-kin-muted hover:text-kin-text'
                 }`}
               >
                 All ({agents.length})
@@ -724,7 +724,7 @@ export const SwarmMap: React.FC = () => {
                 className={`px-2 py-1 rounded-md text-xs font-semibold transition ${
                   filterScope === 'channel'
                     ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-[#64748b] hover:text-slate-900 dark:hover:text-white'
+                    : 'text-kin-muted hover:text-kin-text'
                 }`}
               >
                 Channel
@@ -735,7 +735,7 @@ export const SwarmMap: React.FC = () => {
               <select
                 value={selectedChannelId}
                 onChange={(e) => setSelectedChannelId(e.target.value)}
-                className="bg-slate-100 dark:bg-[#070b12] text-slate-800 dark:text-white border border-slate-300 dark:border-[#1e293b] rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-blue-500"
+                className="bg-kin-card text-kin-text border border-kin-border rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-blue-500"
               >
                 {channels
                   .filter((c) => !c.id.startsWith('dm-'))
@@ -765,7 +765,7 @@ export const SwarmMap: React.FC = () => {
               className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
                 isDrawerOpen
                   ? 'bg-blue-600/20 border-blue-500/40 text-blue-600 dark:text-blue-300'
-                  : 'bg-slate-100 dark:bg-[#1e293b] border-slate-300 dark:border-[#334155] text-slate-600 dark:text-[#94a3b8] hover:text-slate-900 dark:hover:text-white'
+                  : 'bg-kin-card border-kin-border text-kin-muted hover:text-kin-text'
               }`}
               title={isDrawerOpen ? 'Collapse Activity Drawer' : 'Open Activity Drawer'}
             >
@@ -779,7 +779,7 @@ export const SwarmMap: React.FC = () => {
                 fetchState();
                 if (selectedAgent) fetchAgentExecutionDetails(selectedAgent.id);
               }}
-              className="p-1.5 rounded-lg bg-slate-100 dark:bg-[#1e293b] hover:bg-slate-200 dark:hover:bg-[#2d3748] text-slate-600 dark:text-[#94a3b8] transition cursor-pointer"
+              className="p-1.5 rounded-lg bg-kin-card hover:bg-kin-cardHover text-kin-muted transition cursor-pointer"
               title="Refresh Swarm State"
             >
               <RefreshCw className="w-3.5 h-3.5" />
@@ -788,7 +788,7 @@ export const SwarmMap: React.FC = () => {
             {/* Close */}
             <button
               onClick={() => setSwarmMapOpen(false)}
-              className="p-1.5 rounded-lg bg-slate-100 dark:bg-[#1e293b] hover:bg-red-500/20 hover:text-red-500 text-slate-600 dark:text-[#94a3b8] transition cursor-pointer"
+              className="p-1.5 rounded-lg bg-kin-card hover:bg-red-500/20 hover:text-red-500 text-kin-muted transition cursor-pointer"
               title="Close Swarm Map"
             >
               <X className="w-4 h-4" />
@@ -803,7 +803,7 @@ export const SwarmMap: React.FC = () => {
             <div
               ref={canvasContainerRef}
               onMouseDown={handleCanvasMouseDown}
-              className={`flex-1 relative overflow-hidden bg-slate-100 dark:bg-[#070b14] select-none ${
+              className={`flex-1 relative overflow-hidden bg-kin-bg select-none ${
                 isPanning ? 'cursor-grabbing' : 'cursor-grab'
               }`}
             >
@@ -819,11 +819,11 @@ export const SwarmMap: React.FC = () => {
               />
 
               {/* Floating Canvas Controls Toolbar */}
-              <div className="absolute top-4 left-4 z-40 flex items-center space-x-1.5 p-1.5 rounded-2xl bg-white/95 dark:bg-[#0c1427]/95 border border-slate-300 dark:border-blue-500/30 shadow-xl backdrop-blur-md">
+              <div className="absolute top-4 left-4 z-40 flex items-center space-x-1.5 p-1.5 rounded-2xl bg-kin-surface/95 border border-kin-border shadow-xl backdrop-blur-md">
                 <button
                   type="button"
                   onClick={() => setZoom((z) => Math.min(2.5, Number((z + 0.15).toFixed(2))))}
-                  className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition cursor-pointer"
+                  className="p-1.5 rounded-lg hover:bg-kin-cardHover text-kin-text transition cursor-pointer"
                   title="Zoom In"
                 >
                   <ZoomIn className="w-4 h-4" />
@@ -831,20 +831,20 @@ export const SwarmMap: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setZoom((z) => Math.max(0.35, Number((z - 0.15).toFixed(2))))}
-                  className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition cursor-pointer"
+                  className="p-1.5 rounded-lg hover:bg-kin-cardHover text-kin-text transition cursor-pointer"
                   title="Zoom Out"
                 >
                   <ZoomOut className="w-4 h-4" />
                 </button>
-                <div className="h-4 w-px bg-slate-300 dark:bg-[#1e293b]" />
-                <span className="px-2 py-0.5 rounded-md text-xs font-mono font-bold text-slate-700 dark:text-blue-300">
+                <div className="h-4 w-px bg-kin-border" />
+                <span className="px-2 py-0.5 rounded-md text-xs font-mono font-bold text-kin-text">
                   {Math.round(zoom * 100)}%
                 </span>
-                <div className="h-4 w-px bg-slate-300 dark:bg-[#1e293b]" />
+                <div className="h-4 w-px bg-kin-border" />
                 <button
                   type="button"
                   onClick={handleResetLayout}
-                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 transition cursor-pointer"
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg hover:bg-kin-cardHover text-xs font-semibold text-kin-text transition cursor-pointer"
                   title="Reset canvas zoom, pan, and restore auto-arranged layout"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
@@ -853,7 +853,7 @@ export const SwarmMap: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleAutoFit}
-                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 transition cursor-pointer"
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg hover:bg-kin-cardHover text-xs font-semibold text-kin-text transition cursor-pointer"
                   title="Auto-fit all nodes to the canvas viewport"
                 >
                   <Maximize2 className="w-3.5 h-3.5" />
@@ -862,7 +862,7 @@ export const SwarmMap: React.FC = () => {
               </div>
 
               {/* Canvas Interactive Instruction Pill */}
-              <div className="absolute top-4 right-4 z-40 hidden md:flex items-center space-x-2 px-3 py-1.5 rounded-full bg-white/90 dark:bg-[#0c1427]/90 border border-slate-200 dark:border-slate-800 text-[11px] font-mono text-slate-600 dark:text-[#94a3b8] shadow-md backdrop-blur-md">
+              <div className="absolute top-4 right-4 z-40 hidden md:flex items-center space-x-2 px-3 py-1.5 rounded-full bg-kin-surface/90 border border-kin-border text-[11px] font-mono text-kin-muted shadow-md backdrop-blur-md">
                 <Move className="w-3.5 h-3.5 text-blue-500" />
                 <span>Drag canvas to pan • Wheel to zoom • Drag cards to arrange</span>
               </div>
@@ -1016,22 +1016,22 @@ export const SwarmMap: React.FC = () => {
                         onClick={() => setSelectedLinkId(link.id)}
                         className={`group/badge px-2.5 py-1 rounded-xl text-[10px] font-mono transition-all duration-200 border shadow-lg flex items-center space-x-1.5 cursor-pointer backdrop-blur-md ${
                           isLinkActive
-                            ? 'bg-amber-50 dark:bg-[#101b33] border-amber-400 dark:border-cyan-400 text-amber-900 dark:text-cyan-200 shadow-[0_0_16px_rgba(251,191,36,0.35)] scale-105'
-                            : 'bg-white/95 dark:bg-[#0d1424]/90 border-slate-300 dark:border-[#1e293b] text-slate-800 dark:text-[#94a3b8] hover:border-blue-500/50'
+                            ? 'bg-amber-500/10 dark:bg-cyan-950/40 border-amber-400 dark:border-cyan-400 text-kin-text shadow-[0_0_16px_rgba(251,191,36,0.35)] scale-105'
+                            : 'bg-kin-card/95 border-kin-border text-kin-muted hover:border-blue-500/50'
                         }`}
                         title={`Click to inspect details of link: ${link.directive}`}
                       >
                         <span className={`w-1.5 h-1.5 rounded-full ${isLinkActive ? 'bg-amber-400 dark:bg-cyan-400 animate-ping' : 'bg-blue-400'}`} />
-                        <span className="font-bold text-slate-800 dark:text-amber-300 flex items-center space-x-1">
+                        <span className="font-bold text-kin-text flex items-center space-x-1">
                           <span>{link.fromAgentName || 'Agent'}</span>
                           <ArrowRight className="w-2.5 h-2.5 text-blue-500 inline" />
                           <span>{link.targetAgentName || 'Specialist'}</span>
                         </span>
-                        <span className="text-slate-400 dark:text-[#64748b]">|</span>
-                        <span className="truncate max-w-[120px] text-slate-700 dark:text-[#cbd5e1]">
+                        <span className="text-kin-muted">|</span>
+                        <span className="truncate max-w-[120px] text-kin-text">
                           "{link.directive}"
                         </span>
-                        <span className="text-[9px] px-1 py-0.2 rounded bg-slate-100 dark:bg-black/50 text-blue-700 dark:text-blue-300 border border-slate-200 dark:border-transparent">
+                        <span className="text-[9px] px-1 py-0.2 rounded bg-kin-surface text-blue-600 dark:text-blue-400 border border-kin-border">
                           #{link.channelId.replace(/^chan-/, '')}
                         </span>
                       </button>
@@ -1089,21 +1089,21 @@ export const SwarmMap: React.FC = () => {
                         isDraggingThis
                           ? 'ring-4 ring-blue-500 shadow-2xl cursor-grabbing scale-105 z-50'
                           : isSelected
-                          ? 'bg-blue-50/95 dark:bg-[#151f38]/95 border-blue-500 shadow-[0_0_24px_rgba(59,130,246,0.35)] ring-2 ring-blue-400'
+                          ? 'bg-blue-50/95 dark:bg-blue-950/70 border-blue-500 shadow-[0_0_24px_rgba(59,130,246,0.35)] ring-2 ring-blue-400'
                           : isBusy
-                          ? 'bg-amber-50/95 dark:bg-[#151c2f]/95 border-amber-500 shadow-[0_0_22px_rgba(251,191,36,0.35)] ring-1 ring-amber-400/80 animate-pulse'
+                          ? 'bg-amber-50/95 dark:bg-amber-950/70 border-amber-500 shadow-[0_0_22px_rgba(251,191,36,0.35)] ring-1 ring-amber-400/80 animate-pulse'
                           : isCoordinating
-                          ? 'bg-cyan-50/95 dark:bg-[#101b33]/95 border-cyan-400 shadow-[0_0_18px_rgba(6,182,212,0.3)] ring-1 ring-cyan-400/50 scale-[1.01]'
+                          ? 'bg-cyan-50/95 dark:bg-cyan-950/70 border-cyan-400 shadow-[0_0_18px_rgba(6,182,212,0.3)] ring-1 ring-cyan-400/50 scale-[1.01]'
                           : isHovered
-                          ? 'bg-cyan-50/95 dark:bg-[#101b33]/95 border-cyan-500 shadow-[0_0_18px_rgba(6,182,212,0.3)] scale-[1.02]'
+                          ? 'bg-cyan-50/95 dark:bg-cyan-950/70 border-cyan-500 shadow-[0_0_18px_rgba(6,182,212,0.3)] scale-[1.02]'
                           : isOrch
-                          ? 'bg-amber-500/10 dark:bg-[#0f172a] border-amber-500/40 hover:border-amber-400'
-                          : 'bg-white dark:bg-[#0c1427] border-slate-200 dark:border-slate-800 hover:border-blue-500/60'
+                          ? 'bg-amber-500/10 border-amber-500/40 hover:border-amber-400'
+                          : 'bg-kin-card border-kin-border hover:border-blue-500/60'
                       }`}
                     >
                       {/* Top Port Indicator (Inflow) */}
                       {!isOrch && (
-                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 flex items-center space-x-1 px-1.5 py-0.2 rounded-full bg-white dark:bg-[#0a0f1d] border border-blue-500/40 text-[9px] font-mono text-blue-600 dark:text-blue-300 shadow">
+                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 flex items-center space-x-1 px-1.5 py-0.2 rounded-full bg-kin-surface border border-blue-500/40 text-[9px] font-mono text-blue-600 dark:text-blue-400 shadow">
                           <span className="w-1 h-1 rounded-full bg-blue-500" />
                           <span>▲ IN</span>
                         </div>
@@ -1112,7 +1112,7 @@ export const SwarmMap: React.FC = () => {
                       {/* Card Header (Drag Handle) */}
                       <div
                         onMouseDown={(e) => handleAgentMouseDown(e, agent.id)}
-                        className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-[#1e293b]/70 cursor-grab active:cursor-grabbing group/header"
+                        className="flex items-center justify-between pb-2 border-b border-kin-border cursor-grab active:cursor-grabbing group/header"
                         title="Drag to reposition agent node on canvas"
                       >
                         <div className="flex items-center space-x-2.5">
@@ -1126,15 +1126,15 @@ export const SwarmMap: React.FC = () => {
                             {isOrch ? <Shield className="w-4 h-4 text-amber-500" /> : <Bot className="w-4 h-4 text-blue-500" />}
                           </div>
                           <div>
-                            <div className="font-bold text-slate-900 dark:text-white text-xs flex items-center space-x-1.5">
+                            <div className="font-bold text-kin-text text-xs flex items-center space-x-1.5">
                               <span>{agent.displayName}</span>
                               <span
                                 className={`w-2 h-2 rounded-full ${
-                                  isBusy ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400 shadow-[0_0_6px_#34d399]'
+                                  isBusy ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]'
                                 }`}
                               />
                             </div>
-                            <span className="text-[10px] text-slate-500 dark:text-[#94a3b8] font-mono font-medium block truncate max-w-[130px]">
+                            <span className="text-[10px] text-kin-muted font-mono font-medium block truncate max-w-[130px]">
                               {agent.role || 'Autonomous Specialist'}
                             </span>
                           </div>
@@ -1206,7 +1206,7 @@ export const SwarmMap: React.FC = () => {
                       )}
                       {/* Seamless In-Map Model Switching Dropdown */}
                       <div className="mt-2.5 pt-1.5 flex items-center justify-between text-xs font-mono">
-                        <div className="flex items-center space-x-1 text-slate-500 dark:text-[#64748b]">
+                        <div className="flex items-center space-x-1 text-kin-muted">
                           <Cpu className="w-3 h-3 text-blue-500 dark:text-blue-400 shrink-0" />
                           <span className="text-[10px]">Model:</span>
                         </div>
@@ -1228,8 +1228,8 @@ export const SwarmMap: React.FC = () => {
                             }}
                             className={`px-2 py-0.5 pr-5 rounded-md text-[10px] font-mono border appearance-none transition focus:outline-none max-w-[160px] truncate ${
                               isBusy
-                                ? 'cursor-not-allowed opacity-60 bg-slate-100 dark:bg-slate-900/80 border-slate-300 dark:border-slate-800 text-slate-400'
-                                : 'cursor-pointer bg-white dark:bg-[#070b14] hover:bg-slate-50 dark:hover:bg-blue-950/40 border-slate-200 dark:border-blue-500/40 text-blue-600 dark:text-blue-300 focus:border-blue-500'
+                                ? 'cursor-not-allowed opacity-60 bg-kin-card border-kin-border text-kin-muted'
+                                : 'cursor-pointer bg-kin-surface hover:bg-kin-cardHover border-kin-border text-blue-600 dark:text-blue-400 focus:border-blue-500'
                             }`}
                             title={
                               isBusy
@@ -1292,7 +1292,7 @@ export const SwarmMap: React.FC = () => {
                           <span className="truncate font-semibold">⚡ Tool: {currentToolName}</span>
                         </div>
                       ) : (
-                        <div className="mt-2 flex items-center justify-between text-[10px] text-slate-500 dark:text-[#64748b] font-mono">
+                        <div className="mt-2 flex items-center justify-between text-[10px] text-kin-muted font-mono">
                           <span className="flex items-center space-x-1">
                             <span className={`w-1.5 h-1.5 rounded-full ${isBusy ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`} />
                             <span>{isBusy ? 'Executing...' : 'Ready (Idle)'}</span>
@@ -1345,7 +1345,7 @@ export const SwarmMap: React.FC = () => {
                       })()}
 
                       {/* Bottom Port Indicator (Outflow) */}
-                      <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 flex items-center space-x-1 px-1.5 py-0.2 rounded-full bg-white dark:bg-[#0a0f1d] border border-blue-500/40 text-[9px] font-mono text-blue-600 dark:text-blue-300 shadow">
+                      <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 flex items-center space-x-1 px-1.5 py-0.2 rounded-full bg-kin-surface border border-blue-500/40 text-[9px] font-mono text-blue-600 dark:text-blue-400 shadow">
                         <span className="w-1 h-1 rounded-full bg-blue-400" />
                         <span>▼ OUT</span>
                       </div>
@@ -1356,41 +1356,41 @@ export const SwarmMap: React.FC = () => {
 
               {/* Link Details Inspection Modal */}
               {selectedLinkId && activeSelectedLink && (
-                <div className="absolute bottom-5 left-5 z-40 w-96 p-4 rounded-2xl bg-white/95 dark:bg-[#0c1527]/98 border border-blue-400/60 shadow-2xl backdrop-blur-xl space-y-3">
-                  <div className="flex items-center justify-between border-b border-slate-200 dark:border-[#1e293b] pb-2">
+                <div className="absolute bottom-5 left-5 z-40 w-96 p-4 rounded-2xl bg-kin-surface/98 border border-blue-400/60 shadow-2xl backdrop-blur-xl space-y-3">
+                  <div className="flex items-center justify-between border-b border-kin-border pb-2">
                     <div className="flex items-center space-x-2">
                       <Zap className="w-4 h-4 text-amber-500 dark:text-amber-400" />
-                      <span className="font-bold text-slate-900 dark:text-white text-xs font-mono">
+                      <span className="font-bold text-kin-text text-xs font-mono">
                         Coordination Link Inspector
                       </span>
                     </div>
                     <button
                       onClick={() => setSelectedLinkId(null)}
-                      className="p-1 rounded text-slate-500 hover:text-slate-900 dark:text-[#64748b] dark:hover:text-white cursor-pointer"
+                      className="p-1 rounded text-kin-muted hover:text-kin-text cursor-pointer"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
                   </div>
 
                   <div className="space-y-2 text-xs font-mono">
-                    <div className="flex items-center justify-between bg-slate-50 dark:bg-[#070b14] p-2 rounded-lg border border-slate-200 dark:border-[#1e293b]">
-                      <span className="text-slate-500 dark:text-[#64748b]">Channel:</span>
+                    <div className="flex items-center justify-between bg-kin-card p-2 rounded-lg border border-kin-border">
+                      <span className="text-kin-muted">Channel:</span>
                       <span className="text-blue-600 dark:text-blue-400 font-bold">#{activeSelectedLink.channelId.replace(/^chan-/, '')}</span>
                     </div>
 
-                    <div className="flex items-center justify-between bg-slate-50 dark:bg-[#070b14] p-2 rounded-lg border border-slate-200 dark:border-[#1e293b]">
-                      <span className="text-slate-500 dark:text-[#64748b]">From Agent:</span>
+                    <div className="flex items-center justify-between bg-kin-card p-2 rounded-lg border border-kin-border">
+                      <span className="text-kin-muted">From Agent:</span>
                       <span className="text-amber-600 dark:text-amber-400 font-bold">{activeSelectedLink.fromAgentName}</span>
                     </div>
 
-                    <div className="flex items-center justify-between bg-slate-50 dark:bg-[#070b14] p-2 rounded-lg border border-slate-200 dark:border-[#1e293b]">
-                      <span className="text-slate-500 dark:text-[#64748b]">Target Agent:</span>
+                    <div className="flex items-center justify-between bg-kin-card p-2 rounded-lg border border-kin-border">
+                      <span className="text-kin-muted">Target Agent:</span>
                       <span className="text-emerald-600 dark:text-emerald-400 font-bold">{activeSelectedLink.targetAgentName}</span>
                     </div>
 
-                    <div className="bg-slate-50 dark:bg-[#070b14] p-2.5 rounded-lg border border-slate-200 dark:border-[#1e293b] space-y-1">
-                      <span className="text-[10px] text-slate-500 dark:text-[#64748b] block font-semibold">Directive / Transferred Context:</span>
-                      <p className="text-slate-900 dark:text-white text-xs leading-relaxed font-sans font-medium">{activeSelectedLink.directive}</p>
+                    <div className="bg-kin-card p-2.5 rounded-lg border border-kin-border space-y-1">
+                      <span className="text-[10px] text-kin-muted block font-semibold">Directive / Transferred Context:</span>
+                      <p className="text-kin-text text-xs leading-relaxed font-sans font-medium">{activeSelectedLink.directive}</p>
                     </div>
                   </div>
 
@@ -1408,7 +1408,7 @@ export const SwarmMap: React.FC = () => {
             </div>
           ) : (
             /* HIERARCHY OR MATRIX VIEWS */
-            <div className="flex-1 bg-slate-100 dark:bg-[#070b12] p-8 overflow-auto relative flex flex-col items-center select-none">
+            <div className="flex-1 bg-kin-bg p-8 overflow-auto relative flex flex-col items-center select-none">
               {/* Orchestrator Tier */}
               {orchestrator && (
                 <div className="relative z-10 flex flex-col items-center w-full max-w-5xl mb-4">
@@ -1424,8 +1424,8 @@ export const SwarmMap: React.FC = () => {
                     }}
                     className={`w-80 md:w-96 p-4 rounded-2xl cursor-pointer transition-all duration-200 border shadow-2xl relative ${
                       selectedSwarmAgentId === orchestrator.id
-                        ? 'bg-amber-50 dark:bg-[#151c2f] border-amber-400 shadow-[0_0_24px_rgba(251,191,36,0.3)] ring-2 ring-amber-400/50'
-                        : 'bg-white dark:bg-[#0f172a] border-amber-500/40 hover:border-amber-400'
+                        ? 'bg-amber-50 dark:bg-amber-950/70 border-amber-400 shadow-[0_0_24px_rgba(251,191,36,0.3)] ring-2 ring-amber-400/50'
+                        : 'bg-kin-card border-amber-500/40 hover:border-amber-400'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-2">
@@ -1434,7 +1434,7 @@ export const SwarmMap: React.FC = () => {
                           <Shield className="w-5 h-5" />
                         </div>
                         <div>
-                          <div className="font-bold text-slate-900 dark:text-white text-sm flex items-center space-x-1.5">
+                          <div className="font-bold text-kin-text text-sm flex items-center space-x-1.5">
                             <span>{orchestrator.displayName}</span>
                             <span className="w-2 h-2 rounded-full bg-emerald-400" />
                           </div>
@@ -1448,8 +1448,8 @@ export const SwarmMap: React.FC = () => {
                       </span>
                     </div>
 
-                    <div className="mt-3 pt-2.5 border-t border-slate-200 dark:border-[#1e293b] flex items-center justify-between text-xs">
-                      <span className="text-slate-500 dark:text-[#64748b] flex items-center space-x-1 font-mono text-[11px]">
+                    <div className="mt-3 pt-2.5 border-t border-kin-border flex items-center justify-between text-xs">
+                      <span className="text-kin-muted flex items-center space-x-1 font-mono text-[11px]">
                         <Cpu className="w-3.5 h-3.5 text-amber-500" />
                         <span>Model:</span>
                       </span>
@@ -1464,7 +1464,7 @@ export const SwarmMap: React.FC = () => {
                             await updateAgentModel(orchestrator.id, e.target.value, activeProjectId, activeChannelId);
                           }
                         }}
-                        className={`bg-slate-100 dark:bg-[#090d16] text-amber-600 dark:text-amber-300 border border-amber-500/40 rounded px-2 py-0.5 text-[11px] font-mono ${
+                        className={`bg-kin-surface text-amber-600 dark:text-amber-400 border border-amber-500/40 rounded px-2 py-0.5 text-[11px] font-mono ${
                           orchestrator.status === 'working' || orchestrator.status === 'thinking'
                             ? 'cursor-not-allowed opacity-60'
                             : 'cursor-pointer'
@@ -1549,22 +1549,22 @@ export const SwarmMap: React.FC = () => {
               {/* View Mode Switching: Matrix Grid vs Accessible Tree vs Hierarchy Cards */}
               {viewMode === 'matrix' ? (
                 <div className="w-full max-w-6xl pb-16 overflow-x-auto">
-                  <div className="bg-white dark:bg-[#0c1427] border border-slate-200 dark:border-[#1e293b] rounded-2xl shadow-xl overflow-hidden">
-                    <div className="p-4 border-b border-slate-200 dark:border-[#1e293b] flex items-center justify-between">
+                  <div className="bg-kin-surface border border-kin-border rounded-2xl shadow-xl overflow-hidden">
+                    <div className="p-4 border-b border-kin-border flex items-center justify-between">
                       <div className="flex items-center space-x-2">
                         <Grid className="w-5 h-5 text-indigo-500" />
-                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                        <h3 className="text-sm font-bold text-kin-text">
                           Agent Capability & Policy Matrix
                         </h3>
                       </div>
-                      <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                      <span className="text-[11px] text-kin-muted font-mono">
                         {agents.length} Registered Workforce Agents
                       </span>
                     </div>
 
                     <table className="w-full text-left text-xs border-collapse">
                       <thead>
-                        <tr className="bg-slate-50 dark:bg-[#090d16] border-b border-slate-200 dark:border-[#1e293b] text-slate-600 dark:text-slate-400 font-mono text-[11px]">
+                        <tr className="bg-kin-card border-b border-kin-border text-kin-muted font-mono text-[11px]">
                           <th className="py-3 px-4">Agent</th>
                           <th className="py-3 px-3">Assigned Model</th>
                           <th className="py-3 px-3">Domain Authority</th>
@@ -1574,7 +1574,7 @@ export const SwarmMap: React.FC = () => {
                           <th className="py-3 px-3">Status & Action</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-[#1e293b]/60">
+                      <tbody className="divide-y divide-kin-borderSubtle">
                         {[orchestrator, ...specialists].filter(Boolean).map((ag) => {
                           if (!ag) return null;
                           const agApprovals = (pendingApprovals || []).filter(
@@ -1589,7 +1589,7 @@ export const SwarmMap: React.FC = () => {
                                 setSelectedSwarmAgentId(ag.id);
                                 setIsDrawerOpen(true);
                               }}
-                              className="hover:bg-slate-50 dark:hover:bg-slate-900/40 cursor-pointer transition"
+                              className="hover:bg-kin-cardHover cursor-pointer transition"
                             >
                               <td className="py-3 px-4">
                                 <div className="flex items-center space-x-2.5">
@@ -1597,7 +1597,7 @@ export const SwarmMap: React.FC = () => {
                                     {ag.isOrchestrator ? <Shield className="w-4 h-4 text-amber-500" /> : <Bot className="w-4 h-4" />}
                                   </div>
                                   <div>
-                                    <div className="font-bold text-slate-900 dark:text-white flex items-center space-x-1">
+                                    <div className="font-bold text-kin-text flex items-center space-x-1">
                                       <span>{ag.displayName}</span>
                                       {ag.isOrchestrator && (
                                         <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-600 dark:text-amber-300 font-mono">
@@ -1605,7 +1605,7 @@ export const SwarmMap: React.FC = () => {
                                         </span>
                                       )}
                                     </div>
-                                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                                    <span className="text-[10px] text-kin-muted font-mono">
                                       {ag.role}
                                     </span>
                                   </div>
@@ -1623,7 +1623,7 @@ export const SwarmMap: React.FC = () => {
                                       await updateAgentModel(ag.id, e.target.value, activeProjectId, activeChannelId);
                                     }
                                   }}
-                                  className="bg-slate-100 dark:bg-[#070b14] text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-kin-border rounded px-2 py-1 text-[11px] font-mono cursor-pointer"
+                                  className="bg-kin-surface text-kin-text border border-kin-border rounded px-2 py-1 text-[11px] font-mono cursor-pointer"
                                 >
                                   {!availableModels.some((m) => m.id === ag.activeModelId) && (
                                     <option value={ag.activeModelId}>{ag.activeModelId}</option>
@@ -1717,16 +1717,16 @@ export const SwarmMap: React.FC = () => {
                         }
                       }
                     }}
-                    className="p-6 rounded-2xl bg-white dark:bg-[#0c1427] border border-slate-200 dark:border-[#1e293b] shadow-xl space-y-3 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="p-6 rounded-2xl bg-kin-surface border border-kin-border shadow-xl space-y-3 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   >
-                    <div className="pb-3 border-b border-slate-200 dark:border-[#1e293b] flex items-center justify-between">
+                    <div className="pb-3 border-b border-kin-border flex items-center justify-between">
                       <div className="flex items-center space-x-2">
                         <ListTree className="w-5 h-5 text-emerald-500" />
-                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                        <h3 className="text-sm font-bold text-kin-text">
                           Accessible Workforce Hierarchy
                         </h3>
                       </div>
-                      <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                      <span className="text-[11px] text-kin-muted font-mono">
                         Use ↑/↓ keys to navigate, Enter to inspect
                       </span>
                     </div>
@@ -1754,12 +1754,12 @@ export const SwarmMap: React.FC = () => {
                         className={`p-3 rounded-xl border flex items-center justify-between transition cursor-pointer ${
                           focusedTreeIndex === 0
                             ? 'bg-amber-100/60 dark:bg-amber-950/40 border-amber-500 ring-2 ring-amber-400'
-                            : 'bg-slate-50 dark:bg-[#070b14] border-slate-200 dark:border-slate-800'
+                            : 'bg-kin-card border-kin-border'
                         }`}
                       >
                         <div className="flex items-center space-x-2.5">
                           <Shield className="w-4 h-4 text-amber-500" />
-                          <span className="font-bold text-xs text-slate-900 dark:text-white">
+                          <span className="font-bold text-xs text-kin-text">
                             [Tier 1 Root] {orchestrator.displayName} ({orchestrator.role})
                           </span>
                         </div>
@@ -1770,7 +1770,7 @@ export const SwarmMap: React.FC = () => {
                     )}
 
                     {/* Children Specialists */}
-                    <div role="group" className="pl-6 space-y-2 border-l-2 border-slate-200 dark:border-slate-800 ml-4">
+                    <div role="group" className="pl-6 space-y-2 border-l-2 border-kin-border ml-4">
                       {specialists.map((spec, sIdx) => {
                         const itemIndex = sIdx + (orchestrator ? 1 : 0);
                         const isFocused = focusedTreeIndex === itemIndex;
@@ -1792,15 +1792,15 @@ export const SwarmMap: React.FC = () => {
                             className={`p-3 rounded-xl border flex items-center justify-between transition cursor-pointer ${
                               isFocused
                                 ? 'bg-blue-100/60 dark:bg-blue-950/40 border-blue-500 ring-2 ring-blue-400'
-                                : 'bg-slate-50 dark:bg-[#070b14] border-slate-200 dark:border-slate-800'
+                                : 'bg-kin-card border-kin-border'
                             }`}
                           >
                             <div className="flex items-center space-x-2.5">
                               <Bot className="w-4 h-4 text-blue-500" />
-                              <span className="font-semibold text-xs text-slate-900 dark:text-white">
+                              <span className="font-semibold text-xs text-kin-text">
                                 {spec.displayName}
                               </span>
-                              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                              <span className="text-[10px] text-kin-muted font-mono">
                                 — {spec.role}
                               </span>
                             </div>
@@ -1836,8 +1836,8 @@ export const SwarmMap: React.FC = () => {
                         }}
                         className={`w-[320px] p-4 rounded-2xl cursor-pointer transition-all duration-200 border shadow-xl relative ${
                           isSelected
-                            ? 'bg-blue-50 dark:bg-[#131d35] border-blue-400 shadow-blue-500/20'
-                            : 'bg-white dark:bg-[#0c1427] border-slate-200 dark:border-slate-800 hover:border-blue-500'
+                            ? 'bg-blue-50/95 dark:bg-blue-950/70 border-blue-400 shadow-blue-500/20'
+                            : 'bg-kin-card border-kin-border hover:border-blue-500'
                         }`}
                       >
                         <div className="flex items-start justify-between mb-2">
@@ -1846,7 +1846,7 @@ export const SwarmMap: React.FC = () => {
                               <Bot className="w-5 h-5" />
                             </div>
                             <div>
-                              <div className="font-bold text-slate-900 dark:text-white text-sm flex items-center space-x-1.5">
+                              <div className="font-bold text-kin-text text-sm flex items-center space-x-1.5">
                                 <span>{spec.displayName}</span>
                                 <span className={`w-2 h-2 rounded-full ${isBusy ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`} />
                               </div>
@@ -1861,8 +1861,8 @@ export const SwarmMap: React.FC = () => {
                         </div>
 
                         {/* In-Map Model Selector */}
-                        <div className="mt-3 pt-2.5 border-t border-slate-200 dark:border-[#1e293b] flex items-center justify-between text-xs">
-                          <span className="text-slate-500 dark:text-[#64748b] flex items-center space-x-1 font-mono text-[11px]">
+                        <div className="mt-3 pt-2.5 border-t border-kin-border flex items-center justify-between text-xs">
+                          <span className="text-kin-muted flex items-center space-x-1 font-mono text-[11px]">
                             <Cpu className="w-3.5 h-3.5 text-blue-500" />
                             <span>Model:</span>
                           </span>
@@ -1880,7 +1880,7 @@ export const SwarmMap: React.FC = () => {
                                 await updateAgentModel(spec.id, newModel, activeProjectId, activeChannelId);
                               }
                             }}
-                            className="bg-slate-100 dark:bg-[#090d16] text-blue-600 dark:text-blue-300 border border-blue-500/30 rounded px-2 py-0.5 text-[11px] font-mono cursor-pointer max-w-[190px] truncate"
+                            className="bg-kin-surface text-blue-600 dark:text-blue-400 border border-blue-500/30 rounded px-2 py-0.5 text-[11px] font-mono cursor-pointer max-w-[190px] truncate"
                           >
                             {!availableModels.some((m) => m.id === spec.activeModelId) && (
                               <option value={spec.activeModelId}>
@@ -1960,18 +1960,18 @@ export const SwarmMap: React.FC = () => {
 
           {/* RIGHT: ANTIGRAVITY-STYLE TRANSPARENT ACTIVITY DRAWER */}
           {isDrawerOpen && (
-            <div className="w-[380px] lg:w-[430px] shrink-0 bg-white dark:bg-[#090d16] border-l border-slate-200 dark:border-[#1e293b] flex flex-col h-full overflow-hidden animate-fadeIn">
+            <div className="w-[380px] lg:w-[430px] shrink-0 bg-kin-surface border-l border-kin-border flex flex-col h-full overflow-hidden animate-fadeIn">
               {/* Drawer Header */}
-              <div className="p-4 border-b border-slate-200 dark:border-[#1e293b] bg-slate-50 dark:bg-[#0c1222] shrink-0 space-y-3">
+              <div className="p-4 border-b border-kin-border bg-kin-surface shrink-0 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2.5">
                     <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-500 font-bold">
                       {selectedAgent?.isOrchestrator ? <Shield className="w-4 h-4 text-amber-500" /> : <Bot className="w-4 h-4" />}
                     </div>
                     <div>
-                      <div className="font-bold text-slate-900 dark:text-white text-sm flex items-center space-x-1.5">
+                      <div className="font-bold text-kin-text text-sm flex items-center space-x-1.5">
                         <span>{selectedAgent?.displayName}</span>
-                        <span className="text-[10px] text-slate-500 dark:text-[#64748b] font-normal">({selectedAgent?.role})</span>
+                        <span className="text-[10px] text-kin-muted font-normal">({selectedAgent?.role})</span>
                       </div>
                       <div className="flex items-center space-x-1.5 mt-0.5">
                         <span className="text-[10px] text-blue-600 dark:text-blue-400 font-mono truncate max-w-[180px]">
@@ -1994,7 +1994,7 @@ export const SwarmMap: React.FC = () => {
                         setSwarmMapOpen(false);
                         setActiveChannel(`dm-${selectedAgent?.id}`);
                       }}
-                      className="px-2.5 py-1 rounded-md bg-slate-200 dark:bg-[#1e293b] hover:bg-blue-600 hover:text-white text-slate-800 dark:text-white text-xs transition flex items-center space-x-1 cursor-pointer"
+                      className="px-2.5 py-1 rounded-md bg-kin-card hover:bg-blue-600 hover:text-white text-kin-text text-xs transition flex items-center space-x-1 cursor-pointer"
                       title="Open Direct Message Thread"
                     >
                       <MessageSquare className="w-3 h-3 text-blue-500" />
@@ -2003,7 +2003,7 @@ export const SwarmMap: React.FC = () => {
 
                     <button
                       onClick={() => setIsDrawerOpen(false)}
-                      className="p-1 rounded-md hover:bg-slate-200 dark:hover:bg-white/10 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition cursor-pointer"
+                      className="p-1 rounded-md hover:bg-kin-cardHover text-kin-muted hover:text-kin-text transition cursor-pointer"
                       title="Close Activity Drawer"
                     >
                       <X className="w-4 h-4" />
@@ -2012,7 +2012,7 @@ export const SwarmMap: React.FC = () => {
                 </div>
 
                 {/* Antigravity Trajectory Summary Pill */}
-                <div className="p-2.5 rounded-xl bg-slate-100 dark:bg-[#070b12] border border-slate-200 dark:border-[#1e293b] space-y-1.5">
+                <div className="p-2.5 rounded-xl bg-kin-card border border-kin-border space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
                     <div className="flex items-center space-x-1.5 text-emerald-600 dark:text-emerald-400 font-semibold font-mono">
                       <Clock className="w-3.5 h-3.5" />
@@ -2023,7 +2023,7 @@ export const SwarmMap: React.FC = () => {
                     </span>
                   </div>
 
-                  <div className="text-[11px] text-slate-600 dark:text-[#94a3b8] flex items-center space-x-2 font-mono">
+                  <div className="text-[11px] text-kin-muted flex items-center space-x-2 font-mono">
                     <span>{execDetails?.metrics?.exploredFilesCount ?? 0} files</span>
                     <span>•</span>
                     <span>{execDetails?.metrics?.tasksCount ?? 0} tasks</span>
@@ -2038,17 +2038,17 @@ export const SwarmMap: React.FC = () => {
               {/* Execution Accordion Stream */}
               <div className="flex-1 overflow-y-auto p-4 space-y-3 font-sans text-xs">
                 {isLoadingExecutionDetails && (
-                  <div className="text-center py-6 text-slate-500 dark:text-[#64748b] flex items-center justify-center space-x-2">
+                  <div className="text-center py-6 text-kin-muted flex items-center justify-center space-x-2">
                     <RefreshCw className="w-4 h-4 animate-spin text-blue-500" />
                     <span>Loading execution trajectory...</span>
                   </div>
                 )}
 
                 {/* 1. Thoughts & Reasoning */}
-                <div className="border border-slate-200 dark:border-[#1e293b] rounded-xl overflow-hidden bg-slate-50 dark:bg-[#0c1222]">
+                <div className="border border-kin-border rounded-xl overflow-hidden bg-kin-surface">
                   <button
                     onClick={() => toggleAccordion('thoughts')}
-                    className="w-full px-3 py-2 bg-slate-100 dark:bg-[#0e1628] flex items-center justify-between font-semibold text-slate-900 dark:text-white text-xs hover:bg-slate-200 dark:hover:bg-[#131d35] transition cursor-pointer"
+                    className="w-full px-3 py-2 bg-kin-card flex items-center justify-between font-semibold text-kin-text text-xs hover:bg-kin-cardHover transition cursor-pointer"
                   >
                     <div className="flex items-center space-x-2">
                       <Sparkles className="w-3.5 h-3.5 text-amber-500" />
@@ -2058,7 +2058,7 @@ export const SwarmMap: React.FC = () => {
                   </button>
 
                   {openAccordion.thoughts && (
-                    <div className="p-3 space-y-2 text-[11px] text-slate-800 dark:text-[#cbd5e1] bg-white dark:bg-[#070b12] leading-relaxed">
+                    <div className="p-3 space-y-2 text-[11px] text-kin-text bg-kin-surface leading-relaxed">
                       {agentThinkingDrafts[selectedAgent?.id || ''] && (
                         <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/40 text-amber-900 dark:text-amber-200 space-y-1.5 animate-pulse">
                           <div className="flex items-center justify-between text-[10px] font-mono text-amber-600 dark:text-amber-400 font-bold">
@@ -2077,15 +2077,15 @@ export const SwarmMap: React.FC = () => {
 
                       {execDetails?.phases?.find((p) => p.id === 'phase-reasoning')?.items?.length ? (
                         execDetails.phases.find((p) => p.id === 'phase-reasoning')!.items.map((item: any, idx: number) => (
-                          <div key={item.id || idx} className="p-2.5 rounded-lg bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-[#1e293b] font-mono text-[10px] whitespace-pre-wrap">
+                          <div key={item.id || idx} className="p-2.5 rounded-lg bg-kin-card border border-kin-border font-mono text-[10px] whitespace-pre-wrap">
                             {item.summary}
                             {item.details?.reasoning && (
-                              <div className="mt-1 text-slate-500 dark:text-[#94a3b8]">{item.details.reasoning}</div>
+                              <div className="mt-1 text-kin-muted">{item.details.reasoning}</div>
                             )}
                           </div>
                         ))
                       ) : (
-                        <p className="font-mono text-slate-500 dark:text-[#94a3b8]">
+                        <p className="font-mono text-kin-muted">
                           Agent is ready in workspace. No past reasoning trace recorded.
                         </p>
                       )}
@@ -2094,10 +2094,10 @@ export const SwarmMap: React.FC = () => {
                 </div>
 
                 {/* 2. Explored Files */}
-                <div className="border border-slate-200 dark:border-[#1e293b] rounded-xl overflow-hidden bg-slate-50 dark:bg-[#0c1222]">
+                <div className="border border-kin-border rounded-xl overflow-hidden bg-kin-surface">
                   <button
                     onClick={() => toggleAccordion('files')}
-                    className="w-full px-3 py-2 bg-slate-100 dark:bg-[#0e1628] flex items-center justify-between font-semibold text-slate-900 dark:text-white text-xs hover:bg-slate-200 dark:hover:bg-[#131d35] transition cursor-pointer"
+                    className="w-full px-3 py-2 bg-kin-card flex items-center justify-between font-semibold text-kin-text text-xs hover:bg-kin-cardHover transition cursor-pointer"
                   >
                     <div className="flex items-center space-x-2">
                       <FileCode className="w-3.5 h-3.5 text-blue-500" />
@@ -2107,19 +2107,19 @@ export const SwarmMap: React.FC = () => {
                   </button>
 
                   {openAccordion.files && (
-                    <div className="p-2.5 space-y-1.5 bg-white dark:bg-[#070b12]">
+                    <div className="p-2.5 space-y-1.5 bg-kin-surface">
                       {execDetails?.exploredFiles && execDetails.exploredFiles.length > 0 ? (
                         execDetails.exploredFiles.map((f: string, idx: number) => (
                           <div
                             key={idx}
-                            className="flex items-center justify-between px-2 py-1 rounded bg-slate-50 dark:bg-[#0c1222] border border-slate-200 dark:border-[#1e293b] text-[11px] font-mono text-slate-700 dark:text-[#94a3b8]"
+                            className="flex items-center justify-between px-2 py-1 rounded bg-kin-card border border-kin-border text-[11px] font-mono text-kin-muted"
                           >
                             <span className="truncate">{f}</span>
                             <span className="text-[9px] text-emerald-600 dark:text-emerald-400 shrink-0">Analyzed</span>
                           </div>
                         ))
                       ) : (
-                        <div className="text-[11px] font-mono text-slate-500 dark:text-[#64748b] text-center py-2">
+                        <div className="text-[11px] font-mono text-kin-muted text-center py-2">
                           No files accessed yet in this session
                         </div>
                       )}
@@ -2128,10 +2128,10 @@ export const SwarmMap: React.FC = () => {
                 </div>
 
                 {/* 3. Commands & Shell Execution */}
-                <div className="border border-slate-200 dark:border-[#1e293b] rounded-xl overflow-hidden bg-slate-50 dark:bg-[#0c1222]">
+                <div className="border border-kin-border rounded-xl overflow-hidden bg-kin-surface">
                   <button
                     onClick={() => toggleAccordion('commands')}
-                    className="w-full px-3 py-2 bg-slate-100 dark:bg-[#0e1628] flex items-center justify-between font-semibold text-slate-900 dark:text-white text-xs hover:bg-slate-200 dark:hover:bg-[#131d35] transition cursor-pointer"
+                    className="w-full px-3 py-2 bg-kin-card flex items-center justify-between font-semibold text-kin-text text-xs hover:bg-kin-cardHover transition cursor-pointer"
                   >
                     <div className="flex items-center space-x-2">
                       <Terminal className="w-3.5 h-3.5 text-emerald-500" />
@@ -2141,7 +2141,7 @@ export const SwarmMap: React.FC = () => {
                   </button>
 
                   {openAccordion.commands && (
-                    <div className="p-2.5 space-y-2 bg-white dark:bg-[#070b12]">
+                    <div className="p-2.5 space-y-2 bg-kin-surface">
                       {execDetails?.phases?.find((p) => p.id === 'phase-tools')?.items?.filter((i: any) => i.type === 'command')?.length ? (
                         execDetails.phases
                           .find((p) => p.id === 'phase-tools')!
@@ -2149,7 +2149,7 @@ export const SwarmMap: React.FC = () => {
                           .map((item: any, idx: number) => {
                             const itemKey = item.id || `cmd-${idx}`;
                             return (
-                              <div key={itemKey} className="rounded-lg border border-slate-200 dark:border-[#1e293b] p-2 bg-slate-50 dark:bg-[#0c1222] space-y-1.5 font-mono">
+                              <div key={itemKey} className="rounded-lg border border-kin-border p-2 bg-kin-card space-y-1.5 font-mono">
                                 <div className="flex items-center justify-between text-[11px]">
                                   <span className="font-bold text-emerald-600 dark:text-emerald-400">{item.summary}</span>
                                   <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold ${item.details?.exitCode === 0 ? 'bg-emerald-500/20 text-emerald-600' : 'bg-red-500/20 text-red-500'}`}>
@@ -2157,7 +2157,7 @@ export const SwarmMap: React.FC = () => {
                                   </span>
                                 </div>
                                 {item.details?.command && (
-                                  <div className="text-[10px] text-slate-700 dark:text-[#cbd5e1] bg-slate-100 dark:bg-black/40 p-1.5 rounded">
+                                  <div className="text-[10px] text-kin-text bg-kin-surface p-1.5 rounded border border-kin-border">
                                     $ {item.details.command}
                                   </div>
                                 )}
@@ -2165,7 +2165,7 @@ export const SwarmMap: React.FC = () => {
                             );
                           })
                       ) : (
-                        <div className="text-[11px] font-mono text-slate-500 dark:text-[#64748b] text-center py-2">
+                        <div className="text-[11px] font-mono text-kin-muted text-center py-2">
                           No shell commands executed in this session
                         </div>
                       )}
@@ -2174,10 +2174,10 @@ export const SwarmMap: React.FC = () => {
                 </div>
 
                 {/* 4. Tools & Actions */}
-                <div className="border border-slate-200 dark:border-[#1e293b] rounded-xl overflow-hidden bg-slate-50 dark:bg-[#0c1222]">
+                <div className="border border-kin-border rounded-xl overflow-hidden bg-kin-surface">
                   <button
                     onClick={() => toggleAccordion('tools')}
-                    className="w-full px-3 py-2 bg-slate-100 dark:bg-[#0e1628] flex items-center justify-between font-semibold text-slate-900 dark:text-white text-xs hover:bg-slate-200 dark:hover:bg-[#131d35] transition cursor-pointer"
+                    className="w-full px-3 py-2 bg-kin-card flex items-center justify-between font-semibold text-kin-text text-xs hover:bg-kin-cardHover transition cursor-pointer"
                   >
                     <div className="flex items-center space-x-2">
                       <Terminal className="w-3.5 h-3.5 text-purple-500" />
@@ -2187,7 +2187,7 @@ export const SwarmMap: React.FC = () => {
                   </button>
 
                   {openAccordion.tools && (
-                    <div className="p-2.5 space-y-2 bg-white dark:bg-[#070b12]">
+                    <div className="p-2.5 space-y-2 bg-kin-surface">
                       {(agentLiveTools[selectedAgent?.id || ''] || selectedAgent?.currentTool) && (
                         <div className="p-3 rounded-xl bg-purple-500/15 border border-purple-500/50 text-purple-900 dark:text-purple-200 space-y-1.5 animate-pulse">
                           <div className="flex items-center justify-between text-[10px] font-mono text-purple-600 dark:text-purple-300 font-bold">
@@ -2197,14 +2197,14 @@ export const SwarmMap: React.FC = () => {
                             </div>
                             <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-700 dark:text-purple-300 font-bold text-[9px]">RUNNING</span>
                           </div>
-                          <div className="font-mono text-xs font-bold text-slate-900 dark:text-white flex items-center space-x-1.5">
+                          <div className="font-mono text-xs font-bold text-kin-text flex items-center space-x-1.5">
                             <span>Tool:</span>
                             <span className="text-purple-600 dark:text-purple-300 underline underline-offset-2">
                               {agentLiveTools[selectedAgent?.id || '']?.toolName || selectedAgent?.currentTool}
                             </span>
                           </div>
                           {agentLiveTools[selectedAgent?.id || '']?.params && Object.keys(agentLiveTools[selectedAgent?.id || '']?.params || {}).length > 0 && (
-                            <pre className="p-2 rounded bg-slate-100 dark:bg-black/60 border border-slate-200 dark:border-purple-500/30 text-[10px] font-mono text-emerald-600 dark:text-emerald-300 overflow-x-auto whitespace-pre-wrap">
+                            <pre className="p-2 rounded bg-kin-card border border-kin-border text-[10px] font-mono text-emerald-600 dark:text-emerald-300 overflow-x-auto whitespace-pre-wrap">
                               {JSON.stringify(agentLiveTools[selectedAgent?.id || '']?.params, null, 2)}
                             </pre>
                           )}
@@ -2215,24 +2215,24 @@ export const SwarmMap: React.FC = () => {
                         execDetails.phases.find((p) => p.id === 'phase-tools')!.items.map((item: any, idx: number) => {
                           const itemKey = item.id || `tool-${idx}`;
                           return (
-                            <div key={itemKey} className="rounded-lg border border-slate-200 dark:border-[#1e293b] p-2 bg-slate-50 dark:bg-[#0c1222] space-y-1.5">
+                            <div key={itemKey} className="rounded-lg border border-kin-border p-2 bg-kin-card space-y-1.5">
                               <div
                                 onClick={() => toggleJson(itemKey)}
                                 className="flex items-center justify-between cursor-pointer text-[11px]"
                               >
                                 <span className="font-mono font-bold text-purple-600 dark:text-purple-400">{item.summary || item.type}</span>
-                                <div className="flex items-center space-x-1 text-[10px] text-slate-500 dark:text-[#64748b]">
+                                <div className="flex items-center space-x-1 text-[10px] text-kin-muted">
                                   {item.details?.exitCode !== undefined && <span>exit: {item.details.exitCode}</span>}
                                   {expandedJson[itemKey] ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                                 </div>
                               </div>
                               {item.details?.command && (
-                                <div className="text-[10px] text-slate-600 dark:text-[#94a3b8] font-mono">
+                                <div className="text-[10px] text-kin-muted font-mono">
                                   {item.details.command}
                                 </div>
                               )}
                               {expandedJson[itemKey] && (
-                                <pre className="p-2 rounded bg-slate-100 dark:bg-black/60 border border-slate-200 dark:border-[#1e293b] text-[10px] font-mono text-emerald-600 dark:text-emerald-300 overflow-x-auto whitespace-pre-wrap">
+                                <pre className="p-2 rounded bg-kin-card border border-kin-border text-[10px] font-mono text-emerald-600 dark:text-emerald-300 overflow-x-auto whitespace-pre-wrap">
                                   {JSON.stringify(item.details || item, null, 2)}
                                 </pre>
                               )}
@@ -2240,7 +2240,7 @@ export const SwarmMap: React.FC = () => {
                           );
                         })
                       ) : (
-                        <div className="text-[11px] font-mono text-slate-500 dark:text-[#64748b] text-center py-2">
+                        <div className="text-[11px] font-mono text-kin-muted text-center py-2">
                           No tool actions executed yet
                         </div>
                       )}
@@ -2249,10 +2249,10 @@ export const SwarmMap: React.FC = () => {
                 </div>
 
                 {/* 4. Peer Coordination */}
-                <div className="border border-slate-200 dark:border-[#1e293b] rounded-xl overflow-hidden bg-slate-50 dark:bg-[#0c1222]">
+                <div className="border border-kin-border rounded-xl overflow-hidden bg-kin-surface">
                   <button
                     onClick={() => toggleAccordion('coordination')}
-                    className="w-full px-3 py-2 bg-slate-100 dark:bg-[#0e1628] flex items-center justify-between font-semibold text-slate-900 dark:text-white text-xs hover:bg-slate-200 dark:hover:bg-[#131d35] transition cursor-pointer"
+                    className="w-full px-3 py-2 bg-kin-card flex items-center justify-between font-semibold text-kin-text text-xs hover:bg-kin-cardHover transition cursor-pointer"
                   >
                     <div className="flex items-center space-x-2">
                       <Layers className="w-3.5 h-3.5 text-emerald-500" />
@@ -2262,21 +2262,21 @@ export const SwarmMap: React.FC = () => {
                   </button>
 
                   {openAccordion.coordination && (
-                    <div className="p-2.5 space-y-1.5 bg-white dark:bg-[#070b12] text-[11px]">
+                    <div className="p-2.5 space-y-1.5 bg-kin-surface text-[11px]">
                       {execDetails?.peerCoordination && execDetails.peerCoordination.length > 0 ? (
                         execDetails.peerCoordination.map((pc: any, idx: number) => (
-                          <div key={idx} className="p-2 rounded bg-slate-50 dark:bg-[#0c1222] border border-slate-200 dark:border-[#1e293b] space-y-1">
-                            <div className="flex items-center justify-between text-slate-500 dark:text-[#64748b]">
-                              <span className="font-mono font-semibold text-slate-900 dark:text-white">{pc.channelName || '#general'}</span>
+                          <div key={idx} className="p-2 rounded bg-kin-card border border-kin-border space-y-1">
+                            <div className="flex items-center justify-between text-kin-muted">
+                              <span className="font-mono font-semibold text-kin-text">{pc.channelName || '#general'}</span>
                               <span className="text-emerald-600 dark:text-emerald-400 font-mono">{pc.targetAgent}</span>
                             </div>
-                            <p className="text-slate-600 dark:text-[#94a3b8] font-mono text-[10px]">
+                            <p className="text-kin-muted font-mono text-[10px]">
                               {pc.action}
                             </p>
                           </div>
                         ))
                       ) : (
-                        <div className="text-[11px] font-mono text-slate-500 dark:text-[#64748b] text-center py-2">
+                        <div className="text-[11px] font-mono text-kin-muted text-center py-2">
                           No cross-agent coordination recorded yet
                         </div>
                       )}

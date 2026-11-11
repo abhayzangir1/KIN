@@ -120,7 +120,6 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ language = '', code }) => 
   const handleCopy = () => {
     navigator.clipboard.writeText(code);
     setCopied(true);
-    addToast({ title: 'Copied', message: 'Code copied to clipboard', type: 'info', duration: 2000 });
     setTimeout(() => setCopied(false), 2000);
   };
 

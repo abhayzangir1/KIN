@@ -297,26 +297,26 @@ export const SkillsModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 select-none">
-      <div className="bg-[#0b101e] border border-[#232f48] rounded-2xl w-full max-w-5xl max-h-[90vh] flex flex-col shadow-2xl text-xs overflow-hidden">
+      <div className="bg-kin-surface border border-kin-border rounded-2xl w-full max-w-5xl max-h-[90vh] flex flex-col shadow-2xl text-xs overflow-hidden">
         {/* Header Bar */}
-        <div className="h-14 px-6 border-b border-[#1e293b] flex items-center justify-between bg-[#0e1526]">
+        <div className="h-14 px-6 border-b border-kin-border flex items-center justify-between bg-kin-surface">
           <div className="flex items-center space-x-3">
             <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-white flex items-center space-x-2">
+              <h2 className="text-sm font-bold text-kin-text flex items-center space-x-2">
                 <span>Self-Improvement & Skills Engine</span>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-[10px]">
+                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 font-mono text-[10px]">
                   {skills.length} Active
                 </span>
                 {candidateSkills.length > 0 && (
-                  <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono text-[10px] animate-pulse">
+                  <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-300 font-mono text-[10px] animate-pulse">
                     {candidateSkills.length} Candidates
                   </span>
                 )}
               </h2>
-              <p className="text-[11px] text-[#8b949e]">
+              <p className="text-[11px] text-kin-muted">
                 Autonomous candidate lesson harvesting, validation gates, version rollback, and outcome adaptation
               </p>
             </div>
@@ -333,7 +333,7 @@ export const SkillsModal: React.FC = () => {
 
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-[#162035] hover:bg-[#1f2d4a] border border-[#283858] text-white font-medium transition"
+              className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-kin-card hover:bg-kin-cardHover border border-kin-border text-kin-text font-medium transition cursor-pointer"
               title="Import Skill Bundle from JSON"
             >
               <UploadCloud className="w-3.5 h-3.5 text-blue-400" />
@@ -342,7 +342,7 @@ export const SkillsModal: React.FC = () => {
 
             <button
               onClick={handleExportAll}
-              className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-[#162035] hover:bg-[#1f2d4a] border border-[#283858] text-white font-medium transition"
+              className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-kin-card hover:bg-kin-cardHover border border-kin-border text-kin-text font-medium transition cursor-pointer"
               title="Export All Skills as unified JSON Bundle"
             >
               <Download className="w-3.5 h-3.5 text-emerald-400" />
@@ -351,7 +351,7 @@ export const SkillsModal: React.FC = () => {
 
             <button
               onClick={() => setIsCreating(!isCreating)}
-              className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition"
+              className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>New Skill</span>
@@ -359,7 +359,7 @@ export const SkillsModal: React.FC = () => {
 
             <button
               onClick={() => setSkillsModalOpen(false)}
-              className="p-1.5 rounded-lg hover:bg-[#1e293b] text-[#8b949e] hover:text-white transition ml-2"
+              className="p-1.5 rounded-lg hover:bg-kin-cardHover text-kin-muted hover:text-kin-text transition ml-2 cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -367,7 +367,7 @@ export const SkillsModal: React.FC = () => {
         </div>
 
         {/* Tab Navigation Bar */}
-        <div className="px-6 border-b border-[#1b263b] bg-[#070b16] flex items-center justify-between">
+        <div className="px-6 border-b border-kin-border bg-kin-surface flex items-center justify-between">
           <div className="flex items-center space-x-1">
             <button
               onClick={() => setActiveTab('active')}
@@ -452,7 +452,7 @@ export const SkillsModal: React.FC = () => {
               <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               <span>{harvestMessage}</span>
             </div>
-            <button onClick={() => setHarvestMessage(null)} className="text-gray-400 hover:text-white">
+            <button onClick={() => setHarvestMessage(null)} className="text-kin-muted hover:text-kin-text">
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -460,39 +460,39 @@ export const SkillsModal: React.FC = () => {
 
         {/* Sub-Header / Filters (Active tab only) */}
         {activeTab === 'active' && (
-          <div className="p-3 border-b border-[#1e293b] bg-[#070b16] flex items-center justify-between gap-4">
+          <div className="p-3 border-b border-kin-border bg-kin-surface flex items-center justify-between gap-4">
             <div className="relative flex-1 max-w-sm">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-kin-muted" />
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search skills by name, tag, or instruction..."
-                className="w-full bg-[#101728] border border-[#212d45] rounded-lg pl-9 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500"
+                className="w-full bg-kin-card border border-kin-border rounded-lg pl-9 pr-3 py-1.5 text-xs text-kin-text placeholder-kin-subtle focus:outline-none focus:border-emerald-500"
               />
             </div>
 
-            <div className="flex items-center space-x-1 bg-[#101728] p-0.5 rounded-lg border border-[#212d45]">
+            <div className="flex items-center space-x-1 bg-kin-card p-0.5 rounded-lg border border-kin-border">
               <button
                 onClick={() => setFilterType('all')}
-                className={`px-3 py-1 rounded text-xs transition ${
-                  filterType === 'all' ? 'bg-emerald-600/30 text-emerald-300 font-semibold' : 'text-gray-400 hover:text-white'
+                className={`px-3 py-1 rounded text-xs transition cursor-pointer ${
+                  filterType === 'all' ? 'bg-emerald-600/30 text-emerald-600 dark:text-emerald-300 font-semibold' : 'text-kin-muted hover:text-kin-text'
                 }`}
               >
                 All ({skills.length})
               </button>
               <button
                 onClick={() => setFilterType('builtin')}
-                className={`px-3 py-1 rounded text-xs transition ${
-                  filterType === 'builtin' ? 'bg-emerald-600/30 text-emerald-300 font-semibold' : 'text-gray-400 hover:text-white'
+                className={`px-3 py-1 rounded text-xs transition cursor-pointer ${
+                  filterType === 'builtin' ? 'bg-emerald-600/30 text-emerald-600 dark:text-emerald-300 font-semibold' : 'text-kin-muted hover:text-kin-text'
                 }`}
               >
                 Built-In ({skills.filter(isBuiltIn).length})
               </button>
               <button
                 onClick={() => setFilterType('custom')}
-                className={`px-3 py-1 rounded text-xs transition ${
-                  filterType === 'custom' ? 'bg-emerald-600/30 text-emerald-300 font-semibold' : 'text-gray-400 hover:text-white'
+                className={`px-3 py-1 rounded text-xs transition cursor-pointer ${
+                  filterType === 'custom' ? 'bg-emerald-600/30 text-emerald-600 dark:text-emerald-300 font-semibold' : 'text-kin-muted hover:text-kin-text'
                 }`}
               >
                 Custom ({skills.filter((s) => !isBuiltIn(s)).length})
@@ -503,10 +503,10 @@ export const SkillsModal: React.FC = () => {
 
         {/* Collapsible New Skill Form */}
         {isCreating && (
-          <div className="p-4 border-b border-[#1e293b] bg-[#0f182c] space-y-3">
+          <div className="p-4 border-b border-kin-border bg-kin-surface space-y-3">
             <div className="flex items-center justify-between">
-              <span className="font-semibold text-white">Create New Procedural Skill</span>
-              <button onClick={() => setIsCreating(false)} className="text-gray-400 hover:text-white">
+              <span className="font-semibold text-kin-text">Create New Procedural Skill</span>
+              <button onClick={() => setIsCreating(false)} className="text-kin-muted hover:text-kin-text">
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -521,46 +521,46 @@ export const SkillsModal: React.FC = () => {
             <form onSubmit={handleCreateSubmit} className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] text-gray-400 mb-1">Skill Name *</label>
+                  <label className="block text-[11px] text-kin-muted mb-1">Skill Name *</label>
                   <input
                     type="text"
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
                     placeholder="e.g., github-pull-request-creator"
-                    className="w-full bg-[#0a0f1d] border border-[#232f48] rounded px-2.5 py-1.5 text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-kin-card border border-kin-border rounded px-2.5 py-1.5 text-kin-text focus:outline-none focus:border-emerald-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] text-gray-400 mb-1">Tags (comma-separated)</label>
+                  <label className="block text-[11px] text-kin-muted mb-1">Tags (comma-separated)</label>
                   <input
                     type="text"
                     value={newTags}
                     onChange={(e) => setNewTags(e.target.value)}
                     placeholder="e.g., git, pr, automation"
-                    className="w-full bg-[#0a0f1d] border border-[#232f48] rounded px-2.5 py-1.5 text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-kin-card border border-kin-border rounded px-2.5 py-1.5 text-kin-text focus:outline-none focus:border-emerald-500"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-[11px] text-gray-400 mb-1">Brief Description</label>
+                <label className="block text-[11px] text-kin-muted mb-1">Brief Description</label>
                 <input
                   type="text"
                   value={newDesc}
                   onChange={(e) => setNewDesc(e.target.value)}
                   placeholder="Summary of what this skill enables the autonomous agent to do"
-                  className="w-full bg-[#0a0f1d] border border-[#232f48] rounded px-2.5 py-1.5 text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-kin-card border border-kin-border rounded px-2.5 py-1.5 text-kin-text focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] text-gray-400 mb-1">Procedural Instructions (Markdown) *</label>
+                <label className="block text-[11px] text-kin-muted mb-1">Procedural Instructions (Markdown) *</label>
                 <textarea
                   rows={4}
                   value={newInstructions}
                   onChange={(e) => setNewInstructions(e.target.value)}
                   placeholder="Step-by-step guidance, recovery tips, and command trajectories..."
-                  className="w-full bg-[#0a0f1d] border border-[#232f48] rounded p-2 text-white font-mono text-[11px] focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-kin-card border border-kin-border rounded p-2 text-kin-text font-mono text-[11px] focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
@@ -568,13 +568,13 @@ export const SkillsModal: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsCreating(false)}
-                  className="px-3 py-1.5 rounded bg-[#1e293b] text-gray-300 hover:text-white"
+                  className="px-3 py-1.5 rounded bg-kin-card hover:bg-kin-cardHover text-kin-text transition cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
+                  className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition cursor-pointer"
                 >
                   Save Skill
                 </button>
@@ -585,10 +585,10 @@ export const SkillsModal: React.FC = () => {
 
         {/* Collapsible Edit Skill Form */}
         {editingSkill && (
-          <div className="p-4 border-b border-[#1e293b] bg-[#0f182c] space-y-3">
+          <div className="p-4 border-b border-kin-border bg-kin-surface space-y-3">
             <div className="flex items-center justify-between">
-              <span className="font-semibold text-white">Edit Procedural Skill: {editingSkill.name}</span>
-              <button onClick={() => setEditingSkill(null)} className="text-gray-400 hover:text-white">
+              <span className="font-semibold text-kin-text">Edit Procedural Skill: {editingSkill.name}</span>
+              <button onClick={() => setEditingSkill(null)} className="text-kin-muted hover:text-kin-text">
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -603,42 +603,42 @@ export const SkillsModal: React.FC = () => {
             <form onSubmit={handleEditSubmit} className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] text-gray-400 mb-1">Skill Name *</label>
+                  <label className="block text-[11px] text-kin-muted mb-1">Skill Name *</label>
                   <input
                     type="text"
                     value={editName}
                     onChange={(e) => setEditName(e.target.value)}
-                    className="w-full bg-[#0a0f1d] border border-[#232f48] rounded px-2.5 py-1.5 text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-kin-card border border-kin-border rounded px-2.5 py-1.5 text-kin-text focus:outline-none focus:border-emerald-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] text-gray-400 mb-1">Tags (comma-separated)</label>
+                  <label className="block text-[11px] text-kin-muted mb-1">Tags (comma-separated)</label>
                   <input
                     type="text"
                     value={editTags}
                     onChange={(e) => setEditTags(e.target.value)}
-                    className="w-full bg-[#0a0f1d] border border-[#232f48] rounded px-2.5 py-1.5 text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-kin-card border border-kin-border rounded px-2.5 py-1.5 text-kin-text focus:outline-none focus:border-emerald-500"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-[11px] text-gray-400 mb-1">Brief Description</label>
+                <label className="block text-[11px] text-kin-muted mb-1">Brief Description</label>
                 <input
                   type="text"
                   value={editDesc}
                   onChange={(e) => setEditDesc(e.target.value)}
-                  className="w-full bg-[#0a0f1d] border border-[#232f48] rounded px-2.5 py-1.5 text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-kin-card border border-kin-border rounded px-2.5 py-1.5 text-kin-text focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] text-gray-400 mb-1">Procedural Instructions (Markdown) *</label>
+                <label className="block text-[11px] text-kin-muted mb-1">Procedural Instructions (Markdown) *</label>
                 <textarea
                   rows={4}
                   value={editInstructions}
                   onChange={(e) => setEditInstructions(e.target.value)}
-                  className="w-full bg-[#0a0f1d] border border-[#232f48] rounded p-2 text-white font-mono text-[11px] focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-kin-card border border-kin-border rounded p-2 text-kin-text font-mono text-[11px] focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
@@ -646,13 +646,13 @@ export const SkillsModal: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setEditingSkill(null)}
-                  className="px-3 py-1.5 rounded bg-[#1e293b] text-gray-300 hover:text-white"
+                  className="px-3 py-1.5 rounded bg-kin-card hover:bg-kin-cardHover text-kin-text transition cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
+                  className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition cursor-pointer"
                 >
                   Update Skill (Auto-Versioned)
                 </button>
@@ -663,7 +663,7 @@ export const SkillsModal: React.FC = () => {
 
         {/* TAB 1: ACTIVE SKILLS */}
         {activeTab === 'active' && (
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#080d1a]">
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-kin-surface">
             {isLoadingSkills && skills.length === 0 ? (
               <div className="text-center py-12 text-gray-400">Loading skills registry...</div>
             ) : filteredSkills.length === 0 ? (
@@ -678,14 +678,14 @@ export const SkillsModal: React.FC = () => {
                 return (
                   <div
                     key={skill.id}
-                    className="rounded-xl bg-[#0d1426] border border-[#1e2a44] p-3.5 space-y-2 hover:border-[#2f4068] transition"
+                    className="rounded-xl bg-kin-card border border-kin-border p-3.5 space-y-2 hover:border-kin-border transition"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-center space-x-2.5">
                         <BookOpen className="w-4 h-4 text-emerald-400 shrink-0" />
                         <div>
                           <div className="flex items-center space-x-2">
-                            <span className="font-bold text-white text-[13px]">{skill.name}</span>
+                            <span className="font-bold text-kin-text text-[13px]">{skill.name}</span>
                             <span className="font-mono text-[10px] text-gray-400">v{skill.version}</span>
                             {builtIn ? (
                               <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[9px] uppercase font-bold tracking-wider">
@@ -710,7 +710,7 @@ export const SkillsModal: React.FC = () => {
                             )}
                           </div>
                           {skill.description && (
-                            <p className="text-[11px] text-[#94a3b8] mt-0.5">{skill.description}</p>
+                            <p className="text-[11px] text-kin-muted mt-0.5">{skill.description}</p>
                           )}
                         </div>
                       </div>
@@ -719,7 +719,7 @@ export const SkillsModal: React.FC = () => {
                         {/* Version History & Rollback Button */}
                         <button
                           onClick={() => handleOpenVersions(skill)}
-                          className="flex items-center space-x-1 px-2 py-1 rounded bg-[#141d33] hover:bg-[#1e2a47] text-gray-300 hover:text-white border border-[#233150] transition text-[11px]"
+                          className="flex items-center space-x-1 px-2 py-1 rounded bg-kin-card hover:bg-kin-cardHover text-kin-text border border-kin-border transition text-[11px] cursor-pointer"
                           title="View Version Snapshots & Rollback"
                         >
                           <History className="w-3 h-3 text-cyan-400" />
@@ -728,7 +728,7 @@ export const SkillsModal: React.FC = () => {
 
                         <button
                           onClick={() => handleExportSingle(skill)}
-                          className="p-1.5 rounded hover:bg-[#1a233a] text-gray-400 hover:text-emerald-400 transition"
+                          className="p-1.5 rounded hover:bg-kin-cardHover text-gray-400 hover:text-emerald-400 transition cursor-pointer"
                           title="Export Single Skill (.json)"
                         >
                           <Download className="w-3.5 h-3.5" />
@@ -738,7 +738,7 @@ export const SkillsModal: React.FC = () => {
                           <>
                             <button
                               onClick={() => startEditing(skill)}
-                              className="p-1.5 rounded hover:bg-[#1a233a] text-gray-400 hover:text-blue-400 transition"
+                              className="p-1.5 rounded hover:bg-kin-cardHover text-gray-400 hover:text-blue-400 transition cursor-pointer"
                               title="Edit Custom Skill"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
@@ -760,7 +760,7 @@ export const SkillsModal: React.FC = () => {
                                   }
                                 }
                               }}
-                              className="p-1.5 rounded hover:bg-red-950/40 text-gray-400 hover:text-red-400 transition"
+                              className="p-1.5 rounded hover:bg-red-950/40 text-gray-400 hover:text-red-400 transition cursor-pointer"
                               title="Delete Custom Skill"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -770,7 +770,7 @@ export const SkillsModal: React.FC = () => {
 
                         <button
                           onClick={() => setExpandedSkillId(isExpanded ? null : skill.id)}
-                          className="p-1.5 rounded hover:bg-[#1a233a] text-gray-400 hover:text-white transition"
+                          className="p-1.5 rounded hover:bg-kin-cardHover text-gray-400 hover:text-kin-text transition cursor-pointer"
                           title={isExpanded ? 'Collapse Instructions' : 'View Instructions'}
                         >
                           {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
@@ -784,7 +784,7 @@ export const SkillsModal: React.FC = () => {
                         {skill.tags.map((tag) => (
                           <span
                             key={tag}
-                            className="inline-flex items-center space-x-1 px-2 py-0.5 rounded bg-[#151f35] border border-[#243354] text-[10px] text-gray-300 font-mono"
+                            className="inline-flex items-center space-x-1 px-2 py-0.5 rounded bg-kin-card border border-kin-border text-[10px] text-gray-300 font-mono"
                           >
                             <Tag className="w-2.5 h-2.5 text-gray-500" />
                             <span>{tag}</span>
@@ -795,7 +795,7 @@ export const SkillsModal: React.FC = () => {
 
                     {/* Expandable Instructions View */}
                     {isExpanded && (
-                      <div className="mt-2 p-3 rounded-lg bg-[#070b14] border border-[#1b263e] space-y-1.5">
+                      <div className="mt-2 p-3 rounded-lg bg-kin-card border border-kin-border space-y-1.5">
                         <div className="flex items-center space-x-1 text-gray-400 text-[10px] uppercase font-bold tracking-wider">
                           <FileCode className="w-3 h-3 text-emerald-400" />
                           <span>Procedural Execution Instructions</span>
@@ -814,7 +814,7 @@ export const SkillsModal: React.FC = () => {
 
         {/* TAB 2: CANDIDATE LESSONS (OPENDOTS PIPELINE) */}
         {activeTab === 'candidates' && (
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#080d1a]">
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-kin-surface">
             <div className="p-3 rounded-xl bg-amber-950/20 border border-amber-500/30 text-amber-200 text-xs flex items-start space-x-3">
               <ShieldCheck className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
               <div>
@@ -828,17 +828,17 @@ export const SkillsModal: React.FC = () => {
 
             {candidateSkills.length === 0 ? (
               <div className="text-center py-16 space-y-3">
-                <div className="p-3 rounded-full bg-[#131b2e] w-12 h-12 mx-auto flex items-center justify-center text-gray-400">
+                <div className="p-3 rounded-full bg-kin-card w-12 h-12 mx-auto flex items-center justify-center text-kin-muted">
                   <CheckCircle2 className="w-6 h-6 text-emerald-400" />
                 </div>
-                <p className="text-sm font-semibold text-white">No Unvalidated Candidate Lessons</p>
-                <p className="text-xs text-gray-400 max-w-md mx-auto">
+                <p className="text-sm font-semibold text-kin-text">No Unvalidated Candidate Lessons</p>
+                <p className="text-xs text-kin-muted max-w-md mx-auto">
                   Click &quot;Harvest Recent Experiences&quot; to scan historical failure traces and synthesize empirical mitigation rules.
                 </p>
                 <button
                   onClick={handleHarvest}
                   disabled={isHarvesting}
-                  className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-semibold transition"
+                  className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-semibold transition cursor-pointer"
                 >
                   {isHarvesting ? 'Harvesting...' : 'Harvest Candidate Lessons Now'}
                 </button>
@@ -847,12 +847,12 @@ export const SkillsModal: React.FC = () => {
               candidateSkills.map((candidate) => (
                 <div
                   key={candidate.id}
-                  className="rounded-xl bg-[#0e1628] border border-amber-500/30 p-4 space-y-3"
+                  className="rounded-xl bg-kin-card border border-amber-500/30 p-4 space-y-3"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="flex items-center space-x-2">
-                        <span className="font-bold text-white text-[13px]">{candidate.name}</span>
+                        <span className="font-bold text-kin-text text-[13px]">{candidate.name}</span>
                         <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono text-[9px] uppercase font-bold tracking-wider">
                           Candidate (v{candidate.version})
                         </span>
@@ -898,7 +898,7 @@ export const SkillsModal: React.FC = () => {
                   </div>
 
                   {/* Synthesized Instructions */}
-                  <div className="p-3 rounded-lg bg-[#070b14] border border-[#1d273e]">
+                  <div className="p-3 rounded-lg bg-kin-card border border-kin-border">
                     <div className="text-[10px] uppercase font-bold text-amber-400 tracking-wider mb-1 flex items-center space-x-1">
                       <FileCode className="w-3 h-3" />
                       <span>Proposed Procedural Rule:</span>
@@ -915,7 +915,7 @@ export const SkillsModal: React.FC = () => {
 
         {/* TAB 3: EXECUTION EXPERIENCES */}
         {activeTab === 'experiences' && (
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#080d1a]">
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-kin-surface">
             {skillExperiences.length === 0 ? (
               <div className="text-center py-16 text-gray-500 italic">
                 No execution or recovery experiences recorded yet. Run agent tasks to capture traces.
@@ -924,7 +924,7 @@ export const SkillsModal: React.FC = () => {
               skillExperiences.map((exp) => (
                 <div
                   key={exp.id}
-                  className="rounded-xl bg-[#0d1426] border border-[#1e2a44] p-3.5 space-y-2 hover:border-[#2f4068] transition"
+                  className="rounded-xl bg-kin-card border border-kin-border p-3.5 space-y-2 hover:border-kin-border transition"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-1">
@@ -950,7 +950,7 @@ export const SkillsModal: React.FC = () => {
                           {new Date(exp.createdAt).toLocaleTimeString()}
                         </span>
                       </div>
-                      <p className="text-xs font-medium text-white">{exp.objective}</p>
+                      <p className="text-xs font-medium text-kin-text">{exp.objective}</p>
                     </div>
 
                     {exp.repairStrategy && (
@@ -968,7 +968,7 @@ export const SkillsModal: React.FC = () => {
                   )}
 
                   {exp.lessonsLearned && (
-                    <div className="p-2.5 rounded bg-[#0b1222] border border-[#1c2944] text-gray-300 text-[11px]">
+                    <div className="p-2.5 rounded bg-kin-card border border-kin-border text-gray-300 text-[11px]">
                       <span className="text-cyan-400 font-bold block mb-0.5">Lesson Extracted:</span>
                       {exp.lessonsLearned}
                     </div>
@@ -981,28 +981,28 @@ export const SkillsModal: React.FC = () => {
 
         {/* TAB 4: LEARNING TELEMETRY & ADAPTATION */}
         {activeTab === 'metrics' && (
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#080d1a]">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-kin-surface">
             {/* Top KPI row */}
             <div className="grid grid-cols-4 gap-3">
-              <div className="p-3.5 rounded-xl bg-[#0e1628] border border-[#1e2a44]">
-                <div className="text-[10px] text-gray-400 uppercase font-semibold">Total Experiences</div>
-                <div className="text-2xl font-bold text-white mt-1">
+              <div className="p-3.5 rounded-xl bg-kin-card border border-kin-border">
+                <div className="text-[10px] text-kin-muted uppercase font-semibold">Total Experiences</div>
+                <div className="text-2xl font-bold text-kin-text mt-1">
                   {learningMetrics?.totalExperiences ?? skillExperiences.length}
                 </div>
               </div>
-              <div className="p-3.5 rounded-xl bg-[#0e1628] border border-[#1e2a44]">
+              <div className="p-3.5 rounded-xl bg-kin-card border border-kin-border">
                 <div className="text-[10px] text-emerald-400 uppercase font-semibold">Active Validated Skills</div>
                 <div className="text-2xl font-bold text-emerald-300 mt-1">
                   {learningMetrics?.activeSkillsCount ?? skills.length}
                 </div>
               </div>
-              <div className="p-3.5 rounded-xl bg-[#0e1628] border border-[#1e2a44]">
+              <div className="p-3.5 rounded-xl bg-kin-card border border-kin-border">
                 <div className="text-[10px] text-amber-400 uppercase font-semibold">Pending Candidates</div>
                 <div className="text-2xl font-bold text-amber-300 mt-1">
                   {learningMetrics?.candidateSkillsCount ?? candidateSkills.length}
                 </div>
               </div>
-              <div className="p-3.5 rounded-xl bg-[#0e1628] border border-[#1e2a44]">
+              <div className="p-3.5 rounded-xl bg-kin-card border border-kin-border">
                 <div className="text-[10px] text-blue-400 uppercase font-semibold">Adaptive Heuristics</div>
                 <div className="text-2xl font-bold text-blue-300 mt-1">
                   {learningMetrics?.recoveryStrategies?.length ?? 4} Active
@@ -1011,8 +1011,8 @@ export const SkillsModal: React.FC = () => {
             </div>
 
             {/* Tool Reliability Table */}
-            <div className="p-4 rounded-xl bg-[#0d1426] border border-[#1e2a44] space-y-3">
-              <h3 className="font-bold text-white text-xs flex items-center space-x-2">
+            <div className="p-4 rounded-xl bg-kin-card border border-kin-border space-y-3">
+              <h3 className="font-bold text-kin-text text-xs flex items-center space-x-2">
                 <Activity className="w-4 h-4 text-emerald-400" />
                 <span>Empirical Tool Reliability Telemetry</span>
               </h3>
@@ -1022,7 +1022,7 @@ export const SkillsModal: React.FC = () => {
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
                     <thead>
-                      <tr className="border-b border-[#1f2b45] text-gray-400 font-semibold text-[10px] uppercase">
+                      <tr className="border-b border-kin-border text-gray-400 font-semibold text-[10px] uppercase">
                         <th className="pb-2">Tool Name</th>
                         <th className="pb-2">Invocations</th>
                         <th className="pb-2">Passes</th>
@@ -1030,9 +1030,9 @@ export const SkillsModal: React.FC = () => {
                         <th className="pb-2">Success Rate</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-[#17223b]">
+                    <tbody className="divide-y divide-kin-borderSubtle">
                       {learningMetrics.toolReliability.map((t) => (
-                        <tr key={t.toolName} className="hover:bg-[#131d33] transition">
+                        <tr key={t.toolName} className="hover:bg-kin-cardHover transition">
                           <td className="py-2 font-mono text-cyan-300">{t.toolName}</td>
                           <td className="py-2 text-gray-300">{t.invocations}</td>
                           <td className="py-2 text-emerald-400">{t.successes}</td>
@@ -1059,8 +1059,8 @@ export const SkillsModal: React.FC = () => {
             </div>
 
             {/* Recovery Strategy Effectiveness */}
-            <div className="p-4 rounded-xl bg-[#0d1426] border border-[#1e2a44] space-y-3">
-              <h3 className="font-bold text-white text-xs flex items-center space-x-2">
+            <div className="p-4 rounded-xl bg-kin-card border border-kin-border space-y-3">
+              <h3 className="font-bold text-kin-text text-xs flex items-center space-x-2">
                 <Award className="w-4 h-4 text-purple-400" />
                 <span>Self-Healing Recovery Strategy Win Rates</span>
               </h3>
@@ -1069,9 +1069,9 @@ export const SkillsModal: React.FC = () => {
               ) : (
                 <div className="grid grid-cols-2 gap-3">
                   {learningMetrics.recoveryStrategies.map((s) => (
-                    <div key={s.strategy} className="p-3 rounded-lg bg-[#080d18] border border-[#1a253e] flex items-center justify-between">
+                    <div key={s.strategy} className="p-3 rounded-lg bg-kin-surface border border-kin-border flex items-center justify-between">
                       <div>
-                        <div className="font-bold text-white font-mono text-xs">{s.strategy}</div>
+                        <div className="font-bold text-kin-text font-mono text-xs">{s.strategy}</div>
                         <div className="text-[10px] text-gray-400 mt-0.5">
                           {s.successfulCount} resolved / {s.suggestedCount} suggested
                         </div>
@@ -1090,14 +1090,14 @@ export const SkillsModal: React.FC = () => {
 
         {/* TAB 5: MCP CONNECTORS & TOOLS */}
         {activeTab === 'mcp' && (
-          <div className="flex-1 overflow-y-auto p-6 bg-[#080d18] space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-[#1e2a44]">
+          <div className="flex-1 overflow-y-auto p-6 bg-kin-surface space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-kin-border">
               <div>
-                <h3 className="text-sm font-semibold text-white mb-0.5 flex items-center space-x-2">
+                <h3 className="text-sm font-semibold text-kin-text mb-0.5 flex items-center space-x-2">
                   <Terminal className="w-4 h-4 text-cyan-400" />
                   <span>Model Context Protocol (MCP) Connectors & Tools</span>
                 </h3>
-                <p className="text-xs text-[#8b949e]">
+                <p className="text-xs text-kin-muted">
                   Active tool integrations available to autonomous agents across all communication channels.
                 </p>
               </div>
@@ -1107,7 +1107,7 @@ export const SkillsModal: React.FC = () => {
                   setSkillsModalOpen(false);
                   setConnectorsModalOpen(true);
                 }}
-                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#0e1628] hover:bg-[#1e2a44] text-cyan-300 hover:text-white text-xs font-semibold border border-cyan-500/30 transition cursor-pointer shrink-0"
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-kin-card hover:bg-kin-cardHover text-cyan-600 dark:text-cyan-300 hover:text-cyan-700 dark:hover:text-white text-xs font-semibold border border-cyan-500/30 transition cursor-pointer shrink-0"
                 title="Pop out into Dedicated Connectors Window"
               >
                 <Maximize2 className="w-3.5 h-3.5" />
@@ -1121,20 +1121,20 @@ export const SkillsModal: React.FC = () => {
         {/* MODAL: Version History & Rollback Dialog */}
         {versionHistorySkill && (
           <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4">
-            <div className="bg-[#0b101e] border border-[#232f48] rounded-xl w-full max-w-xl max-h-[75vh] flex flex-col shadow-2xl text-xs overflow-hidden">
-              <div className="p-4 border-b border-[#1e293b] flex items-center justify-between bg-[#0e1526]">
+            <div className="bg-kin-surface border border-kin-border rounded-xl w-full max-w-xl max-h-[75vh] flex flex-col shadow-2xl text-xs overflow-hidden">
+              <div className="p-4 border-b border-kin-border flex items-center justify-between bg-kin-surface">
                 <div className="flex items-center space-x-2">
                   <History className="w-4 h-4 text-cyan-400" />
-                  <span className="font-bold text-white text-sm">
+                  <span className="font-bold text-kin-text text-sm">
                     Version History: {versionHistorySkill.name} (Active: v{versionHistorySkill.version})
                   </span>
                 </div>
-                <button onClick={() => setVersionHistorySkill(null)} className="text-gray-400 hover:text-white">
+                <button onClick={() => setVersionHistorySkill(null)} className="text-kin-muted hover:text-kin-text">
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#080d18]">
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-kin-surface">
                 {isLoadingVersions ? (
                   <div className="text-center py-8 text-gray-400">Loading version snapshots...</div>
                 ) : versionsList.length === 0 ? (
@@ -1145,7 +1145,7 @@ export const SkillsModal: React.FC = () => {
                   versionsList.map((ver) => (
                     <div
                       key={ver.id}
-                      className="p-3.5 rounded-lg bg-[#0e1628] border border-[#1e2a44] space-y-2 hover:border-[#2f4068] transition"
+                      className="p-3.5 rounded-lg bg-kin-card border border-kin-border space-y-2 hover:border-kin-border transition"
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
@@ -1156,7 +1156,7 @@ export const SkillsModal: React.FC = () => {
                         </div>
                         <button
                           onClick={() => handleRollback(ver.id)}
-                          className="flex items-center space-x-1 px-2.5 py-1 rounded bg-amber-600/20 border border-amber-500/40 text-amber-300 hover:bg-amber-600/40 font-medium transition"
+                          className="flex items-center space-x-1 px-2.5 py-1 rounded bg-amber-600/20 border border-amber-500/40 text-amber-300 hover:bg-amber-600/40 font-medium transition cursor-pointer"
                         >
                           <RotateCcw className="w-3 h-3" />
                           <span>Roll Back to This Version</span>
@@ -1167,7 +1167,7 @@ export const SkillsModal: React.FC = () => {
                         <p className="text-[11px] text-gray-300 italic">{ver.changeSummary}</p>
                       )}
 
-                      <pre className="text-[10px] font-mono text-gray-300 bg-[#060a12] p-2 rounded max-h-28 overflow-y-auto whitespace-pre-wrap">
+                      <pre className="text-[10px] font-mono text-gray-300 bg-kin-card p-2 rounded max-h-28 overflow-y-auto whitespace-pre-wrap">
                         {ver.instructions}
                       </pre>
                     </div>
@@ -1181,45 +1181,45 @@ export const SkillsModal: React.FC = () => {
         {/* MODAL: Candidate Validation Gate Dialog */}
         {validatingCandidate && (
           <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4">
-            <div className="bg-[#0b101e] border border-amber-500/40 rounded-xl w-full max-w-xl flex flex-col shadow-2xl text-xs overflow-hidden">
-              <div className="p-4 border-b border-[#1e293b] flex items-center justify-between bg-[#0e1526]">
+            <div className="bg-kin-surface border border-amber-500/40 rounded-xl w-full max-w-xl flex flex-col shadow-2xl text-xs overflow-hidden">
+              <div className="p-4 border-b border-kin-border flex items-center justify-between bg-kin-surface">
                 <div className="flex items-center space-x-2">
                   <ShieldCheck className="w-4 h-4 text-amber-400" />
-                  <span className="font-bold text-white text-sm">
+                  <span className="font-bold text-kin-text text-sm">
                     Validation Gate: Promote Candidate Lesson to Active
                   </span>
                 </div>
-                <button onClick={() => setValidatingCandidate(null)} className="text-gray-400 hover:text-white">
+                <button onClick={() => setValidatingCandidate(null)} className="text-kin-muted hover:text-kin-text">
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="p-5 space-y-4 bg-[#080d18]">
+              <div className="p-5 space-y-4 bg-kin-surface">
                 <div>
-                  <label className="block text-gray-400 text-[11px] mb-1 font-semibold">Candidate Name</label>
-                  <div className="text-white font-mono bg-[#0e1628] p-2 rounded border border-[#1e2a44]">
+                  <label className="block text-kin-muted text-[11px] mb-1 font-semibold">Candidate Name</label>
+                  <div className="text-kin-text font-mono bg-kin-card border border-kin-border p-2 rounded">
                     {validatingCandidate.name} (Candidate v{validatingCandidate.version})
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-gray-400 text-[11px] mb-1 font-semibold">Validator / Reviewer ID *</label>
+                  <label className="block text-kin-muted text-[11px] mb-1 font-semibold">Validator / Reviewer ID *</label>
                   <input
                     type="text"
                     value={reviewerName}
                     onChange={(e) => setReviewerName(e.target.value)}
-                    className="w-full bg-[#0e1628] border border-[#232f48] rounded px-3 py-1.5 text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-kin-card border border-kin-border rounded px-3 py-1.5 text-kin-text focus:outline-none focus:border-emerald-500"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-gray-400 text-[11px] mb-1 font-semibold">Verification Rationale / Test Reference</label>
+                  <label className="block text-kin-muted text-[11px] mb-1 font-semibold">Verification Rationale / Test Reference</label>
                   <textarea
                     rows={2}
                     value={validationRationale}
                     onChange={(e) => setValidationRationale(e.target.value)}
                     placeholder="e.g. Verified across 3 automated checkout runs with complete pass rate."
-                    className="w-full bg-[#0e1628] border border-[#232f48] rounded p-2 text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-kin-card border border-kin-border rounded p-2 text-kin-text focus:outline-none focus:border-emerald-500"
                   />
                 </div>
 
@@ -1230,19 +1230,19 @@ export const SkillsModal: React.FC = () => {
                 <div className="flex justify-end space-x-2 pt-2">
                   <button
                     onClick={() => setValidatingCandidate(null)}
-                    className="px-3 py-1.5 rounded bg-[#1e293b] text-gray-300 hover:text-white"
+                    className="px-3 py-1.5 rounded bg-kin-card hover:bg-kin-cardHover text-kin-text transition cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={() => handleValidateDecision('reject')}
-                    className="px-3 py-1.5 rounded bg-red-950/50 hover:bg-red-900/70 border border-red-500/40 text-red-200"
+                    className="px-3 py-1.5 rounded bg-red-950/50 hover:bg-red-900/70 border border-red-500/40 text-red-200 transition cursor-pointer"
                   >
                     Reject & Deprecate
                   </button>
                   <button
                     onClick={() => handleValidateDecision('promote')}
-                    className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
+                    className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition cursor-pointer"
                   >
                     Authorize & Promote to v1.0.0
                   </button>

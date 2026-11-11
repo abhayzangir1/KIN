@@ -158,8 +158,8 @@ export class ChannelService {
       created_at: number;
     }>(
       `SELECT * FROM (
-        SELECT * FROM messages WHERE channel_id = ? ORDER BY created_at DESC, id DESC LIMIT ?
-      ) sub ORDER BY created_at ASC, id ASC`,
+        SELECT rowid, * FROM messages WHERE channel_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?
+      ) sub ORDER BY created_at ASC, rowid ASC`,
       channelId,
       limit
     );
@@ -196,7 +196,7 @@ export class ChannelService {
           is_background?: number;
           created_at: number;
         }>(
-          'SELECT * FROM messages WHERE channel_id = ? AND parent_message_id = ? ORDER BY created_at ASC, id ASC',
+          'SELECT * FROM messages WHERE channel_id = ? AND parent_message_id = ? ORDER BY created_at ASC, rowid ASC',
           channelId,
           parentMessageId
         )
@@ -212,7 +212,7 @@ export class ChannelService {
           is_background?: number;
           created_at: number;
         }>(
-          'SELECT * FROM messages WHERE parent_message_id = ? ORDER BY created_at ASC, id ASC',
+          'SELECT * FROM messages WHERE parent_message_id = ? ORDER BY created_at ASC, rowid ASC',
           parentMessageId
         );
 

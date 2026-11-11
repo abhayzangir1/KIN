@@ -48,13 +48,13 @@ export const HumanTakeoverBanner: React.FC = () => {
           activeAgentChannels?.[a.id] === activeChannelId
       ) || (activeTakeover?.agentId ? agents.find((a) => a.id === activeTakeover.agentId) : null);
 
-  // Check if an agent in another channel requires urgent attention
+  // Check if an agent in another channel requires urgent attention (exclude finished or aborted runs)
   const crossChannelAlert = Object.values(activeTakeovers || {}).find(
     (t) =>
       t.channelId &&
       t.channelId !== activeChannelId &&
+      !t.isAborted &&
       (t.isPaused === true ||
-        t.isAborted === true ||
         Boolean(t.authRequired) ||
         Boolean(t.financialGate) ||
         t.riskLevel === 'CRITICAL' ||

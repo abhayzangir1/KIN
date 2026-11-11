@@ -263,10 +263,10 @@ export const AddProviderModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fadeIn">
-      <div className="relative w-full max-w-lg bg-[#0c1017] border border-[#1e293b] rounded-xl shadow-2xl flex flex-col overflow-hidden text-kin-text animate-scaleUp">
+      <div className="relative w-full max-w-lg bg-kin-surface border border-kin-border rounded-xl shadow-2xl flex flex-col overflow-hidden text-kin-text animate-scaleUp">
         
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[#1e293b] bg-[#0f1420]/80">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-kin-border bg-kin-surface/80">
           <div className="flex items-center space-x-3">
             <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
               <ProviderIcon provider={provider} className="w-5 h-5" />
@@ -275,7 +275,7 @@ export const AddProviderModal: React.FC = () => {
               <h2 className="text-sm font-semibold text-white tracking-wide">
                 Add Provider &amp; API Key
               </h2>
-              <p className="text-[11px] text-[#64748b]">
+              <p className="text-[11px] text-kin-muted">
                 Connect any AI model provider. Credentials are encrypted and models are dynamically discovered.
               </p>
             </div>
@@ -283,7 +283,7 @@ export const AddProviderModal: React.FC = () => {
           <button
             type="button"
             onClick={closeAddProviderModal}
-            className="p-1.5 rounded-lg hover:bg-white/5 text-[#94a3b8] hover:text-white transition cursor-pointer"
+            className="p-1.5 rounded-lg hover:bg-white/5 text-kin-muted hover:text-white transition cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -294,14 +294,14 @@ export const AddProviderModal: React.FC = () => {
           
           {/* Provider Selection */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-[#cbd5e1] flex items-center justify-between">
+            <label className="text-xs font-medium text-kin-text flex items-center justify-between">
               <span>Select Provider</span>
-              <span className="text-[10px] text-[#64748b] font-mono">Dynamic Model Discovery</span>
+              <span className="text-[10px] text-kin-muted font-mono">Dynamic Model Discovery</span>
             </label>
             <select
               value={provider}
               onChange={(e) => handleProviderChange(e.target.value)}
-              className="w-full bg-[#070b14] border border-[#1e293b] rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 font-sans cursor-pointer"
+              className="w-full bg-kin-card border border-kin-border rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 font-sans cursor-pointer"
             >
               <option value="openrouter">OpenRouter (100+ Models, Claude, DeepSeek, Llama)</option>
               <option value="anthropic">Anthropic (Claude 3.7 Sonnet, Claude 3.5)</option>
@@ -327,7 +327,7 @@ export const AddProviderModal: React.FC = () => {
 
           {/* API Key Field */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-[#cbd5e1] flex items-center justify-between">
+            <label className="text-xs font-medium text-kin-text flex items-center justify-between">
               <span className="flex items-center space-x-1.5">
                 <Key className="w-3.5 h-3.5 text-emerald-400" />
                 <span>API Key {currentDef.requiresKey ? '*' : '(Optional)'}</span>
@@ -340,12 +340,12 @@ export const AddProviderModal: React.FC = () => {
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder={currentDef.placeholderKey}
-                className="w-full bg-[#070b14] border border-[#1e293b] rounded-lg pl-3 pr-10 py-2 text-xs text-white font-mono placeholder-[#475569] focus:outline-none focus:border-emerald-500"
+                className="w-full bg-kin-card border border-kin-border rounded-lg pl-3 pr-10 py-2 text-xs text-white font-mono placeholder-kin-subtle focus:outline-none focus:border-emerald-500"
               />
               <button
                 type="button"
                 onClick={() => setShowKey(!showKey)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#64748b] hover:text-white cursor-pointer"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-kin-muted hover:text-white cursor-pointer"
                 title={showKey ? 'Hide Key' : 'Show Key'}
               >
                 {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
@@ -355,7 +355,7 @@ export const AddProviderModal: React.FC = () => {
 
           {/* Endpoint URL */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-[#cbd5e1] flex items-center space-x-1.5">
+            <label className="text-xs font-medium text-kin-text flex items-center space-x-1.5">
               <Globe className="w-3.5 h-3.5 text-blue-400" />
               <span>Endpoint URL</span>
             </label>
@@ -364,14 +364,14 @@ export const AddProviderModal: React.FC = () => {
               value={endpointUrl}
               onChange={(e) => setEndpointUrl(e.target.value)}
               placeholder="e.g. https://api.openai.com/v1"
-              className="w-full bg-[#070b14] border border-[#1e293b] rounded-lg px-3 py-2 text-xs text-white font-mono placeholder-[#475569] focus:outline-none focus:border-emerald-500"
+              className="w-full bg-kin-card border border-kin-border rounded-lg px-3 py-2 text-xs text-white font-mono placeholder-kin-subtle focus:outline-none focus:border-emerald-500"
             />
           </div>
 
           {/* Key Alias & Custom Model ID row */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-[#cbd5e1] flex items-center space-x-1.5">
+              <label className="text-xs font-medium text-kin-text flex items-center space-x-1.5">
                 <Tag className="w-3.5 h-3.5 text-amber-400" />
                 <span>Alias / Label</span>
               </label>
@@ -380,12 +380,12 @@ export const AddProviderModal: React.FC = () => {
                 value={keyAlias}
                 onChange={(e) => setKeyAlias(e.target.value)}
                 placeholder="e.g. My OpenRouter Key"
-                className="w-full bg-[#070b14] border border-[#1e293b] rounded-lg px-3 py-2 text-xs text-white placeholder-[#475569] focus:outline-none focus:border-emerald-500"
+                className="w-full bg-kin-card border border-kin-border rounded-lg px-3 py-2 text-xs text-white placeholder-kin-subtle focus:outline-none focus:border-emerald-500"
               />
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-[#cbd5e1] flex items-center space-x-1.5">
+              <label className="text-xs font-medium text-kin-text flex items-center space-x-1.5">
                 <Cpu className="w-3.5 h-3.5 text-purple-400" />
                 <span>Specific Model ID (Optional)</span>
               </label>
@@ -394,7 +394,7 @@ export const AddProviderModal: React.FC = () => {
                 value={customModelId}
                 onChange={(e) => setCustomModelId(e.target.value)}
                 placeholder="e.g. meta-llama/llama-3.3-70b"
-                className="w-full bg-[#070b14] border border-[#1e293b] rounded-lg px-3 py-2 text-xs text-white font-mono placeholder-[#475569] focus:outline-none focus:border-emerald-500"
+                className="w-full bg-kin-card border border-kin-border rounded-lg px-3 py-2 text-xs text-white font-mono placeholder-kin-subtle focus:outline-none focus:border-emerald-500"
               />
             </div>
           </div>
@@ -420,7 +420,7 @@ export const AddProviderModal: React.FC = () => {
               type="button"
               onClick={closeAddProviderModal}
               disabled={isSubmitting}
-              className="px-3.5 py-2 rounded-lg bg-[#1e293b] hover:bg-[#283548] text-[#cbd5e1] text-xs font-medium transition cursor-pointer"
+              className="px-3.5 py-2 rounded-lg bg-kin-card hover:bg-kin-cardHover text-kin-text text-xs font-medium transition cursor-pointer"
             >
               Cancel
             </button>

@@ -146,8 +146,6 @@ export const SettingsModal: React.FC = () => {
     const res = await setAutonomyMode(mode);
     if (!res?.success) {
       addToast(res?.error || 'Failed to update workspace autonomy mode', 'error');
-    } else {
-      addToast(`Autonomy mode updated to ${mode.replace('_', ' ')}`, 'info');
     }
   };
 
@@ -239,9 +237,9 @@ export const SettingsModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-150">
-      <div className="bg-[#0d1117] border border-[#30363d] rounded-xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[85vh] overflow-hidden text-kin-text font-sans">
+      <div className="bg-kin-surface border border-kin-border rounded-xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[85vh] overflow-hidden text-kin-text font-sans">
         {/* Top Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#21262d] bg-[#161b22]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-kin-border bg-kin-card">
           <div className="flex items-center space-x-2.5">
             <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
               <Settings className="w-5 h-5" />
@@ -249,16 +247,16 @@ export const SettingsModal: React.FC = () => {
             <div>
               <h2 className="text-base font-bold text-kin-text flex items-center space-x-2">
                 <span>System Settings & Preferences</span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
                   KIN Platform v1.0
                 </span>
               </h2>
-              <p className="text-xs text-[#8b949e]">Configure autonomy, LLM engine, database, and draggable layout</p>
+              <p className="text-xs text-kin-muted">Configure autonomy, LLM engine, database, and draggable layout</p>
             </div>
           </div>
           <button
             onClick={() => setSettingsModalOpen(false)}
-            className="p-1.5 rounded-lg hover:bg-[#21262d] text-[#8b949e] hover:text-kin-text transition cursor-pointer"
+            className="p-1.5 rounded-lg hover:bg-kin-cardHover text-kin-muted hover:text-kin-text transition cursor-pointer"
             title="Close Settings (Esc)"
           >
             <X className="w-5 h-5" />
@@ -268,13 +266,13 @@ export const SettingsModal: React.FC = () => {
         {/* Modal Body with Left Navigation & Right Content */}
         <div className="flex flex-1 overflow-hidden min-h-[420px]">
           {/* Settings Left Tabs Sidebar */}
-          <div className="w-52 border-r border-[#21262d] bg-[#090d16] p-3 flex flex-col space-y-1 shrink-0 select-none">
+          <div className="w-52 border-r border-kin-border bg-kin-card p-3 flex flex-col space-y-1 shrink-0 select-none">
             <button
               onClick={() => setActiveTab('general')}
               className={`flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-medium transition text-left ${
                 activeTab === 'general'
                   ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30'
-                  : 'text-[#8b949e] hover:bg-[#161b22] hover:text-kin-text'
+                  : 'text-kin-muted hover:bg-kin-cardHover hover:text-kin-text'
               }`}
             >
               <Shield className="w-4 h-4 shrink-0" />
@@ -286,7 +284,7 @@ export const SettingsModal: React.FC = () => {
               className={`flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-medium transition text-left ${
                 activeTab === 'models'
                   ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
-                  : 'text-[#8b949e] hover:bg-[#161b22] hover:text-kin-text'
+                  : 'text-kin-muted hover:bg-kin-cardHover hover:text-kin-text'
               }`}
             >
               <Cpu className="w-4 h-4 shrink-0" />
@@ -298,7 +296,7 @@ export const SettingsModal: React.FC = () => {
               className={`flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-medium transition text-left ${
                 activeTab === 'credentials'
                   ? 'bg-amber-600/20 text-amber-400 border border-amber-500/30'
-                  : 'text-[#8b949e] hover:bg-[#161b22] hover:text-kin-text'
+                  : 'text-kin-muted hover:bg-kin-cardHover hover:text-kin-text'
               }`}
             >
               <Key className="w-4 h-4 shrink-0" />
@@ -310,7 +308,7 @@ export const SettingsModal: React.FC = () => {
               className={`flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-medium transition text-left ${
                 activeTab === 'egress'
                   ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
-                  : 'text-[#8b949e] hover:bg-[#161b22] hover:text-kin-text'
+                  : 'text-kin-muted hover:bg-kin-cardHover hover:text-kin-text'
               }`}
             >
               <Globe className="w-4 h-4 shrink-0 text-blue-400" />
@@ -322,7 +320,7 @@ export const SettingsModal: React.FC = () => {
               className={`flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-medium transition text-left ${
                 activeTab === 'skills'
                   ? 'bg-purple-600/20 text-purple-400 border border-purple-500/30'
-                  : 'text-[#8b949e] hover:bg-[#161b22] hover:text-kin-text'
+                  : 'text-kin-muted hover:bg-kin-cardHover hover:text-kin-text'
               }`}
             >
               <Sparkles className="w-4 h-4 shrink-0" />
@@ -334,7 +332,7 @@ export const SettingsModal: React.FC = () => {
               className={`flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition text-left ${
                 activeTab === 'connectors'
                   ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30'
-                  : 'text-[#8b949e] hover:bg-[#161b22] hover:text-kin-text'
+                  : 'text-kin-muted hover:bg-kin-cardHover hover:text-kin-text'
               }`}
             >
               <div className="flex items-center space-x-2.5 truncate">
@@ -351,7 +349,7 @@ export const SettingsModal: React.FC = () => {
               className={`flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-medium transition text-left ${
                 activeTab === 'desktop'
                   ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
-                  : 'text-[#8b949e] hover:bg-[#161b22] hover:text-kin-text'
+                  : 'text-kin-muted hover:bg-kin-cardHover hover:text-kin-text'
               }`}
             >
               <Monitor className="w-4 h-4 shrink-0" />
@@ -363,7 +361,7 @@ export const SettingsModal: React.FC = () => {
               className={`flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-medium transition text-left ${
                 activeTab === 'evaluations'
                   ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30'
-                  : 'text-[#8b949e] hover:bg-[#161b22] hover:text-kin-text'
+                  : 'text-kin-muted hover:bg-kin-cardHover hover:text-kin-text'
               }`}
             >
               <Award className="w-4 h-4 shrink-0" />
@@ -375,7 +373,7 @@ export const SettingsModal: React.FC = () => {
               className={`flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-medium transition text-left ${
                 activeTab === 'layout'
                   ? 'bg-purple-600/20 text-purple-400 border border-purple-500/30'
-                  : 'text-[#8b949e] hover:bg-[#161b22] hover:text-kin-text'
+                  : 'text-kin-muted hover:bg-kin-cardHover hover:text-kin-text'
               }`}
             >
               <Layout className="w-4 h-4 shrink-0" />
@@ -387,7 +385,7 @@ export const SettingsModal: React.FC = () => {
               className={`flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-medium transition text-left ${
                 activeTab === 'database'
                   ? 'bg-amber-600/20 text-amber-400 border border-amber-500/30'
-                  : 'text-[#8b949e] hover:bg-[#161b22] hover:text-kin-text'
+                  : 'text-kin-muted hover:bg-kin-cardHover hover:text-kin-text'
               }`}
             >
               <Database className="w-4 h-4 shrink-0" />
@@ -399,7 +397,7 @@ export const SettingsModal: React.FC = () => {
               className={`flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-medium transition text-left ${
                 activeTab === 'about'
                   ? 'bg-cyan-600/20 text-cyan-400 border border-cyan-500/30'
-                  : 'text-[#8b949e] hover:bg-[#161b22] hover:text-kin-text'
+                  : 'text-kin-muted hover:bg-kin-cardHover hover:text-kin-text'
               }`}
             >
               <Info className="w-4 h-4 shrink-0" />
@@ -408,7 +406,7 @@ export const SettingsModal: React.FC = () => {
           </div>
 
           {/* Settings Right Tab Pane */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-[#0d1117]">
+          <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-kin-surface">
             {/* 1. AUTONOMY & SAFETY TAB */}
             {activeTab === 'general' && (
               <div className="space-y-6">
@@ -417,7 +415,7 @@ export const SettingsModal: React.FC = () => {
                     <Shield className="w-4 h-4 text-emerald-400" />
                     <span>Autonomy & Execution Governance</span>
                   </h3>
-                  <p className="text-xs text-[#8b949e]">
+                  <p className="text-xs text-kin-muted">
                     Control how autonomous agents request permission before executing shell commands, file modifications, and machine actions.
                   </p>
                 </div>
@@ -429,7 +427,7 @@ export const SettingsModal: React.FC = () => {
                     className={`p-3.5 rounded-lg border cursor-pointer transition flex items-start space-x-3 ${
                       autonomyMode === 'AUTO'
                         ? 'bg-emerald-950/20 border-emerald-500 text-kin-text shadow-sm'
-                        : 'bg-[#161b22] border-[#30363d] hover:border-[#8b949e] text-[#8b949e]'
+                        : 'bg-kin-card border-kin-border hover:border-kin-borderSubtle text-kin-muted'
                     }`}
                   >
                     <div className="mt-0.5">
@@ -437,7 +435,7 @@ export const SettingsModal: React.FC = () => {
                         className={`w-4 h-4 rounded-full border flex items-center justify-center ${
                           autonomyMode === 'AUTO'
                             ? 'border-emerald-400 bg-emerald-500 text-black'
-                            : 'border-[#64748b]'
+                            : 'border-kin-border'
                         }`}
                       >
                         {autonomyMode === 'AUTO' && <Check className="w-2.5 h-2.5 stroke-[3]" />}
@@ -450,7 +448,7 @@ export const SettingsModal: React.FC = () => {
                           Default
                         </span>
                       </div>
-                      <p className="text-xs text-[#8b949e] mt-0.5">
+                      <p className="text-xs text-kin-muted mt-0.5">
                         Agents automatically execute low/medium-risk tasks (reads, safe edits, non-destructive scripts). High-risk actions prompt interactive operator approval.
                       </p>
                     </div>
@@ -462,7 +460,7 @@ export const SettingsModal: React.FC = () => {
                     className={`p-3.5 rounded-lg border cursor-pointer transition flex items-start space-x-3 ${
                       autonomyMode === 'ALWAYS_ASK'
                         ? 'bg-amber-950/20 border-amber-500 text-kin-text shadow-sm'
-                        : 'bg-[#161b22] border-[#30363d] hover:border-[#8b949e] text-[#8b949e]'
+                        : 'bg-kin-card border-kin-border hover:border-kin-borderSubtle text-kin-muted'
                     }`}
                   >
                     <div className="mt-0.5">
@@ -470,7 +468,7 @@ export const SettingsModal: React.FC = () => {
                         className={`w-4 h-4 rounded-full border flex items-center justify-center ${
                           autonomyMode === 'ALWAYS_ASK'
                             ? 'border-amber-400 bg-amber-500 text-black'
-                            : 'border-[#64748b]'
+                            : 'border-kin-border'
                         }`}
                       >
                         {autonomyMode === 'ALWAYS_ASK' && <Check className="w-2.5 h-2.5 stroke-[3]" />}
@@ -483,7 +481,7 @@ export const SettingsModal: React.FC = () => {
                           Zero Trust
                         </span>
                       </div>
-                      <p className="text-xs text-[#8b949e] mt-0.5">
+                      <p className="text-xs text-kin-muted mt-0.5">
                         Every tool invocation requires operator confirmation. No autonomous file writes or bash execution without explicit manual approval.
                       </p>
                     </div>
@@ -495,7 +493,7 @@ export const SettingsModal: React.FC = () => {
                     className={`p-3.5 rounded-lg border cursor-pointer transition flex items-start space-x-3 ${
                       autonomyMode === 'FULL_ACCESS'
                         ? 'bg-blue-950/20 border-blue-500 text-kin-text shadow-sm'
-                        : 'bg-[#161b22] border-[#30363d] hover:border-[#8b949e] text-[#8b949e]'
+                        : 'bg-kin-card border-kin-border hover:border-kin-borderSubtle text-kin-muted'
                     }`}
                   >
                     <div className="mt-0.5">
@@ -503,7 +501,7 @@ export const SettingsModal: React.FC = () => {
                         className={`w-4 h-4 rounded-full border flex items-center justify-center ${
                           autonomyMode === 'FULL_ACCESS'
                             ? 'border-blue-400 bg-blue-500 text-white'
-                            : 'border-[#64748b]'
+                            : 'border-kin-border'
                         }`}
                       >
                         {autonomyMode === 'FULL_ACCESS' && <Check className="w-2.5 h-2.5 stroke-[3]" />}
@@ -516,32 +514,32 @@ export const SettingsModal: React.FC = () => {
                           Autonomous
                         </span>
                       </div>
-                      <p className="text-xs text-[#8b949e] mt-0.5">
+                      <p className="text-xs text-kin-muted mt-0.5">
                         Agents run tools with maximum velocity without pausing for confirmations. All actions are logged immutably in SQLite audit trail.
                       </p>
                     </div>
                   </div>
                 </div>
 
-                <div className="p-3 rounded-lg bg-[#161b22] border border-[#30363d] flex items-center justify-between">
+                <div className="p-3 rounded-lg bg-kin-card border border-kin-border flex items-center justify-between">
                   <div className="flex items-center space-x-2">
                     <Folder className="w-4 h-4 text-blue-400" />
                     <div>
                       <span className="text-xs font-semibold text-kin-text">Active Project Repository Root</span>
-                      <p className="text-[11px] font-mono text-[#8b949e]">{activeProject?.repoPath || 'No repository configured'}</p>
+                      <p className="text-[11px] font-mono text-kin-muted">{activeProject?.repoPath || 'No repository configured'}</p>
                     </div>
                   </div>
                 </div>
 
                 {/* Minimalist Appearance & Theme Selector */}
-                <div className="space-y-2 pt-2 border-t border-[#21262d]">
+                <div className="space-y-2 pt-2 border-t border-kin-border">
                   <div className="flex items-center justify-between">
                     <div>
                       <h4 className="text-xs font-bold text-kin-text flex items-center space-x-1.5">
                         {theme === 'light' ? <Sun className="w-3.5 h-3.5 text-amber-500" /> : <Moon className="w-3.5 h-3.5 text-amber-300" />}
                         <span>Interface Appearance & Minimalist Theme</span>
                       </h4>
-                      <p className="text-[11px] text-[#8b949e]">
+                      <p className="text-[11px] text-kin-muted">
                         Clean, borderless layout with subtle marginal boundaries modeled after Antigravity and Codex.
                       </p>
                     </div>
@@ -552,48 +550,48 @@ export const SettingsModal: React.FC = () => {
                       onClick={() => setTheme('dark')}
                       className={`p-3 rounded-lg border text-left transition cursor-pointer ${
                         theme === 'dark'
-                          ? 'bg-[#161b22] border-emerald-500 text-white shadow-sm ring-1 ring-emerald-500/50'
-                          : 'bg-[#131b2e]/60 border-[#30363d] text-[#8b949e] hover:border-[#64748b]'
+                          ? 'bg-kin-card border-emerald-500 text-kin-text shadow-sm ring-1 ring-emerald-500/50'
+                          : 'bg-kin-surface border-kin-border text-kin-muted hover:border-kin-borderSubtle'
                       }`}
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs font-bold text-kin-text">Obsidian Dark</span>
                         {theme === 'dark' && <Check className="w-3.5 h-3.5 text-emerald-400" />}
                       </div>
-                      <p className="text-[10px] text-[#8b949e]">High contrast deep dark mode for focus and low eye strain.</p>
+                      <p className="text-[10px] text-kin-muted">High contrast deep dark mode for focus and low eye strain.</p>
                     </button>
                     <button
                       type="button"
                       onClick={() => setTheme('light')}
                       className={`p-3 rounded-lg border text-left transition cursor-pointer ${
                         theme === 'light'
-                          ? 'bg-white border-emerald-500 text-slate-900 shadow-sm ring-1 ring-emerald-500/50'
-                          : 'bg-[#131b2e]/60 border-[#30363d] text-[#8b949e] hover:border-[#64748b]'
+                          ? 'bg-kin-card border-emerald-500 text-kin-text shadow-sm ring-1 ring-emerald-500/50'
+                          : 'bg-kin-surface border-kin-border text-kin-muted hover:border-kin-borderSubtle'
                       }`}
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs font-bold text-kin-text">Minimal Light</span>
                         {theme === 'light' && <Check className="w-3.5 h-3.5 text-emerald-600" />}
                       </div>
-                      <p className="text-[10px] text-[#8b949e]">Clean off-white surfaces, slate typography, minimal borders.</p>
+                      <p className="text-[10px] text-kin-muted">Clean off-white surfaces, slate typography, minimal borders.</p>
                     </button>
                   </div>
                 </div>
 
                 {/* Quick Links: BYOK & Evaluations */}
-                <div className="pt-3 border-t border-[#21262d] space-y-3">
+                <div className="pt-3 border-t border-kin-border space-y-3">
                   <div className="text-xs font-semibold text-kin-text flex items-center space-x-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
                     <span>Quick Navigation: Credentials & Agent Evaluations</span>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="p-3 rounded-lg bg-[#161b22] border border-[#30363d] flex flex-col justify-between space-y-2">
+                    <div className="p-3 rounded-lg bg-kin-card border border-kin-border flex flex-col justify-between space-y-2">
                       <div>
                         <div className="flex items-center space-x-2 text-xs font-bold text-amber-400">
                           <Key className="w-3.5 h-3.5" />
                           <span>BYOK Credentials</span>
                         </div>
-                        <p className="text-[11px] text-[#8b949e] mt-1">
+                        <p className="text-[11px] text-kin-muted mt-1">
                           Configure provider API keys, token spend limits, and scoped agent grants.
                         </p>
                       </div>
@@ -606,13 +604,13 @@ export const SettingsModal: React.FC = () => {
                       </button>
                     </div>
 
-                    <div className="p-3 rounded-lg bg-[#161b22] border border-[#30363d] flex flex-col justify-between space-y-2">
+                    <div className="p-3 rounded-lg bg-kin-card border border-kin-border flex flex-col justify-between space-y-2">
                       <div>
                         <div className="flex items-center space-x-2 text-xs font-bold text-emerald-400">
                           <Award className="w-3.5 h-3.5" />
                           <span>Agent Evaluations</span>
                         </div>
-                        <p className="text-[11px] text-[#8b949e] mt-1">
+                        <p className="text-[11px] text-kin-muted mt-1">
                           Run automated regression test suites, inspect rubrics, and view performance.
                         </p>
                       </div>
@@ -641,24 +639,24 @@ export const SettingsModal: React.FC = () => {
                     <Cpu className="w-4 h-4 text-blue-400" />
                     <span>Local Ollama LLM Engine</span>
                   </h3>
-                  <p className="text-xs text-[#8b949e]">
+                  <p className="text-xs text-kin-muted">
                     KIN runs locally with private LLM inference via Ollama on port 11434.
                   </p>
                 </div>
 
                 {/* Status Box */}
-                <div className="p-4 rounded-lg bg-[#161b22] border border-[#30363d] flex items-center justify-between">
+                <div className="p-4 rounded-lg bg-kin-card border border-kin-border flex items-center justify-between">
                   <div className="flex items-center space-x-3">
                     <span
                       className={`w-3 h-3 rounded-full ${
-                        ollamaStatus.online ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-red-400'
+                        ollamaStatus.online ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]' : 'bg-red-400'
                       }`}
                     />
                     <div>
                       <div className="text-xs font-bold text-kin-text">
                         Ollama Service: {ollamaStatus.online ? 'Online & Ready' : 'Offline'}
                       </div>
-                      <div className="text-[11px] font-mono text-[#8b949e]">
+                      <div className="text-[11px] font-mono text-kin-muted">
                         http://127.0.0.1:11434 • {ollamaStatus.models.length} model(s) installed
                       </div>
                     </div>
@@ -677,12 +675,12 @@ export const SettingsModal: React.FC = () => {
 
                 {/* Installed Models List */}
                 <div className="space-y-2">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-[#8b949e]">Installed Models</h4>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-kin-muted">Installed Models</h4>
                   <div className="space-y-1.5 max-h-48 overflow-y-auto">
                     {ollamaStatus.models.map((model) => (
                       <div
                         key={model}
-                        className="px-3 py-2 rounded-lg bg-[#161b22] border border-[#30363d] flex items-center justify-between text-xs"
+                        className="px-3 py-2 rounded-lg bg-kin-card border border-kin-border flex items-center justify-between text-xs"
                       >
                         <div className="flex items-center space-x-2">
                           <Sparkles className="w-3.5 h-3.5 text-blue-400" />
@@ -694,7 +692,7 @@ export const SettingsModal: React.FC = () => {
                       </div>
                     ))}
                     {ollamaStatus.models.length === 0 && (
-                      <div className="p-3 text-center text-xs text-[#8b949e] italic">
+                      <div className="p-3 text-center text-xs text-kin-muted italic">
                         No models discovered. Run <code>ollama pull gemma4:e2b</code> or <code>ollama pull qwen2.5-coder:3b</code>.
                       </div>
                     )}
@@ -705,11 +703,11 @@ export const SettingsModal: React.FC = () => {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-[#8b949e] flex items-center space-x-1.5">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-kin-muted flex items-center space-x-1.5">
                         <Sparkles className="w-3.5 h-3.5 text-purple-400" />
                         <span>Cloud &amp; API Providers (Live Verified)</span>
                       </h4>
-                      <p className="text-[11px] text-[#64748b] mt-0.5">
+                      <p className="text-[11px] text-kin-muted mt-0.5">
                         Only verified, working models with valid credentials are displayed. No mock data.
                       </p>
                     </div>
@@ -717,7 +715,7 @@ export const SettingsModal: React.FC = () => {
                       type="button"
                       onClick={handleRefreshModels}
                       disabled={isLoadingModels || isQueryingModels}
-                      className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-[#8b949e] hover:text-kin-text text-xs transition cursor-pointer disabled:opacity-50"
+                      className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-kin-card border border-kin-border text-kin-muted hover:text-kin-text text-xs transition cursor-pointer disabled:opacity-50"
                       title="Refresh all model catalogs and readiness"
                     >
                       <RefreshCw className={`w-3 h-3 ${isLoadingModels || isQueryingModels ? 'animate-spin' : ''}`} />
@@ -750,7 +748,7 @@ export const SettingsModal: React.FC = () => {
 
                       // Determine live status
                       let statusBadge = (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-400 border border-slate-700">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-kin-card text-kin-muted border border-kin-border">
                           Not Configured
                         </span>
                       );
@@ -800,11 +798,11 @@ export const SettingsModal: React.FC = () => {
                       return (
                         <div
                           key={p.id}
-                          className="rounded-lg bg-[#161b22] border border-[#30363d] overflow-hidden transition"
+                          className="rounded-lg bg-kin-card border border-kin-border overflow-hidden transition"
                         >
                           <div className="p-3 flex items-center justify-between">
                             <div className="flex items-center space-x-3 min-w-0">
-                              <div className="p-1.5 rounded-lg bg-[#0d1117] border border-[#30363d]">
+                              <div className="p-1.5 rounded-lg bg-kin-surface border border-kin-border">
                                 <ProviderIcon provider={p.id} className="w-4 h-4" />
                               </div>
                               <div className="min-w-0">
@@ -812,7 +810,7 @@ export const SettingsModal: React.FC = () => {
                                   <span className="font-semibold text-xs text-kin-text">{p.name}</span>
                                   {statusBadge}
                                 </div>
-                                <p className="text-[11px] text-[#8b949e] truncate mt-0.5">{p.desc}</p>
+                                <p className="text-[11px] text-kin-muted truncate mt-0.5">{p.desc}</p>
                               </div>
                             </div>
 
@@ -822,7 +820,7 @@ export const SettingsModal: React.FC = () => {
                                   type="button"
                                   onClick={() => handleTestProvider(p.id)}
                                   disabled={isTesting}
-                                  className="flex items-center space-x-1 px-2.5 py-1 rounded bg-[#21262d] hover:bg-[#30363d] text-kin-text text-xs border border-[#30363d] transition cursor-pointer disabled:opacity-50"
+                                  className="flex items-center space-x-1 px-2.5 py-1 rounded bg-kin-card hover:bg-kin-cardHover text-kin-text text-xs border border-kin-border transition cursor-pointer disabled:opacity-50"
                                   title="Test API key connection and fetch live models"
                                 >
                                   {isTesting ? (
@@ -856,7 +854,7 @@ export const SettingsModal: React.FC = () => {
                                 onClick={() =>
                                   setExpandedProviders((prev) => ({ ...prev, [p.id]: !prev[p.id] }))
                                 }
-                                className="p-1 rounded hover:bg-[#21262d] text-[#8b949e] hover:text-kin-text transition cursor-pointer"
+                                className="p-1 rounded hover:bg-kin-cardHover text-kin-muted hover:text-kin-text transition cursor-pointer"
                                 title={isExpanded ? 'Collapse models list' : 'Expand models list'}
                               >
                                 {isExpanded ? (
@@ -870,22 +868,22 @@ export const SettingsModal: React.FC = () => {
 
                           {/* Expanded Live Models List */}
                           {isExpanded && (
-                            <div className="px-3 pb-3 pt-1 border-t border-[#21262d] bg-[#0d1117]/60">
+                            <div className="px-3 pb-3 pt-1 border-t border-kin-border bg-kin-surface/60">
                               {pModels.length > 0 ? (
                                 <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                                   {pModels.map((m) => (
                                     <div
                                       key={m.id}
-                                      className="px-2.5 py-1.5 rounded bg-[#161b22] border border-[#30363d] flex items-center justify-between text-xs font-mono"
+                                      className="px-2.5 py-1.5 rounded bg-kin-card border border-kin-border flex items-center justify-between text-xs font-mono"
                                     >
                                       <div className="flex items-center space-x-2 truncate mr-2">
                                         <Sparkles className="w-3 h-3 text-emerald-400 shrink-0" />
                                         <span className="text-kin-text truncate">{m.name || m.id}</span>
-                                        <span className="text-[10px] text-[#64748b] truncate">{m.id}</span>
+                                        <span className="text-[10px] text-kin-muted truncate">{m.id}</span>
                                       </div>
                                       <div className="flex items-center space-x-1.5 shrink-0">
                                         {m.contextWindow && (
-                                          <span className="text-[9px] text-[#8b949e]">
+                                          <span className="text-[9px] text-kin-muted">
                                             {(m.contextWindow / 1000).toFixed(0)}k ctx
                                           </span>
                                         )}
@@ -904,7 +902,7 @@ export const SettingsModal: React.FC = () => {
                                   ))}
                                 </div>
                               ) : (
-                                <div className="py-2.5 text-center text-xs text-[#8b949e] italic">
+                                <div className="py-2.5 text-center text-xs text-kin-muted italic">
                                   {hasCred
                                     ? "No live models returned. Click 'Test Connection' to verify API key."
                                     : 'No models available. Add a verified API key in the BYOK vault to discover models.'}
@@ -919,15 +917,15 @@ export const SettingsModal: React.FC = () => {
                 </div>
 
                 {/* Custom Model Registration Card */}
-                <div className="p-4 rounded-lg bg-[#161b22] border border-[#30363d] space-y-3">
+                <div className="p-4 rounded-lg bg-kin-card border border-kin-border space-y-3">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-[#8b949e] flex items-center space-x-1.5">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-kin-muted flex items-center space-x-1.5">
                       <Plus className="w-3.5 h-3.5 text-blue-400" />
                       <span>Register Custom Model Endpoint</span>
                     </h4>
-                    <span className="text-[10px] text-[#8b949e]">OpenAI Compatible / Self-Hosted</span>
+                    <span className="text-[10px] text-kin-muted">OpenAI Compatible / Self-Hosted</span>
                   </div>
-                  <p className="text-xs text-[#8b949e]">
+                  <p className="text-xs text-kin-muted">
                     Register custom OpenAI-compatible inference endpoints, local vLLM/Ollama models, or external proxies.
                   </p>
 
@@ -951,7 +949,7 @@ export const SettingsModal: React.FC = () => {
                   <form onSubmit={handleRegisterCustomModel} className="space-y-3">
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-[11px] font-medium text-[#8b949e] mb-1">
+                        <label className="block text-[11px] font-medium text-kin-muted mb-1">
                           Model ID <span className="text-red-400">*</span>
                         </label>
                         <input
@@ -959,52 +957,52 @@ export const SettingsModal: React.FC = () => {
                           value={customModelId}
                           onChange={(e) => setCustomModelId(e.target.value)}
                           placeholder="custom/my-model or deepseek/deepseek-chat"
-                          className="w-full bg-[#0d1117] border border-[#30363d] rounded px-2.5 py-1.5 text-xs text-kin-text placeholder-[#484f58] focus:outline-none focus:border-blue-500"
+                          className="w-full bg-kin-surface border border-kin-border rounded px-2.5 py-1.5 text-xs text-kin-text placeholder-kin-subtle focus:outline-none focus:border-blue-500"
                         />
                       </div>
                       <div>
-                        <label className="block text-[11px] font-medium text-[#8b949e] mb-1">Display Name</label>
+                        <label className="block text-[11px] font-medium text-kin-muted mb-1">Display Name</label>
                         <input
                           type="text"
                           value={customModelName}
                           onChange={(e) => setCustomModelName(e.target.value)}
                           placeholder="Optional friendly name"
-                          className="w-full bg-[#0d1117] border border-[#30363d] rounded px-2.5 py-1.5 text-xs text-kin-text placeholder-[#484f58] focus:outline-none focus:border-blue-500"
+                          className="w-full bg-kin-surface border border-kin-border rounded px-2.5 py-1.5 text-xs text-kin-text placeholder-kin-subtle focus:outline-none focus:border-blue-500"
                         />
                       </div>
                     </div>
 
                     <div className="grid grid-cols-3 gap-3">
                       <div className="col-span-2">
-                        <label className="block text-[11px] font-medium text-[#8b949e] mb-1">Base URL</label>
+                        <label className="block text-[11px] font-medium text-kin-muted mb-1">Base URL</label>
                         <input
                           type="text"
                           value={customBaseUrl}
                           onChange={(e) => setCustomBaseUrl(e.target.value)}
                           placeholder="https://api.together.xyz/v1 or http://localhost:8000/v1"
-                          className="w-full bg-[#0d1117] border border-[#30363d] rounded px-2.5 py-1.5 text-xs text-kin-text placeholder-[#484f58] focus:outline-none focus:border-blue-500"
+                          className="w-full bg-kin-surface border border-kin-border rounded px-2.5 py-1.5 text-xs text-kin-text placeholder-kin-subtle focus:outline-none focus:border-blue-500"
                         />
                       </div>
                       <div>
-                        <label className="block text-[11px] font-medium text-[#8b949e] mb-1">Context Window</label>
+                        <label className="block text-[11px] font-medium text-kin-muted mb-1">Context Window</label>
                         <input
                           type="number"
                           value={customContextWindow}
                           onChange={(e) => setCustomContextWindow(e.target.value)}
                           placeholder="128000"
-                          className="w-full bg-[#0d1117] border border-[#30363d] rounded px-2.5 py-1.5 text-xs text-kin-text placeholder-[#484f58] focus:outline-none focus:border-blue-500"
+                          className="w-full bg-kin-surface border border-kin-border rounded px-2.5 py-1.5 text-xs text-kin-text placeholder-kin-subtle focus:outline-none focus:border-blue-500"
                         />
                       </div>
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-medium text-[#8b949e] mb-1">API Key / Token (Optional)</label>
+                      <label className="block text-[11px] font-medium text-kin-muted mb-1">API Key / Token (Optional)</label>
                       <input
                         type="password"
                         value={customApiKey}
                         onChange={(e) => setCustomApiKey(e.target.value)}
                         placeholder="Bearer token or leave blank if local / not needed"
-                        className="w-full bg-[#0d1117] border border-[#30363d] rounded px-2.5 py-1.5 text-xs text-kin-text placeholder-[#484f58] focus:outline-none focus:border-blue-500"
+                        className="w-full bg-kin-surface border border-kin-border rounded px-2.5 py-1.5 text-xs text-kin-text placeholder-kin-subtle focus:outline-none focus:border-blue-500"
                       />
                     </div>
 
@@ -1031,12 +1029,12 @@ export const SettingsModal: React.FC = () => {
                 </div>
 
                 {/* BYOK Quick Action */}
-                <div className="p-3.5 rounded-lg bg-[#161b22] border border-[#30363d] flex items-center justify-between">
+                <div className="p-3.5 rounded-lg bg-kin-card border border-kin-border flex items-center justify-between">
                   <div className="flex items-center space-x-3">
                     <Key className="w-4 h-4 text-amber-400" />
                     <div>
                       <div className="text-xs font-bold text-kin-text">Bring Your Own Key (BYOK)</div>
-                      <div className="text-[11px] text-[#8b949e]">
+                      <div className="text-[11px] text-kin-muted">
                         Configure Anthropic, OpenAI, Gemini, or DeepSeek cloud API keys
                       </div>
                     </div>
@@ -1070,16 +1068,16 @@ export const SettingsModal: React.FC = () => {
                     <Sparkles className="w-4 h-4 text-purple-400" />
                     <span>Skills Engine & Procedural Capabilities</span>
                   </h3>
-                  <p className="text-xs text-[#8b949e]">
+                  <p className="text-xs text-kin-muted">
                     Inspect procedural capabilities, bundle policies, domain actions, and sandboxed execution tools available to the workforce.
                   </p>
                 </div>
 
-                <div className="p-4 rounded-lg bg-[#161b22] border border-[#30363d] space-y-4">
+                <div className="p-4 rounded-lg bg-kin-card border border-kin-border space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="text-xs font-bold text-kin-text">Procedural Skills Registry</div>
-                      <div className="text-[11px] text-[#8b949e]">
+                      <div className="text-[11px] text-kin-muted">
                         Browse official plugins, domain skills, and autonomous tool definitions.
                       </div>
                     </div>
@@ -1096,29 +1094,29 @@ export const SettingsModal: React.FC = () => {
                       <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
                     </button>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 pt-1 text-[11px] font-mono text-[#8b949e]">
-                    <div className="p-2.5 rounded bg-[#0d1117] border border-[#21262d]">
+                  <div className="grid grid-cols-3 gap-2 pt-1 text-[11px] font-mono text-kin-muted">
+                    <div className="p-2.5 rounded bg-kin-surface border border-kin-border">
                       <span className="text-purple-400 font-bold block mb-0.5">Sandboxed I/O</span>
                       Safe workspace read/write
                     </div>
-                    <div className="p-2.5 rounded bg-[#0d1117] border border-[#21262d]">
+                    <div className="p-2.5 rounded bg-kin-surface border border-kin-border">
                       <span className="text-emerald-400 font-bold block mb-0.5">Live MCP Tools</span>
                       Model Context Protocol servers
                     </div>
-                    <div className="p-2.5 rounded bg-[#0d1117] border border-[#21262d]">
+                    <div className="p-2.5 rounded bg-kin-surface border border-kin-border">
                       <span className="text-blue-400 font-bold block mb-0.5">Domain Skills</span>
                       Specialized agent procedures
                     </div>
                   </div>
                 </div>
 
-                <div className="p-4 rounded-lg bg-[#161b22] border border-[#30363d] flex items-center justify-between">
+                <div className="p-4 rounded-lg bg-kin-card border border-kin-border flex items-center justify-between">
                   <div>
                     <div className="text-xs font-bold text-kin-text flex items-center space-x-2">
                       <Network className="w-4 h-4 text-emerald-400" />
                       <span>Workforce Swarm Topology Map</span>
                     </div>
-                    <div className="text-[11px] text-[#8b949e] mt-0.5">
+                    <div className="text-[11px] text-kin-muted mt-0.5">
                       Visualize active inter-agent peer relationships, channel memberships, and turn communication DAG.
                     </div>
                   </div>
@@ -1136,13 +1134,13 @@ export const SettingsModal: React.FC = () => {
                   </button>
                 </div>
 
-                <div className="p-4 rounded-lg bg-[#161b22] border border-[#30363d] flex items-center justify-between">
+                <div className="p-4 rounded-lg bg-kin-card border border-kin-border flex items-center justify-between">
                   <div>
                     <div className="text-xs font-bold text-kin-text flex items-center space-x-2">
                       <Server className="w-4 h-4 text-emerald-400" />
                       <span>Model Context Protocol (MCP) Connectors</span>
                     </div>
-                    <div className="text-[11px] text-[#8b949e] mt-0.5">
+                    <div className="text-[11px] text-kin-muted mt-0.5">
                       Configure external databases, tools, APIs, and custom stdio/HTTP-SSE connectors in Global and Project scopes.
                     </div>
                   </div>
@@ -1162,13 +1160,13 @@ export const SettingsModal: React.FC = () => {
             {/* CONNECTORS & MCP TAB */}
             {activeTab === 'connectors' && (
               <div className="space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-[#21262d]">
+                <div className="flex items-center justify-between pb-3 border-b border-kin-border">
                   <div>
                     <h3 className="text-sm font-semibold text-kin-text mb-0.5 flex items-center space-x-2">
                       <Server className="w-4 h-4 text-emerald-400" />
                       <span>Model Context Protocol (MCP) Connectors</span>
                     </h3>
-                    <p className="text-xs text-[#8b949e]">
+                    <p className="text-xs text-kin-muted">
                       Configure and supervise external tools, databases, and APIs in Global (~/.kin/mcp.json) and Project (.kin/mcp.json) scopes.
                     </p>
                   </div>
@@ -1178,7 +1176,7 @@ export const SettingsModal: React.FC = () => {
                       setSettingsModalOpen(false);
                       setConnectorsModalOpen(true);
                     }}
-                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#161b22] hover:bg-[#21262d] text-gray-300 hover:text-white text-xs font-semibold border border-[#30363d] transition cursor-pointer shrink-0"
+                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-kin-card hover:bg-kin-cardHover text-kin-text text-xs font-semibold border border-kin-border transition cursor-pointer shrink-0"
                     title="Pop out into Dedicated Fullscreen Modal"
                   >
                     <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
@@ -1197,16 +1195,16 @@ export const SettingsModal: React.FC = () => {
                     <Monitor className="w-4 h-4 text-blue-400" />
                     <span>Desktop GUI & Browser Automation Control</span>
                   </h3>
-                  <p className="text-xs text-[#8b949e]">
+                  <p className="text-xs text-kin-muted">
                     Supervise local machine interaction, active desktop application windows, and headless browser sessions.
                   </p>
                 </div>
 
-                <div className="p-4 rounded-lg bg-[#161b22] border border-[#30363d] space-y-4">
+                <div className="p-4 rounded-lg bg-kin-card border border-kin-border space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="text-xs font-bold text-kin-text">Desktop Control Center</div>
-                      <div className="text-[11px] text-[#8b949e]">
+                      <div className="text-[11px] text-kin-muted">
                         Inspect live GDI+ desktop display, running application windows, and browser session state.
                       </div>
                     </div>
@@ -1224,23 +1222,23 @@ export const SettingsModal: React.FC = () => {
                     </button>
                   </div>
 
-                  <div className="p-2.5 rounded bg-[#0d1117] border border-[#21262d] flex items-center justify-between text-xs font-mono">
-                    <span className="text-[#8b949e]">Live Browser Engine:</span>
-                    <span className={browserStatus?.active ? 'text-emerald-400 font-bold' : 'text-[#64748b]'}>
+                  <div className="p-2.5 rounded bg-kin-surface border border-kin-border flex items-center justify-between text-xs font-mono">
+                    <span className="text-kin-muted">Live Browser Engine:</span>
+                    <span className={browserStatus?.active ? 'text-emerald-400 font-bold' : 'text-kin-subtle'}>
                       {browserStatus?.active ? '🟢 Puppeteer Session Active' : '⚪ Standby / Idle'}
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2 pt-1 text-[11px] font-mono text-[#8b949e]">
-                    <div className="p-2.5 rounded bg-[#0d1117] border border-[#21262d]">
+                  <div className="grid grid-cols-3 gap-2 pt-1 text-[11px] font-mono text-kin-muted">
+                    <div className="p-2.5 rounded bg-kin-surface border border-kin-border">
                       <span className="text-blue-400 font-bold block mb-0.5">Desktop GDI+</span>
                       Native screen capture & input
                     </div>
-                    <div className="p-2.5 rounded bg-[#0d1117] border border-[#21262d]">
+                    <div className="p-2.5 rounded bg-kin-surface border border-kin-border">
                       <span className="text-emerald-400 font-bold block mb-0.5">App Discovery</span>
                       Local installed applications
                     </div>
-                    <div className="p-2.5 rounded bg-[#0d1117] border border-[#21262d]">
+                    <div className="p-2.5 rounded bg-kin-surface border border-kin-border">
                       <span className="text-amber-400 font-bold block mb-0.5">Human Takeover</span>
                       Instant Esc pause/resume
                     </div>
@@ -1257,16 +1255,16 @@ export const SettingsModal: React.FC = () => {
                     <Award className="w-4 h-4 text-emerald-400" />
                     <span>Workforce Agent Evaluations & Benchmarks</span>
                   </h3>
-                  <p className="text-xs text-[#8b949e]">
+                  <p className="text-xs text-kin-muted">
                     Automated regression testing, capability scoring rubrics, and formal evaluation history for specialist agents.
                   </p>
                 </div>
 
-                <div className="p-4 rounded-lg bg-[#161b22] border border-[#30363d] space-y-3">
+                <div className="p-4 rounded-lg bg-kin-card border border-kin-border space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="text-xs font-bold text-kin-text">Evaluation Suite & Rubric Metrics</div>
-                      <div className="text-[11px] text-[#8b949e]">
+                      <div className="text-[11px] text-kin-muted">
                         Benchmark accuracy, reasoning, tool competence, and safety adherence across {agents.length} agent(s).
                       </div>
                     </div>
@@ -1283,20 +1281,20 @@ export const SettingsModal: React.FC = () => {
                       <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
                     </button>
                   </div>
-                  <div className="grid grid-cols-4 gap-2 pt-2 text-[11px] font-mono text-[#8b949e]">
-                    <div className="p-2 rounded bg-[#0d1117] border border-[#21262d]">
+                  <div className="grid grid-cols-4 gap-2 pt-2 text-[11px] font-mono text-kin-muted">
+                    <div className="p-2 rounded bg-kin-surface border border-kin-border">
                       <span className="text-emerald-400 font-bold block">Accuracy</span>
                       Objective completion
                     </div>
-                    <div className="p-2 rounded bg-[#0d1117] border border-[#21262d]">
+                    <div className="p-2 rounded bg-kin-surface border border-kin-border">
                       <span className="text-blue-400 font-bold block">Reasoning</span>
                       Planning logic & DAG
                     </div>
-                    <div className="p-2 rounded bg-[#0d1117] border border-[#21262d]">
+                    <div className="p-2 rounded bg-kin-surface border border-kin-border">
                       <span className="text-purple-400 font-bold block">Competence</span>
                       Tool execution speed
                     </div>
-                    <div className="p-2 rounded bg-[#0d1117] border border-[#21262d]">
+                    <div className="p-2 rounded bg-kin-surface border border-kin-border">
                       <span className="text-cyan-400 font-bold block">Safety</span>
                       Autonomy compliance
                     </div>
@@ -1313,12 +1311,12 @@ export const SettingsModal: React.FC = () => {
                     <Layout className="w-4 h-4 text-purple-400" />
                     <span>Workspace Layout & Draggable Panels</span>
                   </h3>
-                  <p className="text-xs text-[#8b949e]">
+                  <p className="text-xs text-kin-muted">
                     Adjust panel widths interactively using the on-screen drag handles between columns, or set exact pixel dimensions below.
                   </p>
                 </div>
 
-                <div className="p-4 rounded-lg bg-[#161b22] border border-[#30363d] space-y-5">
+                <div className="p-4 rounded-lg bg-kin-card border border-kin-border space-y-5">
                   {/* Left Sidebar Slider */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-xs">
@@ -1334,7 +1332,7 @@ export const SettingsModal: React.FC = () => {
                       onChange={(e) => setSidebarWidth(parseInt(e.target.value, 10))}
                       className="w-full accent-emerald-500 cursor-pointer"
                     />
-                    <div className="flex justify-between text-[10px] text-[#8b949e] font-mono">
+                    <div className="flex justify-between text-[10px] text-kin-muted font-mono">
                       <span>180px (Compact)</span>
                       <span>260px (Default)</span>
                       <span>450px (Spacious)</span>
@@ -1356,7 +1354,7 @@ export const SettingsModal: React.FC = () => {
                       onChange={(e) => setInspectorWidth(parseInt(e.target.value, 10))}
                       className="w-full accent-blue-500 cursor-pointer"
                     />
-                    <div className="flex justify-between text-[10px] text-[#8b949e] font-mono">
+                    <div className="flex justify-between text-[10px] text-kin-muted font-mono">
                       <span>280px (Narrow)</span>
                       <span>390px (Default)</span>
                       <span>680px (Expanded Diff)</span>
@@ -1364,13 +1362,13 @@ export const SettingsModal: React.FC = () => {
                   </div>
 
                   {/* Reset Button */}
-                  <div className="pt-2 border-t border-[#30363d] flex items-center justify-between">
-                    <div className="text-[11px] text-[#8b949e]">
+                  <div className="pt-2 border-t border-kin-border flex items-center justify-between">
+                    <div className="text-[11px] text-kin-muted">
                       Tip: You can also double-click any resize splitter bar on the main screen to reset to default.
                     </div>
                     <button
                       onClick={resetPanelWidths}
-                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-kin-text text-xs font-medium transition"
+                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-kin-surface hover:bg-kin-surfaceHover text-kin-text text-xs font-medium transition border border-kin-border cursor-pointer"
                     >
                       <RotateCcw className="w-3.5 h-3.5 text-purple-400" />
                       <span>Reset Layout</span>
@@ -1388,39 +1386,39 @@ export const SettingsModal: React.FC = () => {
                     <Database className="w-4 h-4 text-amber-400" />
                     <span>SQLite Storage Engine (WAL Mode)</span>
                   </h3>
-                  <p className="text-xs text-[#8b949e]">
+                  <p className="text-xs text-kin-muted">
                     Local-first persistence using SQLite 3 with Write-Ahead Logging (WAL) and savepoint transaction isolation.
                   </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 text-xs font-mono">
-                  <div className="p-3 rounded-lg bg-[#161b22] border border-[#30363d]">
-                    <div className="text-[#8b949e] text-[11px]">Database Journal Mode</div>
+                  <div className="p-3 rounded-lg bg-kin-card border border-kin-border">
+                    <div className="text-kin-muted text-[11px]">Database Journal Mode</div>
                     <div className="text-emerald-400 font-bold mt-1">PRAGMA journal_mode = WAL</div>
                   </div>
-                  <div className="p-3 rounded-lg bg-[#161b22] border border-[#30363d]">
-                    <div className="text-[#8b949e] text-[11px]">Synchronous Pragma</div>
+                  <div className="p-3 rounded-lg bg-kin-card border border-kin-border">
+                    <div className="text-kin-muted text-[11px]">Synchronous Pragma</div>
                     <div className="text-blue-400 font-bold mt-1">NORMAL (High Throughput)</div>
                   </div>
-                  <div className="p-3 rounded-lg bg-[#161b22] border border-[#30363d]">
-                    <div className="text-[#8b949e] text-[11px]">Live Database Size</div>
+                  <div className="p-3 rounded-lg bg-kin-card border border-kin-border">
+                    <div className="text-kin-muted text-[11px]">Live Database Size</div>
                     <div className="text-kin-text font-bold mt-1">
                       {projectAnalytics?.databaseSizeBytes
                         ? `${(projectAnalytics.databaseSizeBytes / 1024).toFixed(1)} KB`
                         : 'Active (~128 KB)'}
                     </div>
                   </div>
-                  <div className="p-3 rounded-lg bg-[#161b22] border border-[#30363d]">
-                    <div className="text-[#8b949e] text-[11px]">Active Workforce Agents</div>
+                  <div className="p-3 rounded-lg bg-kin-card border border-kin-border">
+                    <div className="text-kin-muted text-[11px]">Active Workforce Agents</div>
                     <div className="text-purple-400 font-bold mt-1">{agents.length} Agent(s)</div>
                   </div>
                 </div>
 
-                <div className="p-4 rounded-lg bg-[#161b22] border border-[#30363d] space-y-3">
+                <div className="p-4 rounded-lg bg-kin-card border border-kin-border space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="text-xs font-bold text-kin-text">Database Maintenance & WAL Checkpoint</div>
-                      <div className="text-[11px] text-[#8b949e]">
+                      <div className="text-[11px] text-kin-muted">
                         Forces checkpoint of WAL logs and prunes stale temporary index files.
                       </div>
                     </div>
@@ -1450,34 +1448,34 @@ export const SettingsModal: React.FC = () => {
                     <Info className="w-4 h-4 text-cyan-400" />
                     <span>System Diagnostics & Kernel Architecture</span>
                   </h3>
-                  <p className="text-xs text-[#8b949e]">
+                  <p className="text-xs text-kin-muted">
                     Telemetry and architectural specifications of KIN Platform.
                   </p>
                 </div>
 
-                <div className="p-4 rounded-lg bg-[#161b22] border border-[#30363d] space-y-3 text-xs font-mono">
-                  <div className="flex justify-between py-1 border-b border-[#21262d]">
-                    <span className="text-[#8b949e]">Core service</span>
+                <div className="p-4 rounded-lg bg-kin-card border border-kin-border space-y-3 text-xs font-mono">
+                  <div className="flex justify-between py-1 border-b border-kin-border">
+                    <span className="text-kin-muted">Core service</span>
                     <span className="text-kin-text font-bold">KIN Agent Workflow Core</span>
                   </div>
-                  <div className="flex justify-between py-1 border-b border-[#21262d]">
-                    <span className="text-[#8b949e]">Host Platform</span>
+                  <div className="flex justify-between py-1 border-b border-kin-border">
+                    <span className="text-kin-muted">Host Platform</span>
                     <span className="text-emerald-400">{hostPlatform}</span>
                   </div>
-                  <div className="flex justify-between py-1 border-b border-[#21262d]">
-                    <span className="text-[#8b949e]">Core Daemon Port</span>
+                  <div className="flex justify-between py-1 border-b border-kin-border">
+                    <span className="text-kin-muted">Core Daemon Port</span>
                     <span className="text-blue-400">{coreDaemonPort}</span>
                   </div>
-                  <div className="flex justify-between py-1 border-b border-[#21262d]">
-                    <span className="text-[#8b949e]">Frontend Web Server</span>
+                  <div className="flex justify-between py-1 border-b border-kin-border">
+                    <span className="text-kin-muted">Frontend Web Server</span>
                     <span className="text-purple-400">{frontendWebServer}</span>
                   </div>
-                  <div className="flex justify-between py-1 border-b border-[#21262d]">
-                    <span className="text-[#8b949e]">Tool Capabilities</span>
+                  <div className="flex justify-between py-1 border-b border-kin-border">
+                    <span className="text-kin-muted">Tool Capabilities</span>
                     <span className="text-cyan-400">Filesystem, Shell, Git, Desktop GUI, Browser Puppeteer</span>
                   </div>
                   <div className="flex justify-between py-1">
-                    <span className="text-[#8b949e]">Peer Coordination</span>
+                    <span className="text-kin-muted">Peer Coordination</span>
                     <span className="text-emerald-400">Active (Multi-Agent @mentions & Handover)</span>
                   </div>
                 </div>
@@ -1487,13 +1485,13 @@ export const SettingsModal: React.FC = () => {
         </div>
 
         {/* Modal Footer */}
-        <div className="px-6 py-3 border-t border-[#21262d] bg-[#161b22] flex items-center justify-between text-xs">
-          <span className="text-[#8b949e] font-mono text-[11px]">
+        <div className="px-6 py-3 border-t border-kin-border bg-kin-card flex items-center justify-between text-xs">
+          <span className="text-kin-muted font-mono text-[11px]">
             Changes are persisted automatically to SQLite and localStorage.
           </span>
           <button
             onClick={() => setSettingsModalOpen(false)}
-            className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-black font-bold transition shadow-sm"
+            className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition shadow-sm cursor-pointer"
           >
             Done
           </button>

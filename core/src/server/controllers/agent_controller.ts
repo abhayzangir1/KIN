@@ -519,17 +519,6 @@ export class AgentController extends BaseController {
 
         this.agentRepo.updateAgentModelConfig(identity.id, activeModelId, body.fallbackModelId);
 
-        // If channel-specific override was provided, persist to channel memory
-        if (body.channelId && !body.channelId.startsWith('dm-')) {
-          this.memoryRepo.setMemory({
-            scope: 'channel',
-            scopeId: body.channelId,
-            key: `agent_model:${identity.id}`,
-            type: 'preference',
-            value: activeModelId,
-          });
-        }
-
         this.broadcastEvent('agent:updated', { agentId: identity.id, activeModelId, projectId: identity.projectId, channelId: body.channelId });
         return this.sendJson(res, 200, { success: true, agentId: identity.id, activeModelId, projectId: identity.projectId, channelId: body.channelId });
       }
@@ -578,16 +567,6 @@ export class AgentController extends BaseController {
             return this.sendJson(res, 409, { error: `Model switching is blocked while agent @${identity.displayName} is actively working` });
           }
           this.agentRepo.updateAgentModelConfig(identity.id, activeModelId, body.fallbackModelId);
-
-          if (body.channelId && !body.channelId.startsWith('dm-')) {
-            this.memoryRepo.setMemory({
-              scope: 'channel',
-              scopeId: body.channelId,
-              key: `agent_model:${identity.id}`,
-              type: 'preference',
-              value: activeModelId,
-            });
-          }
         }
 
         const role = body.roleTitle || body.role;

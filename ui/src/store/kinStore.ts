@@ -1192,6 +1192,7 @@ interface KinState {
   setSelectedSwarmAgentId: (id: string) => void;
   fetchAgentExecutionDetails: (agentId: string) => Promise<void>;
   clearSteerNotification: () => void;
+  isFetchingState: boolean;
   fetchState: (projectId?: string) => Promise<void>;
   fetchSchedules: (projectId?: string) => Promise<void>;
   cancelSchedule: (scheduleId: string) => Promise<{ success: boolean; error?: string }>;
@@ -1336,8 +1337,10 @@ let eventSourceInstance: EventSource | null = null;
 let sseReconnectTimer: any = null;
 let sseReconnectAttempts = 0;
 let fetchStateRetryTimer: any = null;
+let fetchStatePromise: Promise<void> | null = null;
 
 export const useKinStore = create<KinState>((set, get) => ({
+  isFetchingState: false,
   projects: [],
   activeProjectId: '',
   activeChannelId: '',
@@ -1486,9 +1489,8 @@ export const useKinStore = create<KinState>((set, get) => ({
   closeAddProviderModal: () => set({ isAddProviderModalOpen: false, addProviderPreselected: null }),
   modelUnavailableNotice: null,
   dismissModelUnavailableNotice: () => set({ modelUnavailableNotice: null }),
-  updateAgentModel: async (agentId: string, activeModelId: string, projectId?: string, channelId?: string) => {
+  updateAgentModel: async (agentId: string, activeModelId: string, projectId?: string, _channelId?: string) => {
     const targetProjId = projectId || get().activeProjectId;
-    const targetChanId = channelId || get().activeChannelId;
 
     // Optimistic state update across all agent structures
     set((state) => ({
@@ -1499,7 +1501,7 @@ export const useKinStore = create<KinState>((set, get) => ({
       const res = await fetch(`/api/agents/${encodeURIComponent(agentId)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ activeModelId, projectId: targetProjId, channelId: targetChanId }),
+        body: JSON.stringify({ activeModelId, projectId: targetProjId }),
       });
       if (res.status === 409) {
         const conflictData = await res.json().catch(() => ({}));
@@ -1511,7 +1513,7 @@ export const useKinStore = create<KinState>((set, get) => ({
         const fallbackRes = await fetch(`/api/agents/${encodeURIComponent(agentId)}/model`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ activeModelId, projectId: targetProjId, channelId: targetChanId }),
+          body: JSON.stringify({ activeModelId, projectId: targetProjId }),
         });
         if (!fallbackRes.ok) {
           await get().fetchState(targetProjId);
@@ -1666,144 +1668,154 @@ export const useKinStore = create<KinState>((set, get) => ({
   isLoadingModels: false,
 
   fetchState: async (projectId?: string) => {
-    try {
-      const targetProj = projectId || get().activeProjectId;
-      const url = targetProj ? `/api/state?projectId=${encodeURIComponent(targetProj)}` : '/api/state';
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-      const data = await res.json();
-
-      const rememberedChannelId = (() => {
-        try {
-          return targetProj ? localStorage.getItem(`kin_last_channel_${targetProj}`) : null;
-        } catch (err) {
-          console.warn('[KIN UI] Channel memory read notice:', err);
-          return null;
-        }
-      })();
-
-      const currentActive = get().activeChannelId || rememberedChannelId || '';
-      const isDm = currentActive.startsWith('dm-');
-      const dmTargetAgentId = isDm ? currentActive.replace(/^dm-/, '') : '';
-      const agentBelongsToProject = isDm && data.agents?.some((a: any) => a.id === dmTargetAgentId);
-      const channelExists = data.channels?.some((c: any) => c.id === currentActive);
-      const chosenChannelId = (channelExists || agentBelongsToProject)
-        ? currentActive
-        : (data.activeChannelId || data.channels?.find((c: any) => c.name?.toLowerCase() === 'general')?.id || data.channels?.[0]?.id || '');
-
-      if (targetProj && chosenChannelId) {
-        try {
-          localStorage.setItem(`kin_last_channel_${targetProj}`, chosenChannelId);
-        } catch (err) {
-          console.warn('[KIN UI] Channel memory save notice:', err);
-        }
-      }
-
-      const defaultFallbackId = data.activeChannelId || data.channels?.find((c: any) => c.name?.toLowerCase() === 'general')?.id || data.channels?.[0]?.id || '';
-      const isViewingStateChannel = !chosenChannelId || chosenChannelId === defaultFallbackId;
-      const nextCache: Record<string, MessageItem[]> = {
-        ...get().channelMessagesCache,
-        ...(data.activeChannelId ? { [data.activeChannelId]: data.messages || [] } : {}),
-      };
-      const activeMessages = isViewingStateChannel
-        ? (data.messages || [])
-        : (nextCache[chosenChannelId] || []);
-
-      const rememberedAgentId = (() => {
-        try {
-          return targetProj ? localStorage.getItem(`kin_selected_agent_${targetProj}`) : null;
-        } catch (err) {
-          console.warn('[KIN UI] Agent memory read notice:', err);
-          return null;
-        }
-      })();
-
-      const chosenAgentId = (rememberedAgentId && data.agents?.some((a: any) => a.id === rememberedAgentId))
-        ? rememberedAgentId
-        : (data.agents?.some((a: any) => a.id === get().selectedAgentId)
-          ? get().selectedAgentId
-          : (data.agents?.find((a: any) => a.isOrchestrator)?.id || data.agents?.[0]?.id || ''));
-
-      if (targetProj && chosenAgentId) {
-        try {
-          localStorage.setItem(`kin_selected_agent_${targetProj}`, chosenAgentId);
-        } catch (err) {
-          console.warn('[KIN UI] Agent memory save notice:', err);
-        }
-      }
-
-      const rememberedView = (() => {
-        try {
-          return targetProj ? (localStorage.getItem(`kin_main_view_${targetProj}`) as 'chat' | 'automations' | null) : null;
-        } catch (err) {
-          console.warn('[KIN UI] View memory read notice:', err);
-          return null;
-        }
-      })();
-
-      set({
-        projects: data.projects || [],
-        activeProject: data.activeProject,
-        activeProjectId: data.activeProject?.id || 'proj-kin',
-        autonomyMode: data.autonomyMode || 'AUTO',
-        activeChannelId: chosenChannelId,
-        channels: (data.channels || [])
-          .map((c: any) => {
-            const existing = get().channels.find((ec) => ec.id === c.id);
-            return {
-              ...c,
-              unreadCount: c.id === chosenChannelId ? 0 : (existing?.unreadCount || c.unreadCount || 0),
-            };
-          }),
-        agents: data.agents || [],
-        selectedAgentId: chosenAgentId,
-        ...(rememberedView ? { activeMainView: rememberedView } : {}),
-        messages: activeMessages,
-        channelMessagesCache: nextCache,
-        pendingApprovals: data.pendingApprovals || [],
-        goals: data.goals || [],
-        tasks: data.tasks || [],
-        decisions: data.decisions || [],
-        projectAnalytics: data.projectAnalytics,
-        ollamaStatus: data.ollamaStatus || { online: false, models: [] },
-        activeAgentChannels: data.activeAgentChannels || {},
-        queuedMessages: data.queuedMessages || [],
-        isConnected: true,
-      });
-
-      if (fetchStateRetryTimer) {
-        clearTimeout(fetchStateRetryTimer);
-        fetchStateRetryTimer = null;
-      }
-
-      if (!chosenChannelId.startsWith('dm-')) {
-        await get().fetchChannelMembers(chosenChannelId);
-        await get().fetchQueuedMessages(chosenChannelId);
-      }
-
-      await get().fetchArtifacts(data.activeProject?.id || targetProj);
-      await get().fetchGitStatus(data.activeProject?.id || targetProj);
-      await get().fetchUploads(data.activeProject?.id || targetProj);
-      await get().fetchSchedules(data.activeProject?.id || targetProj);
-      await get().fetchSkills();
-      await get().fetchCustomTools();
-      await get().fetchRoutines(data.activeProject?.id || targetProj);
-      await get().fetchBrowserStatus();
-      await get().fetchActiveRuns();
-      await get().fetchSystemHealth();
-      await get().fetchRecoveryState();
-      await get().fetchCredentials();
-      await get().fetchAvailableModels();
-    } catch (err) {
-      console.warn('[KIN UI] Could not connect to Core IPC server, retrying...', err);
-      set({ isConnected: false });
-      if (!fetchStateRetryTimer) {
-        fetchStateRetryTimer = setTimeout(() => {
-          fetchStateRetryTimer = null;
-          get().fetchState();
-        }, 3000);
-      }
+    if (fetchStatePromise) {
+      return fetchStatePromise;
     }
+    set({ isFetchingState: true });
+    fetchStatePromise = (async () => {
+      try {
+        const targetProj = projectId || get().activeProjectId;
+        const url = targetProj ? `/api/state?projectId=${encodeURIComponent(targetProj)}` : '/api/state';
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        const data = await res.json();
+
+        const rememberedChannelId = (() => {
+          try {
+            return targetProj ? localStorage.getItem(`kin_last_channel_${targetProj}`) : null;
+          } catch (err) {
+            console.warn('[KIN UI] Channel memory read notice:', err);
+            return null;
+          }
+        })();
+
+        const currentActive = get().activeChannelId || rememberedChannelId || '';
+        const isDm = currentActive.startsWith('dm-');
+        const dmTargetAgentId = isDm ? currentActive.replace(/^dm-/, '') : '';
+        const agentBelongsToProject = isDm && data.agents?.some((a: any) => a.id === dmTargetAgentId);
+        const channelExists = data.channels?.some((c: any) => c.id === currentActive);
+        const chosenChannelId = (channelExists || agentBelongsToProject)
+          ? currentActive
+          : (data.activeChannelId || data.channels?.find((c: any) => c.name?.toLowerCase() === 'general')?.id || data.channels?.[0]?.id || '');
+
+        if (targetProj && chosenChannelId) {
+          try {
+            localStorage.setItem(`kin_last_channel_${targetProj}`, chosenChannelId);
+          } catch (err) {
+            console.warn('[KIN UI] Channel memory save notice:', err);
+          }
+        }
+
+        const defaultFallbackId = data.activeChannelId || data.channels?.find((c: any) => c.name?.toLowerCase() === 'general')?.id || data.channels?.[0]?.id || '';
+        const isViewingStateChannel = !chosenChannelId || chosenChannelId === defaultFallbackId;
+        const nextCache: Record<string, MessageItem[]> = {
+          ...get().channelMessagesCache,
+          ...(data.activeChannelId ? { [data.activeChannelId]: data.messages || [] } : {}),
+        };
+        const activeMessages = isViewingStateChannel
+          ? (data.messages || [])
+          : (nextCache[chosenChannelId] || []);
+
+        const rememberedAgentId = (() => {
+          try {
+            return targetProj ? localStorage.getItem(`kin_selected_agent_${targetProj}`) : null;
+          } catch (err) {
+            console.warn('[KIN UI] Agent memory read notice:', err);
+            return null;
+          }
+        })();
+
+        const chosenAgentId = (rememberedAgentId && data.agents?.some((a: any) => a.id === rememberedAgentId))
+          ? rememberedAgentId
+          : (data.agents?.some((a: any) => a.id === get().selectedAgentId)
+            ? get().selectedAgentId
+            : (data.agents?.find((a: any) => a.isOrchestrator)?.id || data.agents?.[0]?.id || ''));
+
+        if (targetProj && chosenAgentId) {
+          try {
+            localStorage.setItem(`kin_selected_agent_${targetProj}`, chosenAgentId);
+          } catch (err) {
+            console.warn('[KIN UI] Agent memory save notice:', err);
+          }
+        }
+
+        const rememberedView = (() => {
+          try {
+            return targetProj ? (localStorage.getItem(`kin_main_view_${targetProj}`) as 'chat' | 'automations' | null) : null;
+          } catch (err) {
+            console.warn('[KIN UI] View memory read notice:', err);
+            return null;
+          }
+        })();
+
+        set({
+          projects: data.projects || [],
+          activeProject: data.activeProject,
+          activeProjectId: data.activeProject?.id || 'proj-kin',
+          autonomyMode: data.autonomyMode || 'AUTO',
+          activeChannelId: chosenChannelId,
+          channels: (data.channels || [])
+            .map((c: any) => {
+              const existing = get().channels.find((ec) => ec.id === c.id);
+              return {
+                ...c,
+                unreadCount: c.id === chosenChannelId ? 0 : (existing?.unreadCount || c.unreadCount || 0),
+              };
+            }),
+          agents: data.agents || [],
+          selectedAgentId: chosenAgentId,
+          ...(rememberedView ? { activeMainView: rememberedView } : {}),
+          messages: activeMessages,
+          channelMessagesCache: nextCache,
+          pendingApprovals: data.pendingApprovals || [],
+          goals: data.goals || [],
+          tasks: data.tasks || [],
+          decisions: data.decisions || [],
+          projectAnalytics: data.projectAnalytics,
+          ollamaStatus: data.ollamaStatus || { online: false, models: [] },
+          activeAgentChannels: data.activeAgentChannels || {},
+          queuedMessages: data.queuedMessages || [],
+          isConnected: true,
+        });
+
+        if (fetchStateRetryTimer) {
+          clearTimeout(fetchStateRetryTimer);
+          fetchStateRetryTimer = null;
+        }
+
+        const effectiveProjId = data.activeProject?.id || targetProj;
+        await Promise.allSettled([
+          !chosenChannelId.startsWith('dm-') ? get().fetchChannelMembers(chosenChannelId) : Promise.resolve(),
+          !chosenChannelId.startsWith('dm-') ? get().fetchQueuedMessages(chosenChannelId) : Promise.resolve(),
+          get().fetchArtifacts(effectiveProjId),
+          get().fetchGitStatus(effectiveProjId),
+          get().fetchUploads(effectiveProjId),
+          get().fetchSchedules(effectiveProjId),
+          get().fetchSkills(),
+          get().fetchCustomTools(),
+          get().fetchRoutines(effectiveProjId),
+          get().fetchBrowserStatus(),
+          get().fetchActiveRuns(),
+          get().fetchSystemHealth(),
+          get().fetchRecoveryState(),
+          get().fetchCredentials(),
+          get().fetchAvailableModels(),
+        ]);
+      } catch (err) {
+        console.warn('[KIN UI] Could not connect to Core IPC server, retrying...', err);
+        set({ isConnected: false });
+        if (!fetchStateRetryTimer) {
+          fetchStateRetryTimer = setTimeout(() => {
+            fetchStateRetryTimer = null;
+            get().fetchState();
+          }, 3000);
+        }
+      } finally {
+        fetchStatePromise = null;
+        set({ isFetchingState: false });
+      }
+    })();
+    return fetchStatePromise;
   },
 
   setActiveMainView: (view: 'chat' | 'automations' | 'dag') => {
@@ -2202,6 +2214,15 @@ export const useKinStore = create<KinState>((set, get) => ({
       sse.addEventListener('agent:model_unavailable', (e) => {
         try {
           const data = JSON.parse(e.data);
+          const errMsg = String(data.error || '').toLowerCase();
+          if (
+            errMsg.includes('aborterror') ||
+            errMsg.includes('cancelled') ||
+            errMsg.includes('timeout') ||
+            errMsg.includes('kill switch')
+          ) {
+            return;
+          }
           set({
             modelUnavailableNotice: {
               agentId: data.agentId,
@@ -2211,20 +2232,6 @@ export const useKinStore = create<KinState>((set, get) => ({
               channelId: data.channelId,
             },
           });
-        } catch (err) {
-          console.warn('[KIN UI] SSE event handling notice:', err);
-        }
-      });
-
-      sse.addEventListener('agent:updated', (e) => {
-        try {
-          const data = JSON.parse(e.data);
-          if (data.agentId && data.activeModelId) {
-            set((state) => ({
-              agents: state.agents.map((a) => (a.id === data.agentId ? { ...a, activeModelId: data.activeModelId } : a)),
-              channelMembers: state.channelMembers.map((a) => (a.id === data.agentId ? { ...a, activeModelId: data.activeModelId } : a)),
-            }));
-          }
         } catch (err) {
           console.warn('[KIN UI] SSE event handling notice:', err);
         }
@@ -3208,11 +3215,6 @@ export const useKinStore = create<KinState>((set, get) => ({
         get().fetchSkills();
       });
 
-      // Models Catalog Updates
-      sse.addEventListener('models:updated', () => {
-        get().fetchAvailableModels();
-      });
-
       sse.addEventListener('skill:updated', () => {
         get().fetchSkills();
       });
@@ -3259,26 +3261,6 @@ export const useKinStore = create<KinState>((set, get) => ({
       sse.addEventListener('mcp:connectors_updated', () => {
         get().fetchMcpConnectors().catch((err) => { console.warn('[KIN UI] Background sync notice:', err); });
         get().fetchMcpData().catch((err) => { console.warn('[KIN UI] Background sync notice:', err); });
-      });
-
-      // Proactive Routines Updates
-      sse.addEventListener('routine:created', () => {
-        get().fetchRoutines();
-      });
-
-      sse.addEventListener('routine:fired', () => {
-        get().fetchRoutines();
-      });
-
-      sse.addEventListener('routine:cancelled', (e) => {
-        try {
-          const { routineId } = JSON.parse(e.data);
-          set((state) => ({
-            routines: state.routines.filter((r) => r.id !== routineId),
-          }));
-        } catch (err) {
-          console.warn('[KIN UI] SSE event handling notice:', err);
-        }
       });
 
       // Browser Telemetry Updates

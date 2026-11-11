@@ -29,6 +29,20 @@ export const ModelUnavailablePromptModal: React.FC = () => {
 
   const { agentId, agentName, modelId, error } = modelUnavailableNotice;
 
+  // Only show modal when an actual provider authentication error (HTTP 401, 403, invalid API key) occurs.
+  const isAuthError = Boolean(
+    error &&
+      (error.includes('401') ||
+        error.includes('403') ||
+        /invalid\s*(api)?\s*key/i.test(error) ||
+        /authentication/i.test(error) ||
+        /unauthorized/i.test(error) ||
+        /auth\s*failure/i.test(error) ||
+        /bad\s*api\s*key/i.test(error))
+  );
+
+  if (!isAuthError) return null;
+
   // Determine provider hint from modelId
   let providerHint = '';
   if (modelId.includes('/')) {

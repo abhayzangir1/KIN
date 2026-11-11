@@ -139,8 +139,7 @@ export class ChannelController extends BaseController {
           .filter(Boolean)
           .map((a) => {
             const def = this.agentRepo.getDefinition(a!.definitionId);
-            const chanModelOverride = this.memoryRepo.getMemory('channel', channelId, `agent_model:${a!.id}`)?.value as string | undefined;
-            const effectiveModel = chanModelOverride || a!.activeModelId;
+            const effectiveModel = a!.activeModelId;
             const { modelAvailable, modelStatus } = this.computeModelAvailability(
               effectiveModel,
               ollamaInfo,

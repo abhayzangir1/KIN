@@ -357,14 +357,13 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
 
   const handleOAuthSignIn = async (provider: 'github' | 'google' | 'slack') => {
     try {
-      addToast(`Opening system browser to authenticate with ${provider.toUpperCase()}...`, 'info');
       const res = await fetch(`/api/oauth/authorize/${provider}`, { method: 'POST' });
       if (!res.ok) {
         throw new Error(`Failed to initiate ${provider} authentication`);
       }
       const data = await res.json();
       if (data.authUrl) {
-        addToast(`Authorizing in browser... Return to KIN once completed.`, 'info');
+        addToast(`Opening browser to authenticate with ${provider.toUpperCase()}... Return to KIN once completed.`, 'info');
         try {
           const tauri = (window as any).__TAURI__;
           const openUrl = tauri?.opener?.openUrl || tauri?.shell?.open;
@@ -729,19 +728,19 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
   return (
     <div className={`flex flex-col space-y-6 ${embeddedInModal ? '' : 'h-full overflow-y-auto p-6'}`}>
       {/* Top Banner & Quick Actions */}
-      <div className="p-4 rounded-xl bg-[#161b22] border border-[#30363d] space-y-4">
+      <div className="p-4 rounded-xl bg-kin-card border border-kin-border space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
-            <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+            <h3 className="text-sm font-bold text-kin-text flex items-center space-x-2">
               <Server className="w-4 h-4 text-emerald-400" />
               <span>Model Context Protocol (MCP) Connectors</span>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
                 JSON-RPC 2.0
               </span>
             </h3>
-            <p className="text-xs text-[#8b949e] mt-1 max-w-2xl leading-relaxed">
+            <p className="text-xs text-kin-muted mt-1 max-w-2xl leading-relaxed">
               Connect external databases, cloud services, and developer tools to your autonomous workforce.
-              Connectors are persisted cleanly in both <strong className="text-purple-300">Project</strong> (<code className="font-mono text-purple-300">.kin/mcp.json</code>) and <strong className="text-cyan-300">Global</strong> (<code className="font-mono text-cyan-300">~/.kin/mcp.json</code>) scopes.
+              Connectors are persisted cleanly in both <strong className="text-purple-400">Project</strong> (<code className="font-mono text-purple-400">.kin/mcp.json</code>) and <strong className="text-cyan-400">Global</strong> (<code className="font-mono text-cyan-400">~/.kin/mcp.json</code>) scopes.
             </p>
           </div>
 
@@ -754,7 +753,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                 setTimeout(() => setGeneralFeedback(null), 3000);
               }}
               disabled={isLoadingConnectors}
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-gray-300 hover:text-white text-xs font-semibold border border-[#30363d] transition cursor-pointer disabled:opacity-50"
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-kin-surface hover:bg-kin-cardHover text-kin-muted hover:text-kin-text text-xs font-semibold border border-kin-border transition cursor-pointer disabled:opacity-50"
               title="Hot-reload and re-discover tools for all running MCP servers"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isLoadingConnectors ? 'animate-spin' : ''}`} />
@@ -778,7 +777,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                 setJsonText(JSON.stringify({ mcpServers }, null, 2));
                 setIsJsonModalOpen(true);
               }}
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-cyan-300 hover:text-cyan-200 text-xs font-semibold border border-cyan-500/30 transition cursor-pointer"
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-kin-surface hover:bg-kin-cardHover text-cyan-400 hover:text-cyan-300 text-xs font-semibold border border-cyan-500/30 transition cursor-pointer"
               title="Import or Export Claude Desktop / Claude Code compatible MCP JSON"
             >
               <Code className="w-3.5 h-3.5" />
@@ -796,13 +795,13 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
         </div>
 
         {/* Persistence Paths Bar */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-2 border-t border-[#21262d] text-[11px] font-mono">
-          <div className="flex items-center justify-between p-2 rounded-lg bg-[#0d1117] border border-[#21262d] text-gray-400">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-2 border-t border-kin-border text-[11px] font-mono">
+          <div className="flex items-center justify-between p-2 rounded-lg bg-kin-surface border border-kin-border text-kin-muted">
             <div className="flex items-center space-x-2 truncate mr-2">
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-500/15 text-purple-300 border border-purple-500/30">
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-500/15 text-purple-400 border border-purple-500/30">
                 PROJECT
               </span>
-              <span className="truncate text-gray-300" title={projectMcpConfigPath || '<project>/.kin/mcp.json'}>
+              <span className="truncate text-kin-text" title={projectMcpConfigPath || '<project>/.kin/mcp.json'}>
                 {projectMcpConfigPath || '<project>/.kin/mcp.json'}
               </span>
             </div>
@@ -810,7 +809,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
               <button
                 type="button"
                 onClick={() => copyToClipboard(projectMcpConfigPath, 'project')}
-                className="text-gray-400 hover:text-white p-1 rounded hover:bg-[#21262d] transition"
+                className="text-kin-muted hover:text-kin-text p-1 rounded hover:bg-kin-cardHover transition"
                 title="Copy Project Config Path"
               >
                 {copiedPath === 'project' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
@@ -818,12 +817,12 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
             )}
           </div>
 
-          <div className="flex items-center justify-between p-2 rounded-lg bg-[#0d1117] border border-[#21262d] text-gray-400">
+          <div className="flex items-center justify-between p-2 rounded-lg bg-kin-surface border border-kin-border text-kin-muted">
             <div className="flex items-center space-x-2 truncate mr-2">
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
                 GLOBAL
               </span>
-              <span className="truncate text-gray-300" title={globalMcpConfigPath || '~/.kin/mcp.json'}>
+              <span className="truncate text-kin-text" title={globalMcpConfigPath || '~/.kin/mcp.json'}>
                 {globalMcpConfigPath || '~/.kin/mcp.json'}
               </span>
             </div>
@@ -831,7 +830,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
               <button
                 type="button"
                 onClick={() => copyToClipboard(globalMcpConfigPath, 'global')}
-                className="text-gray-400 hover:text-white p-1 rounded hover:bg-[#21262d] transition"
+                className="text-kin-muted hover:text-kin-text p-1 rounded hover:bg-kin-cardHover transition"
                 title="Copy Global Config Path"
               >
                 {copiedPath === 'global' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
@@ -860,7 +859,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
           <button
             type="button"
             onClick={() => setGeneralFeedback(null)}
-            className="text-gray-400 hover:text-white"
+            className="text-kin-muted hover:text-kin-text"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -869,24 +868,24 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
 
       {/* 1-Click Host Credential Auto-Discovery Banner */}
       {discoveredCreds.length > 0 && (
-        <div className="p-3.5 rounded-xl bg-gradient-to-r from-emerald-950/50 via-slate-900 to-blue-950/50 border border-emerald-500/40 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
+        <div className="p-3.5 rounded-xl bg-kin-card border border-emerald-500/40 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
           <div className="flex items-start space-x-3">
             <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400 shrink-0 mt-0.5">
               <Zap className="w-4 h-4 animate-pulse" />
             </div>
             <div>
-              <div className="text-xs font-bold text-white flex items-center space-x-2">
+              <div className="text-xs font-bold text-kin-text flex items-center space-x-2">
                 <span>⚡ Detected Local Developer Logins</span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                   {discoveredCreds.length} available
                 </span>
               </div>
-              <p className="text-[11px] text-gray-300 mt-0.5">
+              <p className="text-[11px] text-kin-muted mt-0.5">
                 KIN found active host credentials on your machine. Connect them with 1-click without copy-pasting API keys.
               </p>
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {discoveredCreds.map((c) => (
-                  <span key={c.id} className="px-2 py-0.5 rounded bg-[#090d16] border border-[#23314d] font-mono text-[10px] text-emerald-300 flex items-center space-x-1">
+                  <span key={c.id} className="px-2 py-0.5 rounded bg-kin-surface border border-kin-border font-mono text-[10px] text-emerald-400 flex items-center space-x-1">
                     <Check className="w-3 h-3 text-emerald-400" />
                     <span>{c.identifier}</span>
                   </span>
@@ -916,15 +915,15 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
       <div className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div className="flex items-center space-x-2">
-            <span className="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center space-x-1.5">
+            <span className="text-xs font-bold text-kin-text uppercase tracking-wider flex items-center space-x-1.5">
               <Sparkles className="w-3.5 h-3.5 text-amber-400" />
               <span>Popular Connector Presets</span>
             </span>
-            <span className="text-[11px] text-[#8b949e]">Zero-auth local tools & 1-click cloud sign-in</span>
+            <span className="text-[11px] text-kin-muted">Zero-auth local tools & 1-click cloud sign-in</span>
           </div>
 
           {/* Category Filter Pills */}
-          <div className="flex items-center space-x-1 bg-[#090d16] p-0.5 rounded-lg border border-[#21262d]">
+          <div className="flex items-center space-x-1 bg-kin-surface p-0.5 rounded-lg border border-kin-border">
             {[
               { id: 'all', label: 'All' },
               { id: 'api', label: 'Cloud APIs' },
@@ -938,8 +937,8 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                 onClick={() => setPresetCategory(cat.id as any)}
                 className={`px-2 py-0.5 rounded text-[11px] font-medium transition cursor-pointer ${
                   presetCategory === cat.id
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-xs'
-                    : 'text-[#8b949e] hover:text-white'
+                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-xs'
+                    : 'text-kin-muted hover:text-kin-text'
                 }`}
               >
                 {cat.label}
@@ -952,15 +951,15 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
           {CONNECTOR_PRESETS.filter((p) => presetCategory === 'all' || p.category === presetCategory).map((preset) => (
             <div
               key={preset.id}
-              className="p-3 rounded-xl bg-[#161b22] border border-[#21262d] hover:border-[#38434f] transition flex flex-col justify-between"
+              className="p-3 rounded-xl bg-kin-card border border-kin-border hover:border-kin-borderSubtle transition flex flex-col justify-between"
             >
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <div className="flex items-center space-x-2">
-                    <div className="p-1.5 rounded-lg bg-[#0d1117] border border-[#30363d]">
+                    <div className="p-1.5 rounded-lg bg-kin-surface border border-kin-border">
                       {preset.icon}
                     </div>
-                    <span className="font-bold text-white text-xs">{preset.title}</span>
+                    <span className="font-bold text-kin-text text-xs">{preset.title}</span>
                   </div>
                   <span
                     className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase ${
@@ -972,18 +971,18 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                     {preset.scope}
                   </span>
                 </div>
-                <p className="text-[11px] text-[#8b949e] line-clamp-2 leading-relaxed">
+                <p className="text-[11px] text-kin-muted line-clamp-2 leading-relaxed">
                   {preset.desc}
                 </p>
               </div>
 
-              <div className="pt-2 mt-2 border-t border-[#21262d] flex items-center justify-between gap-1">
+              <div className="pt-2 mt-2 border-t border-kin-border flex items-center justify-between gap-1">
                 {/* 1-Click Zero-Input Enable for Local Tools */}
                 {(preset.id === 'filesystem' || preset.id === 'sqlite' || preset.id === 'kin-standard') ? (
                   <button
                     type="button"
                     onClick={() => handleQuickEnable(preset)}
-                    className="flex-1 py-1 px-2 rounded-md bg-emerald-600/25 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/40 text-[11px] font-semibold transition cursor-pointer flex items-center justify-center space-x-1"
+                    className="flex-1 py-1 px-2 rounded-md bg-emerald-600/25 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/40 text-[11px] font-semibold transition cursor-pointer flex items-center justify-center space-x-1"
                     title="Enable with zero manual input using auto-resolved workspace paths"
                   >
                     <Zap className="w-3 h-3 text-emerald-400" />
@@ -994,7 +993,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                   <button
                     type="button"
                     onClick={() => handleOAuthSignIn(preset.id === 'google-workspace' ? 'google' : (preset.id as any))}
-                    className="flex-1 py-1 px-2 rounded-md bg-blue-600/25 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/40 text-[11px] font-semibold transition cursor-pointer flex items-center justify-center space-x-1"
+                    className="flex-1 py-1 px-2 rounded-md bg-blue-600/25 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-500/40 text-[11px] font-semibold transition cursor-pointer flex items-center justify-center space-x-1"
                     title="Sign in with OAuth via browser without typing API keys"
                   >
                     <Zap className="w-3 h-3 text-blue-400" />
@@ -1005,7 +1004,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                 <button
                   type="button"
                   onClick={() => handleOpenAdd(preset)}
-                  className="py-1 px-2 rounded-md bg-[#21262d] hover:bg-[#30363d] text-gray-300 hover:text-white border border-[#30363d] text-[10px] font-medium transition cursor-pointer whitespace-nowrap"
+                  className="py-1 px-2 rounded-md bg-kin-surface hover:bg-kin-cardHover text-kin-muted hover:text-kin-text border border-kin-border text-[10px] font-medium transition cursor-pointer whitespace-nowrap"
                   title="Configure custom arguments, environment variables, or scope"
                 >
                   Configure →
@@ -1017,15 +1016,15 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
       </div>
 
       {/* Scope Filtering & Search Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-[#21262d]">
-        <div className="flex items-center space-x-1.5 bg-[#0d1117] p-1 rounded-lg border border-[#21262d] w-fit">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-kin-border">
+        <div className="flex items-center space-x-1.5 bg-kin-surface p-1 rounded-lg border border-kin-border w-fit">
           <button
             type="button"
             onClick={() => setScopeFilter('all')}
             className={`px-3 py-1 rounded-md text-xs font-medium transition cursor-pointer ${
               scopeFilter === 'all'
                 ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30'
-                : 'text-[#8b949e] hover:text-white'
+                : 'text-kin-muted hover:text-kin-text'
             }`}
           >
             All ({mcpConnectors.length})
@@ -1036,7 +1035,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
             className={`px-3 py-1 rounded-md text-xs font-medium transition cursor-pointer flex items-center space-x-1.5 ${
               scopeFilter === 'project'
                 ? 'bg-purple-600/20 text-purple-400 border border-purple-500/30'
-                : 'text-[#8b949e] hover:text-white'
+                : 'text-kin-muted hover:text-kin-text'
             }`}
           >
             <span>Project Scope</span>
@@ -1050,7 +1049,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
             className={`px-3 py-1 rounded-md text-xs font-medium transition cursor-pointer flex items-center space-x-1.5 ${
               scopeFilter === 'global'
                 ? 'bg-cyan-600/20 text-cyan-400 border border-cyan-500/30'
-                : 'text-[#8b949e] hover:text-white'
+                : 'text-kin-muted hover:text-kin-text'
             }`}
           >
             <span>Global Scope</span>
@@ -1066,7 +1065,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
             placeholder="Search configured connectors..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-1.5 text-xs text-white placeholder-[#8b949e] focus:outline-none focus:border-emerald-500"
+            className="w-full bg-kin-surface border border-kin-border rounded-lg px-3 py-1.5 text-xs text-kin-text placeholder-kin-muted focus:outline-none focus:border-emerald-500"
           />
         </div>
       </div>
@@ -1074,11 +1073,11 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
       {/* Connectors List */}
       <div className="space-y-3">
         {filteredConnectors.length === 0 ? (
-          <div className="p-8 rounded-xl bg-[#161b22] border border-dashed border-[#30363d] text-center space-y-3">
-            <Server className="w-8 h-8 text-gray-500 mx-auto opacity-60" />
+          <div className="p-8 rounded-xl bg-kin-card border border-dashed border-kin-border text-center space-y-3">
+            <Server className="w-8 h-8 text-kin-muted mx-auto opacity-60" />
             <div>
-              <div className="text-xs font-bold text-white">No Connectors Configured in this Scope</div>
-              <p className="text-[11px] text-[#8b949e] mt-1 max-w-md mx-auto">
+              <div className="text-xs font-bold text-kin-text">No Connectors Configured in this Scope</div>
+              <p className="text-[11px] text-kin-muted mt-1 max-w-md mx-auto">
                 Add your first MCP connector using a pre-configured template above or register a custom command or HTTP-SSE server.
               </p>
             </div>
@@ -1104,14 +1103,14 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                 key={cardId}
                 className={`p-4 rounded-xl border transition ${
                   conn.disabled
-                    ? 'bg-[#12161f]/60 border-[#21262d] opacity-75'
-                    : 'bg-[#161b22] border-[#30363d] hover:border-[#484f58]'
+                    ? 'bg-kin-card/60 border-kin-border opacity-75'
+                    : 'bg-kin-card border-kin-border hover:border-kin-borderSubtle'
                 }`}
               >
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                   {/* Title & Status */}
                   <div className="flex items-start space-x-3 min-w-0">
-                    <div className="p-2 rounded-lg bg-[#0d1117] border border-[#21262d] shrink-0 mt-0.5">
+                    <div className="p-2 rounded-lg bg-kin-surface border border-kin-border shrink-0 mt-0.5">
                       {conn.url ? (
                         <Globe className="w-4 h-4 text-cyan-400" />
                       ) : (
@@ -1121,14 +1120,14 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
 
                     <div className="min-w-0 space-y-1">
                       <div className="flex items-center space-x-2">
-                        <span className="font-bold text-white text-xs font-mono">{conn.name}</span>
+                        <span className="font-bold text-kin-text text-xs font-mono">{conn.name}</span>
 
                         {/* Scope Badge */}
                         <span
                           className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase ${
                             conn.scope === 'global'
-                              ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
-                              : 'bg-purple-500/15 text-purple-300 border border-purple-500/30'
+                              ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30'
+                              : 'bg-purple-500/15 text-purple-400 border border-purple-500/30'
                           }`}
                         >
                           {conn.scope}
@@ -1136,7 +1135,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
 
                         {conn.overridden && (
                           <span
-                            className="px-2 py-0.5 rounded text-[9px] font-mono font-semibold uppercase tracking-wider bg-amber-500/15 text-amber-300 border border-amber-500/30"
+                            className="px-2 py-0.5 rounded text-[9px] font-mono font-semibold uppercase tracking-wider bg-amber-500/15 text-amber-400 border border-amber-500/30"
                             title="A project-scoped connector with the same identifier overrides this global connector"
                           >
                             Overridden by project
@@ -1158,7 +1157,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                                   ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
                                   : isFailed
                                   ? 'bg-red-500/10 text-red-400 border-red-500/30'
-                                  : 'bg-gray-500/10 text-gray-400 border-gray-500/30'
+                                  : 'bg-gray-500/10 text-kin-muted border-kin-border'
                               }`}
                             >
                               <span
@@ -1169,7 +1168,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                                     ? 'bg-amber-400'
                                     : isFailed
                                     ? 'bg-red-400'
-                                    : 'bg-gray-400'
+                                    : 'bg-kin-muted'
                                 }`}
                               />
                               <span>{statusLabel}</span>
@@ -1179,21 +1178,21 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                       </div>
 
                       {/* Command or URL String */}
-                      <div className="font-mono text-[11px] text-gray-400 truncate max-w-xl">
+                      <div className="font-mono text-[11px] text-kin-muted truncate max-w-xl">
                         {conn.url ? (
-                          <span className="text-cyan-300">{conn.url}</span>
+                          <span className="text-cyan-400">{conn.url}</span>
                         ) : (
                           <span>
-                            <strong className="text-white">{conn.command}</strong>{' '}
+                            <strong className="text-kin-text">{conn.command}</strong>{' '}
                             {(conn.args || []).join(' ')}
                           </span>
                         )}
                       </div>
 
                       {/* Metadata row */}
-                      <div className="flex items-center space-x-3 text-[10px] text-[#8b949e] font-mono pt-0.5">
+                      <div className="flex items-center space-x-3 text-[10px] text-kin-muted font-mono pt-0.5">
                         <span className="flex items-center space-x-1">
-                          <Sliders className="w-3 h-3 text-gray-400" />
+                          <Sliders className="w-3 h-3 text-kin-muted" />
                           <span>{conn.toolsCount} exposed tools</span>
                         </span>
                         {hasEnv && (
@@ -1213,7 +1212,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                       type="button"
                       onClick={() => handleCardTest(conn)}
                       disabled={isTesting}
-                      className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-gray-300 hover:text-white text-xs font-semibold border border-[#30363d] transition cursor-pointer disabled:opacity-50"
+                      className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-kin-surface hover:bg-kin-cardHover text-kin-muted hover:text-kin-text text-xs font-semibold border border-kin-border transition cursor-pointer disabled:opacity-50"
                       title="Probe server connectivity and test tool discovery"
                     >
                       {isTesting ? (
@@ -1247,7 +1246,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                     <button
                       type="button"
                       onClick={() => handleOpenEdit(conn)}
-                      className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-[#21262d] transition cursor-pointer"
+                      className="p-1.5 rounded-lg text-kin-muted hover:text-kin-text hover:bg-kin-cardHover transition cursor-pointer"
                       title="Edit Connector Configuration"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
@@ -1257,7 +1256,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                     <button
                       type="button"
                       onClick={() => setDeleteConfirm({ scope: conn.scope, name: conn.name })}
-                      className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition cursor-pointer"
+                      className="p-1.5 rounded-lg text-kin-muted hover:text-red-400 hover:bg-red-500/10 transition cursor-pointer"
                       title="Delete Connector"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -1293,7 +1292,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                         delete copy[cardId];
                         return copy;
                       })}
-                      className="text-gray-400 hover:text-white p-0.5"
+                      className="text-kin-muted hover:text-kin-text p-0.5"
                     >
                       <X className="w-3 h-3" />
                     </button>
@@ -1302,20 +1301,20 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
 
                 {/* Expandable Tools Drawer */}
                 {conn.tools && conn.tools.length > 0 && (
-                  <div className="mt-3 pt-2.5 border-t border-[#21262d]">
+                  <div className="mt-3 pt-2.5 border-t border-kin-border">
                     <button
                       type="button"
                       onClick={() => setExpandedToolId(isExpanded ? null : cardId)}
-                      className="flex items-center justify-between w-full text-left text-xs text-gray-400 hover:text-white transition cursor-pointer"
+                      className="flex items-center justify-between w-full text-left text-xs text-kin-muted hover:text-kin-text transition cursor-pointer"
                     >
                       <span className="font-mono text-[11px] text-cyan-400 flex items-center space-x-1.5">
                         <Terminal className="w-3 h-3 text-cyan-400" />
                         <span>Inspect Discovered Tools ({conn.tools.length})</span>
                       </span>
                       {isExpanded ? (
-                        <ChevronUp className="w-3.5 h-3.5 text-gray-400" />
+                        <ChevronUp className="w-3.5 h-3.5 text-kin-muted" />
                       ) : (
-                        <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+                        <ChevronDown className="w-3.5 h-3.5 text-kin-muted" />
                       )}
                     </button>
 
@@ -1328,25 +1327,25 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                           return (
                             <div
                               key={`${toolName}-${toolIdx}`}
-                              className="p-2 rounded-lg bg-[#0d1117] border border-[#21262d] space-y-1"
+                              className="p-2 rounded-lg bg-kin-surface border border-kin-border space-y-1"
                             >
                               <div className="flex items-center justify-between">
                                 <span className="font-mono font-bold text-xs text-emerald-400">
                                   mcp__{conn.name}__{toolName}
                                 </span>
-                                <span className="text-[9px] font-mono text-gray-500 uppercase">
+                                <span className="text-[9px] font-mono text-kin-muted uppercase">
                                   MCP Tool
                                 </span>
                               </div>
                               {toolDesc && (
-                                <p className="text-[11px] text-gray-300 leading-snug">{toolDesc}</p>
+                                <p className="text-[11px] text-kin-text leading-snug">{toolDesc}</p>
                               )}
                               {toolSchema && (
-                                <details className="text-[10px] text-gray-400 font-mono">
+                                <details className="text-[10px] text-kin-muted font-mono">
                                   <summary className="cursor-pointer hover:text-cyan-400 transition">
                                     View Input Schema
                                   </summary>
-                                  <pre className="p-2 mt-1 rounded bg-[#090d16] text-[#cbd5e1] overflow-x-auto text-[10px] leading-tight">
+                                  <pre className="p-2 mt-1 rounded bg-kin-surface border border-kin-border text-kin-text overflow-x-auto text-[10px] leading-tight">
                                     {JSON.stringify(toolSchema, null, 2)}
                                   </pre>
                                 </details>
@@ -1367,23 +1366,23 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
       {/* Delete Confirmation Modal */}
       {deleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-150">
-          <div className="bg-[#161b22] border border-red-500/40 rounded-xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+          <div className="bg-kin-surface border border-red-500/40 rounded-xl max-w-md w-full p-5 space-y-4 shadow-2xl">
             <div className="flex items-center space-x-2 text-red-400 font-bold text-sm">
               <AlertCircle className="w-5 h-5 shrink-0" />
               <span>Confirm Connector Deletion</span>
             </div>
 
-            <p className="text-xs text-gray-300 leading-relaxed">
-              Are you sure you want to remove connector <strong className="text-white font-mono">{deleteConfirm.name}</strong> from{' '}
-              <strong className="text-purple-300 uppercase font-mono">{deleteConfirm.scope}</strong> scope?
+            <p className="text-xs text-kin-text leading-relaxed">
+              Are you sure you want to remove connector <strong className="text-kin-text font-mono">{deleteConfirm.name}</strong> from{' '}
+              <strong className="text-purple-400 uppercase font-mono">{deleteConfirm.scope}</strong> scope?
               The running subprocess will be stopped and its tools unregistered immediately.
             </p>
 
-            <div className="flex justify-end space-x-2 pt-2 border-t border-[#30363d]">
+            <div className="flex justify-end space-x-2 pt-2 border-t border-kin-border">
               <button
                 type="button"
                 onClick={() => setDeleteConfirm(null)}
-                className="px-3 py-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-gray-300 text-xs font-semibold transition cursor-pointer"
+                className="px-3 py-1.5 rounded-lg bg-kin-card hover:bg-kin-cardHover text-kin-text text-xs font-semibold transition cursor-pointer border border-kin-border"
               >
                 Cancel
               </button>
@@ -1402,18 +1401,18 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
       {/* Add / Edit Drawer Modal */}
       {isEditorOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in duration-150">
-          <div className="bg-[#0d1117] border border-[#30363d] rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden text-kin-text font-sans">
+          <div className="bg-kin-surface border border-kin-border rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden text-kin-text font-sans">
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#21262d] bg-[#161b22]">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-kin-border bg-kin-card">
               <div className="flex items-center space-x-2.5">
                 <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
                   <Server className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white">
+                  <h3 className="text-sm font-bold text-kin-text">
                     {editingConnector ? `Edit Connector: ${editingConnector.name}` : 'Add New MCP Connector'}
                   </h3>
-                  <p className="text-xs text-[#8b949e]">
+                  <p className="text-xs text-kin-muted">
                     Configure executable subprocess or remote HTTP-SSE endpoint
                   </p>
                 </div>
@@ -1422,7 +1421,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
               <button
                 type="button"
                 onClick={() => setIsEditorOpen(false)}
-                className="p-1.5 rounded-lg hover:bg-[#21262d] text-gray-400 hover:text-white transition cursor-pointer"
+                className="p-1.5 rounded-lg hover:bg-kin-cardHover text-kin-muted hover:text-kin-text transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1463,7 +1462,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
               {/* Scope & Transport Type Selection */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-1.5">
+                  <label className="block text-[11px] font-bold text-kin-muted uppercase tracking-wider mb-1.5">
                     Storage Scope *
                   </label>
                   <div className="grid grid-cols-2 gap-2">
@@ -1473,12 +1472,12 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                       onClick={() => setFormScope('project')}
                       className={`p-2.5 rounded-lg text-left border transition cursor-pointer disabled:opacity-60 ${
                         formScope === 'project'
-                          ? 'bg-purple-600/20 border-purple-500 text-purple-300'
-                          : 'bg-[#161b22] border-[#30363d] text-gray-400 hover:text-white'
+                          ? 'bg-purple-600/20 border-purple-500 text-purple-400'
+                          : 'bg-kin-card border-kin-border text-kin-muted hover:text-kin-text'
                       }`}
                     >
                       <div className="font-bold text-xs">Project Scope</div>
-                      <div className="text-[10px] font-mono text-[#8b949e] mt-0.5">.kin/mcp.json</div>
+                      <div className="text-[10px] font-mono text-kin-muted mt-0.5">.kin/mcp.json</div>
                     </button>
 
                     <button
@@ -1487,18 +1486,18 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                       onClick={() => setFormScope('global')}
                       className={`p-2.5 rounded-lg text-left border transition cursor-pointer disabled:opacity-60 ${
                         formScope === 'global'
-                          ? 'bg-cyan-600/20 border-cyan-500 text-cyan-300'
-                          : 'bg-[#161b22] border-[#30363d] text-gray-400 hover:text-white'
+                          ? 'bg-cyan-600/20 border-cyan-500 text-cyan-400'
+                          : 'bg-kin-card border-kin-border text-kin-muted hover:text-kin-text'
                       }`}
                     >
                       <div className="font-bold text-xs">Global Scope</div>
-                      <div className="text-[10px] font-mono text-[#8b949e] mt-0.5">~/.kin/mcp.json</div>
+                      <div className="text-[10px] font-mono text-kin-muted mt-0.5">~/.kin/mcp.json</div>
                     </button>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-1.5">
+                  <label className="block text-[11px] font-bold text-kin-muted uppercase tracking-wider mb-1.5">
                     Transport Type *
                   </label>
                   <div className="grid grid-cols-2 gap-2">
@@ -1507,12 +1506,12 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                       onClick={() => setFormType('stdio')}
                       className={`p-2.5 rounded-lg text-left border transition cursor-pointer ${
                         formType === 'stdio'
-                          ? 'bg-emerald-600/20 border-emerald-500 text-emerald-300'
-                          : 'bg-[#161b22] border-[#30363d] text-gray-400 hover:text-white'
+                          ? 'bg-emerald-600/20 border-emerald-500 text-emerald-400'
+                          : 'bg-kin-card border-kin-border text-kin-muted hover:text-kin-text'
                       }`}
                     >
                       <div className="font-bold text-xs">Local stdio</div>
-                      <div className="text-[10px] text-[#8b949e] mt-0.5">Subprocess execution</div>
+                      <div className="text-[10px] text-kin-muted mt-0.5">Subprocess execution</div>
                     </button>
 
                     <button
@@ -1520,12 +1519,12 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                       onClick={() => setFormType('http')}
                       className={`p-2.5 rounded-lg text-left border transition cursor-pointer ${
                         formType === 'http'
-                          ? 'bg-blue-600/20 border-blue-500 text-blue-300'
-                          : 'bg-[#161b22] border-[#30363d] text-gray-400 hover:text-white'
+                          ? 'bg-blue-600/20 border-blue-500 text-blue-400'
+                          : 'bg-kin-card border-kin-border text-kin-muted hover:text-kin-text'
                       }`}
                     >
                       <div className="font-bold text-xs">HTTP-SSE</div>
-                      <div className="text-[10px] text-[#8b949e] mt-0.5">Remote network URL</div>
+                      <div className="text-[10px] text-kin-muted mt-0.5">Remote network URL</div>
                     </button>
                   </div>
                 </div>
@@ -1533,7 +1532,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
 
               {/* Server Name Identifier */}
               <div>
-                <label className="block text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-1">
+                <label className="block text-[11px] font-bold text-kin-muted uppercase tracking-wider mb-1">
                   Server Identifier Name *
                 </label>
                 <input
@@ -1542,9 +1541,9 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                   value={formName}
                   onChange={(e) => setFormName(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
                   placeholder="e.g. github, sqlite-prod, slack-bot"
-                  className="w-full bg-[#161b22] border border-[#30363d] rounded-lg px-3 py-2 text-xs font-mono text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500 disabled:opacity-60"
+                  className="w-full bg-kin-card border border-kin-border rounded-lg px-3 py-2 text-xs font-mono text-kin-text placeholder-kin-muted focus:outline-none focus:border-emerald-500 disabled:opacity-60"
                 />
-                <span className="text-[10px] text-[#8b949e] mt-0.5 block">
+                <span className="text-[10px] text-kin-muted mt-0.5 block">
                   Exposed tool prefix will be <code className="text-cyan-400 font-mono">mcp__{formName || '<name>'}__&lt;tool&gt;</code>
                 </span>
               </div>
@@ -1554,7 +1553,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="sm:col-span-1">
-                      <label className="block text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-1">
+                      <label className="block text-[11px] font-bold text-kin-muted uppercase tracking-wider mb-1">
                         Command Executable *
                       </label>
                       <input
@@ -1562,11 +1561,11 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                         value={formCommand}
                         onChange={(e) => setFormCommand(e.target.value)}
                         placeholder="npx, node, python, uvx"
-                        className="w-full bg-[#161b22] border border-[#30363d] rounded-lg px-3 py-2 text-xs font-mono text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500"
+                        className="w-full bg-kin-card border border-kin-border rounded-lg px-3 py-2 text-xs font-mono text-kin-text placeholder-kin-muted focus:outline-none focus:border-emerald-500"
                       />
                     </div>
                     <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-1">
+                      <label className="block text-[11px] font-bold text-kin-muted uppercase tracking-wider mb-1">
                         Arguments (space-separated)
                       </label>
                       <input
@@ -1574,7 +1573,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                         value={formArgs}
                         onChange={(e) => setFormArgs(e.target.value)}
                         placeholder="-y @modelcontextprotocol/server-sqlite --db-path ./data.db"
-                        className="w-full bg-[#161b22] border border-[#30363d] rounded-lg px-3 py-2 text-xs font-mono text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500"
+                        className="w-full bg-kin-card border border-kin-border rounded-lg px-3 py-2 text-xs font-mono text-kin-text placeholder-kin-muted focus:outline-none focus:border-emerald-500"
                       />
                     </div>
                   </div>
@@ -1582,7 +1581,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
               ) : (
                 /* HTTP Endpoint URL */
                 <div>
-                  <label className="block text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-1">
+                  <label className="block text-[11px] font-bold text-kin-muted uppercase tracking-wider mb-1">
                     HTTP/SSE Endpoint URL *
                   </label>
                   <input
@@ -1590,15 +1589,15 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                     value={formUrl}
                     onChange={(e) => setFormUrl(e.target.value)}
                     placeholder="http://127.0.0.1:8000/sse or https://mcp.domain.com/sse"
-                    className="w-full bg-[#161b22] border border-[#30363d] rounded-lg px-3 py-2 text-xs font-mono text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-kin-card border border-kin-border rounded-lg px-3 py-2 text-xs font-mono text-kin-text placeholder-kin-muted focus:outline-none focus:border-emerald-500"
                   />
                 </div>
               )}
 
               {/* Environment Variables Key-Value Editor */}
-              <div className="space-y-2 pt-2 border-t border-[#21262d]">
+              <div className="space-y-2 pt-2 border-t border-kin-border">
                 <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-bold text-gray-300 uppercase tracking-wider flex items-center space-x-1.5">
+                  <label className="text-[11px] font-bold text-kin-muted uppercase tracking-wider flex items-center space-x-1.5">
                     <Shield className="w-3.5 h-3.5 text-amber-400" />
                     <span>Environment Variables & Secrets</span>
                   </label>
@@ -1613,7 +1612,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                 </div>
 
                 {formEnvPairs.length === 0 ? (
-                  <div className="p-3 rounded-lg bg-[#161b22] border border-dashed border-[#30363d] text-center text-[11px] text-[#8b949e]">
+                  <div className="p-3 rounded-lg bg-kin-card border border-dashed border-kin-border text-center text-[11px] text-kin-muted">
                     No environment variables defined. Click "+ Add Variable" to add API tokens or database secrets.
                   </div>
                 ) : (
@@ -1625,7 +1624,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                           value={pair.key}
                           onChange={(e) => handleUpdateEnvKey(idx, e.target.value)}
                           placeholder="VARIABLE_NAME"
-                          className="w-1/3 bg-[#161b22] border border-[#30363d] rounded-lg px-2.5 py-1.5 text-xs font-mono text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500"
+                          className="w-1/3 bg-kin-card border border-kin-border rounded-lg px-2.5 py-1.5 text-xs font-mono text-kin-text placeholder-kin-muted focus:outline-none focus:border-emerald-500"
                         />
                         <div className="relative flex-1">
                           <input
@@ -1633,12 +1632,12 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                             value={pair.value}
                             onChange={(e) => handleUpdateEnvValue(idx, e.target.value)}
                             placeholder="value or secret token"
-                            className="w-full bg-[#161b22] border border-[#30363d] rounded-lg pl-2.5 pr-8 py-1.5 text-xs font-mono text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500"
+                            className="w-full bg-kin-card border border-kin-border rounded-lg pl-2.5 pr-8 py-1.5 text-xs font-mono text-kin-text placeholder-kin-muted focus:outline-none focus:border-emerald-500"
                           />
                           <button
                             type="button"
                             onClick={() => handleToggleMask(idx)}
-                            className="absolute right-2 top-2 text-gray-400 hover:text-white"
+                            className="absolute right-2 top-2 text-kin-muted hover:text-kin-text"
                             title={pair.masked ? 'Reveal value' : 'Mask value'}
                           >
                             {pair.masked ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
@@ -1647,7 +1646,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                         <button
                           type="button"
                           onClick={() => handleRemoveEnvPair(idx)}
-                          className="p-1.5 text-gray-400 hover:text-red-400 transition"
+                          className="p-1.5 text-kin-muted hover:text-red-400 transition"
                           title="Remove variable"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -1659,12 +1658,12 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
               </div>
 
               {/* Drawer Modal Action Footer */}
-              <div className="flex items-center justify-between pt-4 border-t border-[#21262d]">
+              <div className="flex items-center justify-between pt-4 border-t border-kin-border">
                 <button
                   type="button"
                   onClick={handleTestInEditor}
                   disabled={formTesting || formSaving}
-                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-amber-300 text-xs font-semibold border border-amber-500/30 transition cursor-pointer disabled:opacity-50"
+                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-kin-surface hover:bg-kin-cardHover text-amber-400 text-xs font-semibold border border-amber-500/30 transition cursor-pointer disabled:opacity-50"
                   title="Test connector handshake in isolated process before saving"
                 >
                   {formTesting ? (
@@ -1684,7 +1683,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                   <button
                     type="button"
                     onClick={() => setIsEditorOpen(false)}
-                    className="px-3.5 py-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-gray-300 text-xs font-semibold transition cursor-pointer"
+                    className="px-3.5 py-1.5 rounded-lg bg-kin-card hover:bg-kin-cardHover text-kin-text text-xs font-semibold transition cursor-pointer border border-kin-border"
                   >
                     Cancel
                   </button>
@@ -1712,16 +1711,16 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
       {/* Claude Desktop / Claude Code JSON Import/Export Modal */}
       {isJsonModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col text-kin-text">
-            <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#1e293b] bg-[#090d16]">
-              <div className="flex items-center space-x-2 text-white font-bold text-sm">
+          <div className="bg-kin-surface border border-kin-border rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col text-kin-text">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-kin-border bg-kin-card">
+              <div className="flex items-center space-x-2 text-kin-text font-bold text-sm">
                 <Code className="w-4 h-4 text-cyan-400" />
                 <span>Claude Desktop & Code JSON Import / Export</span>
               </div>
               <button
                 type="button"
                 onClick={() => setIsJsonModalOpen(false)}
-                className="text-gray-400 hover:text-white transition cursor-pointer"
+                className="text-kin-muted hover:text-kin-text transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1729,15 +1728,15 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
 
             <div className="p-5 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <p className="text-xs text-gray-400">
-                  Paste your standard <code className="text-cyan-300 font-mono">claude_desktop_config.json</code> or copy your KIN servers to use in Claude Code / Desktop.
+                <p className="text-xs text-kin-muted">
+                  Paste your standard <code className="text-cyan-400 font-mono">claude_desktop_config.json</code> or copy your KIN servers to use in Claude Code / Desktop.
                 </p>
                 <div className="flex items-center space-x-2 shrink-0">
-                  <label className="text-xs text-gray-400">Target Scope:</label>
+                  <label className="text-xs text-kin-muted">Target Scope:</label>
                   <select
                     value={jsonScope}
                     onChange={(e) => setJsonScope(e.target.value as any)}
-                    className="bg-[#090d16] border border-[#334155] text-xs text-white rounded px-2 py-1 font-mono"
+                    className="bg-kin-card border border-kin-border text-xs text-kin-text rounded px-2 py-1 font-mono"
                   >
                     <option value="project">Project Scope (.kin/mcp.json)</option>
                     <option value="global">Global Scope (~/.kin/mcp.json)</option>
@@ -1757,17 +1756,17 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                 value={jsonText}
                 onChange={(e) => setJsonText(e.target.value)}
                 placeholder={'{\n  "mcpServers": {\n    "filesystem": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]\n    }\n  }\n}'}
-                className="w-full bg-[#090d16] border border-[#1e293b] rounded-xl p-3 font-mono text-xs text-cyan-300 focus:outline-none focus:border-cyan-500 resize-none leading-relaxed"
+                className="w-full bg-kin-card border border-kin-border rounded-xl p-3 font-mono text-xs text-cyan-400 focus:outline-none focus:border-cyan-500 resize-none leading-relaxed"
               />
 
-              <div className="flex items-center justify-between pt-2 border-t border-[#1e293b]">
+              <div className="flex items-center justify-between pt-2 border-t border-kin-border">
                 <button
                   type="button"
                   onClick={() => {
                     navigator.clipboard.writeText(jsonText);
                     addToast('Copied Claude MCP JSON to clipboard!', 'success');
                   }}
-                  className="px-3 py-1.5 rounded-lg bg-[#1e293b] hover:bg-[#334155] text-xs text-gray-200 font-medium transition cursor-pointer flex items-center space-x-1.5"
+                  className="px-3 py-1.5 rounded-lg bg-kin-card hover:bg-kin-cardHover text-xs text-kin-text font-medium transition cursor-pointer flex items-center space-x-1.5 border border-kin-border"
                 >
                   <Copy className="w-3.5 h-3.5" />
                   <span>Copy JSON to Clipboard</span>
@@ -1777,7 +1776,7 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                   <button
                     type="button"
                     onClick={() => setIsJsonModalOpen(false)}
-                    className="px-3.5 py-1.5 rounded-lg bg-[#1e293b] hover:bg-[#334155] text-xs text-gray-300 font-medium transition cursor-pointer"
+                    className="px-3.5 py-1.5 rounded-lg bg-kin-card hover:bg-kin-cardHover text-xs text-kin-muted hover:text-kin-text font-medium transition cursor-pointer border border-kin-border"
                   >
                     Close
                   </button>

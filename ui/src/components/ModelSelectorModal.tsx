@@ -278,27 +278,27 @@ export const ModelSelectorModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fadeIn">
-      <div className="relative w-full max-w-4xl max-h-[88vh] bg-[#0c1017] border border-[#1e293b] rounded-xl shadow-2xl flex flex-col overflow-hidden text-kin-text animate-scaleUp">
+      <div className="relative w-full max-w-4xl max-h-[88vh] bg-kin-surface border border-kin-border rounded-xl shadow-2xl flex flex-col overflow-hidden text-kin-text animate-scaleUp">
         
         {/* Top Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#1e293b] bg-[#0f1420]/70">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-kin-border bg-kin-surface/70">
           <div className="flex items-center space-x-3">
             <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
               <Cpu className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h2 className="text-sm font-semibold text-white tracking-wide">
+                <h2 className="text-sm font-semibold text-kin-text tracking-wide">
                   Assign Language Model
                 </h2>
                 {targetAgent && (
-                  <span className="text-xs font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md">
+                  <span className="text-xs font-mono text-emerald-500 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md">
                     @{targetAgent.displayName}
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-[#64748b] mt-0.5">
-                Configure active model for @{targetAgent?.displayName || 'agent'}. Current model: <span className="font-mono text-slate-300">{activeModelId || 'Default Model'}</span>
+              <p className="text-[11px] text-kin-muted mt-0.5">
+                Configure active model for @{targetAgent?.displayName || 'agent'}. Current model: <span className="font-mono text-kin-text font-medium">{activeModelId || 'Default Model'}</span>
               </p>
             </div>
           </div>
@@ -306,15 +306,15 @@ export const ModelSelectorModal: React.FC = () => {
           <div className="flex items-center space-x-2.5">
             {/* Target Agent Selector Dropdown */}
             {projectAgents.length > 0 && (
-              <div className="flex items-center space-x-1.5 bg-[#161b22] border border-[#30363d] rounded-lg px-2.5 py-1">
-                <span className="text-[11px] text-[#8b949e] font-mono">Agent:</span>
+              <div className="flex items-center space-x-1.5 bg-kin-card border border-kin-border rounded-lg px-2.5 py-1">
+                <span className="text-[11px] text-kin-muted font-mono">Agent:</span>
                 <select
                   value={selectedAgentId}
                   onChange={(e) => setSelectedAgentId(e.target.value)}
-                  className="bg-transparent text-xs text-white font-mono focus:outline-none cursor-pointer"
+                  className="bg-transparent text-xs text-kin-text font-mono focus:outline-none cursor-pointer"
                 >
                   {projectAgents.map((ag) => (
-                    <option key={ag.id} value={ag.id} className="bg-[#0f1420] text-white">
+                    <option key={ag.id} value={ag.id} className="bg-kin-card text-kin-text">
                       {ag.displayName} ({ag.role || (ag.isOrchestrator ? 'Boss' : 'Spec')})
                     </option>
                   ))}
@@ -334,10 +334,10 @@ export const ModelSelectorModal: React.FC = () => {
 
               {showAddMenu && (
                 <div
-                  className="absolute right-0 mt-1.5 w-60 bg-[#0f1623] border border-[#1e293b] rounded-lg shadow-2xl py-1 z-50 text-xs animate-fadeIn"
+                  className="absolute right-0 mt-1.5 w-60 bg-kin-card border border-kin-border rounded-lg shadow-2xl py-1 z-50 text-xs animate-fadeIn"
                   onMouseLeave={() => setShowAddMenu(false)}
                 >
-                  <div className="px-3 py-1.5 text-[10px] font-semibold tracking-wider text-[#64748b] uppercase border-b border-[#1e293b]/70">
+                  <div className="px-3 py-1.5 text-[10px] font-semibold tracking-wider text-kin-muted uppercase border-b border-kin-border/70">
                     Add Language Model Provider
                   </div>
                   {[
@@ -359,7 +359,7 @@ export const ModelSelectorModal: React.FC = () => {
                         setShowAddMenu(false);
                         openAddProviderModal(p.id);
                       }}
-                      className="w-full flex items-center space-x-2.5 px-3 py-2 text-left hover:bg-sky-500/10 hover:text-sky-300 transition text-[#cbd5e1] cursor-pointer"
+                      className="w-full flex items-center space-x-2.5 px-3 py-2 text-left hover:bg-sky-500/10 hover:text-sky-300 transition text-kin-text cursor-pointer"
                     >
                       <ProviderIcon provider={p.id} className="w-3.5 h-3.5" />
                       <span>{p.name}</span>
@@ -372,7 +372,7 @@ export const ModelSelectorModal: React.FC = () => {
             <button
               type="button"
               onClick={closeModelSelector}
-              className="p-1.5 rounded-lg hover:bg-white/5 text-[#94a3b8] hover:text-white transition cursor-pointer"
+              className="p-1.5 rounded-lg hover:bg-kin-cardHover text-kin-muted hover:text-kin-text transition cursor-pointer"
               title="Close modal"
             >
               <X className="w-4 h-4" />
@@ -398,8 +398,8 @@ export const ModelSelectorModal: React.FC = () => {
 
         {/* Busy Agent Concurrency Lock Banner */}
         {isAgentBusy && (
-          <div className="mx-5 my-2.5 px-3.5 py-2 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center space-x-2 text-amber-300 text-xs shrink-0 animate-fadeIn">
-            <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400" />
+          <div className="mx-5 my-2.5 px-3.5 py-2 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center space-x-2 text-amber-600 dark:text-amber-300 text-xs shrink-0 animate-fadeIn">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500 dark:text-amber-400" />
             <span>
               Agent <strong>@{targetAgent?.displayName || targetAgent?.name}</strong> is currently active ({targetAgent?.status || 'working'}). Model switching is locked to prevent execution conflicts.
             </span>
@@ -407,22 +407,22 @@ export const ModelSelectorModal: React.FC = () => {
         )}
 
         {/* Top Controls: Search Bar & Capability Filters */}
-        <div className="px-5 pt-3 pb-2.5 border-b border-[#1e293b]/70 flex flex-wrap items-center justify-between gap-3 bg-[#0a0e17]">
+        <div className="px-5 pt-3 pb-2.5 border-b border-kin-border/70 flex flex-wrap items-center justify-between gap-3 bg-kin-surface">
           {/* Search Input */}
           <div className="relative flex-1 min-w-[240px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#64748b]" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-kin-muted" />
             <input
               type="text"
               placeholder="Type to search models by name, ID, or description..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-[#05080f] border border-[#1e293b] rounded-lg pl-9 pr-8 py-1.5 text-xs text-white placeholder-[#64748b] focus:outline-none focus:border-emerald-500 font-mono transition"
+              className="w-full bg-kin-card border border-kin-border rounded-lg pl-9 pr-8 py-1.5 text-xs text-kin-text placeholder-kin-subtle focus:outline-none focus:border-emerald-500 font-mono transition"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-[#64748b] hover:text-white"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-kin-muted hover:text-kin-text"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -437,7 +437,7 @@ export const ModelSelectorModal: React.FC = () => {
               className={`flex items-center space-x-1 px-2.5 py-1 rounded-md border text-[11px] font-mono transition cursor-pointer ${
                 filterToolsOnly
                   ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
-                  : 'bg-[#0f1420] text-[#64748b] border-[#1e293b] hover:text-[#94a3b8]'
+                  : 'bg-kin-card text-kin-muted border-kin-border hover:text-kin-muted'
               }`}
             >
               <Wrench className="w-3 h-3" />
@@ -449,7 +449,7 @@ export const ModelSelectorModal: React.FC = () => {
               className={`flex items-center space-x-1 px-2.5 py-1 rounded-md border text-[11px] font-mono transition cursor-pointer ${
                 filterVisionOnly
                   ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
-                  : 'bg-[#0f1420] text-[#64748b] border-[#1e293b] hover:text-[#94a3b8]'
+                  : 'bg-kin-card text-kin-muted border-kin-border hover:text-kin-muted'
               }`}
             >
               <Eye className="w-3 h-3" />
@@ -461,7 +461,7 @@ export const ModelSelectorModal: React.FC = () => {
               className={`flex items-center space-x-1 px-2.5 py-1 rounded-md border text-[11px] font-mono transition cursor-pointer ${
                 filterReasoningOnly
                   ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                  : 'bg-[#0f1420] text-[#64748b] border-[#1e293b] hover:text-[#94a3b8]'
+                  : 'bg-kin-card text-kin-muted border-kin-border hover:text-kin-muted'
               }`}
             >
               <Brain className="w-3 h-3" />
@@ -473,7 +473,7 @@ export const ModelSelectorModal: React.FC = () => {
               className={`flex items-center space-x-1 px-2.5 py-1 rounded-md border text-[11px] font-mono transition cursor-pointer ${
                 filterFreeOnly
                   ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                  : 'bg-[#0f1420] text-[#64748b] border-[#1e293b] hover:text-[#94a3b8]'
+                  : 'bg-kin-card text-kin-muted border-kin-border hover:text-kin-muted'
               }`}
             >
               <span>Free Tier</span>
@@ -482,8 +482,8 @@ export const ModelSelectorModal: React.FC = () => {
         </div>
 
         {/* Provider Pill Bar with + Button (Matches Reference Images 1 & 3) */}
-        <div className="px-5 py-2.5 border-b border-[#1e293b]/70 bg-[#070a12] flex items-center space-x-2 overflow-x-auto scrollbar-none">
-          <span className="text-[11px] text-[#64748b] font-medium mr-1 shrink-0">Providers:</span>
+        <div className="px-5 py-2.5 border-b border-kin-border/70 bg-kin-surface flex items-center space-x-2 overflow-x-auto scrollbar-none">
+          <span className="text-[11px] text-kin-muted font-medium mr-1 shrink-0">Providers:</span>
 
           {/* "All" Pill */}
           <button
@@ -491,12 +491,12 @@ export const ModelSelectorModal: React.FC = () => {
             onClick={() => setSelectedProvider('all')}
             className={`flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-medium transition cursor-pointer shrink-0 ${
               selectedProvider === 'all'
-                ? 'bg-white text-black shadow-md font-semibold'
-                : 'bg-[#151c2c] text-[#94a3b8] hover:text-white hover:bg-[#1a2336] border border-[#1e293b]'
+                ? 'bg-kin-text text-kin-bg shadow-md font-semibold'
+                : 'bg-kin-card text-kin-muted hover:text-kin-text hover:bg-kin-cardHover border border-kin-border'
             }`}
           >
             <span>All Models</span>
-            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${selectedProvider === 'all' ? 'bg-black/20 text-black' : 'bg-black/40 text-[#64748b]'}`}>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${selectedProvider === 'all' ? 'bg-kin-bg/20 text-kin-bg' : 'bg-black/20 text-kin-muted'}`}>
               {availableModels.length}
             </span>
           </button>
@@ -511,14 +511,14 @@ export const ModelSelectorModal: React.FC = () => {
                 onClick={() => setSelectedProvider(prov.id)}
                 className={`flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-medium transition cursor-pointer shrink-0 ${
                   isSelected
-                    ? 'bg-white text-black shadow-md font-semibold'
-                    : 'bg-[#151c2c] text-[#cbd5e1] hover:text-white hover:bg-[#1a2336] border border-[#1e293b]'
+                    ? 'bg-kin-text text-kin-bg shadow-md font-semibold'
+                    : 'bg-kin-card text-kin-text hover:text-kin-text hover:bg-kin-cardHover border border-kin-border'
                 }`}
               >
                 <ProviderIcon provider={prov.id} className="w-3.5 h-3.5" />
                 <span>{prov.name}</span>
                 {prov.count > 0 && (
-                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${isSelected ? 'bg-black/20 text-black' : 'bg-black/40 text-[#64748b]'}`}>
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${isSelected ? 'bg-kin-bg/20 text-kin-bg' : 'bg-black/20 text-kin-muted'}`}>
                     {prov.count}
                   </span>
                 )}
@@ -539,7 +539,7 @@ export const ModelSelectorModal: React.FC = () => {
         </div>
 
         {/* Table Column Headers (Matching Reference Image 2) */}
-        <div className="grid grid-cols-12 gap-3 px-6 py-2 border-b border-[#1e293b]/70 bg-[#070a12] text-[11px] font-semibold text-[#64748b] select-none">
+        <div className="grid grid-cols-12 gap-3 px-6 py-2 border-b border-kin-border/70 bg-kin-surface text-[11px] font-semibold text-kin-muted select-none">
           <div className="col-span-6 flex items-center space-x-2">
             <span>Name</span>
           </div>
@@ -555,13 +555,13 @@ export const ModelSelectorModal: React.FC = () => {
         </div>
 
         {/* Model List / Table */}
-        <div className="flex-1 overflow-y-auto min-h-[300px] max-h-[52vh] p-2 divide-y divide-[#1e293b]/40">
+        <div className="flex-1 overflow-y-auto min-h-[300px] max-h-[52vh] p-2 divide-y divide-kin-borderSubtle">
           {filteredModels.length === 0 ? (
-            <div className="py-12 text-center text-sm text-[#64748b] flex flex-col items-center justify-center space-y-3">
-              <Cpu className="w-8 h-8 text-[#475569] animate-pulse" />
+            <div className="py-12 text-center text-sm text-kin-muted flex flex-col items-center justify-center space-y-3">
+              <Cpu className="w-8 h-8 text-kin-subtle animate-pulse" />
               <div>
-                <p className="font-medium text-white">No models match your search or filter.</p>
-                <p className="text-xs text-[#64748b] mt-1">
+                <p className="font-medium text-kin-text">No models match your search or filter.</p>
+                <p className="text-xs text-kin-muted mt-1">
                   Click <strong>+ Add Models</strong> to configure API keys for Anthropic, Azure, OpenAI, Google, OpenRouter, xAI, or local Ollama.
                 </p>
               </div>
@@ -586,23 +586,23 @@ export const ModelSelectorModal: React.FC = () => {
                   className={`group grid grid-cols-12 gap-3 items-center px-4 py-2.5 rounded-lg transition border ${
                     isAgentBusy
                       ? 'opacity-50 cursor-not-allowed bg-slate-900/30'
-                      : 'cursor-pointer hover:bg-[#141b2b]'
+                      : 'cursor-pointer hover:bg-kin-cardHover'
                   } ${
                     isActiveForAgent
                       ? 'bg-emerald-500/10 border-emerald-500/40 shadow-sm'
-                      : 'border-transparent hover:border-[#1e293b]'
+                      : 'border-transparent hover:border-kin-border'
                   }`}
                   title={isAgentBusy ? `Agent is busy. Model switching is locked.` : `Select ${model.name || model.id}`}
                 >
                   {/* Name Column: Eyeball Icon + Provider Icon + Name + ID */}
                   <div className="col-span-6 flex items-center space-x-2.5 min-w-0 pr-2">
                     <span title="Model visible in catalog" className="shrink-0 flex items-center">
-                      <Eye className="w-3.5 h-3.5 text-[#475569] group-hover:text-slate-300" />
+                      <Eye className="w-3.5 h-3.5 text-kin-subtle group-hover:text-slate-300" />
                     </span>
                     <ProviderIcon provider={model.provider} className="w-4 h-4 shrink-0" />
                     <div className="min-w-0">
                       <div className="flex items-center space-x-2">
-                        <span className={`text-xs font-semibold truncate ${isActiveForAgent ? 'text-emerald-300' : 'text-white group-hover:text-sky-300'}`}>
+                        <span className={`text-xs font-semibold truncate ${isActiveForAgent ? 'text-emerald-500 dark:text-emerald-300' : 'text-kin-text group-hover:text-sky-500 dark:group-hover:text-sky-300'}`}>
                           {model.name || model.id}
                         </span>
 
@@ -626,7 +626,7 @@ export const ModelSelectorModal: React.FC = () => {
                         )}
                       </div>
 
-                      <div className="text-[10px] font-mono text-[#64748b] truncate mt-0.5">
+                      <div className="text-[10px] font-mono text-kin-muted truncate mt-0.5">
                         {model.id}
                       </div>
                     </div>
@@ -634,7 +634,7 @@ export const ModelSelectorModal: React.FC = () => {
 
                   {/* Context Size Column */}
                   <div className="col-span-2 flex justify-center">
-                    <span className="font-mono text-xs text-[#94a3b8] px-2 py-0.5 rounded bg-black/40 border border-[#1e293b]" title="Context Window Size">
+                    <span className="font-mono text-xs text-kin-muted px-2 py-0.5 rounded bg-black/40 border border-kin-border" title="Context Window Size">
                       {formatContextWindow(model.contextWindow)}
                     </span>
                   </div>
@@ -681,7 +681,7 @@ export const ModelSelectorModal: React.FC = () => {
                         } ${
                           isActiveForAgent
                             ? 'bg-emerald-500 text-black font-semibold'
-                            : 'bg-[#1e293b] hover:bg-emerald-600 hover:text-white text-[#cbd5e1]'
+                            : 'bg-kin-card hover:bg-emerald-600 hover:text-white text-kin-text'
                         }`}
                       >
                         {isActiveForAgent ? (
@@ -694,7 +694,7 @@ export const ModelSelectorModal: React.FC = () => {
                         )}
                       </button>
                     ) : (
-                      <span className="text-[10px] text-[#64748b] font-mono">Available</span>
+                      <span className="text-[10px] text-kin-muted font-mono">Available</span>
                     )}
                   </div>
                 </div>
@@ -704,9 +704,9 @@ export const ModelSelectorModal: React.FC = () => {
         </div>
 
         {/* Footer: Direct Manual Model ID Assignment */}
-        <div className="px-5 py-3 border-t border-[#1e293b] bg-[#070b13] flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="px-5 py-3 border-t border-kin-border bg-kin-surface flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex items-center space-x-2 flex-1 min-w-[280px]">
-            <span className="text-[#64748b] whitespace-nowrap text-[11px]">Direct Model ID:</span>
+            <span className="text-kin-muted whitespace-nowrap text-[11px]">Direct Model ID:</span>
             <input
               type="text"
               placeholder="e.g. openai/gpt-4.5-preview or custom/local-llama"
@@ -715,7 +715,7 @@ export const ModelSelectorModal: React.FC = () => {
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleManualAssign();
               }}
-              className="flex-1 bg-[#04060a] border border-[#1e293b] rounded px-2.5 py-1 text-xs text-white font-mono placeholder-[#475569] focus:outline-none focus:border-emerald-500"
+              className="flex-1 bg-kin-card border border-kin-border rounded px-2.5 py-1 text-xs text-kin-text font-mono placeholder-kin-subtle focus:outline-none focus:border-emerald-500"
             />
             <button
               type="button"
@@ -727,7 +727,7 @@ export const ModelSelectorModal: React.FC = () => {
             </button>
           </div>
 
-          <div className="text-[11px] text-[#64748b] font-mono flex items-center space-x-2">
+          <div className="text-[11px] text-kin-muted font-mono flex items-center space-x-2">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
             <span>Automatic fallback disabled (operator controlled)</span>
           </div>

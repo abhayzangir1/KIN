@@ -224,6 +224,8 @@ export class ModelGateway {
   private providerModelCounts: Map<string, number> = new Map();
   private isOllamaOnlineCached?: boolean;
   private ollamaModelCountCached?: number;
+  private providerReadinessCache: Map<string, { readiness: ProviderReadiness; cachedAt: number }> = new Map();
+  private static readonly READINESS_CACHE_TTL_MS = 60000;
 
   constructor(options?: ModelGatewayOptions) {
     this.ollamaHost = options?.ollamaHost || process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
@@ -241,15 +243,26 @@ export class ModelGateway {
   }
 
   public registerCustomProvider(name: string, baseUrl: string, apiKey?: string): void {
-    this.customEndpoints.set(name.toLowerCase(), { baseUrl, apiKey });
+    const norm = name.toLowerCase().trim();
+    this.customEndpoints.set(norm, { baseUrl, apiKey });
+    this.providerReadinessCache.delete(norm);
+    this.providerReadinessCache.delete('custom');
   }
 
   public unregisterCustomProvider(name: string): void {
-    this.customEndpoints.delete(name.toLowerCase().trim());
+    const norm = name.toLowerCase().trim();
+    this.customEndpoints.delete(norm);
+    this.providerReadinessCache.delete(norm);
+    this.providerReadinessCache.delete('custom');
   }
 
   public clearCustomEndpoints(): void {
     this.customEndpoints.clear();
+    this.providerReadinessCache.clear();
+  }
+
+  public clearReadinessCache(): void {
+    this.providerReadinessCache.clear();
   }
 
   public getCustomEndpointNames(): string[] {
@@ -361,13 +374,25 @@ export class ModelGateway {
     };
   }
 
-  public async checkProviderReadiness(provider: string): Promise<ProviderReadiness> {
+  public async checkProviderReadiness(provider: string, forceRefresh = false): Promise<ProviderReadiness> {
     const norm = provider.toLowerCase().trim();
+    if (!forceRefresh) {
+      const cached = this.providerReadinessCache.get(norm);
+      if (cached && (Date.now() - cached.cachedAt < ModelGateway.READINESS_CACHE_TTL_MS)) {
+        return cached.readiness;
+      }
+    }
+
+    const saveAndReturn = (result: ProviderReadiness): ProviderReadiness => {
+      this.providerReadinessCache.set(norm, { readiness: result, cachedAt: Date.now() });
+      return result;
+    };
+
     if (norm === 'ollama') {
       if (process.env.KIN_ISOLATE_OLLAMA === 'true') {
         this.isOllamaOnlineCached = false;
         this.ollamaModelCountCached = 0;
-        return {
+        return saveAndReturn({
           provider: 'ollama',
           configured: Boolean(this.ollamaHost),
           validated: false,
@@ -375,7 +400,7 @@ export class ModelGateway {
           keyCount: 1,
           modelCount: 0,
           message: 'Local Ollama runtime unreachable (isolated via environment)',
-        };
+        });
       }
       try {
         const res = await fetch(`${this.ollamaHost}/api/tags`, { signal: AbortSignal.timeout(3000) }).catch(() => null);
@@ -384,7 +409,7 @@ export class ModelGateway {
           const models: any[] = data.models || [];
           this.isOllamaOnlineCached = true;
           this.ollamaModelCountCached = models.length;
-          return {
+          return saveAndReturn({
             provider: norm,
             configured: true,
             validated: true,
@@ -392,12 +417,12 @@ export class ModelGateway {
             keyCount: 1,
             modelCount: models.length,
             message: `Local Ollama online (${models.length} model(s) available)`,
-          };
+          });
         }
       } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
       this.isOllamaOnlineCached = false;
       this.ollamaModelCountCached = 0;
-      return {
+      return saveAndReturn({
         provider: norm,
         configured: Boolean(this.ollamaHost),
         validated: false,
@@ -405,13 +430,13 @@ export class ModelGateway {
         keyCount: 1,
         modelCount: 0,
         message: 'Local Ollama runtime unreachable (offline)',
-      };
+      });
     }
 
     if (norm === 'custom' || this.customEndpoints.has(norm)) {
       if (this.customEndpoints.has(norm)) {
         const custom = this.customEndpoints.get(norm)!;
-        return {
+        return saveAndReturn({
           provider: norm,
           configured: true,
           validated: true,
@@ -419,10 +444,10 @@ export class ModelGateway {
           keyCount: 1,
           modelCount: this.providerModelCounts.get(norm) || 1,
           message: `Custom endpoint "${norm}" registered at ${custom.baseUrl}`,
-        };
+        });
       }
       const customCount = this.customEndpoints.size;
-      return {
+      return saveAndReturn({
         provider: 'custom',
         configured: customCount > 0,
         validated: customCount > 0,
@@ -430,7 +455,7 @@ export class ModelGateway {
         keyCount: customCount,
         modelCount: customCount,
         message: customCount > 0 ? `${customCount} custom endpoint(s) registered` : 'No custom endpoint configured',
-      };
+      });
     }
 
     const apiKey = this.resolveApiKey(norm);
@@ -439,7 +464,7 @@ export class ModelGateway {
     if (!apiKey) {
       this.validatedProviders.set(norm, false);
       this.providerModelCounts.set(norm, 0);
-      return {
+      return saveAndReturn({
         provider: norm,
         configured: false,
         validated: false,
@@ -447,14 +472,14 @@ export class ModelGateway {
         keyCount: 0,
         modelCount: 0,
         message: `API key not configured for ${norm}`,
-      };
+      });
     }
 
     try {
       const verification = await this.verifyProviderConnection(norm, apiKey);
       this.validatedProviders.set(norm, verification.working);
       this.providerModelCounts.set(norm, verification.working ? verification.modelCount : 0);
-      return {
+      return saveAndReturn({
         provider: norm,
         configured: true,
         validated: verification.working,
@@ -464,11 +489,11 @@ export class ModelGateway {
         message: keyCount > 1
           ? `${verification.message} (${keyCount} keys active)`
           : verification.message,
-      };
+      });
     } catch (e: any) {
       this.validatedProviders.set(norm, false);
       this.providerModelCounts.set(norm, 0);
-      return {
+      return saveAndReturn({
         provider: norm,
         configured: true,
         validated: false,
@@ -476,7 +501,7 @@ export class ModelGateway {
         keyCount,
         modelCount: 0,
         message: `Connection validation failed: ${e.message}`,
-      };
+      });
     }
   }
 
@@ -485,6 +510,7 @@ export class ModelGateway {
     this.validatedProviders.delete(norm);
     this.providerModelCounts.delete(norm);
     this.customEndpoints.delete(norm);
+    this.providerReadinessCache.delete(norm);
   }
 
   /**
@@ -1619,6 +1645,8 @@ export class ModelGateway {
       if (normProvider === 'nvidia') {
         const standardNvidia: DiscoveredModel[] = [
           { id: 'nvidia/meta/llama-3.3-70b-instruct', name: 'NVIDIA Llama 3.3 70B Instruct', provider: 'nvidia', contextWindow: 128000, supportsTools: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'nvidia/meta/llama-3.1-70b-instruct', name: 'NVIDIA Llama 3.1 70B Instruct', provider: 'nvidia', contextWindow: 128000, supportsTools: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
+          { id: 'nvidia/meta/llama-3.1-8b-instruct', name: 'NVIDIA Llama 3.1 8B Instruct', provider: 'nvidia', contextWindow: 128000, supportsTools: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
           { id: 'nvidia/nvidia/llama-3.1-nemotron-70b-instruct', name: 'NVIDIA Llama 3.1 Nemotron 70B Instruct', provider: 'nvidia', contextWindow: 128000, supportsTools: true, supportsReasoning: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
           { id: 'nvidia/deepseek-ai/deepseek-r1', name: 'NVIDIA DeepSeek R1', provider: 'nvidia', contextWindow: 128000, supportsTools: true, supportsReasoning: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
           { id: 'nvidia/qwen/qwen2.5-coder-32b-instruct', name: 'NVIDIA Qwen 2.5 Coder 32B', provider: 'nvidia', contextWindow: 32768, supportsTools: true, configured: false, validated: false, description: 'Fallback model catalog (connection unverified)' },
@@ -1683,6 +1711,17 @@ export class ModelGateway {
     return [];
   }
 
+  /**
+   * Alias for fetchProviderModels to discover models for a specific provider.
+   */
+  public async discoverProviderModels(
+    provider: string,
+    explicitApiKey?: string,
+    options?: { omitUnconfigured?: boolean; baseUrl?: string } | boolean
+  ): Promise<DiscoveredModel[]> {
+    return this.fetchProviderModels(provider, explicitApiKey, options);
+  }
+
   private getStandardFallbackModels(provider: string, baseUrl?: string): DiscoveredModel[] {
     const norm = provider.toLowerCase().trim();
     if (norm === 'together') {
@@ -1711,6 +1750,16 @@ export class ModelGateway {
     if (norm === 'cerebras') {
       return [
         { id: 'cerebras/llama-3.3-70b', name: 'Cerebras Llama 3.3 70B', provider: 'cerebras', contextWindow: 128000, supportsTools: true, configured: true, validated: true },
+      ];
+    }
+    if (norm === 'nvidia') {
+      return [
+        { id: 'nvidia/meta/llama-3.3-70b-instruct', name: 'NVIDIA Llama 3.3 70B Instruct', provider: 'nvidia', contextWindow: 128000, supportsTools: true, configured: true, validated: true },
+        { id: 'nvidia/meta/llama-3.1-70b-instruct', name: 'NVIDIA Llama 3.1 70B Instruct', provider: 'nvidia', contextWindow: 128000, supportsTools: true, configured: true, validated: true },
+        { id: 'nvidia/meta/llama-3.1-8b-instruct', name: 'NVIDIA Llama 3.1 8B Instruct', provider: 'nvidia', contextWindow: 128000, supportsTools: true, configured: true, validated: true },
+        { id: 'nvidia/nvidia/llama-3.1-nemotron-70b-instruct', name: 'NVIDIA Llama 3.1 Nemotron 70B Instruct', provider: 'nvidia', contextWindow: 128000, supportsTools: true, supportsReasoning: true, configured: true, validated: true },
+        { id: 'nvidia/deepseek-ai/deepseek-r1', name: 'NVIDIA DeepSeek R1', provider: 'nvidia', contextWindow: 128000, supportsTools: true, supportsReasoning: true, configured: true, validated: true },
+        { id: 'nvidia/qwen/qwen2.5-coder-32b-instruct', name: 'NVIDIA Qwen 2.5 Coder 32B', provider: 'nvidia', contextWindow: 32768, supportsTools: true, configured: true, validated: true },
       ];
     }
     if (norm === 'lmstudio') {
@@ -2269,7 +2318,7 @@ export class ModelGateway {
       throw new Error('API key for OPENROUTER is not set in managed credentials or environment.');
     }
 
-    const stream = !!params.onToken;
+    const stream = !!params.onToken || !!params.onThinkingToken;
     const url = 'https://openrouter.ai/api/v1/chat/completions';
     const res = await fetch(url, {
       method: 'POST',
@@ -2526,7 +2575,7 @@ export class ModelGateway {
       throw new Error(`API key for ${provider.toUpperCase()} is not set in environment or managed credentials.`);
     }
 
-    const stream = !!params.onToken;
+    const stream = !!params.onToken || !!params.onThinkingToken;
     const reqHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
     };
@@ -2795,7 +2844,7 @@ export class ModelGateway {
       ? (custom.baseUrl.endsWith('/messages') ? custom.baseUrl : `${custom.baseUrl.replace(/\/+$/, '')}/messages`)
       : 'https://api.anthropic.com/v1/messages');
 
-    const stream = !!params.onToken;
+    const stream = !!params.onToken || !!params.onThinkingToken;
     const effectiveSignal = resolveEffectiveSignal(params.signal);
     const res = await fetch(url, {
       method: 'POST',

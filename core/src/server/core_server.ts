@@ -755,7 +755,7 @@ export class CoreServer {
         SET state = 'cancelled', quota_resets_at = NULL 
         WHERE state = 'quota_paused' AND (quota_resets_at IS NULL OR quota_resets_at <= ?)
       `, Date.now());
-      this.runSupervisorSelfHealing();
+      this.runSupervisorSelfHealing(300000, true);
       this.dispatchQueuedRunsStartup();
     } catch (recErr) {
       console.warn('[KIN CORE] Startup crash recovery sweep notice:', recErr);
@@ -857,14 +857,14 @@ export class CoreServer {
   private startSupervisorWatchdog(): void {
     this.supervisorInterval = setInterval(() => {
       try {
-        this.runSupervisorSelfHealing();
+        this.runSupervisorSelfHealing(300000, false);
       } catch (err) {
         console.error('[KIN SUPERVISOR ERROR]', err);
       }
     }, 15000);
   }
 
-  public runSupervisorSelfHealing(staleThresholdMs: number = 45000): Array<{ id: string; agentId: string; projectId?: string; taskId?: string }> {
+  public runSupervisorSelfHealing(staleThresholdMs: number = 300000, isStartupRecovery: boolean = false): Array<{ id: string; agentId: string; projectId?: string; taskId?: string }> {
     try {
       const recovered = this.kernel.recoverStaleRunsDetailed(staleThresholdMs);
       const reclaimedTaskIds = this.taskRepo.reclaimExpiredTaskLeases();
@@ -876,14 +876,29 @@ export class CoreServer {
         }
       }
 
+      const trulyStale: typeof recovered = [];
       if (recovered.length > 0) {
         console.log(`[KIN SUPERVISOR] Self-healing recovered ${recovered.length} stale run(s).`);
 
         for (const item of recovered) {
+          // If in memory, touch heartbeat and DO NOT abort
+          if (this.runAbortControllers.has(item.id) || this.activeAgentExecutions.has(item.agentId)) {
+            try {
+              this.db.execute(`UPDATE agent_runs SET state = 'running', heartbeat_at = ? WHERE id = ?`, Date.now(), item.id);
+              this.kernel.heartbeat(item.id);
+            } catch (hbErr) {
+              console.debug('[core_server] Suppressed error touching heartbeat:', hbErr);
+            }
+            continue;
+          }
+          trulyStale.push(item);
+        }
+
+        for (const item of trulyStale) {
           const ag = this.agentRepo.getIdentity(item.agentId);
           const tsk = item.taskId ? this.taskRepo.getTask(item.taskId) : null;
-          // Only offer for user recovery if there is an authentic turn checkpoint with snapshotJson
-          if (item.checkpoint && item.checkpoint.snapshotJson && !this.pendingRecoveries.some((r) => r.id === item.id)) {
+          // Only offer for user recovery if from cold startup crash recovery with an authentic turn checkpoint snapshotJson
+          if (isStartupRecovery && item.checkpoint && item.checkpoint.snapshotJson && !this.pendingRecoveries.some((r) => r.id === item.id)) {
             this.pendingRecoveries.push({
               id: item.id,
               runId: item.id,
@@ -896,8 +911,8 @@ export class CoreServer {
               checkpoint: item.checkpoint,
               checkpointReason: 'Process termination / stale heartbeat lease',
             });
-          } else if (!item.checkpoint || !item.checkpoint.snapshotJson) {
-            // Cleanly mark headless / non-checkpointed stale runs as cancelled without cluttering UI
+          } else if (!item.checkpoint || !item.checkpoint.snapshotJson || !isStartupRecovery) {
+            // Cleanly mark headless / non-checkpointed / watchdog-tick stale runs as cancelled without cluttering UI
             try {
               this.db.execute("UPDATE agent_runs SET state = 'cancelled', completed_at = ? WHERE id = ?", Date.now(), item.id);
               this.pendingRecoveries = this.pendingRecoveries.filter((r) => r.id !== item.id);
@@ -907,13 +922,13 @@ export class CoreServer {
           }
         }
 
-        this.broadcastEvent('system:recovered', { count: recovered.length, runs: recovered });
+        this.broadcastEvent('system:recovered', { count: trulyStale.length, runs: trulyStale });
         this.broadcastEvent('system:recovery-state', {
           count: this.pendingRecoveries.length,
           pendingRecoveries: this.pendingRecoveries,
         });
 
-        for (const item of recovered) {
+        for (const item of trulyStale) {
           try {
             // Unblock active in-memory execution and takeover gates
             const abortCtrl = this.runAbortControllers.get(item.id);
@@ -982,7 +997,7 @@ export class CoreServer {
         console.warn('[KIN SUPERVISOR] Quota auto-resume check notice:', qErr);
       }
 
-      return recovered;
+      return trulyStale;
     } catch (err) {
       console.error('[KIN SUPERVISOR] Error during runSupervisorSelfHealing:', err);
       return [];
@@ -999,15 +1014,6 @@ export class CoreServer {
       this.db.execute('UPDATE agent_runs SET model_id = ?, quota_resets_at = NULL WHERE id = ?', modelOverride, runId);
       if (runRow.agent_id) {
         this.agentRepo.updateAgentModelConfig(runRow.agent_id, modelOverride);
-        if (runRow.channel_id && !runRow.channel_id.startsWith('dm-')) {
-          this.memoryRepo.setMemory({
-            scope: 'channel',
-            scopeId: runRow.channel_id,
-            key: `agent_model:${runRow.agent_id}`,
-            type: 'preference',
-            value: modelOverride,
-          });
-        }
         this.broadcastEvent('agent:updated', { agentId: runRow.agent_id, activeModelId: modelOverride });
       }
     } else {
@@ -1636,7 +1642,12 @@ export class CoreServer {
    */
   public sanitizeTerminology(text: string): string {
     if (!text || typeof text !== 'string') return text;
-    const { cleanContent } = separateThinkingAndContent(text, undefined, { stripToolCalls: true });
+    let { cleanContent } = separateThinkingAndContent(text, undefined, { stripToolCalls: true });
+    cleanContent = cleanContent
+      .replace(/(?:⚠️\s*)?\[SELF-HEALING GUARD\][\s\S]*?(?=\n\n|$)/gi, '')
+      .replace(/(?:⚠️\s*)?\[RECOVERY ENGINE VERIFICATION DISCREPANCY\][\s\S]*?(?=\n\n|$)/gi, '')
+      .replace(/(?:⚠️\s*)?\[TOOL EXECUTION CANCELLED\][\s\S]*?(?=\n\n|$)/gi, '')
+      .trim();
     const rePlatformOld = new RegExp('\\bKIN\\s+Operating\\s+System\\b', 'gi');
     const rePlatformShort = new RegExp('\\bKIN\\s+' + 'O' + 'S\\b', 'gi');
     const rePlatformRuntime = new RegExp('\\b' + ['operating', 'system'].join('\\s+') + '\\b', 'gi');
@@ -3545,10 +3556,7 @@ export class CoreServer {
       const ws = proj ? this.workspaceRepo.getWorkspace(proj.workspaceId) : null;
       const autonomyMode = ws?.defaultAutonomyMode ?? 'AUTO';
 
-      const channelModelOverride = (channelId && !channelId.startsWith('dm-'))
-        ? (this.memoryRepo.getMemory('channel', channelId, `agent_model:${freshIdentity.id}`)?.value as string | undefined)
-        : undefined;
-      const effectiveModelId = modelOverride || channelModelOverride || freshIdentity.activeModelId;
+      const effectiveModelId = modelOverride || this.agentRepo.getIdentity(freshIdentity.id)?.activeModelId || freshIdentity.activeModelId;
 
       const loopResult = await runnerAdapter.execute({
         runId: run.id,
@@ -3682,10 +3690,7 @@ export class CoreServer {
           freshIdentity.activeModelId = newModelId;
         },
         getModelId: () => {
-          const chanOverride = (channelId && !channelId.startsWith('dm-'))
-            ? (this.memoryRepo.getMemory('channel', channelId, `agent_model:${freshIdentity.id}`)?.value as string | undefined)
-            : undefined;
-          return modelOverride || chanOverride || this.agentRepo.getIdentity(freshIdentity.id)?.activeModelId || freshIdentity.activeModelId;
+          return modelOverride || this.agentRepo.getIdentity(freshIdentity.id)?.activeModelId || freshIdentity.activeModelId;
         },
         getSteerDirectives: () => {
           const matchingSteers = this.pendingSteers.filter((s) => {
@@ -3893,14 +3898,17 @@ export class CoreServer {
       if (threadParentId && !this.channelService.getMessage(threadParentId)) {
         threadParentId = undefined;
       }
-      const agentReply = this.channelService.sendMessage({
-        channelId,
-        senderId: agent.id,
-        senderType: 'agent',
-        content: this.sanitizeTerminology(loopResult.finalContent),
-        parentMessageId: threadParentId,
-        productivityScore,
-      });
+      let agentReply: any = null;
+      if (!loopResult.isAborted) {
+        agentReply = this.channelService.sendMessage({
+          channelId,
+          senderId: agent.id,
+          senderType: 'agent',
+          content: this.sanitizeTerminology(loopResult.finalContent),
+          parentMessageId: threadParentId,
+          productivityScore,
+        });
+      }
 
       // 6b. Record experience into SkillEngine for autonomous learning
       if (loopResult.actions.length > 0) {
@@ -4080,7 +4088,11 @@ export class CoreServer {
         const currentRun = this.kernel.getRun(run.id);
         const wasAlreadyFailed = currentRun?.state === 'failed';
         if (!wasAlreadyFailed) {
-          this.kernel.transitionState(run.id, 'cancelled', 'Aborted via human takeover kill switch');
+          const takeoverState = this.takeoverStates.get(run.id);
+          const reason = takeoverState?.isAborted === true
+            ? 'Aborted via human takeover kill switch'
+            : (loopResult.reason || 'Execution cancelled by operator directive');
+          this.kernel.transitionState(run.id, 'cancelled', reason);
         }
         const activeTaskId = triggerMsg?.taskId || run?.taskId;
         if (activeTaskId) {
@@ -4439,71 +4451,73 @@ export class CoreServer {
       }
 
       // 8. Broadcast response message
-      const formattedReply = {
-        id: agentReply.id,
-        channelId: agentReply.channelId,
-        senderId: agentReply.senderId,
-        senderName: agent.displayName.replace(/^@/, ''),
-        senderType: 'agent',
-        content: agentReply.content,
-        createdAt: agentReply.createdAt,
-        productivityScore: agentReply.productivityScore,
-      };
+      if (agentReply) {
+        const formattedReply = {
+          id: agentReply.id,
+          channelId: agentReply.channelId,
+          senderId: agentReply.senderId,
+          senderName: agent.displayName.replace(/^@/, ''),
+          senderType: 'agent',
+          content: agentReply.content,
+          createdAt: agentReply.createdAt,
+          productivityScore: agentReply.productivityScore,
+        };
 
-      this.broadcastEvent('message:created', formattedReply);
+        this.broadcastEvent('message:created', formattedReply);
 
-      // Real-time operator notification for peer DM replies and automatic peer loop coordination
-      if (channelId.startsWith('dm-')) {
-        const isHumanDm = channelId === `dm-${agent.id}`;
-        if (!isHumanDm) {
-          this.broadcastEvent('operator:notification', {
-            type: 'agent_dm_reply',
-            fromAgentId: agent.id,
-            fromAgentName: agent.displayName,
-            channelId,
-            message: `@${agent.displayName.replace(/^@/, '')} replied in peer DM (${channelId}): "${agentReply.content.slice(0, 100)}"`,
-            content: agentReply.content,
-          });
-
-          // Check if peer DM conversation should continue with the other coworker agent
-          const isCompleted = hasDirectMessageCompletionToken(agentReply.content);
-          if (isCompleted) {
+        // Real-time operator notification for peer DM replies and automatic peer loop coordination
+        if (channelId.startsWith('dm-')) {
+          const isHumanDm = channelId === `dm-${agent.id}`;
+          if (!isHumanDm) {
             this.broadcastEvent('operator:notification', {
-              type: 'peer_dm_completed',
+              type: 'agent_dm_reply',
+              fromAgentId: agent.id,
+              fromAgentName: agent.displayName,
               channelId,
-              message: `Conversation completed: Completion token detected from @${agent.displayName.replace(/^@/, '')}. Automatic peer response halted.`,
+              message: `@${agent.displayName.replace(/^@/, '')} replied in peer DM (${channelId}): "${agentReply.content.slice(0, 100)}"`,
+              content: agentReply.content,
             });
-          } else if (recursionDepth < 5) {
-            const memberIds = this.workspaceRepo.listChannelMemberIds(channelId);
-            const otherAgentId = memberIds.find((id) => id !== agent.id);
-            const otherAgent = otherAgentId ? this.agentRepo.getIdentity(otherAgentId) : undefined;
 
-            if (otherAgent) {
-              const recentDmMessages = this.channelService.getMessages(channelId, 20);
-              let consecutiveTurns = 0;
-              for (let i = recentDmMessages.length - 1; i >= 0; i--) {
-                if (recentDmMessages[i].senderType === 'human') break;
-                if (recentDmMessages[i].senderType === 'agent') consecutiveTurns++;
-              }
+            // Check if peer DM conversation should continue with the other coworker agent
+            const isCompleted = hasDirectMessageCompletionToken(agentReply.content);
+            if (isCompleted) {
+              this.broadcastEvent('operator:notification', {
+                type: 'peer_dm_completed',
+                channelId,
+                message: `Conversation completed: Completion token detected from @${agent.displayName.replace(/^@/, '')}. Automatic peer response halted.`,
+              });
+            } else if (recursionDepth < 5) {
+              const memberIds = this.workspaceRepo.listChannelMemberIds(channelId);
+              const otherAgentId = memberIds.find((id) => id !== agent.id);
+              const otherAgent = otherAgentId ? this.agentRepo.getIdentity(otherAgentId) : undefined;
 
-              if (consecutiveTurns < 5) {
-                this.enqueueAgentExecution(otherAgent.id, () =>
-                  this.executeAgentResponse(otherAgent, channelId, agentReply, recursionDepth + 1)
-                );
-              } else {
-                this.broadcastEvent('operator:notification', {
-                  type: 'peer_dm_turn_limit',
-                  channelId,
-                  message: `Turn depth ceiling reached (5 consecutive agent turns in peer DM channel ${channelId}). Automatic response paused.`,
-                });
+              if (otherAgent) {
+                const recentDmMessages = this.channelService.getMessages(channelId, 20);
+                let consecutiveTurns = 0;
+                for (let i = recentDmMessages.length - 1; i >= 0; i--) {
+                  if (recentDmMessages[i].senderType === 'human') break;
+                  if (recentDmMessages[i].senderType === 'agent') consecutiveTurns++;
+                }
+
+                if (consecutiveTurns < 5) {
+                  this.enqueueAgentExecution(otherAgent.id, () =>
+                    this.executeAgentResponse(otherAgent, channelId, agentReply, recursionDepth + 1)
+                  );
+                } else {
+                  this.broadcastEvent('operator:notification', {
+                    type: 'peer_dm_turn_limit',
+                    channelId,
+                    message: `Turn depth ceiling reached (5 consecutive agent turns in peer DM channel ${channelId}). Automatic response paused.`,
+                  });
+                }
               }
+            } else {
+              this.broadcastEvent('operator:notification', {
+                type: 'peer_dm_turn_limit',
+                channelId,
+                message: `Turn depth ceiling reached in peer DM channel ${channelId}. Automatic response paused.`,
+              });
             }
-          } else {
-            this.broadcastEvent('operator:notification', {
-              type: 'peer_dm_turn_limit',
-              channelId,
-              message: `Turn depth ceiling reached in peer DM channel ${channelId}. Automatic response paused.`,
-            });
           }
         }
       }
@@ -4637,7 +4651,7 @@ export class CoreServer {
         }
 
         // (2) Check for structured peer delegation directives in reply content
-        if (delegations.length === 0) {
+        if (delegations.length === 0 && agentReply) {
           const hasDirective = /\[(DELEGATION_DIRECTIVE|HANDOVER_DIRECTIVE)\]/i.test(agentReply.content);
           if (hasDirective) {
             const mentions = [...agentReply.content.matchAll(/@([a-zA-Z0-9_-]+)/g)].map((m) => m[1]);

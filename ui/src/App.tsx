@@ -1,4 +1,4 @@
-import React, { useEffect, useState, Suspense } from 'react';
+import React, { useEffect, useState, useRef, useCallback, Suspense } from 'react';
 import { TitleBar } from './components/layout/TitleBar.js';
 import { WorkbenchLayout } from './components/layout/WorkbenchLayout.js';
 import { HeaderBar } from './components/HeaderBar.js';
@@ -71,48 +71,65 @@ export const App: React.FC = () => {
     }
   }, [theme]);
 
-  useEffect(() => {
+  // Synchronized startup execution: ensure fetchState and initSSE execute once when the daemon confirms readiness
+  const isStartedRef = useRef(false);
+
+  const startApp = useCallback(() => {
+    if (isStartedRef.current) return;
+    isStartedRef.current = true;
     (window as any).kinStore = useKinStore;
     fetchState();
     initSSE();
-    return () => {
-      closeSSE();
-    };
-  }, [fetchState, initSSE, closeSSE]);
+  }, [fetchState, initSSE]);
 
-  // Listen to native Tauri supervisor daemon events (daemon-ready, daemon-error)
+  // Listen to native Tauri supervisor daemon events (daemon-ready, daemon-error) or startup in browser
   useEffect(() => {
     let unlistenReady: (() => void) | undefined;
     let unlistenError: (() => void) | undefined;
+    let fallbackTimer: any = null;
 
-    const setupTauriEvents = async () => {
+    const setupStartup = async () => {
       try {
         const tauriEvent =
           (window as any).__TAURI__?.event ||
           (window as any).__TAURI_INTERNALS__?.event;
+
         if (tauriEvent?.listen) {
           unlistenReady = await tauriEvent.listen('daemon-ready', () => {
             console.log('[KIN APP] Received daemon-ready event from Tauri supervisor');
-            fetchState();
-            initSSE();
+            startApp();
           });
           unlistenError = await tauriEvent.listen('daemon-error', (event: any) => {
             console.error('[KIN APP] Received daemon-error event from Tauri supervisor:', event?.payload);
             addToast(`Daemon Startup Alert: ${event?.payload || 'Failed to initialize core daemon'}`, 'error');
           });
+          // Fallback guard: in case daemon-ready already fired before listener registered
+          fallbackTimer = setTimeout(() => {
+            if (!isStartedRef.current) {
+              console.log('[KIN APP] Fallback startup timer triggered');
+              startApp();
+            }
+          }, 2500);
+        } else {
+          // Browser environment without Tauri
+          startApp();
         }
       } catch (err) {
-        console.debug('[KIN APP] Tauri event listener setup skipped:', err);
+        console.debug('[KIN APP] Tauri event listener setup skipped, starting app:', err);
+        startApp();
       }
     };
 
-    setupTauriEvents();
+    setupStartup();
 
     return () => {
+      if (fallbackTimer) clearTimeout(fallbackTimer);
       if (unlistenReady) unlistenReady();
       if (unlistenError) unlistenError();
+      closeSSE();
+      isStartedRef.current = false;
     };
-  }, [fetchState, initSSE, addToast]);
+  }, [startApp, closeSSE, addToast]);
 
   return (
     <ErrorBoundary name="KIN Root Workspace">

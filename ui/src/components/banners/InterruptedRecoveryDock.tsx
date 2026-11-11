@@ -25,7 +25,12 @@ export const InterruptedRecoveryDock: React.FC<InterruptedRecoveryDockProps> = (
   const [selectedRecoveryModels, setSelectedRecoveryModels] = useState<Record<string, string>>({});
   const [isDismissed, setIsDismissed] = useState(false);
 
-  if (isDismissed || !pendingRecoveries || pendingRecoveries.length === 0) return null;
+  // Ensure it only mounts when genuine persistent recoveries exist from cold startup with valid checkpoints
+  const validRecoveries = (pendingRecoveries || []).filter(
+    (rec) => (rec.checkpoint?.snapshotJson || rec.checkpoint) && (rec.runId || rec.id)
+  );
+
+  if (isDismissed || validRecoveries.length === 0) return null;
 
   const models = selectableModels.length > 0 ? selectableModels : availableModels;
 
@@ -49,14 +54,14 @@ export const InterruptedRecoveryDock: React.FC<InterruptedRecoveryDockProps> = (
         <div className="flex items-center space-x-2 min-w-0">
           <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 animate-pulse shrink-0" />
           <span className="text-[11px] font-bold uppercase tracking-wider text-amber-900 dark:text-amber-200 font-mono truncate">
-            Interrupted Run Recovery ({pendingRecoveries.length} run{pendingRecoveries.length > 1 ? 's' : ''})
+            Interrupted Run Recovery ({validRecoveries.length} run{validRecoveries.length > 1 ? 's' : ''})
           </span>
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5 shrink-0">
           <button
             type="button"
-            onClick={() => setInspectingRecovery(inspectingRecovery ? null : pendingRecoveries[0])}
+            onClick={() => setInspectingRecovery(inspectingRecovery ? null : validRecoveries[0])}
             className="px-2.5 py-1 rounded bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-800 dark:text-blue-300 border border-blue-300 dark:border-blue-500/40 text-[10px] font-mono transition cursor-pointer whitespace-nowrap"
             title="Inspect turn checkpoint state and execution snapshot"
           >
@@ -77,7 +82,7 @@ export const InterruptedRecoveryDock: React.FC<InterruptedRecoveryDockProps> = (
             title="Resume all runs from their exact saved turn checkpoints"
           >
             <Zap className="w-3 h-3 text-black fill-current shrink-0" />
-            <span>Resume All ({pendingRecoveries.length})</span>
+            <span>Resume All ({validRecoveries.length})</span>
           </button>
           <button
             type="button"
@@ -92,7 +97,7 @@ export const InterruptedRecoveryDock: React.FC<InterruptedRecoveryDockProps> = (
 
       {/* Recoveries List */}
       <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
-        {pendingRecoveries.map((rec) => {
+        {validRecoveries.map((rec) => {
           const runId = rec.runId || rec.id;
           return (
             <div
