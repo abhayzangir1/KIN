@@ -42,6 +42,7 @@ export class EventLedger {
   private static instance: EventLedger;
   private db: KinDatabase;
   private secretBroker: SecretBroker;
+  private lastRecordHash: string | null = null;
 
   private constructor(db: KinDatabase) {
     this.db = db;
@@ -50,6 +51,7 @@ export class EventLedger {
 
   public static initialize(db: KinDatabase): EventLedger {
     EventLedger.instance = new EventLedger(db);
+    EventLedger.instance.lastRecordHash = null;
     return EventLedger.instance;
   }
 
@@ -110,15 +112,18 @@ export class EventLedger {
     const entityId = params.entityId || 'kin-core';
 
     return this.db.transactionSync(() => {
-      let prevHash = 'GENESIS_HASH_0000000000000000';
-      try {
-        const lastRow = this.db.queryOne<{
-          record_hash?: string;
-        }>('SELECT record_hash FROM event_journal WHERE record_hash IS NOT NULL ORDER BY id DESC LIMIT 1');
-        if (lastRow?.record_hash) {
-          prevHash = lastRow.record_hash;
-        }
-      } catch (err) { console.debug("[event_ledger] Suppressed exception in catch block:", err); }
+      let prevHash = this.lastRecordHash;
+      if (!prevHash) {
+        prevHash = 'GENESIS_HASH_0000000000000000';
+        try {
+          const lastRow = this.db.queryOne<{
+            record_hash?: string;
+          }>('SELECT record_hash FROM event_journal WHERE record_hash IS NOT NULL ORDER BY id DESC LIMIT 1');
+          if (lastRow?.record_hash) {
+            prevHash = lastRow.record_hash;
+          }
+        } catch (err) { console.debug("[event_ledger] Suppressed exception in catch block:", err); }
+      }
 
       const recordHash = this.computeEventHash(
         prevHash,
@@ -143,6 +148,7 @@ export class EventLedger {
         now
       );
 
+      this.lastRecordHash = recordHash;
       return Number(result.lastInsertRowid);
     });
   }

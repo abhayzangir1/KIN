@@ -30,12 +30,44 @@ export class Router {
     pathname: string,
     parsedUrl: URL
   ): Promise<boolean> {
+    // Fast O(1) domain prefix dispatch
+    if (
+      pathname.startsWith('/api/workspaces') ||
+      pathname.startsWith('/api/projects') ||
+      pathname === '/api/state' ||
+      pathname.startsWith('/api/teamwork-preview')
+    ) {
+      if (await this.workspaceController.handle(req, res, pathname, parsedUrl)) return true;
+    } else if (pathname.startsWith('/api/channels') || pathname.startsWith('/api/messages')) {
+      if (await this.channelController.handle(req, res, pathname, parsedUrl)) return true;
+    } else if (pathname.startsWith('/api/agents')) {
+      if (await this.agentController.handle(req, res, pathname, parsedUrl)) return true;
+    } else if (pathname.startsWith('/api/tasks') || pathname.startsWith('/api/goals')) {
+      if (await this.taskController.handle(req, res, pathname, parsedUrl)) return true;
+    } else if (pathname.startsWith('/api/mcp')) {
+      if (await this.mcpController.handle(req, res, pathname, parsedUrl)) return true;
+    } else if (
+      pathname.startsWith('/api/system') ||
+      pathname.startsWith('/api/health') ||
+      pathname === '/health' ||
+      pathname.startsWith('/api/models') ||
+      pathname.startsWith('/api/settings') ||
+      pathname.startsWith('/api/skills') ||
+      pathname.startsWith('/api/automations') ||
+      pathname.startsWith('/api/terminal') ||
+      pathname.startsWith('/api/credentials')
+    ) {
+      if (await this.systemController.handle(req, res, pathname, parsedUrl)) return true;
+    }
+
+    // Comprehensive fallback ensuring 100% backward-compatibility for all legacy aliases
     if (await this.systemController.handle(req, res, pathname, parsedUrl)) return true;
     if (await this.workspaceController.handle(req, res, pathname, parsedUrl)) return true;
     if (await this.channelController.handle(req, res, pathname, parsedUrl)) return true;
     if (await this.agentController.handle(req, res, pathname, parsedUrl)) return true;
     if (await this.taskController.handle(req, res, pathname, parsedUrl)) return true;
     if (await this.mcpController.handle(req, res, pathname, parsedUrl)) return true;
+
     return false;
   }
 }

@@ -18,6 +18,7 @@ export class SecretVault {
   private masterKey: Buffer;
   private legacyMasterKey?: Buffer;
   private keyFilePath: string;
+  private keyRing: Buffer[] = [];
 
   constructor(options?: SecretVaultOptions) {
     const cwd = process.cwd();
@@ -50,6 +51,18 @@ export class SecretVault {
       this.masterKey = this.deriveKeyFromString(process.env.KIN_VAULT_KEY);
     } else {
       this.masterKey = this.loadOrGenerateKeyFile(this.keyFilePath);
+    }
+
+    const nextKeyPath = this.keyFilePath + '.next';
+    if (fs.existsSync(nextKeyPath)) {
+      try {
+        const rawNext = fs.readFileSync(nextKeyPath, 'utf-8').trim();
+        if (rawNext.length === 64 && /^[0-9a-fA-F]+$/.test(rawNext)) {
+          this.keyRing.push(Buffer.from(rawNext, 'hex'));
+        }
+      } catch (err) {
+        console.debug("[secret_vault] Suppressed exception loading next key:", err);
+      }
     }
   }
 
@@ -173,6 +186,11 @@ export class SecretVault {
     try {
       return tryDecrypt(this.masterKey);
     } catch (err) {
+      for (const candidate of this.keyRing) {
+        try {
+          return tryDecrypt(candidate);
+        } catch { /* continue candidate check */ }
+      }
       if (this.legacyMasterKey) {
         try {
           return tryDecrypt(this.legacyMasterKey);
@@ -187,5 +205,39 @@ export class SecretVault {
    */
   public isEncrypted(value: string): boolean {
     return typeof value === 'string' && value.startsWith('vault:v1:');
+  }
+
+  public stageNextKey(newKey?: Buffer): string {
+    const nextKeyPath = this.keyFilePath + '.next';
+    const keyBuf = newKey || crypto.randomBytes(32);
+    const hex = keyBuf.toString('hex');
+    const dir = path.dirname(nextKeyPath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    try {
+      fs.writeFileSync(nextKeyPath, hex, { mode: 0o600 });
+    } catch {
+      fs.writeFileSync(nextKeyPath, hex);
+    }
+    this.keyRing.unshift(keyBuf);
+    return hex;
+  }
+
+  public promoteStagedKey(): boolean {
+    const nextKeyPath = this.keyFilePath + '.next';
+    if (!fs.existsSync(nextKeyPath)) return false;
+    const rawNext = fs.readFileSync(nextKeyPath, 'utf-8').trim();
+    if (rawNext.length === 64 && /^[0-9a-fA-F]+$/.test(rawNext)) {
+      const newKey = Buffer.from(rawNext, 'hex');
+      this.keyRing.unshift(this.masterKey);
+      this.masterKey = newKey;
+      try {
+        fs.renameSync(nextKeyPath, this.keyFilePath);
+      } catch {
+        fs.copyFileSync(nextKeyPath, this.keyFilePath);
+        fs.unlinkSync(nextKeyPath);
+      }
+      return true;
+    }
+    return false;
   }
 }

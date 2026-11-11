@@ -607,7 +607,16 @@ export class Sentinel {
 
     // 2. Destructive shell commands
     if (lowerTool === 'executeshell' || lowerTool === 'shell') {
-      const cmd = (params?.command || '').toLowerCase();
+      const rawCmd = (params?.command || '').trim();
+      const lowerCmd = rawCmd.toLowerCase();
+      const safePrefixes = [
+        'echo ', 'git status', 'git diff', 'git log', 'git show',
+        'node -v', 'npm test', 'cargo test', 'pwd', 'whoami', 'dir', 'ls '
+      ];
+      if (safePrefixes.some((p) => lowerCmd.startsWith(p)) && !/[|;&\n]/.test(rawCmd)) {
+        return { isDestructive: false };
+      }
+      const cmd = lowerCmd;
       const destructivePatterns = [
         /\brm\s+(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r)/i, // rm -rf, rm -fr
         /\brm\s+-r\s+/i,

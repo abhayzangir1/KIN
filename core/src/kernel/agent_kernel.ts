@@ -143,8 +143,10 @@ export class AgentKernel {
     if (activeCount >= this.maxActiveConcurrentRuns) {
       return undefined;
     }
+    const now = Date.now();
     const nextQueued = this.db.queryOne<{ id: string }>(
-      `SELECT id FROM agent_runs WHERE state = 'queued' ORDER BY created_at ASC LIMIT 1`
+      `SELECT id FROM agent_runs WHERE state = 'queued' ORDER BY (COALESCE(priority, 50) + MIN(100, ((? - created_at) / 5000) * 10)) DESC, created_at ASC LIMIT 1`,
+      now
     );
     if (!nextQueued) return undefined;
     this.transitionState(nextQueued.id, 'running', 'Admitted from persistent run queue');
