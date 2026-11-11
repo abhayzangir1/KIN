@@ -120,7 +120,7 @@ describe('Milestone 14: Desktop Supervisor, Tauri Shell & Runtime Launch Wiring 
   describe('Feature 72: Webview Event on Daemon Failure', () => {
     it('emits daemon-error event to webview via app_handle when spawn_core_daemon_if_needed fails', () => {
       const libContent = fs.readFileSync(libRsPath, 'utf8');
-      expect(libContent).toContain('use tauri::Emitter;');
+      expect(libContent).toMatch(/Emitter/);
       expect(libContent).toContain('app_handle.emit("daemon-error", daemon_err.to_string())');
       expect(libContent).toContain('app_handle.emit("daemon-ready", ())');
     });

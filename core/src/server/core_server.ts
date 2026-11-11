@@ -3889,10 +3889,7 @@ export class CoreServer {
         }
       }
 
-      let threadParentId = triggerMsg?.parentMessageId || triggerMsg?.id;
-      if (threadParentId && !this.channelService.getMessage(threadParentId)) {
-        threadParentId = undefined;
-      }
+      const threadParentId = triggerMsg?.parentMessageId || triggerMsg?.id;
       const agentReply = this.channelService.sendMessage({
         channelId,
         senderId: agent.id,

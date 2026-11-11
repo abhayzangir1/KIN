@@ -343,6 +343,26 @@ export class DynamicHiringService {
       );
       if (caller?.active_model_id) callerModelId = caller.active_model_id;
     }
+    if (!callerModelId && db && context.projectId) {
+      const orchestrator = db.queryOne<{ active_model_id: string }>(
+        'SELECT active_model_id FROM agent_identities WHERE project_id = ? AND is_orchestrator = 1',
+        context.projectId
+      );
+      if (orchestrator?.active_model_id) {
+        callerModelId = orchestrator.active_model_id;
+      } else {
+        const projectRow = db.queryOne<{ settings_json: string }>(
+          'SELECT settings_json FROM projects WHERE id = ?',
+          context.projectId
+        );
+        if (projectRow?.settings_json) {
+          try {
+            const parsed = JSON.parse(projectRow.settings_json);
+            if (parsed.defaultModel) callerModelId = parsed.defaultModel;
+          } catch {}
+        }
+      }
+    }
 
     return (
       params.suggestedModel ||
