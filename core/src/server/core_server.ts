@@ -3889,7 +3889,13 @@ export class CoreServer {
         }
       }
 
-      const threadParentId = triggerMsg?.parentMessageId || triggerMsg?.id;
+      let threadParentId = triggerMsg?.parentMessageId || triggerMsg?.id;
+      if (threadParentId && this.db) {
+        const parentExists = this.db.queryOne('SELECT id FROM messages WHERE id = ?', threadParentId);
+        if (!parentExists) {
+          threadParentId = undefined;
+        }
+      }
       const agentReply = this.channelService.sendMessage({
         channelId,
         senderId: agent.id,

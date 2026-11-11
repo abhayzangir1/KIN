@@ -81,7 +81,7 @@ describe('Milestones 17 & 18: Desktop Supervisor, Runtime Automation & Frontend 
     });
 
     it('verifies ComputerSupervisor.shutdown cleanly drains and rejects pending hardware waiters', async () => {
-      const supervisor = new ComputerSupervisor();
+      const supervisor = new ComputerSupervisor({ freeMemProvider: () => 1024 * 1024 * 1024 });
       // Enqueue shell slot waiters
       const promise1 = supervisor.acquireShellSlot(5000);
       const promise2 = supervisor.acquireShellSlot(5000);
