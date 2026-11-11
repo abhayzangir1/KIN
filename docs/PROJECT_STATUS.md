@@ -1,6 +1,6 @@
 # KIN Project Status & Verification Audit
 
-**Updated:** 2026-10-31  
+**Updated:** 2026-11-11  
 **Scope:** Source-level inventory and live runtime verification report of this repository.
 
 ---
@@ -9,8 +9,8 @@
 
 KIN is organized into three production workspaces backed by 31 authoritative SQLite tables:
 
-- `core/`: TypeScript daemon on Node.js 22, SQLite WAL engine (31 tables), multi-agent loop runner, model gateway, tool gateway, dedicated `ToolEngine` worker sandbox, `SkillEngine` procedural VM sandbox, scheduler, and integration clients.
-- `ui/`: React 18, Tailwind CSS, and Zustand desktop interface with embedded static asset serving, offline resilience banners, and dynamic custom tool management.
+- `core/`: TypeScript daemon on Node.js 22, SQLite WAL engine (31 tables), multi-agent loop runner, multi-provider model gateway (Ollama, NVIDIA NIM, OpenRouter, OpenAI, Anthropic, Gemini, Groq), tool gateway, dedicated `ToolEngine` worker sandbox, `SkillEngine` procedural VM sandbox, scheduler, and integration clients.
+- `ui/`: React 18, Tailwind CSS, and Zustand desktop interface with embedded static asset serving, offline resilience banners, WCAG AAA semantic tokens, and dynamic custom tool management.
 - `src-tauri/`: Tauri v2 and Rust desktop shell providing native windowing, system tray, loopback IPC supervision, and Node SEA sidecar binary execution.
 - `docs/`: Developer guides, tutorials, API specifications, and example bot packages.
 
@@ -30,13 +30,14 @@ KIN is organized into three production workspaces backed by 31 authoritative SQL
 
 ### 2. Hybrid Model Gateway & Instant Switching
 - **Local Ollama Integration**: Auto-detects local Ollama on port `11434` (`gemma4:e2b`, `qwen2.5-coder:3b`, `nomic-embed-text`) with zero API costs.
-- **OpenRouter & Cloud BYOK**: Live discovery querying 470+ cloud models with dedicated **Free Tier** filtering (`liquid/lfm-2.5-2.6b:free`, `google/gemma-4-26b-a4b-it:free`, `nvidia/nemotron-3.5-super-vl:free`).
+- **NVIDIA NIM Enterprise Cloud**: Full environment key support for `NVIDIA_NIM_API_KEY`, supporting Nemotron, Llama 3.1/3.3 (70B & 8B), and DeepSeek R1 models with reasoning token streaming and automated 429 exponential backoff (`core/test/nvidia_nim_provider.test.ts`, 9/9 passed).
+- **OpenRouter & Cloud BYOK**: Live discovery querying 470+ cloud models with dedicated **Free Tier** filtering (`nvidia/nemotron-3.5-lightning:free`, `liquid/lfm-2.5-2.6b:free`, `dots-studio/dots-3-note-preview:free`).
 - **Instant Auto-Persistence**: Selecting any model in Agent Inspector or Swarm Map updates `agent_identities.active_model_id` in SQLite immediately with visual Saved feedback.
 
 ### 3. Autonomous Quota Guard & Recovery
 - **Upstream Rate Limit Interception**: Intercepts 429 rate limit exceptions and token exhaustion gracefully without process crashes.
 - **Turn Checkpointing**: Turn memories and execution states are persisted to SQLite.
-- **1-Click Dynamic Model Switching & Failover**: Allows instant switching to any configured LLM (OpenRouter, Gemini, Anthropic, OpenAI, DeepSeek, Groq, Ollama) on interrupted or quota-paused runs (`POST /api/system/recovery/switch-model/:runId`), seamlessly continuing from SQLite checkpoints.
+- **1-Click Dynamic Model Switching & Failover**: Allows instant switching to any configured LLM (NVIDIA NIM, OpenRouter, Gemini, Anthropic, OpenAI, DeepSeek, Groq, Ollama) on interrupted or quota-paused runs (`POST /api/system/recovery/switch-model/:runId`), seamlessly continuing from SQLite checkpoints.
 
 ### 4. Native Desktop & Browser Control
 - **Application Discovery**: Enumerates installed executables from registry and Start Menu shortcuts (`GET /api/system/apps`).
@@ -56,8 +57,10 @@ KIN is organized into three production workspaces backed by 31 authoritative SQL
 - **Isolated Worktrees**: Branch creation, canonical path-jail validation, unified diff computation, and rollbacks.
 
 ### 8. Modernized UI/UX & Swarm Map Hierarchy
-- **2-Tier Workforce Swarm Map**: Visual tree topology clearly separating Tier 1 (Workforce Orchestrator `@Boss`) from Tier 2 (Domain Specialists) with real distribution connectors and collapsible Antigravity execution telemetry drawer.
-- **Calm, High-End Dark Theme**: Harmonized neutral slate palette (`#0d1117`, `#161b22`, `#21262d`) with hairline borders (`rgba(255, 255, 255, 0.08)`) and zero sensory glare.
+- **2-Tier Workforce Swarm Map**: Visual tree topology clearly separating Tier 1 (Workforce Orchestrator `@Boss`) from Tier 2 (Domain Specialists) with real distribution connectors and collapsible execution telemetry drawer.
+- **WCAG AAA Contrast Standard**: Purged 268 lines of `!important` hex color overrides in favor of semantic `kin-*` tokens meeting WCAG AAA contrast ratios across dark and light themes.
+- **Unified Navigation Chrome**: Single authoritative navigation bar in `HeaderBar.tsx` and horizontal collapsible status dock (<40px) eliminating vertical banner clutter.
+- **Simplified Agent Model Badges**: 1-click `<AgentModelBadge>` selection with catalog dialog integration and zero SQLite shadow-state race conditions.
 
 ---
 
@@ -65,9 +68,9 @@ KIN is organized into three production workspaces backed by 31 authoritative SQL
 
 ### Automated Test Suite
 - **Core Test Suite (`npm test --workspace=core`)**:
-  - **63 Test Suites**: All 63 passed deterministically without regressions.
-  - **863 Tests**: 863 tests passing across 63 test files (0 failed, 0 skipped, 0 regressions).
-  - Full regression coverage spans all 18 production layers: cold boot, health telemetry, static asset serving, task lease contention, message ingestion fencing, atomic CAS approval gates, SHA-256 EventLedger cryptographic integrity, and dynamic tool engine security under multi-worker loads.
+  - **84 Test Suites**: All 84 passed deterministically without regressions.
+  - **1,224 Tests**: 1,224 tests passing across 84 test files (0 failed, 0 skipped, 0 regressions).
+  - Full regression coverage spans all 18 production layers: cold boot, health telemetry, static asset serving, task lease contention, message ingestion fencing, atomic CAS approval gates, SHA-256 EventLedger cryptographic integrity, NVIDIA NIM streaming backoff, and dynamic tool engine security under multi-worker loads.
   - Zero mock data or synthetic score facades: dynamic rubric evaluation from database records, authentic credential-gated model discovery, and centralized fallback model configuration (`DEFAULT_FALLBACK_MODEL_ID`).
   - Zero empty catch blocks across TypeScript, TSX, embedded PowerShell, and HTML template strings.
   - Cross-project DAG isolation: child task advancement strictly queries parent goal project identity and origin channel.
@@ -84,14 +87,18 @@ KIN is organized into three production workspaces backed by 31 authoritative SQL
   - Test suites utilize isolated temporary directories in the system temp directory to prevent any dirty git working tree artifacts.
 
 ### Native Desktop & Production Builds
-- `cargo test --manifest-path src-tauri/Cargo.toml`: Succeeded (6/6 tests passed).
+- `cargo test --manifest-path src-tauri/Cargo.toml`: Succeeded (14/14 tests passed).
 - `cargo check --manifest-path src-tauri/Cargo.toml`: Succeeded with 0 warnings/errors.
 - `npm run typecheck`: Succeeded with zero diagnostic errors across `@kin/core` and `@kin/ui`.
 - `npm run build`: Succeeded with zero errors (1,935 Vite modules transformed into production assets).
 - `npm run build:binary`: Succeeded, producing native sidecar binary `binaries/kin-core.exe`.
 
-### Live Runtime Verification
-- End-to-end model switching tested live via Core Daemon (`http://127.0.0.1:54321` and ephemeral ports).
-- Verified prompt execution with both local Ollama (`gemma4:e2b`, `qwen2.5-coder:3b`) and cloud OpenRouter models.
-- Verified Quota Guard rate-limit interception and 1-click Ollama failover.
-- Verified live UI screenshots and non-blocking dialogs across all workbench views.
+### Multi-OS CI/CD & Cross-Platform Packaging
+- `.github/workflows/ci.yml`: Automated quality gates across Windows, Ubuntu, and macOS.
+- `.github/workflows/release.yml`: Automated packaging producing NSIS `.exe`, WiX `.msi`, `.AppImage`, `.deb`, and `.dmg` bundles with cryptographic `SHA256SUMS.txt`.
+- Native one-click installers: `scripts/install.ps1` (Windows), `scripts/install.sh` (Linux), `scripts/install-mac.sh` (macOS).
+
+### Live Runtime Verification in `D:\testkin`
+- Successfully deployed and executed live agent turns strictly inside `D:\testkin` (isolated from KIN monorepo).
+- Verified `@Boss` intake, active model acknowledgement (`nvidia/nemotron-3.5-lightning:free`), and structured test plan generation.
+- Real-time DOM inspection and high-DPI screenshot verification across Workbench, Swarm Map, Settings Modal, Agent Inspector, ADR Register, and Desktop Control.

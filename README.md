@@ -5,7 +5,7 @@
 ![KIN Logo](docs/assets/logo.png)
 
 **The days of simply prompting and orchestrating AI from above are gone. KIN brings AI as a genuine teammate working alongside humans.**  
-Local-first execution • Hybrid model routing (Local Ollama & BYOK Cloud) • Autonomous Quota Guard • Native Desktop & Web Control • Proactive Routines • Path-jailed Git Worktrees • Encrypted SQLite State.
+Local-first execution • Hybrid model routing (Local Ollama, NVIDIA NIM & BYOK Cloud) • Autonomous Quota Guard • Native Desktop & Web Control • Proactive Routines • Path-jailed Git Worktrees • Encrypted SQLite State.
 
 [![CI Quality Gates](https://github.com/abhayzangir1/KIN/actions/workflows/ci.yml/badge.svg)](https://github.com/abhayzangir1/KIN/actions)
 [![Release Packaging](https://github.com/abhayzangir1/KIN/actions/workflows/release.yml/badge.svg)](https://github.com/abhayzangir1/KIN/actions)
@@ -18,7 +18,7 @@ Local-first execution • Hybrid model routing (Local Ollama & BYOK Cloud) • A
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org/)
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri)](https://tauri.app/)
 [![SQLite](https://img.shields.io/badge/SQLite-WAL%20Mode-003B57?logo=sqlite)](https://sqlite.org/)
-[![Tests](https://img.shields.io/badge/Tests-863%20Passed-success)](docs/PROJECT_STATUS.md)
+[![Tests](https://img.shields.io/badge/Tests-1%2C238%20Passed-success)](docs/PROJECT_STATUS.md)
 
 [Overview](#-overview) •
 [Key Features](#-key-features) •
@@ -26,6 +26,7 @@ Local-first execution • Hybrid model routing (Local Ollama & BYOK Cloud) • A
 [Quick Start](#-quick-start) •
 [Slash Commands](#-slash-commands) •
 [Documentation](#-documentation) •
+[About the Creator](#-about-the-creator) •
 [Contributing](#-contributing)
 
 </div>
@@ -38,10 +39,10 @@ Local-first execution • Hybrid model routing (Local Ollama & BYOK Cloud) • A
 
 Every project in KIN forms an isolated organizational boundary equipped with:
 - An authoritative **Workspace Orchestrator (`@Boss`)** for intake, coordination, and collaborative delegation.
-- Specialized **Domain Coworkers & Teammates** (e.g. `@DocWriter`, `@SecurityAuditor`, `@OpenRouterSpecialist`) with customizable role contracts, system instructions, and tool capabilities.
+- Specialized **Domain Coworkers & Teammates** (e.g. `@DocWriter`, `@SecurityAuditor`, `@BackendEngineer`, `@QAEngineer`) with customizable role contracts, system instructions, and tool capabilities.
 - **Departmental Channels** (`#general`, `#dev-ops`, `#specs`) where humans and agents converse, debate, and share updates in real time.
 - **Private Peer-to-Peer Direct Messages** (`dm-${agentA}-${agentB}`) for deep focus and agent-to-agent collaboration with full operator transparency.
-- **Hybrid Model Routing**: Run unmetered local models through Ollama (fully offline, air-gapped and private) or connect cloud API keys via OpenRouter (470+ models, with live Free Tier discovery), OpenAI, Anthropic, Google Gemini, DeepSeek, and Groq.
+- **Hybrid Model Routing**: Run unmetered local models through Ollama (fully offline, air-gapped, and private), NVIDIA NIM enterprise cloud models (Nemotron, Llama 3.1/3.3 70B & 8B, DeepSeek R1), or connect cloud API keys via OpenRouter (470+ models with live Free Tier discovery), OpenAI, Anthropic, Google Gemini, and Groq.
 - **Autonomous Quota Guard**: Gracefully detects upstream API rate limits (429) or token exhaustion, checkpoints execution state to SQLite, and provides one-click failover to unmetered local Ollama.
 - **Native Desktop & Web Control**: Inspect Windows GUI windows, discover installed applications, synthesize keystrokes, capture displays, and automate Chromium via headless Puppeteer.
 - **Proactive Background Routines**: Standard 5-field cron expressions and interval timers dispatching scheduled missions directly to channels without polling loops.
@@ -61,7 +62,7 @@ KIN implements a comprehensive 18-layer agent harness designed for mission-criti
 | **L3 (Security & Perimeter)** | Sentinel & EventLedger | Sentinel fail-closed barrier, single-use approval tokens, AES-256-GCM vault, secret broker redaction, and transactional HMAC/SHA-256 event ledger (`core/src/security/`). |
 | **L4 (Execution & Tool Gateway)** | ToolGateway & ToolEngine | Dynamic tool registration, schema introspection, dedicated `ToolEngine` Node.js `worker_threads` sandboxing (128MB RAM limit, configurable timeouts), tokenized Jaccard similarity checks, operator pre-approval non-blocking gating, dynamic `custom__*` injection, and filesystem jail confinement (`core/src/execution/tool_gateway.ts`, `core/src/execution/tool_engine.ts`). |
 | **L5 (Worktree & Git Isolation)** | WorktreeManager | Isolated Git worktrees, branch lifecycle, diff calculation, merge mutex, canonical path containment (`fs.realpathSync`), and `probeWorktree<T>()` candidate patch testing (`core/src/execution/worktree_manager.ts`). |
-| **L6 (Model Gateway & Routing)** | ModelGateway | Multi-provider LLM gateway (Ollama, OpenRouter, OpenAI, Anthropic, Gemini, DeepSeek, Groq), token quota budgeting, key rotation, and upstream error secret redaction (`core/src/execution/model_gateway.ts`). |
+| **L6 (Model Gateway & Routing)** | ModelGateway | Multi-provider LLM gateway (Ollama, NVIDIA NIM, OpenRouter, OpenAI, Anthropic, Gemini, DeepSeek, Groq), token quota budgeting, key rotation, and upstream error secret redaction (`core/src/execution/model_gateway.ts`). |
 | **L7 (Context Compilation)** | ContextCompiler | Sliding token budgets, 5-block prompt compilation, quote-reply thread trees, output spiller, and compaction engine (`core/src/context/`). |
 | **L8 (MCP Integration)** | McpClientManager | Model Context Protocol client supervisor with binary allowlists, dangerous environment stripping, clean process teardown, and live discovery (`core/src/execution/mcp_client.ts`). |
 | **L9 (Skills Engine & Sandbox)** | SkillEngine | Procedural skills registry, isolated VM sandbox execution with numeric timer handles, fail-closed prototype freezing, and lesson harvesting (`core/src/skills/skill_engine.ts`). |
@@ -80,22 +81,22 @@ KIN implements a comprehensive 18-layer agent harness designed for mission-criti
 ## 📸 Interface Walkthrough
 
 ### 1. Collaborative Multi-Agent Workbench
-The core workspace features a 4-pane responsive interface: organizational channels, private DMs, live timeline with streaming thinking tokens and quote-replies, and dynamic telemetry.
+The core workspace features a 4-pane responsive interface: departmental channels, private peer DMs, live timeline with streaming thinking tokens, 1-click model badges, and dynamic project isolation (`D:\testkin`).
 
 ![KIN Multi-Agent Workbench](docs/assets/screenshots/01_app_interface_workbench.png)
 
 ### 2. Autonomous Workforce Swarm Map
-Visualizes the 2-tier organizational hierarchy: Tier 1 Workforce Orchestrator (`@Boss`) leading down through a delegation and tool routing bus to Tier 2 Domain Specialists, paired with a collapsible Antigravity live telemetry and thought inspection drawer.
+Visualizes the 2-tier organizational hierarchy: Tier 1 Workforce Orchestrator (`@Boss`) leading down through a delegation and tool routing bus to Tier 2 Domain Specialists, paired with a collapsible live telemetry and thought inspection drawer.
 
 ![Autonomous Workforce Swarm Map](docs/assets/screenshots/02_swarm_map_topology.png)
 
 ### 3. Agent Inspector & Role Contracts
-Inspect any agent's active contract, filter models by Free Tier, configure custom specialist system instructions, review Git file diffs, and inspect live activity telemetry.
+Inspect any agent's active contract, filter models with live Free Tier discovery, configure custom specialist system instructions, review Git file diffs, and inspect live activity telemetry.
 
 ![Agent Inspector & Contracts](docs/assets/screenshots/04_agent_inspector_teamwork.png)
 
 ### 4. Verified Multi-Agent Collaboration & Resilient Routing
-Agents collaborate across organizational channels with automatic routing and failover across verified providers. When upstream models encounter rate limits or temporary provider hiccups, KIN transparently retries with backoff and automatically routes requests to available verified models or local Ollama instances, ensuring unbroken turn execution.
+Agents collaborate across organizational channels with automatic routing and failover across verified providers. When upstream models encounter rate limits or temporary hiccups, KIN transparently retries with backoff and automatically routes requests to available verified models or local Ollama instances, ensuring unbroken turn execution.
 
 ![Verified Multi-Agent Collaboration](docs/assets/screenshots/09_verified_runtime_multi_agent_chat.png)
 
@@ -110,7 +111,7 @@ Formally propose, debate, vote on, and record team-wide architectural decisions 
 ![Decisions and ADR Register](docs/assets/screenshots/07_decisions_and_adr.png)
 
 ### 7. Encrypted BYOK Vault & Settings
-Manage local Ollama connectivity, configure encrypted API keys (AES-256-GCM) for external providers, run live model discovery, and toggle autonomy modes.
+Manage local Ollama connectivity, configure encrypted API keys (AES-256-GCM) for external providers (OpenRouter, NVIDIA NIM, OpenAI, Anthropic, Gemini), run live model discovery, and toggle autonomy modes.
 
 ![Settings and BYOK Vault](docs/assets/screenshots/03_settings_and_credentials.png)
 
@@ -144,6 +145,7 @@ State and context are strictly layered across seven privacy boundaries with Opti
 
 ### 🔀 Hybrid Model Gateway & Instant Switching
 - **Local Ollama Integration**: Auto-detects local Ollama instances on `127.0.0.1:11434`, pulling local tags (`gemma4:e2b`, `qwen2.5-coder:3b`, `nomic-embed-text`) with zero API costs.
+- **NVIDIA NIM Support**: Native environment key integration (`NVIDIA_NIM_API_KEY`) supporting high-throughput cloud models including Nemotron, Llama 3.1/3.3 (70B & 8B), and DeepSeek R1 with reasoning token streaming and automated 429 exponential backoff.
 - **OpenRouter & Cloud BYOK**: Live model catalog querying over 470+ cloud models with dedicated **Free Tier** filtering (`liquid/lfm-2.5-2.6b:free`, `google/gemma-4-26b-a4b-it:free`, `nvidia/nemotron-3.5-super-vl:free`, etc.).
 - **Instant Auto-Persistence**: Selecting any model in Agent Inspector or Swarm Map updates `agent_identities.active_model_id` in SQLite immediately and broadcasts updates across the UI without manual save clicks.
 
@@ -241,10 +243,10 @@ Clone and run KIN directly from source code:
    # Typecheck monorepo across all workspaces
    npm run typecheck
 
-   # Run core backend Vitest suite
+   # Run core backend Vitest suite (84 suites, 1,224 tests)
    npm test --workspace=core
 
-   # Run Tauri process supervisor tests
+   # Run Tauri process supervisor tests (14 tests)
    cargo test --manifest-path src-tauri/Cargo.toml
    ```
 
@@ -274,7 +276,7 @@ Comprehensive guides, technical references, and tutorials are available in the [
 - **[REST & IPC API Reference](docs/API.md)**: Full endpoint specification covering Channels, Messages, Agents, Models, Desktop, Browser, and Automations.
 - **[Product Requirements Document (PRD)](docs/PRD.md)**: Product vision, user personas, UX architecture, and functional requirements.
 - **[Technical Requirements Document (TRD)](docs/TRD.md)**: Non-functional requirements, security model, and performance boundaries.
-- **[Project Status & Verification Audit](docs/PROJECT_STATUS.md)**: Live verification status of all 759 tests, audit remediations, and roadmap.
+- **[Project Status & Verification Audit](docs/PROJECT_STATUS.md)**: Live verification status of all 1,238 tests, audit remediations, and roadmap.
 - **[Tutorials & Guides](docs/TUTORIALS.md)**:
   - [01: Assembling a Research Swarm](docs/TUTORIALS/01-research-swarm.md)
   - [02: Automating Daily Proactive Routines](docs/TUTORIALS/02-daily-routines.md)
@@ -301,7 +303,7 @@ KIN implements defense-in-depth across the entire execution perimeter:
 - **Terminal Environment Sanitization**: Subprocess executions in `core_server.ts` pass sanitized environments via `McpClientManager.sanitizeMcpEnv()`, stripping sensitive variables (`KIN_VAULT_KEY`, `KIN_IPC_TOKEN`, cloud tokens) to prevent secret inheritance by child shell commands.
 - **Timing-Safe Sign-Off Tokens**: Manual task completion verification compares operator sign-off tokens using `crypto.timingSafeEqual`, preventing timing side-channel attacks.
 - **Strict CORS Origin Filtering**: Loopback CORS matching in `core_server.ts` requires explicit colon/port separators (`origin === 'http://localhost' || origin.startsWith('http://localhost:')`), strictly preventing malicious origins like `http://localhost.attacker.com` from accessing local APIs.
-- **Upstream Secret Redaction in Model Gateway**: Raw error strings returned by external providers (Ollama, OpenRouter, OpenAI, Anthropic) are intercepted and scrubbed by `SecretBroker.getInstance().redactSecrets()` before throwing, ensuring API keys and bearer tokens are never exposed in error logs or trajectories.
+- **Upstream Secret Redaction in Model Gateway**: Raw error strings returned by external providers (Ollama, NVIDIA NIM, OpenRouter, OpenAI, Anthropic) are intercepted and scrubbed by `SecretBroker.getInstance().redactSecrets()` before throwing, ensuring API keys and bearer tokens are never exposed in error logs or trajectories.
 - **Git Protected Paths**: Working tree operations (`/api/projects/:id/git/revert` and `/api/projects/:id/git/stage`) resolve canonical paths and explicitly forbid staging or reverting protected directories (`.git`, `.kin`, `.env`).
 
 ---
@@ -325,6 +327,30 @@ KIN provides full visual and operational support for Directed Acyclic Graph (DAG
 - **Backlog Initialization Semantics**: Tasks created with unresolved prerequisite dependencies automatically initialize in `backlog` status. When all dependencies reach `completed`, the orchestrator promotes the task to `ready` for agent claim.
 - **State Store Contract (`kinStore.ts`)**: `createTask` transparently accepts `dependsOnTaskIds?: string[]` and serializes it in the `POST /api/goals/:id/tasks` request payload.
 - **Goal Status Enum Contract**: Aligned across SQLite schema, domain types, server validation, and `GoalItem.status` (`'draft' | 'active' | 'completed' | 'failed' | 'cancelled'`).
+
+---
+
+## 👤 About the Creator
+
+<div align="center">
+
+### **Abhay Zangir**
+*Creator & Lead Architect of KIN*
+
+[![GitHub](https://img.shields.io/badge/GitHub-abhayzangir1-181717?logo=github)](https://github.com/abhayzangir1)
+[![Project Repository](https://img.shields.io/badge/Repository-KIN-blue?logo=git)](https://github.com/abhayzangir1/KIN)
+
+</div>
+
+> *"I created KIN to solve a fundamental disconnect in how we use AI today: we treat language models either as one-off chatbots or as fragile, linear scripts that execute from above. True productivity doesn't come from managing AI from a pedestal; it comes from treating AI agents as autonomous coworkers who share organizational memory, collaborate in departmental channels, navigate Git worktrees safely, and fail over gracefully when clouds hiccup."*
+
+### Vision & Engineering Philosophy
+- **Local-First Sovereign AI**: You own your compute, your databases, and your credentials. KIN was built from the ground up so that every critical state boundary lives on your local machine in high-performance SQLite WAL databases.
+- **No Fragile Wrappers**: KIN avoids synthetic facades or brittle Python scripts. It is implemented with high-assurance TypeScript, Node.js 22 built-ins, and a native Rust desktop supervisor using Tauri v2.
+- **Resilience Over Hype**: Real systems experience network errors, 429 rate limits, and quota exhaustion. KIN was engineered with an autonomous Quota Guard, self-healing supervisor loops, and atomic CAS concurrency gates so that agent workflows never freeze or lose state.
+- **Clean Human-Agent Parity**: In KIN, humans and agents share the same communication substrate: departmental channels, private peer DMs, proposal voting, and DAG task execution.
+
+If you have feedback, feature requests, or want to contribute to the future of collaborative autonomous workforces, feel free to open an issue or connect on GitHub at [@abhayzangir1](https://github.com/abhayzangir1).
 
 ---
 
