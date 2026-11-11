@@ -8,8 +8,11 @@
 Local-first execution • Hybrid model routing (Local Ollama & BYOK Cloud) • Autonomous Quota Guard • Native Desktop & Web Control • Proactive Routines • Path-jailed Git Worktrees • Encrypted SQLite State.
 
 [![CI Quality Gates](https://github.com/abhayzangir1/KIN/actions/workflows/ci.yml/badge.svg)](https://github.com/abhayzangir1/KIN/actions)
-[![Download Windows Installer](https://img.shields.io/badge/Download%20Installer-.exe%20(Setup)-2ea44f?logo=windows&logoColor=white)](https://github.com/abhayzangir1/KIN/releases/download/v0.1.4/KIN_0.1.4_x64-setup.exe)
-[![Download MSI Package](https://img.shields.io/badge/Enterprise%20Package-.msi-blue?logo=windows&logoColor=white)](https://github.com/abhayzangir1/KIN/releases/download/v0.1.4/KIN_0.1.4_x64_en-US.msi)
+[![Release Packaging](https://github.com/abhayzangir1/KIN/actions/workflows/release.yml/badge.svg)](https://github.com/abhayzangir1/KIN/actions)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?logo=linux&logoColor=white)](https://github.com/abhayzangir1/KIN/releases/latest)
+[![Download Windows](https://img.shields.io/badge/Windows-.exe%20%7C%20.msi-2ea44f?logo=windows&logoColor=white)](https://github.com/abhayzangir1/KIN/releases/latest)
+[![Download macOS](https://img.shields.io/badge/macOS-.dmg-lightgrey?logo=apple&logoColor=white)](https://github.com/abhayzangir1/KIN/releases/latest)
+[![Download Linux](https://img.shields.io/badge/Linux-.AppImage%20%7C%20.deb-orange?logo=linux&logoColor=white)](https://github.com/abhayzangir1/KIN/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node Version](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-339933?logo=node.js)](https://nodejs.org/)
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org/)
@@ -158,48 +161,92 @@ State and context are strictly layered across seven privacy boundaries with Opti
 
 ## ⚡ Quick Start & One-Click Installation
 
-### Option 1: Native Windows Setup (.exe / .msi) — One-Click Install
+### 🚀 One-Click Terminal Installers (Fastest)
 
-Download the native installer directly from GitHub Releases:
-- 🚀 **[Download Windows Setup Installer (`KIN_0.1.4_x64-setup.exe`)](https://github.com/abhayzangir1/KIN/releases/download/v0.1.4/KIN_0.1.4_x64-setup.exe)** — Standard one-click installer. Sets up KIN, creates desktop shortcuts, registers start menu entries, and starts the desktop app.
-- 📦 **[Download Windows MSI Package (`KIN_0.1.4_x64_en-US.msi`)](https://github.com/abhayzangir1/KIN/releases/download/v0.1.4/KIN_0.1.4_x64_en-US.msi)** — Enterprise MSI package.
-- 📁 **[Download Portable Windows Bundle (`.zip`)](https://github.com/abhayzangir1/KIN/releases/download/v0.1.4/KIN-v0.1.4-windows-x64.zip)** — Standalone portable bundle with `kin-core.exe` sidecar.
+Install KIN directly with a single terminal command on your operating system:
 
-### Option 2: Automated Script Install
-- **Windows:** Double-click [`install.bat`](install.bat) (or run in Command Prompt). It automatically checks Node.js, installs dependencies, builds all workspaces, packages the sidecar binary, generates a desktop shortcut, and offers to launch KIN.
-- **macOS / Linux:** Run [`./install.sh`](install.sh).
-
-### Option 3: Manual Clone & Setup
-```bash
-git clone https://github.com/abhayzangir1/KIN.git
-cd KIN
-npm install
-npm run build
+#### Windows (PowerShell)
+Open PowerShell (as standard user or Administrator) and run:
+```powershell
+irm https://raw.githubusercontent.com/abhayzangir1/KIN/main/scripts/install.ps1 | iex
 ```
+*Downloads the latest setup executable from GitHub Releases, verifies SHA-256 cryptographic checksum, and launches the installer.*
 
-### Option 4: Launching KIN
-- **One-Click Production Mode (Default):**
-  - Windows: `start.bat`
-  - macOS / Linux: `./start.sh`
-  - Or: `npm run start:prod`
-  - Web UI: **`http://127.0.0.1:54321`**
-- **Development Mode (Vite HMR):**
-  - Windows: `start.bat --dev`
-  - macOS / Linux: `./start.sh --dev`
-  - Dev UI: **`http://127.0.0.1:5173`**
-- **Native Desktop Application (Tauri Shell):**
-  - `npm run tauri:dev`
-  - Packaging installer: `npm run package:desktop`
+#### Linux (Debian, Ubuntu, Fedora, Arch)
+Open your terminal and run:
+```bash
+curl -fsSL https://raw.githubusercontent.com/abhayzangir1/KIN/main/scripts/install.sh | bash
+```
+*Detects system architecture, downloads portable AppImage or .deb, verifies SHA-256 checksum, sets up `~/.local/bin/kin` and desktop launcher.*
 
-### Option 5: Run the Test Suite
-KIN maintains a comprehensive automated testing suite with **759 tests across 55 test files (759 passing deterministically, 0 skipped, 0 failed)**:
+#### macOS (Apple Silicon & Intel)
+Open Terminal and run:
 ```bash
-npm test --workspace=core
+curl -fsSL https://raw.githubusercontent.com/abhayzangir1/KIN/main/scripts/install-mac.sh | bash
 ```
-Typecheck the entire monorepo:
-```bash
-npm run typecheck
-```
+*Downloads Universal DMG from GitHub Releases, verifies SHA-256 checksum, mounts image, and installs `KIN.app` into `/Applications`.*
+
+---
+
+### 📦 Direct Desktop Package Downloads
+
+Download standalone releases directly from [GitHub Releases](https://github.com/abhayzangir1/KIN/releases/latest):
+
+| Operating System | Package Format | Download Link | Description |
+| :--- | :--- | :--- | :--- |
+| **Windows** | Setup Executable (`.exe`) | [Download .exe](https://github.com/abhayzangir1/KIN/releases/latest) | NSIS installer with Desktop & Start Menu shortcuts |
+| **Windows** | Enterprise Installer (`.msi`) | [Download .msi](https://github.com/abhayzangir1/KIN/releases/latest) | WiX MSI installer for managed enterprise deployments |
+| **macOS** | Universal Disk Image (`.dmg`) | [Download .dmg](https://github.com/abhayzangir1/KIN/releases/latest) | Drag-and-drop bundle for Apple Silicon (M1/M2/M3/M4) & Intel |
+| **Linux** | Portable AppImage (`.AppImage`) | [Download .AppImage](https://github.com/abhayzangir1/KIN/releases/latest) | Single self-contained executable for all Linux distributions |
+| **Linux** | Debian Package (`.deb`) | [Download .deb](https://github.com/abhayzangir1/KIN/releases/latest) | Native package for Ubuntu, Debian, Pop!_OS, Mint |
+
+*Every release includes a cryptographic `SHA256SUMS.txt` manifest attached to release assets.*
+
+---
+
+### 💻 Developer Source Installation & Quick Start
+
+Clone and run KIN directly from source code:
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/abhayzangir1/KIN.git
+   cd KIN
+   ```
+
+2. **Automated Setup:**
+   - **Windows:** Double-click [`install.bat`](install.bat) (or run in Command Prompt). Automatically checks Node.js, installs dependencies, builds all workspaces, packages the sidecar binary, and creates a desktop shortcut.
+   - **macOS / Linux:** Run [`./install.sh`](install.sh).
+
+3. **Manual Setup:**
+   ```bash
+   npm install
+   npm run build
+   ```
+
+4. **Launch KIN:**
+   - **Production Mode (Standalone):**
+     - Windows: `start.bat`
+     - macOS / Linux: `./start.sh`
+     - Web UI: **`http://127.0.0.1:54321`**
+   - **Development Mode (Vite HMR):**
+     - Windows: `start.bat --dev`
+     - macOS / Linux: `./start.sh --dev`
+     - Dev UI: **`http://127.0.0.1:5173`**
+   - **Desktop Shell (Tauri v2):**
+     - `npm run tauri:dev`
+
+5. **Run Test Suites & Verification:**
+   ```bash
+   # Typecheck monorepo across all workspaces
+   npm run typecheck
+
+   # Run core backend Vitest suite
+   npm test --workspace=core
+
+   # Run Tauri process supervisor tests
+   cargo test --manifest-path src-tauri/Cargo.toml
+   ```
 
 ---
 
