@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { Copy, Check, Quote, User, Bot, Sparkles, Zap, Lightbulb } from 'lucide-react';
-import { MessageItem as MessageItemType, useKinStore } from '../../store/kinStore.js';
+import { MessageItem as MessageItemType } from '../../store/kinStore.js';
 import { CodeBlock } from '../CodeBlock.js';
-import { AgentModelQuickSwitch } from '../AgentModelQuickSwitch.js';
 import { DecisionCard } from '../DecisionCard.js';
 
 export interface MessageItemProps {
@@ -83,14 +82,13 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   message,
   onQuoteReply,
   agents = [],
-  availableModels = [],
-  updateAgentModel,
-  activeProjectId,
-  activeChannelId,
+  availableModels: _availableModels = [],
+  updateAgentModel: _updateAgentModel,
+  activeProjectId: _activeProjectId,
+  activeChannelId: _activeChannelId,
   onSelectDecision,
 }) => {
   const [copied, setCopied] = useState(false);
-  const { addToast } = useKinStore();
 
   const isHuman = message.senderType === 'human';
   const agent = agents.find((a: any) => a.id === message.senderId);
@@ -105,7 +103,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   const handleCopy = () => {
     navigator.clipboard.writeText(prose);
     setCopied(true);
-    addToast('Message copied to clipboard', 'info');
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -120,7 +117,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
       onQuoteReply(formatted);
     } else {
       navigator.clipboard.writeText(formatted);
-      addToast('Quote copied for reply', 'info');
     }
   };
 
@@ -144,7 +140,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     message.content.includes('🎯 **Goal Registered**') ||
     message.content.includes('⏱️ **Timer Initialized**') ||
     message.content.includes('🔄 **Proactive Personal Routine Configured**') ||
-    message.content.includes('🛡️ **Supervisor Self-Healing**') ||
     message.content.includes('🔥 **Adversarial Architectural Assessment (/grill-me)**') ||
     message.content.includes('🛡️ **Hardened Architecture Decision Record (ADR)**');
 
@@ -293,16 +288,14 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             </span>
           )}
 
-          {/* Model Tag & Quick Switch for Agents */}
-          {!isHuman && agent && availableModels && availableModels.length > 0 && updateAgentModel && (
-            <AgentModelQuickSwitch
-              agent={agent}
-              availableModels={availableModels}
-              updateAgentModel={updateAgentModel}
-              projectId={activeProjectId}
-              channelId={activeChannelId}
-              compact
-            />
+          {/* Static Model Tag for Agents */}
+          {!isHuman && (agent?.activeModelId || (message.metadata as any)?.modelId) && (
+            <span
+              className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-kin-card text-kin-muted border border-kin-border truncate max-w-[120px]"
+              title={`Executed with ${agent?.activeModelId || (message.metadata as any)?.modelId}`}
+            >
+              {(agent?.activeModelId || (message.metadata as any)?.modelId || '').replace(/^(ollama|openai|anthropic|openrouter|gemini|groq|deepseek|xai|nvidia)\//i, '')}
+            </span>
           )}
 
           <time dateTime={new Date(message.createdAt).toISOString()} className="text-[10px] text-[#64748b]">

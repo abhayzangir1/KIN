@@ -27,7 +27,6 @@ export const AgentModelQuickSwitch: React.FC<AgentModelQuickSwitchProps> = ({
 }) => {
   const activeAgentChannels = useKinStore((s) => s.activeAgentChannels);
   const openModelSelector = useKinStore((s) => s.openModelSelector);
-  const addToast = useKinStore((s) => s.addToast);
   const isBusy = agent.status === 'working' || agent.status === 'thinking' || Boolean(activeAgentChannels[agent.id]);
   const currentModelId = agent.activeModelId || '';
 
@@ -45,12 +44,7 @@ export const AgentModelQuickSwitch: React.FC<AgentModelQuickSwitchProps> = ({
       return;
     }
     if (newModelId && newModelId !== currentModelId) {
-      const ok = await updateAgentModel(agent.id, newModelId, projectId, channelId);
-      if (!ok) {
-        addToast(`Failed to switch model to "${newModelId}". Agent may be busy.`, 'error');
-      } else {
-        addToast(`Model switched to "${newModelId}" for @${agent.name || agent.displayName || 'agent'}`, 'success');
-      }
+      await updateAgentModel(agent.id, newModelId, projectId, channelId);
     }
   };
 

@@ -23,8 +23,9 @@ export const InterruptedRecoveryDock: React.FC<InterruptedRecoveryDockProps> = (
 
   const [inspectingRecovery, setInspectingRecovery] = useState<PendingRecoveryItem | null>(null);
   const [selectedRecoveryModels, setSelectedRecoveryModels] = useState<Record<string, string>>({});
+  const [isDismissed, setIsDismissed] = useState(false);
 
-  if (!pendingRecoveries || pendingRecoveries.length === 0) return null;
+  if (isDismissed || !pendingRecoveries || pendingRecoveries.length === 0) return null;
 
   const models = selectableModels.length > 0 ? selectableModels : availableModels;
 
@@ -41,7 +42,7 @@ export const InterruptedRecoveryDock: React.FC<InterruptedRecoveryDockProps> = (
     <div
       role="region"
       aria-label="Interrupted Run Recovery Dock"
-      className="my-2 p-3.5 bg-amber-50/90 dark:bg-amber-950/70 backdrop-blur-sm border border-amber-300 dark:border-amber-500/60 rounded-xl space-y-3 shadow-lg transition-all overflow-hidden"
+      className="my-2 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-2.5 shadow-sm transition-all overflow-hidden"
     >
       {/* Header Controls */}
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -77,6 +78,14 @@ export const InterruptedRecoveryDock: React.FC<InterruptedRecoveryDockProps> = (
           >
             <Zap className="w-3 h-3 text-black fill-current shrink-0" />
             <span>Resume All ({pendingRecoveries.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsDismissed(true)}
+            className="p-1 rounded text-kin-muted hover:text-kin-text transition cursor-pointer"
+            title="Dismiss recovery banner"
+          >
+            <X className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>

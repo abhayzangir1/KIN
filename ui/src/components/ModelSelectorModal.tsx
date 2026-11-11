@@ -77,10 +77,8 @@ export const ModelSelectorModal: React.FC = () => {
     credentials,
     ollamaStatus,
     agents,
-    projects,
     activeProjectId,
     activeChannelId,
-    channels,
     activeAgentChannels,
     updateAgentModel,
     addCustomModel,
@@ -118,10 +116,6 @@ export const ModelSelectorModal: React.FC = () => {
       setSelectedAgentId(agents[0].id);
     }
   }, [modelSelectorTargetAgentId, agents]);
-
-  const projectChannels = useMemo(() => {
-    return channels.filter((c) => !selectedProjectId || c.projectId === selectedProjectId);
-  }, [channels, selectedProjectId]);
 
   const projectAgents = useMemo(() => {
     return agents.filter((a) => !selectedProjectId || a.projectId === selectedProjectId);
@@ -257,23 +251,21 @@ export const ModelSelectorModal: React.FC = () => {
   const handleSelectModel = async (model: AvailableModelItem) => {
     if (isAgentBusy) return;
     if (!targetAgent) {
-      // Standalone mode: give notification
       setNotification({ message: `Model ${model.name || model.id} is available for selection.`, type: 'success' });
       setTimeout(() => setNotification(null), 3000);
       return;
     }
 
-    const success = await updateAgentModel(targetAgent.id, model.id, selectedProjectId, selectedChannelId);
+    const success = await updateAgentModel(targetAgent.id, model.id, selectedProjectId);
     if (success) {
-      const channelLabel = selectedChannelId ? ` in #${projectChannels.find((c) => c.id === selectedChannelId)?.name || selectedChannelId}` : '';
       setNotification({
-        message: `Set "${model.name || model.id}" for agent @${targetAgent.name || targetAgent.displayName}${channelLabel}!`,
+        message: `Assigned "${model.name || model.id}" to @${targetAgent.displayName || targetAgent.name}!`,
         type: 'success',
       });
       setTimeout(() => {
         setNotification(null);
         closeModelSelector();
-      }, 900);
+      }, 700);
     } else {
       setNotification({ message: `Failed to set model for agent. Agent may be actively working.`, type: 'error' });
       setTimeout(() => setNotification(null), 3000);
@@ -290,7 +282,7 @@ export const ModelSelectorModal: React.FC = () => {
       return;
     }
     if (targetAgent && !isAgentBusy) {
-      const ok = await updateAgentModel(targetAgent.id, modelId, selectedProjectId, selectedChannelId);
+      const ok = await updateAgentModel(targetAgent.id, modelId, selectedProjectId);
       if (!ok) {
         setNotification({ message: `Failed to assign model "${modelId}". Agent may be busy.`, type: 'error' });
         setTimeout(() => setNotification(null), 3000);
@@ -321,48 +313,18 @@ export const ModelSelectorModal: React.FC = () => {
               <Cpu className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+              <div className="flex items-center space-x-2">
                 <h2 className="text-sm font-semibold text-white tracking-wide">
                   Assign Language Model
                 </h2>
-                <div className="flex items-center space-x-1.5 bg-[#161b22] border border-[#30363d] rounded-lg px-2 py-0.5">
-                  <span className="text-[10px] text-[#8b949e] font-mono">Project:</span>
-                  <select
-                    value={selectedProjectId}
-                    onChange={(e) => {
-                      const newProj = e.target.value;
-                      setSelectedProjectId(newProj);
-                      const firstChan = channels.find((c) => c.projectId === newProj);
-                      if (firstChan) setSelectedChannelId(firstChan.id);
-                    }}
-                    className="bg-transparent text-[11px] text-emerald-300 font-mono focus:outline-none cursor-pointer"
-                  >
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id} className="bg-[#0f1420] text-white">
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex items-center space-x-1.5 bg-[#161b22] border border-[#30363d] rounded-lg px-2 py-0.5">
-                  <span className="text-[10px] text-[#8b949e] font-mono">Channel:</span>
-                  <select
-                    value={selectedChannelId}
-                    onChange={(e) => setSelectedChannelId(e.target.value)}
-                    className="bg-transparent text-[11px] text-blue-300 font-mono focus:outline-none cursor-pointer"
-                  >
-                    <option value="" className="bg-[#0f1420] text-slate-400">All Project Channels (Default)</option>
-                    {projectChannels.map((c) => (
-                      <option key={c.id} value={c.id} className="bg-[#0f1420] text-white">
-                        #{c.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {targetAgent && (
+                  <span className="text-xs font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md">
+                    @{targetAgent.displayName}
+                  </span>
+                )}
               </div>
               <p className="text-[11px] text-[#64748b] mt-0.5">
-                Model configurations are stored per-agent in this project. Only verified, active local &amp; cloud models are displayed.
+                Configure active model for @{targetAgent?.displayName || 'agent'}. Current model: <span className="font-mono text-slate-300">{activeModelId || 'Default Model'}</span>
               </p>
             </div>
           </div>

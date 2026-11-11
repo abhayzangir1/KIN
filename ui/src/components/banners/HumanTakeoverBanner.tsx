@@ -48,11 +48,6 @@ export const HumanTakeoverBanner: React.FC = () => {
           activeAgentChannels?.[a.id] === activeChannelId
       ) || (activeTakeover?.agentId ? agents.find((a) => a.id === activeTakeover.agentId) : null);
 
-  const isChannelExecuting =
-    !!activeTakeover ||
-    Object.entries(activeAgentChannels || {}).some(([_, chanId]) => chanId === activeChannelId) ||
-    (isDm && !!targetAgentId && agents.some((a) => a.id === targetAgentId && (a.status === 'working' || a.status === 'thinking')));
-
   // Check if an agent in another channel requires urgent attention
   const crossChannelAlert = Object.values(activeTakeovers || {}).find(
     (t) => t.channelId && t.channelId !== activeChannelId && (t.isPaused || t.authRequired || t.financialGate)
@@ -97,7 +92,11 @@ export const HumanTakeoverBanner: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeTakeover, runningAgent, pauseAgent, resumeAgent, fetchActiveRuns]);
 
-  if (!activeTakeover && !runningAgent && !isChannelExecuting) {
+  // Only mount human takeover banner when an agent is actually paused/aborted, or gated by auth/financial/critical safety
+  const needsTakeoverDisplay =
+    activeTakeover && (activeTakeover.isPaused || activeTakeover.isAborted || activeTakeover.authRequired || activeTakeover.financialGate || activeTakeover.riskLevel === 'CRITICAL');
+
+  if (!needsTakeoverDisplay) {
     if (crossChannelAlert && crossChannelName) {
       return (
         <div

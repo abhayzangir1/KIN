@@ -882,7 +882,8 @@ export class CoreServer {
         for (const item of recovered) {
           const ag = this.agentRepo.getIdentity(item.agentId);
           const tsk = item.taskId ? this.taskRepo.getTask(item.taskId) : null;
-          if (!this.pendingRecoveries.some((r) => r.id === item.id)) {
+          // Only offer for user recovery if there is an authentic turn checkpoint with snapshotJson
+          if (item.checkpoint && item.checkpoint.snapshotJson && !this.pendingRecoveries.some((r) => r.id === item.id)) {
             this.pendingRecoveries.push({
               id: item.id,
               runId: item.id,
@@ -895,6 +896,13 @@ export class CoreServer {
               checkpoint: item.checkpoint,
               checkpointReason: 'Process termination / stale heartbeat lease',
             });
+          } else if (!item.checkpoint || !item.checkpoint.snapshotJson) {
+            // Cleanly mark headless / non-checkpointed stale runs as cancelled without cluttering UI
+            try {
+              this.db.execute("UPDATE agent_runs SET state = 'cancelled', completed_at = ? WHERE id = ?", Date.now(), item.id);
+            } catch (cErr) {
+              console.debug('[core_server] Suppressed error cancelling empty checkpoint run:', cErr);
+            }
           }
         }
 
@@ -935,30 +943,8 @@ export class CoreServer {
               } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
             }
 
-            // Post self-healing audit message to channel
-            const targetProj = item.projectId || this.activeProjectId;
-            const channels = this.workspaceRepo.listChannels(targetProj);
-            const channel = channels.find((c) => c.name === 'general') || channels[0];
-            if (channel) {
-              const ag = this.agentRepo.getIdentity(item.agentId);
-              const notice = this.channelService.sendMessage({
-                channelId: channel.id,
-                senderId: 'kin-supervisor',
-                senderType: 'system',
-                content: `🛡️ **Supervisor Self-Healing**: Detected stale lease for run \`${item.id}\`. ` +
-                  `Agent **${ag?.displayName || item.agentId}** state has been safely restored to \`idle\`. Tasks unblocked.`,
-                productivityScore: 100,
-              });
-              this.broadcastEvent('message:created', {
-                id: notice.id,
-                channelId: notice.channelId,
-                senderId: notice.senderId,
-                senderName: 'Supervisor',
-                senderType: 'system',
-                content: notice.content,
-                createdAt: notice.createdAt,
-              });
-            }
+            // Supervisor internal audit log (Telemetry & console only — zero noisy chat message injection)
+            console.log(`[KIN SUPERVISOR] Stale lease safely reclaimed for run ${item.id} (agent: ${item.agentId}).`);
           } catch (itemErr) {
             console.warn('[KIN SUPERVISOR] Recovered item warning:', item.id, itemErr);
           }
