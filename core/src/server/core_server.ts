@@ -900,6 +900,7 @@ export class CoreServer {
             // Cleanly mark headless / non-checkpointed stale runs as cancelled without cluttering UI
             try {
               this.db.execute("UPDATE agent_runs SET state = 'cancelled', completed_at = ? WHERE id = ?", Date.now(), item.id);
+              this.pendingRecoveries = this.pendingRecoveries.filter((r) => r.id !== item.id);
             } catch (cErr) {
               console.debug('[core_server] Suppressed error cancelling empty checkpoint run:', cErr);
             }
@@ -3888,7 +3889,10 @@ export class CoreServer {
         }
       }
 
-      const threadParentId = triggerMsg?.parentMessageId || triggerMsg?.id;
+      let threadParentId = triggerMsg?.parentMessageId || triggerMsg?.id;
+      if (threadParentId && !this.channelService.getMessage(threadParentId)) {
+        threadParentId = undefined;
+      }
       const agentReply = this.channelService.sendMessage({
         channelId,
         senderId: agent.id,

@@ -294,7 +294,9 @@ export const MessageItem: React.FC<MessageItemProps> = ({
               className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-kin-card text-kin-muted border border-kin-border truncate max-w-[120px]"
               title={`Executed with ${agent?.activeModelId || (message.metadata as any)?.modelId}`}
             >
-              {(agent?.activeModelId || (message.metadata as any)?.modelId || '').replace(/^(ollama|openai|anthropic|openrouter|gemini|groq|deepseek|xai|nvidia)\//i, '')}
+              {(agent?.activeModelId || (message.metadata as any)?.modelId || '')
+                .replace(/^(ollama|openai|anthropic|openrouter|gemini|groq|deepseek|xai|nvidia|azure|copilot|custom|openai_compatible)\//i, '')
+                .replace(/^(anthropic|openai|meta-llama|google|mistralai)\//i, '')}
             </span>
           )}
 

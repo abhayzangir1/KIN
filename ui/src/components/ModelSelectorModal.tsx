@@ -78,14 +78,11 @@ export const ModelSelectorModal: React.FC = () => {
     ollamaStatus,
     agents,
     activeProjectId,
-    activeChannelId,
     activeAgentChannels,
     updateAgentModel,
     addCustomModel,
   } = useKinStore();
 
-  const [selectedProjectId, setSelectedProjectId] = useState<string>(activeProjectId || '');
-  const [selectedChannelId, setSelectedChannelId] = useState<string>(activeChannelId || '');
   const [selectedAgentId, setSelectedAgentId] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProvider, setSelectedProvider] = useState<string>('all');
@@ -98,18 +95,6 @@ export const ModelSelectorModal: React.FC = () => {
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
-    if (activeProjectId && !selectedProjectId) {
-      setSelectedProjectId(activeProjectId);
-    }
-  }, [activeProjectId]);
-
-  useEffect(() => {
-    if (activeChannelId && !selectedChannelId) {
-      setSelectedChannelId(activeChannelId);
-    }
-  }, [activeChannelId]);
-
-  useEffect(() => {
     if (modelSelectorTargetAgentId) {
       setSelectedAgentId(modelSelectorTargetAgentId);
     } else if (!selectedAgentId && agents.length > 0) {
@@ -118,8 +103,8 @@ export const ModelSelectorModal: React.FC = () => {
   }, [modelSelectorTargetAgentId, agents]);
 
   const projectAgents = useMemo(() => {
-    return agents.filter((a) => !selectedProjectId || a.projectId === selectedProjectId);
-  }, [agents, selectedProjectId]);
+    return agents.filter((a) => !activeProjectId || a.projectId === activeProjectId);
+  }, [agents, activeProjectId]);
 
   const targetAgent = useMemo(() => {
     return projectAgents.find((a) => a.id === selectedAgentId) || projectAgents[0] || agents[0] || null;
@@ -256,16 +241,9 @@ export const ModelSelectorModal: React.FC = () => {
       return;
     }
 
-    const success = await updateAgentModel(targetAgent.id, model.id, selectedProjectId);
+    const success = await updateAgentModel(targetAgent.id, model.id, activeProjectId);
     if (success) {
-      setNotification({
-        message: `Assigned "${model.name || model.id}" to @${targetAgent.displayName || targetAgent.name}!`,
-        type: 'success',
-      });
-      setTimeout(() => {
-        setNotification(null);
-        closeModelSelector();
-      }, 700);
+      closeModelSelector();
     } else {
       setNotification({ message: `Failed to set model for agent. Agent may be actively working.`, type: 'error' });
       setTimeout(() => setNotification(null), 3000);
@@ -273,7 +251,7 @@ export const ModelSelectorModal: React.FC = () => {
   };
 
   const handleManualAssign = async () => {
-    if (!customModelInput.trim()) return;
+    if (!customModelInput.trim() || isAgentBusy) return;
     const modelId = customModelInput.trim();
     const customRes = await addCustomModel(modelId);
     if (!customRes?.success) {
@@ -282,17 +260,13 @@ export const ModelSelectorModal: React.FC = () => {
       return;
     }
     if (targetAgent && !isAgentBusy) {
-      const ok = await updateAgentModel(targetAgent.id, modelId, selectedProjectId);
+      const ok = await updateAgentModel(targetAgent.id, modelId, activeProjectId);
       if (!ok) {
         setNotification({ message: `Failed to assign model "${modelId}". Agent may be busy.`, type: 'error' });
         setTimeout(() => setNotification(null), 3000);
         return;
       }
-      setNotification({ message: `Assigned model "${modelId}" to @${targetAgent.name || targetAgent.displayName}`, type: 'success' });
-      setTimeout(() => {
-        setNotification(null);
-        closeModelSelector();
-      }, 900);
+      closeModelSelector();
     } else {
       setNotification({ message: `Registered custom model "${modelId}" in catalog.`, type: 'success' });
       setTimeout(() => setNotification(null), 3000);
@@ -694,11 +668,17 @@ export const ModelSelectorModal: React.FC = () => {
                     {targetAgent ? (
                       <button
                         type="button"
+                        disabled={isAgentBusy}
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (isAgentBusy) return;
                           handleSelectModel(model);
                         }}
-                        className={`px-2.5 py-1 rounded text-xs font-mono font-medium transition cursor-pointer flex items-center space-x-1 ${
+                        className={`px-2.5 py-1 rounded text-xs font-mono font-medium transition flex items-center space-x-1 ${
+                          isAgentBusy
+                            ? 'opacity-40 cursor-not-allowed bg-slate-800 text-slate-500'
+                            : 'cursor-pointer'
+                        } ${
                           isActiveForAgent
                             ? 'bg-emerald-500 text-black font-semibold'
                             : 'bg-[#1e293b] hover:bg-emerald-600 hover:text-white text-[#cbd5e1]'
@@ -740,7 +720,7 @@ export const ModelSelectorModal: React.FC = () => {
             <button
               type="button"
               onClick={handleManualAssign}
-              disabled={!customModelInput.trim()}
+              disabled={!customModelInput.trim() || isAgentBusy}
               className="px-3 py-1 rounded bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/40 text-xs font-mono font-medium transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
             >
               + Set Model

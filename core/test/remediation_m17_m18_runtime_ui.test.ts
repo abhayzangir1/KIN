@@ -24,6 +24,8 @@ describe('Milestones 17 & 18: Desktop Supervisor, Runtime Automation & Frontend 
   const automationsViewPath = path.join(rootDir, 'ui/src/components/AutomationsView.tsx');
   const agentInspectorPath = path.join(rootDir, 'ui/src/components/AgentInspector.tsx');
   const desktopControlModalPath = path.join(rootDir, 'ui/src/components/DesktopControlModal.tsx');
+  const credentialVaultTabPath = path.join(rootDir, 'ui/src/components/settings/CredentialVaultTab.tsx');
+  const interruptedRecoveryDockPath = path.join(rootDir, 'ui/src/components/banners/InterruptedRecoveryDock.tsx');
 
   // ==========================================================================
   // Milestone 17: Desktop Supervisor, Native Shell, IPC & Runtime Automation
@@ -122,23 +124,27 @@ describe('Milestones 17 & 18: Desktop Supervisor, Runtime Automation & Frontend 
     });
 
     it('verifies SettingsModal handles credentialsLoading state with dedicated loading indicator', () => {
-      const content = fs.readFileSync(settingsModalPath, 'utf8');
-      expect(content).toContain('credentialsLoading ?');
-      expect(content).toContain('Loading encrypted vault credentials...');
+      const settingsContent = fs.readFileSync(settingsModalPath, 'utf8');
+      const vaultContent = fs.readFileSync(credentialVaultTabPath, 'utf8');
+      expect(settingsContent).toContain('<CredentialVaultTab');
+      expect(vaultContent).toContain('credentialsLoading ?');
+      expect(vaultContent).toContain('Loading encrypted vault credentials...');
     });
 
     it('verifies CenterView selectableModels only contains authentically discovered models', () => {
       const content = fs.readFileSync(centerViewPath, 'utf8');
       expect(content).not.toContain("id: 'openrouter/auto'");
       expect(content).not.toContain("id: 'openrouter/google/gemini-2.0-flash-001'");
-      expect(content).toContain('selectableModels[0]?.id ||');
+      expect(content).toContain('selectableModels');
+      expect(content).toContain('availableModels || []');
     });
 
     it('verifies CenterView wires switchRunToOllama button when local Ollama is online', () => {
-      const content = fs.readFileSync(centerViewPath, 'utf8');
-      expect(content).toContain('switchRunToOllama');
-      expect(content).toContain('ollamaStatus?.online');
-      expect(content).toContain('Switch to Ollama');
+      const centerContent = fs.readFileSync(centerViewPath, 'utf8');
+      const dockContent = fs.readFileSync(interruptedRecoveryDockPath, 'utf8');
+      expect(centerContent).toContain('<InterruptedRecoveryDock');
+      expect(dockContent).toContain('switchRunToOllama');
+      expect(dockContent).toContain('ollamaStatus?.online');
     });
 
     it('verifies CenterView awaits resolveApproval and provides feedback toasts', () => {

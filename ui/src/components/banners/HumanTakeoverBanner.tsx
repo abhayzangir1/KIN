@@ -50,7 +50,16 @@ export const HumanTakeoverBanner: React.FC = () => {
 
   // Check if an agent in another channel requires urgent attention
   const crossChannelAlert = Object.values(activeTakeovers || {}).find(
-    (t) => t.channelId && t.channelId !== activeChannelId && (t.isPaused || t.authRequired || t.financialGate)
+    (t) =>
+      t.channelId &&
+      t.channelId !== activeChannelId &&
+      (t.isPaused === true ||
+        t.isAborted === true ||
+        Boolean(t.authRequired) ||
+        Boolean(t.financialGate) ||
+        t.riskLevel === 'CRITICAL' ||
+        Boolean(t.previewPayload?.requiresApproval) ||
+        (t as any)?.state === 'waiting_for_approval')
   );
   const crossChannelName = crossChannelAlert?.channelId
     ? channels.find((c) => c.id === crossChannelAlert.channelId)?.name || crossChannelAlert.channelId
@@ -92,9 +101,22 @@ export const HumanTakeoverBanner: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeTakeover, runningAgent, pauseAgent, resumeAgent, fetchActiveRuns]);
 
-  // Only mount human takeover banner when an agent is actually paused/aborted, or gated by auth/financial/critical safety
-  const needsTakeoverDisplay =
-    activeTakeover && (activeTakeover.isPaused || activeTakeover.isAborted || activeTakeover.authRequired || activeTakeover.financialGate || activeTakeover.riskLevel === 'CRITICAL');
+  // Only mount human takeover banner when genuine human intervention occurs (isPaused === true || isAborted === true)
+  // or during explicit approval gates (authRequired || financialGate || riskLevel === 'CRITICAL' || previewPayload?.requiresApproval || state === 'waiting_for_approval').
+  // Ensures it NEVER displays during normal agent running/thinking/streaming.
+  const isIntervention =
+    Boolean(activeTakeover?.isPaused === true || activeTakeover?.isAborted === true);
+
+  const isApprovalGate =
+    Boolean(
+      activeTakeover?.authRequired ||
+      activeTakeover?.financialGate ||
+      activeTakeover?.riskLevel === 'CRITICAL' ||
+      activeTakeover?.previewPayload?.requiresApproval ||
+      (activeTakeover as any)?.state === 'waiting_for_approval'
+    );
+
+  const needsTakeoverDisplay = Boolean(activeTakeover && (isIntervention || isApprovalGate));
 
   if (!needsTakeoverDisplay) {
     if (crossChannelAlert && crossChannelName) {
@@ -168,6 +190,10 @@ export const HumanTakeoverBanner: React.FC = () => {
             ? 'bg-amber-50 dark:bg-amber-950/70 border-amber-300 dark:border-amber-500/80 text-amber-900 dark:text-amber-100 shadow-amber-500/10'
             : isPaused
             ? 'bg-yellow-50 dark:bg-yellow-950/70 border-yellow-300 dark:border-yellow-500/70 text-yellow-900 dark:text-yellow-100 shadow-yellow-500/10'
+            : isAborted
+            ? 'bg-red-50 dark:bg-red-950/70 border-red-300 dark:border-red-500/70 text-red-900 dark:text-red-100 shadow-red-500/10'
+            : isApprovalGate
+            ? 'bg-amber-50 dark:bg-amber-950/70 border-amber-300 dark:border-amber-500/70 text-amber-900 dark:text-amber-100 shadow-amber-500/10'
             : 'bg-blue-50 dark:bg-slate-900/90 border-blue-200 dark:border-blue-500/60 text-slate-900 dark:text-blue-100 shadow-blue-500/10'
         }`}
       >
@@ -180,6 +206,8 @@ export const HumanTakeoverBanner: React.FC = () => {
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500 shadow-xs" />
               ) : isAborted ? (
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500 shadow-xs" />
+              ) : isApprovalGate ? (
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500 shadow-xs animate-pulse" />
               ) : (
                 <>
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
@@ -197,10 +225,18 @@ export const HumanTakeoverBanner: React.FC = () => {
                     ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300 border border-red-300 dark:border-red-500/40'
                     : isPaused
                     ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40'
+                    : isApprovalGate
+                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40'
                     : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/40'
                 }`}
               >
-                {isAborted ? 'ABORTED' : isPaused ? 'PAUSED (TAKEN OVER)' : 'EXECUTING'}
+                {isAborted
+                  ? 'ABORTED'
+                  : isPaused
+                  ? 'PAUSED (TAKEN OVER)'
+                  : isApprovalGate
+                  ? 'APPROVAL REQUIRED'
+                  : 'EXECUTING'}
               </span>
             </div>
 
