@@ -6,6 +6,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
 import puppeteer, { Browser, Page } from 'puppeteer-core';
 import { getDataDirectory } from '../storage/data_directory.js';
 
@@ -96,18 +97,25 @@ export class BrowserController {
       }
 
       const dataDir = getDataDirectory();
+      const isTestEnv = !!(process.env.VITEST || process.env.NODE_ENV === 'test');
+      const defaultProfile = isTestEnv
+        ? path.resolve(os.tmpdir(), '.kin_test_browser_profile_' + Math.random().toString(36).slice(2))
+        : path.resolve(dataDir, '.kin', 'browser_profile');
+
       if (customProfileDirOrOptions.profileDir) {
         this.profileDir = customProfileDirOrOptions.profileDir;
       } else if (customProfileDirOrOptions.agentId) {
         this.profileDir = path.resolve(dataDir, '.kin', 'browser_profiles', customProfileDirOrOptions.agentId);
       } else {
-        this.profileDir = path.resolve(dataDir, '.kin', 'browser_profile');
+        this.profileDir = defaultProfile;
       }
     } else {
       const dataDir = getDataDirectory();
-      this.profileDir =
-        customProfileDirOrOptions ||
-        path.resolve(dataDir, '.kin', 'browser_profile');
+      const isTestEnv = !!(process.env.VITEST || process.env.NODE_ENV === 'test');
+      const defaultProfile = isTestEnv
+        ? path.resolve(os.tmpdir(), '.kin_test_browser_profile_' + Math.random().toString(36).slice(2))
+        : path.resolve(dataDir, '.kin', 'browser_profile');
+      this.profileDir = customProfileDirOrOptions || defaultProfile;
     }
 
     if (!fs.existsSync(this.profileDir)) {
@@ -254,6 +262,10 @@ export class BrowserController {
 
         if (process.env.KIN_BROWSER_NO_SANDBOX === 'true' || isContainerizedLinux) {
           launchArgs.push('--no-sandbox', '--disable-setuid-sandbox');
+        }
+
+        if (process.platform === 'linux' || process.env.CI === 'true') {
+          launchArgs.push('--disable-dev-shm-usage', '--disable-gpu');
         }
 
         this.browser = await puppeteer.launch({

@@ -73,16 +73,36 @@ impl FilesystemJail {
         target_path: Q,
     ) -> JailValidationResult {
         let root = jail_root.as_ref();
-        let target = target_path.as_ref();
+        let target_raw = target_path.as_ref();
 
         // 1. Immediate rejection of sensitive file patterns
-        if Self::is_sensitive_pattern(target) {
+        if Self::is_sensitive_pattern(target_raw) {
             return JailValidationResult {
                 is_valid: false,
                 canonical_path: None,
                 error: Some(format!(
                     "SECURITY JAIL VIOLATION: Access to sensitive file pattern is prohibited: '{:?}'",
-                    target
+                    target_raw
+                )),
+            };
+        }
+
+        // Normalize path separators from Windows backslashes to forward slashes for cross-platform traversal safety
+        let target_norm_str = target_raw.to_string_lossy().replace('\\', "/");
+        let target = Path::new(&target_norm_str);
+
+        // Detect Windows drive letter paths on POSIX platforms (e.g. C:/Windows/...)
+        let is_win_drive = target_norm_str.len() >= 2
+            && target_norm_str.chars().next().map(|c| c.is_ascii_alphabetic()).unwrap_or(false)
+            && target_norm_str.chars().nth(1) == Some(':');
+
+        if !cfg!(windows) && is_win_drive {
+            return JailValidationResult {
+                is_valid: false,
+                canonical_path: None,
+                error: Some(format!(
+                    "SECURITY JAIL VIOLATION: Windows drive path prohibited on POSIX: '{:?}'",
+                    target_raw
                 )),
             };
         }
