@@ -236,7 +236,12 @@ export const SettingsModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="System Settings & Preferences"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-150"
+    >
       <div className="bg-kin-surface border border-kin-border rounded-xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[85vh] overflow-hidden text-kin-text font-sans">
         {/* Top Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-kin-border bg-kin-card">

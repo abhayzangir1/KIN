@@ -170,7 +170,12 @@ export const DesktopControlModal: React.FC = () => {
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 select-none">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Computer & Web Control Center"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 select-none"
+    >
       <div className="bg-kin-surface border border-kin-border rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl text-xs overflow-hidden backdrop-blur-xl text-kin-text">
         {/* Header */}
         <div className="h-14 px-6 border-b border-kin-border flex items-center justify-between bg-kin-card">

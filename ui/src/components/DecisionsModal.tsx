@@ -167,7 +167,12 @@ export const DecisionsModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Architecture Decision Records (ADR)"
+      className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
+    >
       <div className="bg-kin-surface border border-kin-border rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden font-sans">
         {/* Header */}
         <div className="px-6 py-4 border-b border-kin-border flex items-center justify-between bg-kin-surface">

@@ -148,7 +148,12 @@ export const AutomationsModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn select-none">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Automations and Schedules"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn select-none"
+    >
       <div className="relative w-full max-w-2xl bg-kin-surface border border-kin-border rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="px-6 py-4 border-b border-kin-border flex items-center justify-between bg-kin-surface">
