@@ -3,7 +3,7 @@
 // Message persistence, mention extraction, and productivity scoring.
 // ============================================================================
 
-import { KinDatabase, safeJsonParseArray } from '../storage/db.js';
+import { KinDatabase, safeJsonParseArray, safeJsonParseObject } from '../storage/db.js';
 import { Message, SenderType } from '../domain/types.js';
 import { EventLedger } from '../security/event_ledger.js';
 import { SecretBroker } from '../security/secret_broker.js';
@@ -18,11 +18,13 @@ export interface SendMessageParams {
   productivityScore?: number;
   isBackground?: boolean;
   is_background?: boolean;
+  metadata?: Record<string, any>;
 }
 
 export class ChannelService {
   private db: KinDatabase;
   private threadLeases: Map<string, { agentId: string; expiresAt: number }> = new Map();
+  private hasMetadataColumn?: boolean;
 
   constructor(db: KinDatabase) {
     this.db = db;
@@ -92,6 +94,7 @@ export class ChannelService {
     const score = params.productivityScore ?? this.calculateInitialProductivity(cleanContent);
     const isBackground = Boolean(params.isBackground || params.is_background);
     const now = Date.now();
+    const metadata = params.metadata || {};
 
     const message: Message = {
       id,
@@ -104,23 +107,46 @@ export class ChannelService {
       productivityScore: score,
       isBackground,
       is_background: isBackground,
+      metadata,
       createdAt: now,
     };
 
-    this.db.execute(
-      `INSERT INTO messages (id, channel_id, sender_id, sender_type, content, parent_message_id, mentions_json, productivity_score, is_background, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      message.id,
-      message.channelId,
-      message.senderId,
-      message.senderType,
-      message.content,
-      message.parentMessageId ?? null,
-      JSON.stringify(message.mentions),
-      message.productivityScore,
-      isBackground ? 1 : 0,
-      message.createdAt
-    );
+    if (this.hasMetadataColumn === undefined) {
+      const msgCols = this.db.query<{ name: string }>("PRAGMA table_info(messages);").map((c) => c.name);
+      this.hasMetadataColumn = msgCols.includes('metadata_json');
+    }
+    if (this.hasMetadataColumn) {
+      this.db.execute(
+        `INSERT INTO messages (id, channel_id, sender_id, sender_type, content, parent_message_id, mentions_json, productivity_score, is_background, metadata_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        message.id,
+        message.channelId,
+        message.senderId,
+        message.senderType,
+        message.content,
+        message.parentMessageId ?? null,
+        JSON.stringify(message.mentions),
+        message.productivityScore,
+        isBackground ? 1 : 0,
+        JSON.stringify(metadata),
+        message.createdAt
+      );
+    } else {
+      this.db.execute(
+        `INSERT INTO messages (id, channel_id, sender_id, sender_type, content, parent_message_id, mentions_json, productivity_score, is_background, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        message.id,
+        message.channelId,
+        message.senderId,
+        message.senderType,
+        message.content,
+        message.parentMessageId ?? null,
+        JSON.stringify(message.mentions),
+        message.productivityScore,
+        isBackground ? 1 : 0,
+        message.createdAt
+      );
+    }
 
     // Record event in append-only journal through authoritative EventLedger
     try {
@@ -155,6 +181,7 @@ export class ChannelService {
       mentions_json: string;
       productivity_score: number;
       is_background?: number;
+      metadata_json?: string;
       created_at: number;
     }>(
       `SELECT * FROM (
@@ -175,6 +202,7 @@ export class ChannelService {
       productivityScore: r.productivity_score,
       isBackground: Boolean(r.is_background),
       is_background: Boolean(r.is_background),
+      metadata: safeJsonParseObject(r.metadata_json),
       createdAt: r.created_at,
     }));
   }

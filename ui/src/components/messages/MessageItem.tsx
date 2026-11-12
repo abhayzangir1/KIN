@@ -1,6 +1,24 @@
 import React, { useState } from 'react';
-import { Copy, Check, Quote, User, Bot, Sparkles, Zap, Lightbulb } from 'lucide-react';
-import { MessageItem as MessageItemType } from '../../store/kinStore.js';
+import {
+  Copy,
+  Check,
+  Quote,
+  User,
+  Bot,
+  Sparkles,
+  Zap,
+  Lightbulb,
+  Reply,
+  CornerDownRight,
+  Paperclip,
+  FileText,
+  Image as ImageIcon,
+  FileCode,
+  File,
+  Eye,
+  Download,
+} from 'lucide-react';
+import { MessageItem as MessageItemType, useKinStore, FileAttachment } from '../../store/kinStore.js';
 import { CodeBlock } from '../CodeBlock.js';
 import { DecisionCard } from '../DecisionCard.js';
 
@@ -85,9 +103,16 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   onSelectDecision,
 }) => {
   const [copied, setCopied] = useState(false);
+  const [expandedAttachments, setExpandedAttachments] = useState(false);
+  const { openFilePreview, setReplyingToMessage, activeProjectId: storeProjectId } = useKinStore();
+  const currentProjectId = _activeProjectId || storeProjectId;
 
   const isHuman = message.senderType === 'human';
   const agent = agents.find((a: any) => a.id === message.senderId);
+  const attachments: FileAttachment[] = Array.isArray(message.metadata?.attachments)
+    ? message.metadata.attachments
+    : [];
+  const replyTo = message.metadata?.replyTo;
 
   // Pure prose enforcement
   const prose = isHuman ? message.content : cleanProse(message.content);
@@ -140,7 +165,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     message.content.includes('🛡️ **Hardened Architecture Decision Record (ADR)**');
 
   const formatInlineTokens = (text: string) => {
-    const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*|@[a-zA-Z0-9_-]+)/g);
+    const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*|@[a-zA-Z0-9_-]+|\[[^\]]+\]\(file:\/\/\/[^\s)]+\)|\[(?:📎|file:)\s*[^\]]+\]|file:\/\/\/[^\s<>'"]+)/g);
     return parts.map((part, i) => {
       if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
         return (
@@ -167,6 +192,70 @@ export const MessageItem: React.FC<MessageItemProps> = ({
           >
             {part}
           </span>
+        );
+      }
+      const mdFileMatch = part.match(/^\[([^\]]+)\]\((file:\/\/\/[^\s)]+)\)$/);
+      if (mdFileMatch) {
+        const label = mdFileMatch[1].trim();
+        const fullUri = mdFileMatch[2].trim();
+        const cleanPath = fullUri.slice('file:///'.length).replace(/#[L\d-]+$/i, '');
+        const anchorMatch = fullUri.match(/#[L\d-]+$/i);
+        const anchor = anchorMatch ? anchorMatch[0] : '';
+        return (
+          <button
+            key={i}
+            type="button"
+            onClick={() => openFilePreview({ filename: label, path: cleanPath })}
+            className="inline-flex items-center space-x-1 px-1.5 py-0.5 mx-0.5 rounded bg-cyan-500/15 text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 text-[11px] font-mono hover:bg-cyan-500/25 transition cursor-pointer"
+            title={`Click to preview ${cleanPath}${anchor ? ` (${anchor})` : ''}`}
+          >
+            <Paperclip className="w-3 h-3 text-cyan-400" />
+            <span>{label}{anchor}</span>
+          </button>
+        );
+      }
+      const fileMatch = part.match(/^\[(?:📎|file:)\s*([^\]]+)\]$/);
+      if (fileMatch) {
+        const cleanTarget = fileMatch[1].trim();
+        const cleanPath = cleanTarget.replace(/#[L\d-]+$/i, '');
+        const cleanName = cleanTarget.split(/[\\/]/).pop() || cleanTarget;
+        return (
+          <button
+            key={i}
+            type="button"
+            onClick={() => openFilePreview({ filename: cleanName, path: cleanPath })}
+            className="inline-flex items-center space-x-1 px-1.5 py-0.5 mx-0.5 rounded bg-cyan-500/15 text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 text-[11px] font-mono hover:bg-cyan-500/25 transition cursor-pointer"
+            title={`Click to preview file ${cleanPath}`}
+          >
+            <Paperclip className="w-3 h-3 text-cyan-400" />
+            <span>{cleanTarget}</span>
+          </button>
+        );
+      }
+      const fileUriMatch = part.match(/^file:\/\/\/(.+)$/);
+      if (fileUriMatch) {
+        let rawPath = fileUriMatch[1];
+        let trailingPunct = '';
+        const punctMatch = rawPath.match(/[.,;:)]+$/);
+        if (punctMatch) {
+          trailingPunct = punctMatch[0];
+          rawPath = rawPath.slice(0, -trailingPunct.length);
+        }
+        const cleanPath = rawPath.replace(/#[L\d-]+$/i, '');
+        const cleanName = cleanPath.split(/[\\/]/).pop() || cleanPath;
+        return (
+          <React.Fragment key={i}>
+            <button
+              type="button"
+              onClick={() => openFilePreview({ filename: cleanName, path: cleanPath })}
+              className="inline-flex items-center space-x-1 px-1.5 py-0.5 mx-0.5 rounded bg-cyan-500/15 text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 text-[11px] font-mono hover:bg-cyan-500/25 transition cursor-pointer"
+              title={`Click to preview file ${cleanPath}`}
+            >
+              <Paperclip className="w-3 h-3 text-cyan-400" />
+              <span>{cleanName}</span>
+            </button>
+            {trailingPunct}
+          </React.Fragment>
         );
       }
       return part;
@@ -234,6 +323,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 
   return (
     <article
+      id={`msg-${message.id}`}
       role="article"
       aria-label={`Message from ${message.senderName || (isHuman ? 'Human Operator' : 'Agent')}`}
       className="flex space-x-3.5 group relative select-text py-1.5"
@@ -308,8 +398,18 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             </span>
           )}
 
-          {/* Quote & Copy action buttons on hover */}
+          {/* Reply, Quote & Copy action buttons on hover */}
           <div className="opacity-0 group-hover:opacity-100 transition-opacity ml-auto flex items-center space-x-1">
+            <button
+              type="button"
+              onClick={() => setReplyingToMessage(message)}
+              className="flex items-center space-x-1 px-2 py-0.5 rounded bg-kin-surface hover:bg-blue-500/20 hover:text-blue-300 text-kin-muted text-[10px] font-mono border border-kin-border transition cursor-pointer"
+              title="Reply to this message in chat"
+              aria-label="Reply to message"
+            >
+              <Reply className="w-2.5 h-2.5 text-blue-400" />
+              <span>Reply</span>
+            </button>
             <button
               type="button"
               onClick={handleQuote}
@@ -345,6 +445,26 @@ export const MessageItem: React.FC<MessageItemProps> = ({
               : 'bg-kin-card/90 border-kin-border hover:border-kin-border/80'
           }`}
         >
+          {/* Threaded Reply Context Header */}
+          {replyTo && (
+            <div
+              onClick={() => {
+                const el = document.getElementById(`msg-${replyTo.messageId}`);
+                if (el) {
+                  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  el.classList.add('ring-2', 'ring-blue-500/50');
+                  setTimeout(() => el.classList.remove('ring-2', 'ring-blue-500/50'), 2000);
+                }
+              }}
+              className="flex items-center space-x-1.5 text-[11px] text-kin-muted hover:text-kin-accent mb-2 pb-1.5 border-b border-kin-border/60 cursor-pointer transition select-none group/reply"
+              title="Click to jump to replied message"
+            >
+              <CornerDownRight className="w-3 h-3 text-blue-400 shrink-0" />
+              <span className="font-semibold text-blue-400">@{replyTo.senderName || 'Agent'}:</span>
+              <span className="truncate italic max-w-sm text-kin-muted/90">"{replyTo.excerpt}"</span>
+            </div>
+          )}
+
           {isSideQuery && (
             <div className="flex items-center space-x-1.5 mb-2 pb-1.5 border-b border-amber-500/30 text-amber-300 font-mono text-[10px] font-bold">
               <Lightbulb className="w-3.5 h-3.5 text-amber-400 shrink-0" />
@@ -353,6 +473,111 @@ export const MessageItem: React.FC<MessageItemProps> = ({
           )}
 
           {renderFormattedBody(prose)}
+
+          {/* Attachment Shelf: Clean cards with 1-click preview and download */}
+          {attachments.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-kin-border/60 space-y-2">
+              <div className="flex items-center justify-between text-[11px] font-semibold text-kin-muted">
+                <div className="flex items-center space-x-1.5">
+                  <Paperclip className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Attached Files ({attachments.length})</span>
+                </div>
+                {attachments.length > 3 && (
+                  <button
+                    type="button"
+                    onClick={() => setExpandedAttachments(!expandedAttachments)}
+                    className="text-[10px] text-kin-accent hover:underline cursor-pointer"
+                  >
+                    {expandedAttachments ? 'Show Less' : `+${attachments.length - 3} more files`}
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {(expandedAttachments ? attachments : attachments.slice(0, 3)).map((att, attIdx) => {
+                  const isImg = att.mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg)$/i.test(att.filename);
+                  const isPdf = att.mimeType === 'application/pdf' || att.filename.endsWith('.pdf');
+                  const isCode = att.mimeType?.startsWith('text/') || /\.(ts|js|py|json|md|html|css|rs|sql)$/i.test(att.filename);
+
+                  return (
+                    <div
+                      key={att.id || attIdx}
+                      className="flex items-center justify-between p-2 rounded-xl bg-kin-surface/80 border border-kin-border hover:border-kin-accent/40 shadow-xs transition group/att"
+                    >
+                      <div
+                        onClick={() => openFilePreview(att)}
+                        className="flex items-center space-x-2 truncate flex-1 min-w-0 cursor-pointer"
+                        title={`Click to preview ${att.filename}`}
+                      >
+                        <div className="p-1.5 rounded-lg bg-kin-card text-kin-accent shrink-0">
+                          {isImg ? (
+                            <ImageIcon className="w-3.5 h-3.5" />
+                          ) : isPdf ? (
+                            <FileText className="w-3.5 h-3.5" />
+                          ) : isCode ? (
+                            <FileCode className="w-3.5 h-3.5" />
+                          ) : (
+                            <File className="w-3.5 h-3.5" />
+                          )}
+                        </div>
+                        <div className="truncate min-w-0">
+                          <div className="text-xs font-semibold text-kin-text truncate group-hover/att:text-kin-accent transition">
+                            {att.filename}
+                          </div>
+                          {att.size ? (
+                            <div className="text-[10px] font-mono text-kin-muted">
+                              {att.size < 1024
+                                ? `${att.size} B`
+                                : att.size < 1024 * 1024
+                                ? `${(att.size / 1024).toFixed(1)} KB`
+                                : `${(att.size / (1024 * 1024)).toFixed(1)} MB`}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-1 shrink-0 ml-1">
+                        <button
+                          type="button"
+                          onClick={() => openFilePreview(att)}
+                          className="p-1 rounded-lg hover:bg-kin-accent/20 text-kin-muted hover:text-kin-accent transition cursor-pointer"
+                          title="Preview file"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
+                        {(() => {
+                          const dlUrl =
+                            att.url ||
+                            (att.path && currentProjectId
+                              ? `/api/projects/${currentProjectId}/artifacts?path=${encodeURIComponent(att.path)}&raw=true&download=true`
+                              : undefined);
+                          return dlUrl ? (
+                            <a
+                              href={dlUrl}
+                              download={att.filename}
+                              className="p-1 rounded-lg hover:bg-kin-accent/20 text-kin-muted hover:text-kin-accent transition cursor-pointer"
+                              title="Download file"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </a>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => openFilePreview(att)}
+                              className="p-1 rounded-lg hover:bg-kin-accent/20 text-kin-muted hover:text-kin-accent transition cursor-pointer"
+                              title="Preview file"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {decision && onSelectDecision && (
             <DecisionCard

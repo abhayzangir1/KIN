@@ -1,7 +1,6 @@
 import React from 'react';
 import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
 import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale, Trash2, Users, ShieldAlert, Edit2, ChevronDown, ChevronRight, GitCommit } from 'lucide-react';
-import { AgentModelBadge } from './AgentModelBadge.js';
 
 export const Sidebar: React.FC = () => {
   const {
@@ -20,13 +19,13 @@ export const Sidebar: React.FC = () => {
     setAddAgentModalOpen,
     openAgentSettings,
     openSettingsModal,
+    setWorkforceModalOpen,
     goals,
     tasks,
     deleteGoal,
     deleteTask,
     updateTaskStatus,
     setNewGoalModalOpen,
-    setNewTaskModalOpen,
     decisions,
     setDecisionsModalOpen,
     schedules,
@@ -246,18 +245,13 @@ export const Sidebar: React.FC = () => {
                         <Edit2 className="w-3 h-3" />
                       </button>
 
-                      <AgentModelBadge
-                        agent={agent}
-                        availableModels={availableModels}
-                        compact
-                      />
                       {agent.isOrchestrator ? (
-                        <span className="text-[9px] uppercase px-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono shrink-0">
+                        <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-mono font-bold shrink-0">
                           Boss
                         </span>
                       ) : (
-                        <span className="text-[9px] uppercase px-1 rounded bg-blue-500/20 text-blue-300 font-mono shrink-0">
-                          Spec
+                        <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/30 font-mono font-semibold shrink-0">
+                          Specialist
                         </span>
                       )}
                     </div>
@@ -352,49 +346,42 @@ export const Sidebar: React.FC = () => {
         </div>
       </div>
 
-      {/* DOCKED WORKFORCE UTILITIES (Goals, Decisions, Automations directly above Settings with border) */}
-      <div className="border-t border-kin-border p-2 space-y-3 bg-kin-surface/40 shrink-0 max-h-72 overflow-y-auto">
-        {/* TASKS & GOALS SECTION */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-kin-muted">
-            <div
+      {/* DOCKED WORKFORCE UTILITIES */}
+      <div className="border-t border-kin-border p-2 space-y-1 bg-kin-surface/40 shrink-0 max-h-72 overflow-y-auto">
+        {/* Direct Action: Tasks & Goals */}
+        <div className="space-y-1">
+          <div className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-kin-card text-kin-muted hover:text-kin-text transition select-none group">
+            <button
+              type="button"
               onClick={() => setIsGoalsOpen((prev) => !prev)}
-              className="flex items-center space-x-1.5 cursor-pointer hover:text-kin-text select-none transition"
-              title={isGoalsOpen ? 'Collapse Goals & Tasks' : 'Expand Goals & Tasks'}
+              className="flex items-center space-x-2 truncate flex-1 text-left cursor-pointer"
+              title={isGoalsOpen ? 'Collapse Tasks & Roadmap' : 'Expand Tasks & Roadmap'}
             >
-              {isGoalsOpen ? <ChevronDown className="w-3 h-3 text-kin-muted" /> : <ChevronRight className="w-3 h-3 text-kin-muted" />}
-              <Target className="w-3.5 h-3.5 text-emerald-500" />
-              <span>Goals & Tasks</span>
-              <span className="text-[9px] font-mono text-kin-muted font-normal">({uniqueGoals.length})</span>
-            </div>
-            <div className="flex items-center space-x-1">
+              {isGoalsOpen ? <ChevronDown className="w-3.5 h-3.5 text-kin-muted" /> : <ChevronRight className="w-3.5 h-3.5 text-kin-muted" />}
+              <Target className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+              <span className="text-xs font-medium truncate">Tasks & Roadmap</span>
+            </button>
+            <div className="flex items-center space-x-1 shrink-0">
+              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-500 font-semibold border border-emerald-500/20">
+                {tasks.filter((t) => t.status === 'completed').length}/{tasks.length}
+              </span>
               <button
+                type="button"
                 onClick={() => setActiveMainView(activeMainView === 'dag' ? 'chat' : 'dag')}
-                className={`flex items-center space-x-0.5 px-1.5 py-0.5 rounded transition cursor-pointer ${
-                  activeMainView === 'dag'
-                    ? 'bg-blue-600 text-white font-bold'
-                    : 'hover:bg-kin-card text-kin-muted hover:text-blue-500'
+                className={`p-1 rounded hover:bg-kin-surface transition cursor-pointer ${
+                  activeMainView === 'dag' ? 'text-blue-400 bg-blue-500/15' : 'text-kin-muted hover:text-blue-400'
                 }`}
-                title="Toggle Task Topological DAG View"
+                title="Topological Task DAG View"
               >
-                <GitCommit className="w-3 h-3 text-blue-500" />
-                <span className="text-[9px] font-mono">DAG</span>
+                <GitCommit className="w-3 h-3" />
               </button>
               <button
+                type="button"
                 onClick={() => setNewGoalModalOpen(true)}
-                className="flex items-center space-x-0.5 px-1.5 py-0.5 rounded hover:bg-kin-card text-kin-muted hover:text-emerald-500 transition cursor-pointer"
-                title="Create New Goal in Project"
+                className="p-1 rounded hover:bg-kin-surface text-kin-muted hover:text-emerald-400 transition cursor-pointer"
+                title="Create New Goal"
               >
-                <Plus className="w-3 h-3 text-emerald-500" />
-                <span className="text-[9px] font-mono lowercase">Goal</span>
-              </button>
-              <button
-                onClick={() => setNewTaskModalOpen(true)}
-                className="flex items-center space-x-0.5 px-1.5 py-0.5 rounded hover:bg-kin-card text-kin-muted hover:text-blue-500 transition cursor-pointer"
-                title="Create Task in Active Goal"
-              >
-                <Plus className="w-3 h-3 text-blue-500" />
-                <span className="text-[9px] font-mono lowercase">Task</span>
+                <Plus className="w-3 h-3" />
               </button>
             </div>
           </div>
@@ -589,63 +576,67 @@ export const Sidebar: React.FC = () => {
           )}
         </div>
 
-        {/* ARCHITECTURE DECISION RECORDS (ADR) SECTION */}
-        <div className="space-y-1">
-          <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-kin-muted">
-            <div className="flex items-center space-x-1">
-              <Scale className="w-3.5 h-3.5 text-amber-500" />
-              <span>Decisions (ADR)</span>
-            </div>
-            <button
-              onClick={() => setDecisionsModalOpen(true)}
-              className="p-0.5 rounded hover:bg-kin-card text-kin-muted hover:text-amber-500 transition cursor-pointer"
-              title="Open Architecture Decision Records Modal"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
+        {/* Direct Action: Decisions */}
+        <div className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-kin-card text-kin-muted hover:text-kin-text transition group">
           <button
+            type="button"
             onClick={() => setDecisionsModalOpen(true)}
-            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-kin-muted hover:bg-kin-card hover:text-kin-text transition border border-kin-border group cursor-pointer"
+            className="flex items-center space-x-2 truncate flex-1 text-left cursor-pointer"
+            title="Open Architectural Decisions"
           >
-            <div className="flex items-center space-x-2 truncate">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
-              <span className="truncate">Decision Records</span>
-            </div>
+            <Scale className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+            <span className="text-xs font-medium truncate">Decisions</span>
+          </button>
+          <div className="flex items-center space-x-1 shrink-0">
             <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-500 font-semibold border border-amber-500/20">
               {decisions.length}
             </span>
-          </button>
-        </div>
-
-        {/* AUTOMATIONS & SCHEDULES SECTION */}
-        <div className="space-y-1">
-          <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-kin-muted">
-            <div className="flex items-center space-x-1">
-              <Clock className="w-3.5 h-3.5 text-cyan-500" />
-              <span>Automations & Schedules</span>
-            </div>
+            <button
+              type="button"
+              onClick={() => setDecisionsModalOpen(true)}
+              className="p-1 rounded hover:bg-kin-surface text-kin-muted hover:text-amber-400 transition cursor-pointer"
+              title="Add Decision Record"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
           </div>
-
-          <button
-            onClick={() => setActiveMainView('automations')}
-            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg transition border group cursor-pointer ${
-              activeMainView === 'automations'
-                ? 'bg-cyan-500/15 text-cyan-400 font-semibold border-cyan-500/40 shadow-xs'
-                : 'text-kin-muted hover:bg-kin-card hover:text-kin-text border-kin-border'
-            }`}
-            title="Open Automations, Scheduled Routines & Directive Blueprints"
-          >
-            <div className="flex items-center space-x-2 truncate">
-              <span className={`w-1.5 h-1.5 rounded-full ${activeMainView === 'automations' ? 'bg-cyan-400' : 'bg-cyan-500'}`} />
-              <span className="truncate">Schedules & Routines</span>
-            </div>
-            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-cyan-500/10 text-cyan-400 font-semibold border border-cyan-500/20">
-              {schedules.filter((s) => s.status === 'active').length} active
-            </span>
-          </button>
         </div>
+
+        {/* Direct Action: Automations */}
+        <button
+          type="button"
+          onClick={() => setActiveMainView('automations')}
+          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg transition group cursor-pointer ${
+            activeMainView === 'automations'
+              ? 'bg-cyan-500/15 text-cyan-400 font-semibold border border-cyan-500/30'
+              : 'text-kin-muted hover:bg-kin-card hover:text-kin-text'
+          }`}
+          title="Open Automations & Routines"
+        >
+          <div className="flex items-center space-x-2 truncate">
+            <Clock className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <span className="text-xs font-medium truncate">Automations</span>
+          </div>
+          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-cyan-500/10 text-cyan-400 font-semibold border border-cyan-500/20">
+            {schedules.filter((s) => s.status === 'active').length} active
+          </span>
+        </button>
+
+        {/* Direct Action: Team Workforce */}
+        <button
+          type="button"
+          onClick={() => setWorkforceModalOpen(true)}
+          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-kin-muted hover:bg-kin-card hover:text-kin-text transition group cursor-pointer"
+          title="Open Team Workforce & Specialist Registry"
+        >
+          <div className="flex items-center space-x-2 truncate">
+            <Users className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <span className="text-xs font-medium truncate">Team & Agents</span>
+          </div>
+          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-400 font-semibold border border-blue-500/20">
+            {agents.length}
+          </span>
+        </button>
       </div>
 
       {/* Bottom Settings & Preferences Bar */}

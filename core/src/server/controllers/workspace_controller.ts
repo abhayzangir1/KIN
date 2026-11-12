@@ -261,7 +261,7 @@ export class WorkspaceController extends BaseController {
 
       // 7a-1. GET /api/projects/:id/artifacts — List project deliverables and files
       const projectArtifactsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/artifacts$/);
-      if (req.method === 'GET' && projectArtifactsMatch) {
+      if (req.method === 'GET' && projectArtifactsMatch && !parsedUrl.searchParams.has('path')) {
         const projectId = projectArtifactsMatch[1];
         const project = this.workspaceRepo.getProject(projectId);
         if (!project || !fs.existsSync(project.repoPath)) {
@@ -337,9 +337,9 @@ export class WorkspaceController extends BaseController {
         return this.sendJson(res, 200, { artifacts });
       }
 
-      // 7a-2. GET /api/projects/:id/artifacts/file — View specific artifact content
-      const projectArtifactFileMatch = pathname.match(/^\/api\/projects\/([^/]+)\/artifacts\/file$/);
-      if (req.method === 'GET' && projectArtifactFileMatch) {
+      // 7a-2. GET /api/projects/:id/artifacts/file or /api/projects/:id/artifacts?path=... — View specific artifact content
+      const projectArtifactFileMatch = pathname.match(/^\/api\/projects\/([^/]+)\/artifacts(?:\/file)?$/);
+      if (req.method === 'GET' && projectArtifactFileMatch && parsedUrl.searchParams.has('path')) {
         const projectId = projectArtifactFileMatch[1];
         const project = this.workspaceRepo.getProject(projectId);
         const relPath = parsedUrl.searchParams.get('path');
@@ -402,6 +402,43 @@ export class WorkspaceController extends BaseController {
 
         const stats = fs.statSync(resolvedPath);
         const isBinary = this.isBinaryFile(resolvedPath);
+
+        if (parsedUrl.searchParams.get('raw') === 'true' || parsedUrl.searchParams.get('download') === 'true') {
+          this.handleCors(res, req);
+          const ext = path.extname(resolvedPath).toLowerCase();
+          const mimeTypes: Record<string, string> = {
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif',
+            '.webp': 'image/webp',
+            '.svg': 'image/svg+xml',
+            '.pdf': 'application/pdf',
+            '.txt': 'text/plain; charset=utf-8',
+            '.md': 'text/markdown; charset=utf-8',
+            '.json': 'application/json',
+          };
+          const contentType = mimeTypes[ext] || (isBinary ? 'application/octet-stream' : 'text/plain; charset=utf-8');
+          const isDownload = parsedUrl.searchParams.get('download') === 'true';
+          const safeFilename = path.basename(resolvedPath).replace(/["\r\n\x00-\x1f]/g, '_');
+          res.writeHead(200, {
+            'Content-Type': contentType,
+            ...(isDownload ? { 'Content-Disposition': `attachment; filename="${safeFilename}"` } : {}),
+            'Content-Length': stats.size,
+          });
+          const stream = fs.createReadStream(resolvedPath);
+          stream.on('error', (err) => {
+            console.warn('[workspace_controller] Error streaming file:', err);
+            if (!res.headersSent) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Failed to read file stream' }));
+            } else {
+              res.end();
+            }
+          });
+          stream.pipe(res);
+          return true;
+        }
         let content = '';
         let truncated = false;
 

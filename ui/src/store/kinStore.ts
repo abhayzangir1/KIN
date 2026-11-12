@@ -548,6 +548,20 @@ export type SettingsTab =
   | 'layout'
   | 'about';
 
+export interface FileAttachment {
+  id?: string;
+  filename: string;
+  mimeType?: string;
+  size?: number;
+  url?: string;
+  content?: string;
+  path?: string;
+}
+
+export interface FilePreviewItem extends FileAttachment {
+  contentBase64?: string;
+}
+
 export interface ToastItem {
   id: string;
   type: 'success' | 'error' | 'info' | 'warning';
@@ -1014,6 +1028,13 @@ interface KinState {
   deleteDecision: (decisionId: string) => Promise<{ success: boolean; error?: string }>;
   isDecisionsModalOpen: boolean;
   setDecisionsModalOpen: (open: boolean) => void;
+  isWorkforceModalOpen: boolean;
+  setWorkforceModalOpen: (open: boolean) => void;
+  previewFile: FilePreviewItem | null;
+  openFilePreview: (file: FilePreviewItem) => void;
+  closeFilePreview: () => void;
+  replyingToMessage: MessageItem | null;
+  setReplyingToMessage: (msg: MessageItem | null) => void;
 
   // Project & Live Analytics State
   projectAnalytics?: ProjectAnalytics;
@@ -1245,7 +1266,7 @@ interface KinState {
   runTerminalCommand: (command: string) => Promise<void>;
   clearTerminalHistory: () => void;
   updateAgentContract: (agentId: string, roleTitle: string, activeModelId: string, systemPrompt?: string, capabilities?: string[]) => Promise<{ success: boolean; error?: string }>;
-  sendMessage: (content: string, overrideChannelId?: string, isSteer?: boolean) => Promise<{ success: boolean; error?: string }>;
+  sendMessage: (content: string, overrideChannelId?: string, isSteer?: boolean, metadata?: Record<string, any>) => Promise<{ success: boolean; error?: string }>;
   setAutonomyMode: (mode: 'AUTO' | 'ALWAYS_ASK' | 'FULL_ACCESS') => Promise<{ success: boolean; error?: string }>;
   resolveApproval: (approvalId: string, approved: boolean | 'approved' | 'rejected') => Promise<{ success: boolean; error?: string }>;
   setActiveInspectorTab: (tab: KinState['activeInspectorTab']) => void;
@@ -1264,7 +1285,7 @@ interface KinState {
 
   // Upload Actions
   fetchUploads: (projectId?: string) => Promise<void>;
-  uploadFile: (file: File) => Promise<{ success: boolean; error?: string }>;
+  uploadFile: (file: File) => Promise<{ success: boolean; upload?: any; error?: string }>;
   deleteUpload: (uploadId: string) => Promise<boolean>;
 
   // Instant Human Takeover Actions
@@ -1371,6 +1392,9 @@ export const useKinStore = create<KinState>((set, get) => ({
   tasks: [],
   decisions: [],
   isDecisionsModalOpen: false,
+  isWorkforceModalOpen: false,
+  previewFile: null,
+  replyingToMessage: null,
   activeMainView: 'chat',
   systemHealth: null,
   isAutomationsModalOpen: false,
@@ -3704,13 +3728,17 @@ export const useKinStore = create<KinState>((set, get) => ({
     await get().sendMessage(item.content, item.channelId, true);
   },
 
-  sendMessage: async (content: string, overrideChannelId?: string, isSteer?: boolean): Promise<{ success: boolean; error?: string }> => {
+  sendMessage: async (content: string, overrideChannelId?: string, isSteer?: boolean, metadata?: Record<string, any>): Promise<{ success: boolean; error?: string }> => {
     const channelId = overrideChannelId || get().activeChannelId;
     try {
       const res = await fetch(`/api/channels/${channelId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, ...(isSteer ? { isSteer: true } : {}) }),
+        body: JSON.stringify({
+          content,
+          ...(isSteer ? { isSteer: true } : {}),
+          ...(metadata ? { metadata } : {}),
+        }),
       });
       if (!res.ok) {
         let errMessage = `HTTP ${res.status}: ${res.statusText}`;
@@ -4009,6 +4037,10 @@ export const useKinStore = create<KinState>((set, get) => ({
   },
 
   setDecisionsModalOpen: (open) => set({ isDecisionsModalOpen: open }),
+  setWorkforceModalOpen: (open) => set({ isWorkforceModalOpen: open }),
+  openFilePreview: (file) => set({ previewFile: file }),
+  closeFilePreview: () => set({ previewFile: null }),
+  setReplyingToMessage: (msg) => set({ replyingToMessage: msg }),
 
   setNewGoalModalOpen: (open) => set({ isNewGoalModalOpen: open }),
   setNewTaskModalOpen: (open) => set({ isNewTaskModalOpen: open }),
@@ -4214,7 +4246,7 @@ export const useKinStore = create<KinState>((set, get) => ({
           : [data.upload, ...state.uploads],
         isUploading: false,
       }));
-      return { success: true };
+      return { success: true, upload: data.upload };
     } catch (err: any) {
       set({ isUploading: false });
       return { success: false, error: err?.message || 'Upload error' };

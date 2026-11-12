@@ -160,6 +160,7 @@ export interface Message {
   productivityScore: number;
   isBackground?: boolean;
   is_background?: boolean;
+  metadata?: Record<string, any>;
   createdAt: number;
 }
 

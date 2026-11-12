@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useKinStore } from '../store/kinStore.js';
-import { Folder, Plus, X, Copy, Check, Network, PanelRight, PanelRightClose } from 'lucide-react';
+import { Folder, Plus, X, Copy, Check, Network, Users, PanelRight, PanelRightClose } from 'lucide-react';
 import { ConfirmDialog, requestConfirmation } from './ConfirmDialog.js';
 
 export const HeaderBar: React.FC = () => {
@@ -12,6 +12,7 @@ export const HeaderBar: React.FC = () => {
     deleteProject,
     setNewProjectModalOpen,
     setSwarmMapOpen,
+    setWorkforceModalOpen,
     isConnected,
     setDesktopControlModalOpen,
     browserStatus,
@@ -143,6 +144,16 @@ export const HeaderBar: React.FC = () => {
         >
           <Network className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
           <span>Swarm Map</span>
+        </button>
+
+        {/* Team Workforce Hub Navigation Button */}
+        <button
+          onClick={() => setWorkforceModalOpen(true)}
+          className="flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-500/20 text-xs font-sans font-medium transition cursor-pointer"
+          title="Open Team Workforce & Specialist Registry"
+        >
+          <Users className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+          <span>Team ({agents.length})</span>
         </button>
       </div>
 

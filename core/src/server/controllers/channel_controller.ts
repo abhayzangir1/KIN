@@ -318,6 +318,7 @@ export class ChannelController extends BaseController {
               content: m.content,
               createdAt: m.createdAt,
               productivityScore: m.productivityScore,
+              metadata: m.metadata || {},
             };
           }),
         });
@@ -337,7 +338,7 @@ export class ChannelController extends BaseController {
     res: http.ServerResponse,
     channelId: string
   ): Promise<any> {
-        const body = await this.parseJsonBody<{ content: string; senderId?: string; senderType?: 'human' | 'agent' | 'system'; isSteer?: boolean }>(req);
+        const body = await this.parseJsonBody<{ content: string; senderId?: string; senderType?: 'human' | 'agent' | 'system'; isSteer?: boolean; metadata?: Record<string, any> }>(req);
 
         if (!body.content || !body.content.trim()) {
           return this.sendJson(res, 400, { error: 'Message content cannot be empty' });
@@ -489,6 +490,7 @@ export class ChannelController extends BaseController {
           senderId: body.senderId || 'user-operator',
           senderType,
           content: effectiveContent,
+          metadata: body.metadata,
         });
 
         const fenceToken = `fence-${userMsg.id}-${nowMs}`;
@@ -526,7 +528,7 @@ export class ChannelController extends BaseController {
             content: userMsg.content,
             createdAt: userMsg.createdAt,
             isSteer: false,
-            metadata: { isSideQuery: true },
+            metadata: { isSideQuery: true, ...(body.metadata || {}) },
           };
           this.broadcastEvent('message:created', formattedUserMsg);
           this.sendJson(res, 201, { message: formattedUserMsg, triggeredCount: 1, sideQuery: true });
@@ -750,6 +752,7 @@ export class ChannelController extends BaseController {
           content: userMsg.content,
           createdAt: userMsg.createdAt,
           isSteer,
+          metadata: body.metadata || (userMsg as any).metadata || {},
         };
 
         this.broadcastEvent('message:created', formattedUserMsg);

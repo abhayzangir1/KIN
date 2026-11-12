@@ -115,6 +115,16 @@ Manage local Ollama connectivity, configure encrypted API keys (AES-256-GCM) for
 
 ![Settings and BYOK Vault](docs/assets/screenshots/03_settings_and_credentials.png)
 
+### 8. Team Workforce Hub & Specialist Registry
+Centralized multi-agent management console to inspect, tune instructions, allocate models, and monitor capabilities across all project specialists from one unified command surface.
+
+![Team Workforce Hub](docs/assets/screenshots/11_workforce_registry_hub.png)
+
+### 9. In-App Universal File Viewer & Rich Chat Attachments
+Preview shared images with smooth pan/zoom, inspect embedded PDFs, browse syntax-highlighted code artifacts, and download deliverables directly within the workspace without cluttering message timelines.
+
+![Universal File Preview & Deliverables](docs/assets/screenshots/12_universal_file_preview_modal.png)
+
 ---
 
 ## 🌟 Key Features

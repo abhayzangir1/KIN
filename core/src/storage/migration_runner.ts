@@ -279,11 +279,14 @@ export class MigrationRunner {
         }
       }
 
-      // Pre-migration: messages table is_background column
+      // Pre-migration: messages table is_background and metadata_json columns
       if (existingTables.includes('messages')) {
         const msgCols = this.db.query<{ name: string }>("PRAGMA table_info(messages);").map((c) => c.name);
         if (!msgCols.includes('is_background')) {
           this.db.exec('ALTER TABLE messages ADD COLUMN is_background BOOLEAN NOT NULL DEFAULT 0;');
+        }
+        if (!msgCols.includes('metadata_json')) {
+          this.db.exec("ALTER TABLE messages ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}';");
         }
       }
 

@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS messages (
     mentions_json TEXT NOT NULL DEFAULT '[]',
     productivity_score INTEGER NOT NULL DEFAULT 0,
     is_background BOOLEAN NOT NULL DEFAULT 0,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
     created_at INTEGER NOT NULL
 );
 

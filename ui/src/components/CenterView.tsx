@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
+import { useKinStore, isAgentAvailable, FileAttachment } from '../store/kinStore.js';
 import {
   Send,
   Mic,
   Paperclip,
   AtSign,
   UserPlus,
+  Users,
   X,
   Shield,
   AlertTriangle,
@@ -21,6 +22,7 @@ import {
   Plus,
   Cpu,
   Wrench,
+  CornerDownRight,
 } from 'lucide-react';
 import { HumanTakeoverBanner } from './HumanTakeoverBanner.js';
 import { QuotaPauseBanner } from './banners/QuotaPauseBanner.js';
@@ -79,6 +81,9 @@ export const CenterView: React.FC = () => {
     fetchSkills,
     setSettingsModalOpen,
     setConnectorsModalOpen,
+    setWorkforceModalOpen,
+    replyingToMessage,
+    setReplyingToMessage,
     addToast,
   } = useKinStore();
 
@@ -241,29 +246,45 @@ export const CenterView: React.FC = () => {
   };
   const recognitionRef = useRef<any>(null);
   const chatFileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingAttachments, setPendingAttachments] = useState<FileAttachment[]>([]);
 
   const handleChatFileUpload = async (files: FileList | File[]) => {
     if (!files || files.length === 0) return;
-    setChatUploadStatus(`Uploading ${files.length} file(s)...`);
-    const attachedLinks: string[] = [];
+    setChatUploadStatus(`Attaching ${files.length} file(s)...`);
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const res = await uploadFile(file);
-      if (res.success) {
-        attachedLinks.push(`[📎 ${file.name}]`);
+      if (res.success && res.upload) {
+        const up = res.upload;
+        setPendingAttachments((prev) => [
+          ...prev,
+          {
+            id: up.id,
+            filename: up.originalName || up.filename || file.name,
+            size: up.size || file.size,
+            mimeType: up.mimeType || file.type,
+            url: `/api/projects/${activeProjectId}/uploads/${up.id}/download`,
+            path: up.relativePath,
+          },
+        ]);
+      } else if (res.success) {
+        setPendingAttachments((prev) => [
+          ...prev,
+          {
+            filename: file.name,
+            size: file.size,
+            mimeType: file.type,
+          },
+        ]);
       } else {
-        setChatUploadStatus(`Upload error: ${res.error || 'Failed'}`);
+        setChatUploadStatus(`Upload notice: ${res.error || 'Failed'}`);
         setTimeout(() => setChatUploadStatus(null), 3000);
       }
     }
 
-    if (attachedLinks.length > 0) {
-      setInputText((prev) => (prev ? `${prev} ${attachedLinks.join(' ')} ` : `${attachedLinks.join(' ')} `));
-      setChatUploadStatus(`Attached ${attachedLinks.length} file(s)`);
-      setTimeout(() => setChatUploadStatus(null), 2500);
-      inputRef.current?.focus();
-    }
+    setChatUploadStatus(null);
+    inputRef.current?.focus();
   };
 
   useEffect(() => {
@@ -513,20 +534,39 @@ export const CenterView: React.FC = () => {
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || isSending) return;
+    if ((!inputText.trim() && pendingAttachments.length === 0) || isSending) return;
     if (isChannelExecuting && !inputText.trim().startsWith('/') && !inputText.trim().startsWith('>')) {
       handleQueueNext();
       return;
     }
-    const textToSend = inputText.trim();
+    const textToSend = inputText.trim() || (pendingAttachments.length > 0 ? pendingAttachments.map((a) => a.filename).join(', ') : '');
+    const metadata: Record<string, any> = {};
+    if (replyingToMessage) {
+      metadata.replyTo = {
+        messageId: replyingToMessage.id,
+        senderName: replyingToMessage.senderName,
+        excerpt: replyingToMessage.content.slice(0, 100),
+      };
+    }
+    if (pendingAttachments.length > 0) {
+      metadata.attachments = pendingAttachments;
+    }
+
     setSendError(null);
     setIsSending(true);
-    const res = await sendMessage(textToSend);
+    const res = await sendMessage(
+      textToSend,
+      undefined,
+      false,
+      Object.keys(metadata).length > 0 ? metadata : undefined
+    );
     setIsSending(false);
     if (res && !res.success) {
       setSendError(res.error || 'Failed to deliver message');
     } else {
       setInputText('');
+      setPendingAttachments([]);
+      setReplyingToMessage(null);
       if (activeChannelId) {
         try {
           localStorage.removeItem(`kin_draft_${activeChannelId}`);
@@ -644,10 +684,20 @@ export const CenterView: React.FC = () => {
                 ))}
               </div>
 
+              {/* Workforce Manager Hub Button */}
+              <button
+                onClick={() => setWorkforceModalOpen(true)}
+                className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[11px] font-mono transition shrink-0 cursor-pointer"
+                title="Open Team Workforce & Specialist Registry"
+              >
+                <Users className="w-3 h-3 text-blue-400" />
+                <span>Team ({agents.length})</span>
+              </button>
+
               {/* Add Agent Button */}
               <button
                 onClick={() => setAddAgentModalOpen(true)}
-                className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-kin-card hover:bg-emerald-600/30 hover:text-emerald-300 text-kin-text border border-kin-border text-[11px] transition shrink-0"
+                className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-kin-card hover:bg-emerald-600/30 hover:text-emerald-300 text-kin-text border border-kin-border text-[11px] transition shrink-0 cursor-pointer"
                 title="Assign Existing Agent or Hire Specialist"
               >
                 <UserPlus className="w-3 h-3 text-emerald-400" />
@@ -1067,6 +1117,57 @@ export const CenterView: React.FC = () => {
             >
               <X className="w-3.5 h-3.5" />
             </button>
+          </div>
+        )}
+
+        {/* Replying to Context Banner */}
+        {replyingToMessage && (
+          <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-blue-500/15 border border-blue-500/30 text-xs text-blue-300 animate-fadeIn select-none shadow-xs">
+            <div className="flex items-center space-x-2 truncate min-w-0">
+              <CornerDownRight className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+              <span className="font-semibold text-blue-400 shrink-0">
+                Replying to @{replyingToMessage.senderName || 'Agent'}:
+              </span>
+              <span className="truncate italic text-kin-muted max-w-md">
+                "{replyingToMessage.content.slice(0, 100)}"
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReplyingToMessage(null)}
+              className="p-1 rounded-lg hover:bg-blue-500/20 text-blue-300 hover:text-white transition cursor-pointer ml-2 shrink-0"
+              title="Cancel reply"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Attached Files Tray */}
+        {pendingAttachments.length > 0 && (
+          <div className="flex items-center space-x-2 overflow-x-auto py-1 px-1 no-scrollbar animate-fadeIn">
+            {pendingAttachments.map((att, idx) => (
+              <div
+                key={att.id || idx}
+                className="flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-kin-surface border border-kin-border text-xs text-kin-text shrink-0 shadow-xs group"
+              >
+                <Paperclip className="w-3 h-3 text-cyan-400 shrink-0" />
+                <span className="truncate max-w-[150px] font-medium" title={att.filename}>{att.filename}</span>
+                {att.size ? (
+                  <span className="text-[10px] font-mono text-kin-muted">
+                    ({att.size < 1024 ? `${att.size}B` : `${Math.round(att.size / 1024)}KB`})
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setPendingAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                  className="p-0.5 rounded hover:bg-kin-card text-kin-muted hover:text-red-400 transition cursor-pointer ml-1"
+                  title="Remove attachment"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
           </div>
         )}
 

@@ -27,6 +27,8 @@ const AutomationsModal = React.lazy(() => import('./components/AutomationsModal.
 const DesktopControlModal = React.lazy(() => import('./components/DesktopControlModal.js').then(m => ({ default: m.DesktopControlModal })));
 const DecisionsModal = React.lazy(() => import('./components/DecisionsModal.js').then(m => ({ default: m.DecisionsModal })));
 const AgentSettingsModal = React.lazy(() => import('./components/AgentSettingsModal.js').then(m => ({ default: m.AgentSettingsModal })));
+const WorkforceManagerModal = React.lazy(() => import('./components/workforce/WorkforceManagerModal.js').then(m => ({ default: m.WorkforceManagerModal })));
+const FilePreviewModal = React.lazy(() => import('./components/files/FilePreviewModal.js').then(m => ({ default: m.FilePreviewModal })));
 
 export const App: React.FC = () => {
   useKeyboardShortcuts();
@@ -40,6 +42,7 @@ export const App: React.FC = () => {
     themeSettings,
     isConnected,
     projectAnalytics,
+    tasks,
     mcpConnectors,
     openSettingsModal,
     isSettingsModalOpen,
@@ -50,6 +53,11 @@ export const App: React.FC = () => {
     isDesktopControlModalOpen,
     isDecisionsModalOpen,
     isAgentSettingsModalOpen,
+    isWorkforceModalOpen,
+    previewFile,
+    projects,
+    activeProjectId,
+    autonomyMode,
     addToast,
   } = useKinStore();
 
@@ -230,35 +238,62 @@ export const App: React.FC = () => {
               <AgentSettingsModal />
             </Suspense>
           )}
+          {isWorkforceModalOpen && (
+            <Suspense fallback={null}>
+              <WorkforceManagerModal />
+            </Suspense>
+          )}
+          {previewFile && (
+            <Suspense fallback={null}>
+              <FilePreviewModal />
+            </Suspense>
+          )}
           <ToastContainer />
         </ErrorBoundary>
 
-        {/* Bottom-Right Micro-Telemetry Dock (Non-intrusive system health) */}
-        <div className="fixed bottom-2 right-3 z-30 pointer-events-auto flex items-center space-x-2 text-[10px] font-mono text-kin-muted/70 bg-kin-surface/85 backdrop-blur-md px-2.5 py-0.5 rounded-md border border-kin-border/60 shadow-xs select-none">
-          <div
-            className={`flex items-center space-x-1 ${isConnected ? 'text-emerald-500' : 'text-amber-500'}`}
-            title={isConnected ? 'SQLite 3 WAL Engine Active' : 'Connecting to Core Daemon...'}
-          >
-            <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
-            <span>DB: {isConnected ? 'WAL' : 'Connecting...'}</span>
+        {/* Permanent Bottom Application Status Bar (Zero Overlap with Promptbox) */}
+        <footer className="h-6 bg-kin-surface/90 border-t border-kin-border px-3 flex items-center justify-between text-[10px] font-mono text-kin-muted shrink-0 select-none z-20">
+          <div className="flex items-center space-x-3">
+            <div
+              className={`flex items-center space-x-1.5 ${isConnected ? 'text-emerald-500' : 'text-amber-500'}`}
+              title={isConnected ? 'SQLite 3 WAL Engine Active' : 'Connecting to Core Daemon...'}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
+              <span>DB: {isConnected ? 'WAL' : 'Connecting...'}</span>
+            </div>
+            <span className="text-kin-border/60">|</span>
+            <span className="text-kin-text/80 truncate max-w-[200px]" title="Current Active Project">
+              Project: {projects.find((p) => p.id === activeProjectId)?.name || 'Default'}
+            </span>
+            <span className="text-kin-border/60">|</span>
+            <span className="text-kin-muted/80">Autonomy: {autonomyMode}</span>
           </div>
-          {projectAnalytics && (
-            <>
-              <span className="text-kin-muted/30">|</span>
-              <span title={`Tasks: ${projectAnalytics.completedTasks}/${projectAnalytics.totalTasks} completed (${projectAnalytics.taskCompletionRate}%)`}>
-                Tasks: {projectAnalytics.completedTasks}/{projectAnalytics.totalTasks}
-              </span>
-            </>
-          )}
-          <span className="text-kin-muted/30">|</span>
-          <button
-            onClick={() => openSettingsModal('connectors')}
-            className="hover:text-kin-text transition cursor-pointer"
-            title="Model Context Protocol (MCP) Connectors Hub"
-          >
-            MCP: {mcpConnectors.filter((c) => !c.disabled).length}
-          </button>
-        </div>
+
+          <div className="flex items-center space-x-3">
+            {projectAnalytics ? (
+              <>
+                <span title={`Tasks: ${projectAnalytics.completedTasks}/${projectAnalytics.totalTasks} completed (${projectAnalytics.taskCompletionRate}%)`}>
+                  Tasks: {projectAnalytics.completedTasks}/{projectAnalytics.totalTasks}
+                </span>
+                <span className="text-kin-border/60">|</span>
+              </>
+            ) : (
+              <>
+                <span title={`Tasks: ${tasks.filter((t) => t.status === 'completed').length}/${tasks.length} completed`}>
+                  Tasks: {tasks.filter((t) => t.status === 'completed').length}/{tasks.length}
+                </span>
+                <span className="text-kin-border/60">|</span>
+              </>
+            )}
+            <button
+              onClick={() => openSettingsModal('connectors')}
+              className="hover:text-kin-text transition cursor-pointer"
+              title="Model Context Protocol (MCP) Connectors Hub"
+            >
+              MCP: {mcpConnectors.filter((c) => !c.disabled).length}
+            </button>
+          </div>
+        </footer>
       </div>
     </ErrorBoundary>
   );
