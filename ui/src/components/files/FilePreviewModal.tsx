@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   X,
   Download,
@@ -11,6 +11,13 @@ import {
   Copy,
   Check,
   File,
+  Table,
+  Eye,
+  Code2,
+  Volume2,
+  Video,
+  FileSpreadsheet,
+  FileArchive,
 } from 'lucide-react';
 import { useKinStore } from '../../store/kinStore.js';
 import { CodeBlock } from '../code/CodeBlock.js';
@@ -21,20 +28,62 @@ export const FilePreviewModal: React.FC = () => {
   const [copied, setCopied] = useState<boolean>(false);
   const [textContent, setTextContent] = useState<string | null>(null);
   const [isLoadingContent, setIsLoadingContent] = useState<boolean>(false);
+  const [viewMode, setViewMode] = useState<'rendered' | 'code' | 'table'>('rendered');
 
   function isTextOrCode(fn: string, mime: string = '') {
     if (mime.startsWith('text/') || mime === 'application/json') return true;
-    return /\.(ts|tsx|js|jsx|py|rs|json|md|txt|html|css|scss|yaml|yml|sh|bat|ps1|sql|env|xml|log)$/i.test(fn);
+    return /\.(ts|tsx|js|jsx|mjs|cjs|py|rs|json|md|markdown|txt|text|html|htm|css|scss|sass|less|yaml|yml|sh|bash|zsh|bat|cmd|ps1|sql|env|xml|log|csv|tsv|ini|conf|config|toml|properties|diff|patch|dockerfile|gitignore)$/i.test(fn);
   }
 
   function isImage(fn: string, mime: string = '') {
     if (mime.startsWith('image/')) return true;
-    return /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(fn);
+    return /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i.test(fn);
   }
 
   function isPdf(fn: string, mime: string = '') {
     if (mime === 'application/pdf') return true;
     return /\.pdf$/i.test(fn);
+  }
+
+  function isHtml(fn: string, mime: string = '') {
+    if (mime === 'text/html') return true;
+    return /\.(html|htm)$/i.test(fn);
+  }
+
+  function isMarkdown(fn: string) {
+    return /\.(md|markdown)$/i.test(fn);
+  }
+
+  function isCsv(fn: string, mime: string = '') {
+    if (mime === 'text/csv' || mime.includes('tab-separated')) return true;
+    return /\.(csv|tsv)$/i.test(fn);
+  }
+
+  function isAudio(fn: string, mime: string = '') {
+    if (mime.startsWith('audio/')) return true;
+    return /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(fn);
+  }
+
+  function isVideo(fn: string, mime: string = '') {
+    if (mime.startsWith('video/')) return true;
+    return /\.(mp4|webm|mov|mkv)$/i.test(fn);
+  }
+
+  function isOfficeDoc(fn: string, mime: string = '') {
+    if (
+      mime.includes('word') ||
+      mime.includes('document') ||
+      mime.includes('spreadsheet') ||
+      mime.includes('presentation')
+    ) {
+      return true;
+    }
+    return /\.(doc|docx|odt|rtf|xls|xlsx|ods|ppt|pptx|odp)$/i.test(fn);
+  }
+
+  function isArchive(fn: string, mime: string = '') {
+    if (mime.includes('zip') || mime.includes('tar') || mime.includes('gzip')) return true;
+    return /\.(zip|tar|gz|7z|rar|bz2|xz)$/i.test(fn);
   }
 
   useEffect(() => {
@@ -43,12 +92,29 @@ export const FilePreviewModal: React.FC = () => {
     setTextContent(previewFile?.content || null);
 
     if (previewFile) {
+      const fn = previewFile.filename || (previewFile as any).name || '';
+      const mime = previewFile.mimeType || '';
+
+      if (isHtml(fn, mime) || isMarkdown(fn)) {
+        setViewMode('rendered');
+      } else if (isCsv(fn, mime)) {
+        setViewMode('table');
+      } else {
+        setViewMode('code');
+      }
+
       if (previewFile.content) {
         setTextContent(previewFile.content);
-      } else if (previewFile.path && activeProjectId && isTextOrCode(previewFile.filename, previewFile.mimeType || '')) {
+      } else if (previewFile.path && activeProjectId && (isTextOrCode(fn, mime) || isHtml(fn, mime))) {
         setIsLoadingContent(true);
         const cleanPath = previewFile.path.replace(/^file:\/\/\//, '').replace(/#[L\d-]+$/i, '');
-        fetch(`/api/projects/${activeProjectId}/artifacts?path=${encodeURIComponent(cleanPath)}`)
+        const token = typeof window !== 'undefined'
+          ? window.sessionStorage?.getItem('kin_ipc_token') || window.localStorage?.getItem('kin_ipc_token')
+          : null;
+        const headers: Record<string, string> = {};
+        if (token) headers['x-kin-ipc-token'] = token;
+        const fetchUrl = `/api/projects/${activeProjectId}/artifacts?path=${encodeURIComponent(cleanPath)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+        fetch(fetchUrl, { headers })
           .then((res) => {
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             return res.json();
@@ -61,9 +127,17 @@ export const FilePreviewModal: React.FC = () => {
             setTextContent(null);
           })
           .finally(() => setIsLoadingContent(false));
-      } else if (previewFile.url && isTextOrCode(previewFile.filename, previewFile.mimeType || '')) {
+      } else if (previewFile.url && (isTextOrCode(fn, mime) || isHtml(fn, mime))) {
         setIsLoadingContent(true);
-        fetch(previewFile.url)
+        const token = typeof window !== 'undefined'
+          ? window.sessionStorage?.getItem('kin_ipc_token') || window.localStorage?.getItem('kin_ipc_token')
+          : null;
+        const headers: Record<string, string> = {};
+        if (token) headers['x-kin-ipc-token'] = token;
+        const fetchUrl = previewFile.url.includes('?')
+          ? `${previewFile.url}${token ? `&token=${encodeURIComponent(token)}` : ''}`
+          : `${previewFile.url}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+        fetch(fetchUrl, { headers })
           .then((res) => {
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             return res.text();
@@ -89,18 +163,73 @@ export const FilePreviewModal: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [previewFile, closeFilePreview]);
 
+  // CSV parsing
+  const csvData = useMemo(() => {
+    const fn = previewFile ? previewFile.filename || (previewFile as any).name || '' : '';
+    if (!textContent || !previewFile || !isCsv(fn, previewFile.mimeType || '')) {
+      return null;
+    }
+    const delimiter = previewFile.filename.endsWith('.tsv') ? '\t' : ',';
+    const lines = textContent.trim().split(/\r?\n/);
+    if (lines.length === 0) return null;
+
+    const parseLine = (line: string) => {
+      const cells: string[] = [];
+      let current = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        if (char === '"') {
+          if (inQuotes && line[i + 1] === '"') {
+            current += '"';
+            i++;
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if (char === delimiter && !inQuotes) {
+          cells.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      cells.push(current.trim());
+      return cells;
+    };
+
+    const headers = parseLine(lines[0]);
+    const rows = lines.slice(1, 101).map(parseLine);
+    return { headers, rows, totalRows: lines.length - 1 };
+  }, [textContent, previewFile]);
+
   if (!previewFile) return null;
 
-  const { filename, mimeType = '', size, path } = previewFile;
+  const filename = previewFile.filename || (previewFile as any).name || 'file';
+  const { mimeType = '', size, path } = previewFile;
   const cleanPath = previewFile.path ? previewFile.path.replace(/^file:\/\/\//, '').replace(/#[L\d-]+$/i, '') : undefined;
-  const effectiveUrl =
+  const token = typeof window !== 'undefined'
+    ? window.sessionStorage?.getItem('kin_ipc_token') || window.localStorage?.getItem('kin_ipc_token')
+    : null;
+  const rawUrl =
     previewFile.url ||
     (cleanPath && activeProjectId
       ? `/api/projects/${activeProjectId}/artifacts?path=${encodeURIComponent(cleanPath)}&raw=true`
       : undefined);
+  const effectiveUrl = useMemo(() => {
+    if (!rawUrl) return undefined;
+    if (!token) return rawUrl;
+    return rawUrl.includes('?') ? `${rawUrl}&token=${encodeURIComponent(token)}` : `${rawUrl}?token=${encodeURIComponent(token)}`;
+  }, [rawUrl, token]);
 
   const isImg = isImage(filename, mimeType);
   const isDocPdf = isPdf(filename, mimeType);
+  const isHtmlDoc = isHtml(filename, mimeType);
+  const isMdDoc = isMarkdown(filename);
+  const isCsvDoc = isCsv(filename, mimeType);
+  const isAud = isAudio(filename, mimeType);
+  const isVid = isVideo(filename, mimeType);
+  const isOffDoc = isOfficeDoc(filename, mimeType);
+  const isArch = isArchive(filename, mimeType);
   const isCode = isTextOrCode(filename, mimeType);
 
   const getLanguage = (fn: string) => {
@@ -111,6 +240,8 @@ export const FilePreviewModal: React.FC = () => {
         return 'typescript';
       case 'js':
       case 'jsx':
+      case 'mjs':
+      case 'cjs':
         return 'javascript';
       case 'py':
         return 'python';
@@ -119,18 +250,29 @@ export const FilePreviewModal: React.FC = () => {
       case 'json':
         return 'json';
       case 'md':
+      case 'markdown':
         return 'markdown';
       case 'html':
+      case 'htm':
         return 'html';
       case 'css':
+      case 'scss':
+      case 'less':
         return 'css';
       case 'sql':
         return 'sql';
       case 'sh':
       case 'bash':
+      case 'zsh':
         return 'bash';
       case 'ps1':
         return 'powershell';
+      case 'yaml':
+      case 'yml':
+        return 'yaml';
+      case 'xml':
+      case 'svg':
+        return 'xml';
       default:
         return 'text';
     }
@@ -196,9 +338,17 @@ export const FilePreviewModal: React.FC = () => {
             <div className="p-2 rounded-xl bg-kin-card border border-kin-border text-kin-accent shrink-0">
               {isImg ? (
                 <ImageIcon className="w-4 h-4" />
-              ) : isDocPdf ? (
+              ) : isDocPdf || isOffDoc ? (
                 <FileText className="w-4 h-4" />
-              ) : isCode ? (
+              ) : isCsvDoc ? (
+                <FileSpreadsheet className="w-4 h-4" />
+              ) : isArch ? (
+                <FileArchive className="w-4 h-4" />
+              ) : isAud ? (
+                <Volume2 className="w-4 h-4" />
+              ) : isVid ? (
+                <Video className="w-4 h-4" />
+              ) : isCode || isHtmlDoc ? (
                 <FileCode className="w-4 h-4" />
               ) : (
                 <File className="w-4 h-4" />
@@ -219,6 +369,66 @@ export const FilePreviewModal: React.FC = () => {
 
           {/* Action Toolbar */}
           <div className="flex items-center space-x-1.5 shrink-0">
+            {/* View Mode Toggle for HTML, Markdown, and CSV */}
+            {(isHtmlDoc || isMdDoc) && textContent && (
+              <div className="flex items-center rounded-lg bg-kin-card border border-kin-border p-0.5 mr-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('rendered')}
+                  className={`flex items-center space-x-1 px-2.5 py-1 rounded-md transition cursor-pointer font-medium ${
+                    viewMode === 'rendered'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-kin-muted hover:text-kin-text'
+                  }`}
+                >
+                  <Eye className="w-3 h-3" />
+                  <span>Preview</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('code')}
+                  className={`flex items-center space-x-1 px-2.5 py-1 rounded-md transition cursor-pointer font-medium ${
+                    viewMode === 'code'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-kin-muted hover:text-kin-text'
+                  }`}
+                >
+                  <Code2 className="w-3 h-3" />
+                  <span>Source</span>
+                </button>
+              </div>
+            )}
+
+            {isCsvDoc && textContent && (
+              <div className="flex items-center rounded-lg bg-kin-card border border-kin-border p-0.5 mr-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('table')}
+                  className={`flex items-center space-x-1 px-2.5 py-1 rounded-md transition cursor-pointer font-medium ${
+                    viewMode === 'table'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-kin-muted hover:text-kin-text'
+                  }`}
+                >
+                  <Table className="w-3 h-3" />
+                  <span>Table</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('code')}
+                  className={`flex items-center space-x-1 px-2.5 py-1 rounded-md transition cursor-pointer font-medium ${
+                    viewMode === 'code'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-kin-muted hover:text-kin-text'
+                  }`}
+                >
+                  <Code2 className="w-3 h-3" />
+                  <span>Raw</span>
+                </button>
+              </div>
+            )}
+
+            {/* Image Zoom Toolbar */}
             {isImg && (
               <div className="flex items-center space-x-1 px-1.5 py-1 rounded-lg bg-kin-card border border-kin-border mr-1 text-kin-muted text-xs">
                 <button
@@ -251,7 +461,8 @@ export const FilePreviewModal: React.FC = () => {
               </div>
             )}
 
-            {isCode && textContent && (
+            {/* Copy Button for Text / Code / HTML */}
+            {textContent && (
               <button
                 type="button"
                 onClick={handleCopyContent}
@@ -263,6 +474,7 @@ export const FilePreviewModal: React.FC = () => {
               </button>
             )}
 
+            {/* Download Button */}
             {(effectiveUrl || textContent) && (
               <button
                 type="button"
@@ -288,6 +500,7 @@ export const FilePreviewModal: React.FC = () => {
 
         {/* Viewer Viewport */}
         <div className="flex-1 overflow-auto bg-kin-bg/50 p-4 flex items-center justify-center relative">
+          {/* 1. Image Viewer */}
           {isImg ? (
             <div className="overflow-auto max-w-full max-h-full flex items-center justify-center">
               <img
@@ -298,6 +511,7 @@ export const FilePreviewModal: React.FC = () => {
               />
             </div>
           ) : isDocPdf ? (
+            /* 2. PDF Viewer */
             effectiveUrl ? (
               <iframe
                 src={effectiveUrl}
@@ -320,7 +534,133 @@ export const FilePreviewModal: React.FC = () => {
                 </button>
               </div>
             )
-          ) : isCode ? (
+          ) : isHtmlDoc && viewMode === 'rendered' ? (
+            /* 3. HTML Rendered Webpage Viewer */
+            <div className="w-full h-full rounded-xl border border-kin-border bg-white overflow-hidden shadow-lg flex flex-col">
+              <iframe
+                srcDoc={textContent || undefined}
+                src={!textContent ? effectiveUrl : undefined}
+                title={filename}
+                sandbox="allow-same-origin allow-scripts"
+                className="w-full h-full border-0"
+              />
+            </div>
+          ) : isMdDoc && viewMode === 'rendered' && textContent ? (
+            /* 4. Rendered Markdown Document View */
+            <div className="w-full h-full overflow-auto rounded-xl border border-kin-border bg-kin-surface p-6 font-sans text-kin-text leading-relaxed prose prose-invert max-w-none">
+              <div className="whitespace-pre-wrap font-sans text-xs sm:text-sm">
+                {textContent}
+              </div>
+            </div>
+          ) : isCsvDoc && viewMode === 'table' && csvData ? (
+            /* 5. CSV / TSV Interactive Data Table */
+            <div className="w-full h-full overflow-auto rounded-xl border border-kin-border bg-kin-surface">
+              <div className="p-2 border-b border-kin-border bg-kin-card text-[11px] text-kin-muted font-mono flex items-center justify-between">
+                <span>Displaying {csvData.rows.length} rows (out of {csvData.totalRows} total)</span>
+                <span>{csvData.headers.length} columns</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-kin-card/80 border-b border-kin-border">
+                      <th className="py-2 px-3 font-mono text-[10px] text-kin-muted border-r border-kin-border w-12 text-center">
+                        #
+                      </th>
+                      {csvData.headers.map((h, i) => (
+                        <th key={i} className="py-2 px-3 font-semibold text-kin-text border-r border-kin-border truncate">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {csvData.rows.map((row, rIdx) => (
+                      <tr key={rIdx} className="border-b border-kin-border/50 hover:bg-kin-cardHover transition font-mono text-[11px]">
+                        <td className="py-1.5 px-3 text-kin-muted border-r border-kin-border/50 text-center text-[10px]">
+                          {rIdx + 1}
+                        </td>
+                        {row.map((cell, cIdx) => (
+                          <td key={cIdx} className="py-1.5 px-3 text-kin-text border-r border-kin-border/50 truncate max-w-xs">
+                            {cell}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : isAud && effectiveUrl ? (
+            /* 6. Audio Player */
+            <div className="p-8 rounded-2xl bg-kin-card border border-kin-border text-center space-y-5 max-w-md shadow-xl w-full">
+              <div className="w-16 h-16 rounded-2xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center mx-auto text-blue-400">
+                <Volume2 className="w-8 h-8 animate-pulse" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="font-bold text-base text-kin-text">{filename}</h3>
+                <p className="text-xs text-kin-muted">{formatFileSize(size) || 'Audio Asset'}</p>
+              </div>
+              <audio controls src={effectiveUrl} className="w-full mt-4" />
+            </div>
+          ) : isVid && effectiveUrl ? (
+            /* 7. Video Player */
+            <div className="max-w-4xl max-h-full flex items-center justify-center">
+              <video
+                controls
+                src={effectiveUrl}
+                className="max-h-[70vh] max-w-full rounded-xl border border-kin-border shadow-2xl bg-black"
+              />
+            </div>
+          ) : isOffDoc ? (
+            /* 8. Office Document Card */
+            <div className="p-8 rounded-2xl bg-kin-card border border-kin-border text-center space-y-4 max-w-md shadow-lg">
+              <div className="w-16 h-16 rounded-2xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center mx-auto text-blue-400">
+                <FileText className="w-8 h-8" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="font-bold text-base text-kin-text">{filename}</h3>
+                <p className="text-xs text-kin-muted">
+                  {formatFileSize(size) || 'Office Document'} • {mimeType || 'Word / Office Document'}
+                </p>
+              </div>
+              <p className="text-xs text-kin-muted leading-relaxed">
+                Word and Office formats are structured binary deliverables. Download to open in your desktop office suite or extract with workspace tools.
+              </p>
+              <button
+                type="button"
+                onClick={handleDownload}
+                className="w-full py-2.5 px-4 rounded-xl bg-kin-accent text-kin-bg text-xs font-bold shadow-md hover:brightness-110 transition cursor-pointer flex items-center justify-center space-x-2"
+              >
+                <Download className="w-4 h-4" />
+                <span>Download {filename}</span>
+              </button>
+            </div>
+          ) : isArch ? (
+            /* 9. Archive Card */
+            <div className="p-8 rounded-2xl bg-kin-card border border-kin-border text-center space-y-4 max-w-md shadow-lg">
+              <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400">
+                <FileArchive className="w-8 h-8" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="font-bold text-base text-kin-text">{filename}</h3>
+                <p className="text-xs text-kin-muted">
+                  {formatFileSize(size) || 'Archive Asset'} • {mimeType || 'Compressed Archive'}
+                </p>
+              </div>
+              <p className="text-xs text-kin-muted leading-relaxed">
+                Compressed package container. Download to inspect and extract archived contents on your computer.
+              </p>
+              <button
+                type="button"
+                onClick={handleDownload}
+                className="w-full py-2.5 px-4 rounded-xl bg-kin-accent text-kin-bg text-xs font-bold shadow-md hover:brightness-110 transition cursor-pointer flex items-center justify-center space-x-2"
+              >
+                <Download className="w-4 h-4" />
+                <span>Download {filename}</span>
+              </button>
+            </div>
+          ) : isCode || textContent !== null ? (
+            /* 10. Code / Text File Viewer */
             <div className="w-full h-full overflow-auto rounded-xl border border-kin-border bg-kin-surface p-4">
               {isLoadingContent ? (
                 <div className="flex items-center justify-center h-full text-xs text-kin-muted">
@@ -335,7 +675,7 @@ export const FilePreviewModal: React.FC = () => {
               )}
             </div>
           ) : (
-            /* Generic Binary File Card */
+            /* 11. Generic Binary Asset Card */
             <div className="p-8 rounded-2xl bg-kin-card border border-kin-border text-center space-y-4 max-w-md shadow-lg">
               <div className="w-16 h-16 rounded-2xl bg-kin-surface border border-kin-border flex items-center justify-center mx-auto text-kin-accent">
                 <File className="w-8 h-8" />

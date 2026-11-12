@@ -4038,7 +4038,14 @@ export const useKinStore = create<KinState>((set, get) => ({
 
   setDecisionsModalOpen: (open) => set({ isDecisionsModalOpen: open }),
   setWorkforceModalOpen: (open) => set({ isWorkforceModalOpen: open }),
-  openFilePreview: (file) => set({ previewFile: file }),
+  openFilePreview: (file) =>
+    set({
+      previewFile: {
+        ...file,
+        filename: file.filename || (file as any).name || 'file',
+        path: file.path || (file as any).relativePath || file.filename || (file as any).name,
+      },
+    }),
   closeFilePreview: () => set({ previewFile: null }),
   setReplyingToMessage: (msg) => set({ replyingToMessage: msg }),
 
