@@ -23,9 +23,14 @@ function tokenize(code: string, lang: string): Token[] {
     'const', 'let', 'var', 'function', 'return', 'if', 'else', 'for', 'while', 'switch', 'case', 'break',
     'continue', 'new', 'class', 'extends', 'import', 'export', 'from', 'default', 'try', 'catch', 'finally',
     'throw', 'async', 'await', 'yield', 'typeof', 'instanceof', 'void', 'this', 'super', 'null', 'undefined',
-    'true', 'false', 'def', 'elif', 'pass', 'lambda', 'with', 'as', 'assert', 'raise', 'except', 'in', 'is',
-    'fn', 'pub', 'struct', 'enum', 'impl', 'trait', 'match', 'mut', 'use', 'mod', 'crate', 'self', 'Self',
-    'select', 'from', 'where', 'insert', 'into', 'update', 'delete', 'join', 'left', 'right', 'inner', 'group', 'by', 'order'
+    'true', 'false', 'interface', 'type', 'readonly', 'private', 'public', 'protected', 'static', 'abstract',
+    'as', 'keyof', 'never', 'any', 'boolean', 'string', 'number', 'symbol', 'bigint', 'unknown',
+    'def', 'elif', 'pass', 'lambda', 'with', 'assert', 'raise', 'except', 'in', 'is', 'None', 'True', 'False',
+    'fn', 'pub', 'struct', 'enum', 'impl', 'trait', 'match', 'mut', 'use', 'mod', 'crate', 'self', 'Self', 'where', 'ref',
+    'package', 'func', 'go', 'chan', 'defer', 'select', 'range', 'nil',
+    'create', 'table', 'drop', 'alter', 'primary', 'key', 'foreign', 'references', 'values', 'distinct', 'having', 'limit', 'offset',
+    'insert', 'into', 'update', 'delete', 'join', 'left', 'right', 'inner', 'outer', 'group', 'by', 'order', 'desc', 'asc', 'set',
+    'echo', 'grep', 'sed', 'awk', 'curl', 'chmod', 'chown', 'mkdir', 'rm', 'cp', 'mv', 'source', 'export'
   ]);
 
   while (i < len) {

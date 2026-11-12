@@ -274,11 +274,11 @@ export const DesktopControlModal: React.FC = () => {
 
         {/* Live Screen Capture Preview */}
         {screenshotPreview && (
-          <div className="p-3 mx-6 my-2 rounded-xl bg-[#0b1220] border border-blue-500/30 flex flex-col gap-2">
+          <div className="p-3 mx-6 my-2 rounded-xl bg-kin-card border border-kin-border flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
-                <span className="text-xs font-semibold text-blue-300 flex items-center gap-1.5">
-                  <Monitor className="w-3.5 h-3.5 text-blue-400" />
+                <span className="text-xs font-semibold text-kin-text flex items-center gap-1.5">
+                  <Monitor className="w-3.5 h-3.5 text-kin-accent" />
                   Screen Capture Preview
                 </span>
                 {screenshotMeta?.isHeadless ? (
@@ -293,50 +293,50 @@ export const DesktopControlModal: React.FC = () => {
               </div>
               <button
                 onClick={() => { setScreenshotPreview(null); setScreenshotMeta(null); }}
-                className="text-[11px] text-gray-400 hover:text-white px-2 py-0.5 rounded bg-[#162035] hover:bg-[#202d48] transition"
+                className="text-[11px] text-kin-muted hover:text-kin-text px-2 py-0.5 rounded bg-kin-surface hover:bg-kin-cardHover border border-kin-border transition cursor-pointer"
               >
                 Dismiss
               </button>
             </div>
             {screenshotMeta?.notice && (
-              <p className="text-[11px] text-gray-400 font-mono italic px-1">{screenshotMeta.notice}</p>
+              <p className="text-[11px] text-kin-muted font-mono italic px-1">{screenshotMeta.notice}</p>
             )}
             <img
               src={screenshotPreview}
               alt="Desktop Screenshot"
-              className="max-h-56 object-contain rounded-lg border border-[#1e2a44] bg-black mx-auto"
+              className="max-h-56 object-contain rounded-lg border border-kin-border bg-black mx-auto"
             />
           </div>
         )}
 
         {/* TAB 1: INSTALLED APPS */}
         {activeTab === 'apps' && (
-          <div className="flex-1 flex flex-col min-h-0 bg-[#080d1a]">
-            <div className="p-4 border-b border-[#1e293b] flex items-center justify-between gap-3 bg-[#0a0f1e]">
+          <div className="flex-1 flex flex-col min-h-0 bg-kin-bg">
+            <div className="p-4 border-b border-kin-border flex items-center justify-between gap-3 bg-kin-surface">
               <div className="relative flex-1 max-w-sm">
-                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-kin-muted" />
                 <input
                   type="text"
                   value={appSearch}
                   onChange={(e) => setAppSearch(e.target.value)}
                   placeholder="Search discovered desktop applications..."
-                  className="w-full bg-[#101728] border border-[#212d45] rounded-lg pl-9 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                  className="w-full bg-kin-card border border-kin-border rounded-lg pl-9 pr-3 py-1.5 text-xs text-kin-text placeholder-kin-subtle focus:outline-none focus:border-kin-accent transition"
                 />
               </div>
 
               <div className="flex items-center space-x-2 shrink-0">
                 <button
                   onClick={handleCaptureScreen}
-                  className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-[#162035] hover:bg-[#1f2d4a] border border-[#283858] text-white font-medium transition"
+                  className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-kin-surface hover:bg-kin-cardHover border border-kin-border text-kin-text font-medium transition cursor-pointer"
                   title="Capture live screenshot of primary display"
                 >
-                  <Monitor className="w-3.5 h-3.5 text-blue-400" />
+                  <Monitor className="w-3.5 h-3.5 text-kin-accent" />
                   <span>Capture Screen</span>
                 </button>
 
                 <button
                   onClick={fetchDiscoveredApps}
-                  className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-[#162035] hover:bg-[#1f2d4a] border border-[#283858] text-white font-medium transition"
+                  className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-kin-surface hover:bg-kin-cardHover border border-kin-border text-kin-text font-medium transition cursor-pointer"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                   <span>Re-scan System</span>
@@ -346,19 +346,19 @@ export const DesktopControlModal: React.FC = () => {
 
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
               {filteredApps.length === 0 ? (
-                <div className="text-center py-12 text-gray-500 italic">No applications found.</div>
+                <div className="text-center py-12 text-kin-muted italic">No applications found.</div>
               ) : (
                 filteredApps.map((app, idx) => (
                   <div
                     key={`${app.name}-${idx}`}
-                    className="p-3 rounded-xl bg-[#0d1426] border border-[#1e2a44] flex items-center justify-between hover:border-[#2f4068] transition"
+                    className="p-3 rounded-xl bg-kin-card border border-kin-border flex items-center justify-between hover:border-kin-accent/40 transition"
                   >
                     <div className="truncate mr-3">
-                      <div className="font-bold text-white text-[13px]">{app.name}</div>
-                      <div className="text-[10px] font-mono text-gray-400 truncate mt-0.5">
+                      <div className="font-bold text-kin-text text-[13px]">{app.name}</div>
+                      <div className="text-[10px] font-mono text-kin-muted truncate mt-0.5">
                         {app.executablePath}
                       </div>
-                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-[#162035] text-gray-400 font-mono">
+                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-kin-surface text-kin-muted border border-kin-border font-mono">
                         {app.category || app.source || 'application'}
                       </span>
                     </div>
@@ -379,22 +379,22 @@ export const DesktopControlModal: React.FC = () => {
 
         {/* TAB 2: ACTIVE WINDOWS */}
         {activeTab === 'windows' && (
-          <div className="flex-1 flex flex-col min-h-0 bg-[#080d1a]">
-            <div className="p-4 border-b border-[#1e293b] flex items-center justify-between gap-3 bg-[#0a0f1e]">
+          <div className="flex-1 flex flex-col min-h-0 bg-kin-bg">
+            <div className="p-4 border-b border-kin-border flex items-center justify-between gap-3 bg-kin-surface">
               <div className="relative flex-1 max-w-sm">
-                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-kin-muted" />
                 <input
                   type="text"
                   value={windowSearch}
                   onChange={(e) => setWindowSearch(e.target.value)}
                   placeholder="Filter active GUI windows by title or process..."
-                  className="w-full bg-[#101728] border border-[#212d45] rounded-lg pl-9 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                  className="w-full bg-kin-card border border-kin-border rounded-lg pl-9 pr-3 py-1.5 text-xs text-kin-text placeholder-kin-subtle focus:outline-none focus:border-kin-accent transition"
                 />
               </div>
 
               <button
                 onClick={fetchActiveWindows}
-                className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-[#162035] hover:bg-[#1f2d4a] border border-[#283858] text-white font-medium transition"
+                className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-kin-surface hover:bg-kin-cardHover border border-kin-border text-kin-text font-medium transition cursor-pointer"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 <span>Refresh Windows</span>
@@ -403,16 +403,16 @@ export const DesktopControlModal: React.FC = () => {
 
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
               {filteredWindows.length === 0 ? (
-                <div className="text-center py-12 text-gray-500 italic">No top-level windows detected.</div>
+                <div className="text-center py-12 text-kin-muted italic">No top-level windows detected.</div>
               ) : (
                 filteredWindows.map((win) => (
                   <div
                     key={win.handle}
-                    className="p-3 rounded-xl bg-[#0d1426] border border-[#1e2a44] flex items-center justify-between hover:border-[#2f4068] transition"
+                    className="p-3 rounded-xl bg-kin-card border border-kin-border flex items-center justify-between hover:border-kin-accent/40 transition"
                   >
                     <div className="truncate mr-3">
-                      <div className="font-bold text-white text-[13px] truncate">{win.title}</div>
-                      <div className="text-[10px] font-mono text-gray-400 mt-0.5">
+                      <div className="font-bold text-kin-text text-[13px] truncate">{win.title}</div>
+                      <div className="text-[10px] font-mono text-kin-muted mt-0.5">
                         Process: {win.processName} | PID: {win.pid} | HWND: {win.handle}
                       </div>
                     </div>
@@ -420,7 +420,7 @@ export const DesktopControlModal: React.FC = () => {
                     <div className="flex items-center space-x-2 shrink-0">
                       <button
                         onClick={() => handleFocusWindow(win)}
-                        className="px-3 py-1.5 rounded-lg bg-[#162035] hover:bg-[#202e4d] text-blue-300 border border-[#283858] font-medium transition"
+                        className="px-3 py-1.5 rounded-lg bg-kin-surface hover:bg-kin-cardHover text-kin-accent border border-kin-border font-medium transition cursor-pointer"
                         title="Bring window to foreground"
                       >
                         Focus
@@ -442,16 +442,16 @@ export const DesktopControlModal: React.FC = () => {
 
         {/* TAB 3: BROWSER SESSION */}
         {activeTab === 'browser' && (
-          <div className="flex-1 p-6 space-y-4 bg-[#080d1a] overflow-y-auto">
-            <div className="p-4 rounded-xl bg-[#0d1426] border border-[#1e2a44] space-y-3">
+          <div className="flex-1 p-6 space-y-4 bg-kin-bg overflow-y-auto">
+            <div className="p-4 rounded-xl bg-kin-card border border-kin-border space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <span
                     className={`w-3 h-3 rounded-full ${
-                      browserStatus?.active ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-gray-600'
+                      browserStatus?.active ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-kin-subtle'
                     }`}
                   />
-                  <span className="font-bold text-white text-sm">
+                  <span className="font-bold text-kin-text text-sm">
                     {browserStatus?.active ? 'Persistent Browser Session Active' : 'No Active Browser Session'}
                   </span>
                 </div>
@@ -459,7 +459,7 @@ export const DesktopControlModal: React.FC = () => {
                 <div className="flex items-center space-x-2">
                   <button
                     onClick={fetchBrowserStatus}
-                    className="p-1.5 rounded-lg bg-[#162035] hover:bg-[#1f2d4a] text-gray-300 hover:text-white transition"
+                    className="p-1.5 rounded-lg bg-kin-surface hover:bg-kin-cardHover text-kin-muted hover:text-kin-text border border-kin-border transition cursor-pointer"
                     title="Refresh telemetry"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
@@ -468,7 +468,7 @@ export const DesktopControlModal: React.FC = () => {
                   {browserStatus?.active && (
                     <button
                       onClick={closeBrowser}
-                      className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-semibold transition"
+                      className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-semibold transition cursor-pointer"
                     >
                       <Power className="w-3.5 h-3.5" />
                       <span>Terminate Browser</span>
@@ -478,11 +478,11 @@ export const DesktopControlModal: React.FC = () => {
               </div>
 
               {/* Quick Actions Bar */}
-              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[#1e2a44]">
+              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-kin-border">
                 <button
                   type="button"
                   onClick={() => navigateBrowser('https://openrouter.ai/models?max_price=0')}
-                  className="px-2.5 py-1.5 rounded-lg bg-[#162035] hover:bg-[#1f2d4a] border border-[#283858] text-white text-xs flex items-center space-x-1 transition"
+                  className="px-2.5 py-1.5 rounded-lg bg-kin-surface hover:bg-kin-cardHover border border-kin-border text-kin-text text-xs flex items-center space-x-1 transition cursor-pointer"
                   title="Open OpenRouter Free Models Catalog"
                 >
                   <Search className="w-3.5 h-3.5 text-amber-400" />
@@ -492,31 +492,31 @@ export const DesktopControlModal: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => navigateBrowser('https://github.com/abhayzangir1/KIN')}
-                  className="px-2.5 py-1.5 rounded-lg bg-[#162035] hover:bg-[#1f2d4a] border border-[#283858] text-white text-xs flex items-center space-x-1 transition"
+                  className="px-2.5 py-1.5 rounded-lg bg-kin-surface hover:bg-kin-cardHover border border-kin-border text-kin-text text-xs flex items-center space-x-1 transition cursor-pointer"
                   title="Open KIN GitHub Repository"
                 >
                   <Monitor className="w-3.5 h-3.5 text-emerald-400" />
                   <span>KIN Repository</span>
                 </button>
 
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20">
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
                   Remote Port 9222 Active
                 </span>
               </div>
 
               {/* Direct URL Navigation Bar */}
-              <form onSubmit={handleNavigateSubmit} className="flex items-center space-x-2 pt-2 border-t border-[#1e2a44]">
+              <form onSubmit={handleNavigateSubmit} className="flex items-center space-x-2 pt-2 border-t border-kin-border">
                 <input
                   type="text"
                   value={targetUrl}
                   onChange={(e) => setTargetUrl(e.target.value)}
                   placeholder="Navigate browser to URL (e.g., https://github.com)..."
-                  className="flex-1 bg-[#101728] border border-[#212d45] rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                  className="flex-1 bg-kin-card border border-kin-border rounded-lg px-3 py-1.5 text-xs text-kin-text placeholder-kin-subtle focus:outline-none focus:border-kin-accent transition"
                 />
                 <button
                   type="submit"
                   disabled={isNavigating || !targetUrl.trim()}
-                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold text-xs flex items-center space-x-1 shrink-0"
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold text-xs flex items-center space-x-1 shrink-0 cursor-pointer"
                 >
                   <Globe className="w-3.5 h-3.5" />
                   <span>{isNavigating ? 'Loading...' : 'Navigate'}</span>
@@ -524,17 +524,17 @@ export const DesktopControlModal: React.FC = () => {
               </form>
 
               {browserStatus?.active ? (
-                <div className="space-y-2 pt-2 border-t border-[#1e2a44]">
+                <div className="space-y-2 pt-2 border-t border-kin-border">
                   <div>
-                    <label className="text-[10px] text-gray-400 uppercase font-semibold">Active URL</label>
-                    <div className="font-mono text-emerald-300 text-xs truncate bg-[#070b14] p-2 rounded border border-[#1b263e]">
+                    <label className="text-[10px] text-kin-muted uppercase font-semibold">Active URL</label>
+                    <div className="font-mono text-emerald-400 text-xs truncate bg-kin-surface p-2 rounded-lg border border-kin-border">
                       {browserStatus.currentUrl || 'about:blank'}
                     </div>
                   </div>
                   {browserStatus.pageTitle && (
                     <div>
-                      <label className="text-[10px] text-gray-400 uppercase font-semibold">Page Title</label>
-                      <div className="text-white text-xs bg-[#070b14] p-2 rounded border border-[#1b263e]">
+                      <label className="text-[10px] text-kin-muted uppercase font-semibold">Page Title</label>
+                      <div className="text-kin-text text-xs bg-kin-surface p-2 rounded-lg border border-kin-border">
                         {browserStatus.pageTitle}
                       </div>
                     </div>
@@ -542,19 +542,19 @@ export const DesktopControlModal: React.FC = () => {
 
                   {browserStatus.stepHistory && browserStatus.stepHistory.length > 0 && (
                     <div className="pt-2">
-                      <label className="text-[10px] text-gray-400 uppercase font-semibold">
+                      <label className="text-[10px] text-kin-muted uppercase font-semibold">
                         Step Trajectory Audit ({browserStatus.stepHistory.length} actions)
                       </label>
                       <div className="mt-1 space-y-1 max-h-48 overflow-y-auto">
                         {browserStatus.stepHistory.map((s, idx) => (
                           <div
                             key={idx}
-                            className="p-2 rounded bg-[#070b14] border border-[#1b263e] flex items-center justify-between font-mono text-[11px]"
+                            className="p-2 rounded-lg bg-kin-surface border border-kin-border flex items-center justify-between font-mono text-[11px]"
                           >
-                            <span className="text-blue-300">
+                            <span className="text-blue-400">
                               #{idx + 1} {s.action}
                             </span>
-                            <span className="text-gray-400 truncate max-w-xs">{s.selector || s.url || ''}</span>
+                            <span className="text-kin-muted truncate max-w-xs">{s.selector || s.url || ''}</span>
                             <span className="text-[10px] text-emerald-400">
                               {s.durationMs !== undefined ? `${s.durationMs}ms` : ''}
                             </span>
@@ -565,9 +565,9 @@ export const DesktopControlModal: React.FC = () => {
                   )}
                 </div>
               ) : (
-                <div className="py-8 text-center text-gray-500 italic">
+                <div className="py-8 text-center text-kin-muted italic">
                   Persistent browser starts automatically on any web automation directive. Session cookies and
-                  logins persist under <code className="text-gray-400">.kin/browser_profile</code>.
+                  logins persist under <code className="text-kin-text">.kin/browser_profile</code>.
                 </div>
               )}
             </div>
@@ -576,24 +576,24 @@ export const DesktopControlModal: React.FC = () => {
 
         {/* TAB 4: PROACTIVE ROUTINES */}
         {activeTab === 'routines' && (
-          <div className="flex-1 flex flex-col min-h-0 bg-[#080d1a]">
+          <div className="flex-1 flex flex-col min-h-0 bg-kin-bg">
             {/* Create Routine Bar */}
-            <form onSubmit={handleCreateRoutineSubmit} className="p-4 border-b border-[#1e293b] bg-[#0a0f1e] space-y-3">
-              <span className="font-bold text-white text-xs">Register Autonomous Proactive Routine</span>
+            <form onSubmit={handleCreateRoutineSubmit} className="p-4 border-b border-kin-border bg-kin-surface space-y-3">
+              <span className="font-bold text-kin-text text-xs">Register Autonomous Proactive Routine</span>
               <div className="grid grid-cols-3 gap-2">
                 <input
                   type="text"
                   value={routinePrompt}
                   onChange={(e) => setRoutinePrompt(e.target.value)}
                   placeholder="Routine directive (e.g., 'Check unread PRs & notify team')..."
-                  className="col-span-2 bg-[#101728] border border-[#212d45] rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                  className="col-span-2 bg-kin-card border border-kin-border rounded-lg px-3 py-1.5 text-xs text-kin-text focus:outline-none focus:border-kin-accent transition"
                 />
 
                 <div className="flex items-center space-x-2">
                   <select
                     value={routineType}
                     onChange={(e) => setRoutineType(e.target.value as any)}
-                    className="bg-[#101728] border border-[#212d45] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none"
+                    className="bg-kin-card border border-kin-border rounded-lg px-2 py-1.5 text-xs text-kin-text focus:outline-none transition"
                   >
                     <option value="cron">Cron (Recurring)</option>
                     <option value="one_shot">Timer (One-Shot)</option>
@@ -605,7 +605,7 @@ export const DesktopControlModal: React.FC = () => {
                       value={cronExpr}
                       onChange={(e) => setCronExpr(e.target.value)}
                       placeholder="*/15 * * * *"
-                      className="w-28 bg-[#101728] border border-[#212d45] rounded-lg px-2 py-1.5 text-xs font-mono text-emerald-300"
+                      className="w-28 bg-kin-card border border-kin-border rounded-lg px-2 py-1.5 text-xs font-mono text-emerald-400"
                     />
                   ) : (
                     <input
@@ -613,13 +613,13 @@ export const DesktopControlModal: React.FC = () => {
                       value={oneShotSeconds}
                       onChange={(e) => setOneShotSeconds(Number(e.target.value))}
                       placeholder="Seconds"
-                      className="w-20 bg-[#101728] border border-[#212d45] rounded-lg px-2 py-1.5 text-xs font-mono text-emerald-300"
+                      className="w-20 bg-kin-card border border-kin-border rounded-lg px-2 py-1.5 text-xs font-mono text-emerald-400"
                     />
                   )}
 
                   <button
                     type="submit"
-                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs flex items-center space-x-1 shrink-0"
+                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs flex items-center space-x-1 shrink-0 cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>Add</span>
@@ -631,17 +631,17 @@ export const DesktopControlModal: React.FC = () => {
             {/* Routines List */}
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
               {routines.length === 0 ? (
-                <div className="text-center py-12 text-gray-500 italic">No proactive routines registered.</div>
+                <div className="text-center py-12 text-kin-muted italic">No proactive routines registered.</div>
               ) : (
                 routines.map((routine) => (
                   <div
                     key={routine.id}
-                    className="p-3 rounded-xl bg-[#0d1426] border border-[#1e2a44] flex items-center justify-between hover:border-[#2f4068] transition"
+                    className="p-3 rounded-xl bg-kin-card border border-kin-border flex items-center justify-between hover:border-kin-accent/40 transition"
                   >
                     <div>
-                      <div className="font-bold text-white text-xs">{routine.prompt}</div>
-                      <div className="text-[10px] font-mono text-gray-400 mt-0.5 space-x-2">
-                        <span className="text-blue-300">[{routine.type}]</span>
+                      <div className="font-bold text-kin-text text-xs">{routine.prompt}</div>
+                      <div className="text-[10px] font-mono text-kin-muted mt-0.5 space-x-2">
+                        <span className="text-blue-400">[{routine.type}]</span>
                         {routine.cronExpression && <span>Cron: {routine.cronExpression}</span>}
                         {routine.durationSeconds && <span>Delay: {routine.durationSeconds}s</span>}
                         <span className="text-emerald-400">Status: {routine.status}</span>
@@ -650,7 +650,7 @@ export const DesktopControlModal: React.FC = () => {
 
                     <button
                       onClick={() => cancelRoutine(routine.id)}
-                      className="px-2.5 py-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/40 text-[11px] font-medium transition"
+                      className="px-2.5 py-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/40 text-[11px] font-medium transition cursor-pointer"
                     >
                       Cancel
                     </button>

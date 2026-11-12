@@ -20,7 +20,7 @@ import { RecoveryEngine } from '../src/recovery/recovery_engine.js';
 import { FinancialSafetyShield } from '../src/policy/financial_safety.js';
 
 describe('KIN Enterprise Multi-Agent Workforce Architecture', () => {
-  const testDbPath = path.resolve(os.tmpdir(), './test_enterprise_workforce.sqlite');
+  let testDbPath: string;
   let db: KinDatabase;
   let workspaceRepo: WorkspaceRepository;
   let agentRepo: AgentRepository;
@@ -28,10 +28,17 @@ describe('KIN Enterprise Multi-Agent Workforce Architecture', () => {
   let taskRepo: TaskRepository;
   let contextCompiler: ContextCompiler;
 
-  beforeEach(() => {
-    if (fs.existsSync(testDbPath)) {
-      try { fs.unlinkSync(testDbPath); } catch {}
+  function cleanupDbFiles(p: string) {
+    for (const f of [p, `${p}-wal`, `${p}-shm`]) {
+      if (fs.existsSync(f)) {
+        try { fs.unlinkSync(f); } catch {}
+      }
     }
+  }
+
+  beforeEach(() => {
+    testDbPath = path.resolve(os.tmpdir(), `./test_enterprise_workforce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.sqlite`);
+    cleanupDbFiles(testDbPath);
     db = new KinDatabase({ dbPath: testDbPath });
     new MigrationRunner(db).runMigrations();
 
@@ -54,8 +61,8 @@ describe('KIN Enterprise Multi-Agent Workforce Architecture', () => {
 
   afterEach(() => {
     try { db.close(); } catch {}
-    if (fs.existsSync(testDbPath)) {
-      try { fs.unlinkSync(testDbPath); } catch {}
+    if (testDbPath) {
+      cleanupDbFiles(testDbPath);
     }
     RunnerAdapterRegistry.clear();
   });

@@ -215,11 +215,17 @@ export class DynamicHiringService {
         now
       );
 
+      const projRow = db.queryOne<{ workspace_id: string }>(
+        'SELECT workspace_id FROM projects WHERE id = ?',
+        projectId
+      );
+      const effectiveWsId = projRow?.workspace_id || 'ws-default';
+
       db.execute(
         `INSERT INTO agent_identities (id, workspace_id, project_id, definition_id, parent_agent_id, display_name, active_model_id, is_orchestrator, is_ephemeral, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
         agentId,
-        'ws-default',
+        effectiveWsId,
         projectId,
         defId,
         verifiedParentId,

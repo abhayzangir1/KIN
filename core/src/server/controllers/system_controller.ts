@@ -1975,30 +1975,34 @@ export class SystemController extends BaseController {
         this.broadcastEvent('credential:created', credential);
 
         // Automatically trigger live model discovery for the newly added provider key
-        (async () => {
+        const discoveryPromise = (async () => {
           try {
+            if (this.db.closed || this.isStopping) return;
             const discovered = await this.modelGateway.fetchProviderModels(provider, apiKey, baseUrl ? { baseUrl } : undefined);
+            if (this.db.closed || this.isStopping) return;
             for (const m of discovered) {
+              if (this.db.closed || this.isStopping) break;
               try {
-                if (m.provider && m.provider !== provider) {
-                  try {
-                    this.db.execute(
-                      `INSERT OR IGNORE INTO providers (id, name, provider_type, base_url, api_key_ref, is_active, created_at)
-                       VALUES (?, ?, ?, ?, ?, 1, ?)`,
-                      m.provider,
-                      m.provider,
-                      'openai_compatible',
-                      baseUrl,
-                      'managed',
-                      now
-                    );
-                  } catch (err) { console.debug("[system_controller] Suppressed exception in catch block:", err); }
-                }
+                const targetProvider = m.provider || provider;
+                try {
+                  this.db.execute(
+                    `INSERT OR IGNORE INTO providers (id, name, provider_type, base_url, api_key_ref, is_active, created_at)
+                     VALUES (?, ?, ?, ?, ?, 1, ?)`,
+                    targetProvider,
+                    targetProvider,
+                    'openai_compatible',
+                    baseUrl,
+                    'managed',
+                    now
+                  );
+                } catch (err) { console.debug("[system_controller] Suppressed exception in catch block:", err); }
+
+                if (this.db.closed || this.isStopping) break;
                 this.db.execute(
                   `INSERT OR REPLACE INTO models (id, provider_id, name, context_window, max_output_tokens, supports_tools, supports_vision, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
                   m.id,
-                  m.provider,
+                  targetProvider,
                   m.name,
                   m.contextWindow || 128000,
                   m.maxOutputTokens || 4096,
@@ -2008,13 +2012,17 @@ export class SystemController extends BaseController {
                 );
               } catch (err) { console.debug("[system_controller] Suppressed exception in catch block:", err); }
             }
-            if (discovered.length > 0) {
+            if (discovered.length > 0 && !this.db.closed && !this.isStopping) {
               this.broadcastEvent('models:updated', { provider, count: discovered.length });
             }
           } catch (err) {
             console.warn('[KIN CORE] Auto-discovery models warning for ' + provider + ':', err);
           }
         })();
+        const wrappedPromise = discoveryPromise.finally(() => {
+          this.inFlightExecutions.delete(wrappedPromise);
+        });
+        this.inFlightExecutions.add(wrappedPromise);
 
         return this.sendJson(res, 201, { success: true, credential });
       }

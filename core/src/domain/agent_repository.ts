@@ -409,6 +409,25 @@ export class AgentRepository {
       return existing;
     }
 
+    let effectiveWsId = workspaceId;
+    if (effectiveWsId === 'ws-default') {
+      const projRow = this.db.queryOne<{ workspace_id: string }>(
+        'SELECT workspace_id FROM projects WHERE id = ?',
+        projectId
+      );
+      if (projRow?.workspace_id) {
+        effectiveWsId = projRow.workspace_id;
+      }
+    }
+
+    const wsRow = this.db.queryOne<{ id: string }>('SELECT id FROM workspaces WHERE id = ?', effectiveWsId);
+    if (!wsRow) {
+      const anyWs = this.db.queryOne<{ id: string }>('SELECT id FROM workspaces LIMIT 1');
+      if (anyWs?.id) {
+        effectiveWsId = anyWs.id;
+      }
+    }
+
     const now = Date.now();
     const defId = projectId === 'proj-kin' ? 'def-boss' : `def-boss-${projectId}`;
     const agentId = projectId === 'proj-kin' ? 'agent-boss' : `agent-boss-${projectId}`;
@@ -428,7 +447,7 @@ export class AgentRepository {
 
     const bossIdentity: AgentIdentity = {
       id: agentId,
-      workspaceId,
+      workspaceId: effectiveWsId,
       projectId,
       definitionId: defId,
       displayName: '@Boss',

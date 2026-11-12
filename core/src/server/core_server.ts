@@ -1720,6 +1720,10 @@ export class CoreServer {
   }
 
   public async start(): Promise<number> {
+    if (this.server?.listening) {
+      return this.port;
+    }
+
     // Await configured MCP tools discovery before opening listener so early turns have full tools
     try {
       await this.mcpClient.loadServersFromConfig();
@@ -2022,22 +2026,32 @@ export class CoreServer {
   }
 
   public broadcastEvent(eventType: string, data: any): void {
-    const sanitizedData = SecretBroker.getInstance().sanitizePayload(data);
-    const payload = `event: ${eventType}\ndata: ${JSON.stringify(sanitizedData)}\n\n`;
-    for (const client of Array.from(this.sseClients)) {
+    try {
+      const sanitizedData = SecretBroker.getInstance().sanitizePayload(data);
+      let jsonPayload: string;
       try {
-        if (client.writableEnded || client.destroyed) {
-          this.sseClients.delete(client);
-        } else {
-          client.write(payload, (err) => {
-            if (err) {
-              this.sseClients.delete(client);
-            }
-          });
-        }
-      } catch (err) {
-        this.sseClients.delete(client);
+        jsonPayload = JSON.stringify(sanitizedData, (_, v) => (typeof v === 'bigint' ? Number(v) : v));
+      } catch {
+        jsonPayload = JSON.stringify({ eventType, error: 'Failed to serialize event payload' });
       }
+      const payload = `event: ${eventType}\ndata: ${jsonPayload}\n\n`;
+      for (const client of Array.from(this.sseClients)) {
+        try {
+          if (client.writableEnded || client.destroyed) {
+            this.sseClients.delete(client);
+          } else {
+            client.write(payload, (err) => {
+              if (err) {
+                this.sseClients.delete(client);
+              }
+            });
+          }
+        } catch (err) {
+          this.sseClients.delete(client);
+        }
+      }
+    } catch (err) {
+      console.debug('[core_server] Suppressed broadcastEvent error:', err);
     }
   }
 
@@ -2277,12 +2291,23 @@ export class CoreServer {
 
         const keepAliveTimer = setInterval(() => {
           try {
-            res.write(': keepalive\n\n');
+            if (res.writableEnded || res.destroyed) {
+              clearInterval(keepAliveTimer);
+              this.sseClients.delete(res);
+              return;
+            }
+            res.write(': keepalive\n\n', (err) => {
+              if (err) {
+                clearInterval(keepAliveTimer);
+                this.sseClients.delete(res);
+              }
+            });
           } catch {
             clearInterval(keepAliveTimer);
             this.sseClients.delete(res);
           }
         }, 15000);
+        keepAliveTimer.unref();
 
         const dropClient = () => {
           clearInterval(keepAliveTimer);

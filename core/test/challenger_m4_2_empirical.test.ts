@@ -376,7 +376,7 @@ describe('Challenger M4-2: Empirical Adversarial Stress & Release Gate Verificat
       expect(rel.endsWith('test_kin.sqlite')).toBe(true);
 
       // Absolute path remains unchanged
-      const abs = path.resolve('D:/KIN/data/kin.sqlite');
+      const abs = path.resolve(os.tmpdir(), 'kin_data', 'kin.sqlite');
       expect(testResolve(abs)).toBe(abs);
 
       // Undefined defaults to kin_storage.sqlite
@@ -417,9 +417,16 @@ describe('Challenger M4-2: Empirical Adversarial Stress & Release Gate Verificat
       expect(fs.existsSync(tauriBinariesDir)).toBe(true);
       expect(fs.existsSync(coreBinariesDir)).toBe(true);
 
-      // Verify kin-core.exe exists in both dirs
-      const tauriExe = path.resolve(tauriBinariesDir, 'kin-core.exe');
-      const coreExe = path.resolve(coreBinariesDir, 'kin-core.exe');
+      // Verify kin-core binary exists in both dirs (cross-platform: .exe on Windows or extensionless on Unix)
+      const binaryExt = process.platform === 'win32' ? '.exe' : '';
+      const candidateNames = [`kin-core${binaryExt}`, 'kin-core.exe', 'kin-core'];
+      const tauriExe = candidateNames
+        .map((n) => path.resolve(tauriBinariesDir, n))
+        .find((p) => fs.existsSync(p)) || path.resolve(tauriBinariesDir, `kin-core${binaryExt}`);
+      const coreExe = candidateNames
+        .map((n) => path.resolve(coreBinariesDir, n))
+        .find((p) => fs.existsSync(p)) || path.resolve(coreBinariesDir, `kin-core${binaryExt}`);
+
       expect(fs.existsSync(tauriExe)).toBe(true);
       expect(fs.existsSync(coreExe)).toBe(true);
 
@@ -437,7 +444,7 @@ describe('Challenger M4-2: Empirical Adversarial Stress & Release Gate Verificat
     it('2.4 package_binary.js source includes signature stripping and postject sentinel fuse', () => {
       const rootDir = path.resolve(__dirname, '..', '..');
       const scriptPath = path.resolve(rootDir, 'core', 'scripts', 'package_binary.js');
-      const scriptContent = fs.readFileSync(scriptPath, 'utf-8');
+      const scriptContent = fs.readFileSync(scriptPath, 'utf-8').replace(/\r\n/g, '\n');
 
       // Pre-injection signature removal
       expect(scriptContent).toContain('signtool remove /s');
@@ -465,13 +472,14 @@ describe('Challenger M4-2: Empirical Adversarial Stress & Release Gate Verificat
       const workflowPath = path.resolve(rootDir, '.github', 'workflows', 'release.yml');
       expect(fs.existsSync(workflowPath)).toBe(true);
 
-      const content = fs.readFileSync(workflowPath, 'utf-8');
+      const rawContent = fs.readFileSync(workflowPath, 'utf-8');
+      const content = rawContent.replace(/\r\n/g, '\n');
 
       // Multi-OS matrix
       expect(content).toContain('platform: [windows-latest, macos-latest, ubuntu-latest]');
 
-      // Triggers
-      expect(content).toContain("tags:\n      - 'v*'");
+      // Triggers (CRLF/LF agnostic)
+      expect(content).toMatch(/tags:\s*\n\s*-\s*['"]v\*['"]/);
       expect(content).toContain('workflow_dispatch:');
 
       // Gate 1: Typecheck
@@ -490,8 +498,8 @@ describe('Challenger M4-2: Empirical Adversarial Stress & Release Gate Verificat
       expect(content).toContain('Gate 4');
       expect(content).toContain('/api/health');
 
-      // Tauri action configuration
-      expect(content).toContain('uses: tauri-apps/tauri-action@v1');
+      // Tauri action configuration (supports v0 official action and v1)
+      expect(content).toMatch(/uses:\s*tauri-apps\/tauri-action@(v0|v1)/);
 
       // Checksum generation and upload
       expect(content).toContain('generate-checksums:');

@@ -18,9 +18,12 @@ import {
   Video,
   FileSpreadsheet,
   FileArchive,
+  Shield,
+  Search,
 } from 'lucide-react';
 import { useKinStore } from '../../store/kinStore.js';
 import { CodeBlock } from '../code/CodeBlock.js';
+import { MarkdownPreview } from './MarkdownPreview.js';
 
 export const FilePreviewModal: React.FC = () => {
   const { previewFile, closeFilePreview, addToast, activeProjectId } = useKinStore();
@@ -29,6 +32,7 @@ export const FilePreviewModal: React.FC = () => {
   const [textContent, setTextContent] = useState<string | null>(null);
   const [isLoadingContent, setIsLoadingContent] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<'rendered' | 'code' | 'table'>('rendered');
+  const [tableSearch, setTableSearch] = useState<string>('');
 
   function isTextOrCode(fn: string, mime: string = '') {
     if (mime.startsWith('text/') || mime === 'application/json') return true;
@@ -201,6 +205,15 @@ export const FilePreviewModal: React.FC = () => {
     const rows = lines.slice(1, 101).map(parseLine);
     return { headers, rows, totalRows: lines.length - 1 };
   }, [textContent, previewFile]);
+
+  const filteredCsvRows = useMemo(() => {
+    if (!csvData) return [];
+    if (!tableSearch.trim()) return csvData.rows;
+    const q = tableSearch.toLowerCase().trim();
+    return csvData.rows.filter((row) =>
+      row.some((cell) => cell.toLowerCase().includes(q))
+    );
+  }, [csvData, tableSearch]);
 
   if (!previewFile) return null;
 
@@ -512,9 +525,9 @@ export const FilePreviewModal: React.FC = () => {
             </div>
           ) : isDocPdf ? (
             /* 2. PDF Viewer */
-            effectiveUrl ? (
+            (effectiveUrl || previewFile.contentBase64) ? (
               <iframe
-                src={effectiveUrl}
+                src={effectiveUrl || `data:application/pdf;base64,${previewFile.contentBase64}`}
                 title={filename}
                 className="w-full h-full rounded-xl border border-kin-border bg-white"
               />
@@ -536,33 +549,58 @@ export const FilePreviewModal: React.FC = () => {
             )
           ) : isHtmlDoc && viewMode === 'rendered' ? (
             /* 3. HTML Rendered Webpage Viewer */
-            <div className="w-full h-full rounded-xl border border-kin-border bg-white overflow-hidden shadow-lg flex flex-col">
+            <div className="w-full h-full rounded-xl border border-kin-border overflow-hidden shadow-lg flex flex-col bg-white">
+              <div className="px-3.5 py-1.5 bg-slate-900 border-b border-slate-800 text-[11px] text-slate-300 font-mono flex items-center justify-between select-none shrink-0">
+                <div className="flex items-center space-x-1.5">
+                  <Shield className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-white font-semibold">Sandboxed Webpage</span>
+                  <span className="text-slate-400 hidden sm:inline">• Scripts & network isolated</span>
+                </div>
+                <span className="text-[10px] uppercase px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                  HTML Sandbox
+                </span>
+              </div>
               <iframe
                 srcDoc={textContent || undefined}
                 src={!textContent ? effectiveUrl : undefined}
                 title={filename}
                 sandbox="allow-same-origin allow-scripts"
-                className="w-full h-full border-0"
+                style={{ backgroundColor: '#ffffff' }}
+                className="w-full flex-1 border-0"
               />
             </div>
           ) : isMdDoc && viewMode === 'rendered' && textContent ? (
             /* 4. Rendered Markdown Document View */
-            <div className="w-full h-full overflow-auto rounded-xl border border-kin-border bg-kin-surface p-6 font-sans text-kin-text leading-relaxed prose prose-invert max-w-none">
-              <div className="whitespace-pre-wrap font-sans text-xs sm:text-sm">
-                {textContent}
-              </div>
+            <div className="w-full h-full overflow-auto rounded-xl border border-kin-border bg-kin-surface p-6 font-sans text-kin-text leading-relaxed">
+              <MarkdownPreview content={textContent} />
             </div>
           ) : isCsvDoc && viewMode === 'table' && csvData ? (
             /* 5. CSV / TSV Interactive Data Table */
-            <div className="w-full h-full overflow-auto rounded-xl border border-kin-border bg-kin-surface">
-              <div className="p-2 border-b border-kin-border bg-kin-card text-[11px] text-kin-muted font-mono flex items-center justify-between">
-                <span>Displaying {csvData.rows.length} rows (out of {csvData.totalRows} total)</span>
-                <span>{csvData.headers.length} columns</span>
+            <div className="w-full h-full overflow-auto rounded-xl border border-kin-border bg-kin-surface flex flex-col">
+              <div className="p-2 border-b border-kin-border bg-kin-card text-[11px] text-kin-muted font-mono flex items-center justify-between gap-3 shrink-0">
+                <div className="flex items-center space-x-2">
+                  <span className="font-semibold text-kin-text">
+                    {filteredCsvRows.length} {filteredCsvRows.length === 1 ? 'row' : 'rows'}
+                    {tableSearch ? ` (filtered from ${csvData.rows.length})` : ` shown of ${csvData.totalRows} total`}
+                  </span>
+                  <span>•</span>
+                  <span>{csvData.headers.length} columns</span>
+                </div>
+                <div className="relative max-w-xs w-48">
+                  <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-kin-muted" />
+                  <input
+                    type="text"
+                    placeholder="Filter rows..."
+                    value={tableSearch}
+                    onChange={(e) => setTableSearch(e.target.value)}
+                    className="w-full pl-6 pr-2 py-0.5 rounded-lg bg-kin-surface border border-kin-border text-xs text-kin-text focus:outline-none focus:border-kin-accent transition"
+                  />
+                </div>
               </div>
-              <div className="overflow-x-auto">
+              <div className="overflow-auto flex-1">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="bg-kin-card/80 border-b border-kin-border">
+                    <tr className="bg-kin-card/80 border-b border-kin-border sticky top-0 z-10 backdrop-blur-xs">
                       <th className="py-2 px-3 font-mono text-[10px] text-kin-muted border-r border-kin-border w-12 text-center">
                         #
                       </th>
@@ -574,18 +612,26 @@ export const FilePreviewModal: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {csvData.rows.map((row, rIdx) => (
-                      <tr key={rIdx} className="border-b border-kin-border/50 hover:bg-kin-cardHover transition font-mono text-[11px]">
-                        <td className="py-1.5 px-3 text-kin-muted border-r border-kin-border/50 text-center text-[10px]">
-                          {rIdx + 1}
+                    {filteredCsvRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={csvData.headers.length + 1} className="py-8 text-center text-kin-muted italic">
+                          No matching rows found for "{tableSearch}"
                         </td>
-                        {row.map((cell, cIdx) => (
-                          <td key={cIdx} className="py-1.5 px-3 text-kin-text border-r border-kin-border/50 truncate max-w-xs">
-                            {cell}
-                          </td>
-                        ))}
                       </tr>
-                    ))}
+                    ) : (
+                      filteredCsvRows.map((row, rIdx) => (
+                        <tr key={rIdx} className="border-b border-kin-border/50 hover:bg-kin-cardHover transition font-mono text-[11px]">
+                          <td className="py-1.5 px-3 text-kin-muted border-r border-kin-border/50 text-center text-[10px]">
+                            {rIdx + 1}
+                          </td>
+                          {row.map((cell, cIdx) => (
+                            <td key={cIdx} className="py-1.5 px-3 text-kin-text border-r border-kin-border/50 truncate max-w-xs">
+                              {cell}
+                            </td>
+                          ))}
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>

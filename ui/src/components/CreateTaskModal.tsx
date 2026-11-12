@@ -114,7 +114,7 @@ export const CreateTaskModal: React.FC = () => {
             <select
               value={selectedGoalId}
               onChange={(e) => setSelectedGoalId(e.target.value)}
-              className="w-full bg-[#090d16] border border-[#2d3748] rounded px-3 py-1.5 text-kin-text focus:outline-none focus:border-blue-500 font-mono text-xs"
+              className="w-full bg-kin-surface border border-kin-border rounded-lg px-3 py-1.5 text-kin-text focus:outline-none focus:border-kin-accent focus:ring-1 focus:ring-kin-accent font-mono text-xs"
             >
               {goals.length === 0 ? (
                 <option value="">No active goals (Create goal first)</option>
@@ -129,37 +129,37 @@ export const CreateTaskModal: React.FC = () => {
           </div>
 
           <div className="space-y-1">
-            <label className="text-[#94a3b8] font-medium">Task Title *</label>
+            <label className="text-kin-muted font-medium">Task Title *</label>
             <input
               type="text"
               autoFocus
               value={taskTitle}
               onChange={(e) => setTaskTitle(e.target.value)}
               placeholder="e.g. Implement SQLite WAL stress test runner"
-              className="w-full bg-[#090d16] border border-[#2d3748] rounded px-3 py-1.5 text-kin-text focus:outline-none focus:border-blue-500"
+              className="w-full bg-kin-surface border border-kin-border rounded-lg px-3 py-1.5 text-kin-text focus:outline-none focus:border-kin-accent focus:ring-1 focus:ring-kin-accent"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-[#94a3b8] font-medium">Description & Objective (Optional)</label>
+            <label className="text-kin-muted font-medium">Description & Objective (Optional)</label>
             <textarea
               rows={3}
               value={taskDescription}
               onChange={(e) => setTaskDescription(e.target.value)}
               placeholder="e.g. Verify concurrent write throughput under multi-agent load with zero lock contention"
-              className="w-full bg-[#090d16] border border-[#2d3748] rounded px-3 py-1.5 text-kin-text focus:outline-none focus:border-blue-500 resize-none"
+              className="w-full bg-kin-surface border border-kin-border rounded-lg px-3 py-1.5 text-kin-text focus:outline-none focus:border-kin-accent focus:ring-1 focus:ring-kin-accent resize-none"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-[#94a3b8] font-medium flex items-center space-x-1">
+            <label className="text-kin-muted font-medium flex items-center space-x-1">
               <Bot className="w-3 h-3 text-purple-400" />
               <span>Assigned Specialist (Optional)</span>
             </label>
             <select
               value={assignedAgentId}
               onChange={(e) => setAssignedAgentId(e.target.value)}
-              className="w-full bg-[#090d16] border border-[#2d3748] rounded px-3 py-1.5 text-kin-text focus:outline-none focus:border-blue-500 font-mono text-xs"
+              className="w-full bg-kin-surface border border-kin-border rounded-lg px-3 py-1.5 text-kin-text focus:outline-none focus:border-kin-accent focus:ring-1 focus:ring-kin-accent font-mono text-xs"
             >
               <option value="">Unassigned (Open for Workforce Claim)</option>
               {agents.map((ag) => (
@@ -172,7 +172,7 @@ export const CreateTaskModal: React.FC = () => {
 
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label className="text-[#94a3b8] font-medium flex items-center space-x-1">
+              <label className="text-kin-muted font-medium flex items-center space-x-1">
                 <GitFork className="w-3 h-3 text-cyan-400" />
                 <span>Prerequisite Tasks / Dependencies (Optional)</span>
               </label>
@@ -184,13 +184,13 @@ export const CreateTaskModal: React.FC = () => {
             </div>
 
             {tasks.length === 0 ? (
-              <div className="p-2 rounded bg-[#090d16] border border-[#2d3748] text-[#64748b] text-[11px] italic">
+              <div className="p-2 rounded-lg bg-kin-card border border-kin-border text-kin-subtle text-[11px] italic">
                 No existing tasks in project (task will be ready immediately)
               </div>
             ) : (
               <div className="space-y-1">
                 {goalTasks.length > 0 && tasks.length > goalTasks.length && (
-                  <div className="flex items-center justify-between text-[10px] text-[#64748b] px-0.5">
+                  <div className="flex items-center justify-between text-[10px] text-kin-subtle px-0.5">
                     <span>
                       {showAllProjectTasks
                         ? `Showing all ${tasks.length} project tasks`
@@ -199,30 +199,30 @@ export const CreateTaskModal: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setShowAllProjectTasks(!showAllProjectTasks)}
-                      className="text-blue-400 hover:text-blue-300 underline transition cursor-pointer"
+                      className="text-kin-accent hover:underline transition cursor-pointer"
                     >
                       {showAllProjectTasks ? 'This goal only' : 'Show all project tasks'}
                     </button>
                   </div>
                 )}
-                <div className="max-h-32 overflow-y-auto bg-[#090d16] border border-[#2d3748] rounded p-1 space-y-0.5">
+                <div className="max-h-32 overflow-y-auto bg-kin-card border border-kin-border rounded-lg p-1 space-y-0.5">
                   {candidateTasks.map((t) => {
                     const isSelected = selectedDependsOn.includes(t.id);
                     const goal = goals.find((g) => g.id === t.goalId);
                     return (
                       <label
                         key={t.id}
-                        className={`flex items-start space-x-2 p-1.5 rounded cursor-pointer transition select-none ${
+                        className={`flex items-start space-x-2 p-1.5 rounded-lg cursor-pointer transition select-none ${
                           isSelected
-                            ? 'bg-blue-950/50 text-blue-200 border border-blue-800/50'
-                            : 'hover:bg-[#1e293b]/50 text-kin-text border border-transparent'
+                            ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
+                            : 'hover:bg-kin-surfaceHover text-kin-text border border-transparent'
                         }`}
                       >
                         <input
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => toggleDependency(t.id)}
-                          className="mt-0.5 rounded border-[#2d3748] bg-[#0f172a] text-blue-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                          className="mt-0.5 rounded border-kin-border bg-kin-surface text-blue-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
                         />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-1">
@@ -230,17 +230,17 @@ export const CreateTaskModal: React.FC = () => {
                             <span
                               className={`text-[9px] px-1.5 py-0.2 rounded font-mono uppercase shrink-0 ${
                                 t.status === 'completed'
-                                  ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                                   : t.status === 'running'
-                                  ? 'bg-blue-950 text-blue-400 border border-blue-800'
-                                  : 'bg-slate-800 text-slate-400 border border-slate-700'
+                                  ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                                  : 'bg-kin-surface text-kin-muted border border-kin-border'
                               }`}
                             >
                               {t.status}
                             </span>
                           </div>
                           {goal && goal.id !== selectedGoalId && (
-                            <div className="text-[10px] text-[#64748b] truncate">
+                            <div className="text-[10px] text-kin-subtle truncate">
                               Goal: {goal.title}
                             </div>
                           )}
@@ -250,7 +250,7 @@ export const CreateTaskModal: React.FC = () => {
                   })}
                 </div>
                 {selectedDependsOn.length > 0 && (
-                  <p className="text-[10px] text-[#64748b] italic">
+                  <p className="text-[10px] text-kin-subtle italic">
                     Task will stay in backlog until all selected prerequisites complete.
                   </p>
                 )}

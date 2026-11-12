@@ -48,8 +48,21 @@ export class KinDatabase {
   }
 
   private initializePragmas(busyTimeoutMs: number): void {
+    this.db.exec(`PRAGMA busy_timeout = ${busyTimeoutMs};`);
+    this.db.exec('PRAGMA foreign_keys = ON;');
     if (this.dbPath !== ':memory:') {
-      this.db.exec('PRAGMA journal_mode = WAL;');
+      const maxRetries = 5;
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          this.db.exec('PRAGMA journal_mode = WAL;');
+          break;
+        } catch (err: unknown) {
+          if (this.isBusyError(err) && attempt < maxRetries) {
+            continue;
+          }
+          throw err;
+        }
+      }
       this.db.exec('PRAGMA synchronous = NORMAL;');
       this.db.exec('PRAGMA mmap_size = 268435456;');
       this.db.exec('PRAGMA cache_size = -64000;');
@@ -60,8 +73,6 @@ export class KinDatabase {
       this.db.exec('PRAGMA temp_store = MEMORY;');
       this.db.exec('PRAGMA cache_size = -64000;');
     }
-    this.db.exec(`PRAGMA busy_timeout = ${busyTimeoutMs};`);
-    this.db.exec('PRAGMA foreign_keys = ON;');
   }
 
   public get isTransactionActive(): boolean {
@@ -105,16 +116,38 @@ export class KinDatabase {
 
   public query<T = Record<string, unknown>>(sql: string, ...params: (string | number | bigint | Buffer | null)[]): T[] {
     if (this.isClosed) throw new Error('Database connection is closed.');
-    const stmt = this.db.prepare(sql);
-    const results = stmt.all(...params);
-    return results as unknown as T[];
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const stmt = this.db.prepare(sql);
+        const results = stmt.all(...params);
+        return results as unknown as T[];
+      } catch (err: unknown) {
+        if (this.isBusyError(err) && attempt < maxRetries) {
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error('Database query failed after busy retries.');
   }
 
   public queryOne<T = Record<string, unknown>>(sql: string, ...params: (string | number | bigint | Buffer | null)[]): T | undefined {
     if (this.isClosed) throw new Error('Database connection is closed.');
-    const stmt = this.db.prepare(sql);
-    const result = stmt.get(...params);
-    return result as unknown as T | undefined;
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const stmt = this.db.prepare(sql);
+        const result = stmt.get(...params);
+        return result as unknown as T | undefined;
+      } catch (err: unknown) {
+        if (this.isBusyError(err) && attempt < maxRetries) {
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error('Database queryOne failed after busy retries.');
   }
 
   public execute(sql: string, ...params: (string | number | bigint | Buffer | null)[]): RunResult {
@@ -205,6 +238,11 @@ export class KinDatabase {
 
     // Always await previous lock safely, even if previous transaction failed
     await previousLock.catch(() => {});
+
+    if (this.isClosed) {
+      releaseLock();
+      throw new Error('Database connection is closed.');
+    }
 
     const txId = `tx_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const context: TransactionContext = {
@@ -313,7 +351,18 @@ export class KinDatabase {
   public close(): void {
     if (!this.isClosed) {
       this.isClosed = true;
-      this.db.close();
+      try {
+        if (this.dbPath !== ':memory:') {
+          this.db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+        }
+      } catch (err) {
+        console.debug('[db] wal_checkpoint error on close:', err);
+      }
+      try {
+        this.db.close();
+      } catch (err) {
+        console.debug('[db] Error closing database:', err);
+      }
     }
   }
 

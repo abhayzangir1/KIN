@@ -5,15 +5,21 @@ import * as os from 'node:os';
 import { CoreServer } from '../src/server/core_server.js';
 
 describe('Message Queuing & Mid-Execution Steering Convergence', () => {
-  const testDbPath = path.resolve(os.tmpdir(), 'kin_test_queue_steer.sqlite');
+  const testDbPath = path.resolve(os.tmpdir(), `kin_test_queue_steer_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.sqlite`);
   let server: CoreServer;
   let port: number;
   let defaultChannelId: string;
 
-  beforeAll(async () => {
-    if (fs.existsSync(testDbPath)) {
-      try { fs.unlinkSync(testDbPath); } catch {}
+  function cleanupDbFiles(p: string) {
+    for (const f of [p, `${p}-wal`, `${p}-shm`]) {
+      if (fs.existsSync(f)) {
+        try { fs.unlinkSync(f); } catch {}
+      }
     }
+  }
+
+  beforeAll(async () => {
+    cleanupDbFiles(testDbPath);
 
     server = new CoreServer({ port: 0, dbPath: testDbPath });
     port = await server.start();
@@ -26,9 +32,7 @@ describe('Message Queuing & Mid-Execution Steering Convergence', () => {
 
   afterAll(async () => {
     await server.stop();
-    if (fs.existsSync(testDbPath)) {
-      try { fs.unlinkSync(testDbPath); } catch {}
-    }
+    cleanupDbFiles(testDbPath);
   });
 
   describe('Durable Message Queuing API', () => {

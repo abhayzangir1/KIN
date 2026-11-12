@@ -69,9 +69,16 @@ export class AgentController extends BaseController {
           createdAt: now,
         });
 
+        const proj = this.workspaceRepo.getProject(projectId);
+        let wsId = proj?.workspaceId || 'ws-default';
+        if (!this.workspaceRepo.getWorkspace(wsId)) {
+          const anyWs = this.db.queryOne<{ id: string }>('SELECT id FROM workspaces LIMIT 1');
+          wsId = anyWs?.id || wsId;
+        }
+
         const identity: AgentIdentity = {
           id: agentId,
-          workspaceId: 'ws-default',
+          workspaceId: wsId,
           projectId,
           definitionId: defId,
           parentAgentId: body.parentAgentId,
@@ -223,7 +230,12 @@ export class AgentController extends BaseController {
         // Check git status to get genuine file changes
         let changedFiles: string[] = [];
         try {
-          const gitStat = childProcess.execSync('git status --porcelain=v1', { cwd: repoPath, encoding: 'utf-8', timeout: 3000 });
+          const gitStat = childProcess.execSync('git status --porcelain=v1', {
+            cwd: repoPath,
+            encoding: 'utf-8',
+            timeout: 3000,
+            stdio: ['ignore', 'pipe', 'ignore'],
+          });
           changedFiles = gitStat.split('\n').filter(Boolean).map((l) => l.slice(3).trim());
         } catch (err) { console.debug("[agent_controller] Suppressed exception in catch block:", err); }
 

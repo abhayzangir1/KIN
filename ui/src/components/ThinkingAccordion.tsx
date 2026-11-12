@@ -81,9 +81,9 @@ export const ThinkingAccordion: React.FC<ThinkingAccordionProps> = ({
 
       {/* Expanded Reasoning Body */}
       {isExpanded && (
-        <div className="p-3 bg-[#060a14] border-t border-indigo-950/60 max-h-64 overflow-y-auto space-y-1.5 font-mono text-[11px] text-[#94a3b8] leading-relaxed whitespace-pre-wrap select-text">
+        <div className="p-3 bg-kin-bg/80 border-t border-kin-border max-h-64 overflow-y-auto space-y-1.5 font-mono text-[11px] text-kin-muted leading-relaxed whitespace-pre-wrap select-text">
           {thinking || (
-            <span className="italic text-[#64748b] flex items-center space-x-1.5">
+            <span className="italic text-kin-subtle flex items-center space-x-1.5">
               <Sparkles className="w-3 h-3 text-cyan-400 animate-spin" />
               <span>Synthesizing multi-agent plan and verifying constraints...</span>
             </span>

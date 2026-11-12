@@ -259,9 +259,9 @@ export const Sidebar: React.FC = () => {
                 );
               })
             ) : (
-              <div className="p-2.5 rounded-lg bg-[#0e1424] border border-[#1e293b] text-center space-y-1.5">
-                <div className="text-[11px] text-[#94a3b8] font-medium">No Available Agents</div>
-                <div className="text-[10px] text-[#64748b]">
+              <div className="p-2.5 rounded-lg bg-kin-card border border-kin-border text-center space-y-1.5">
+                <div className="text-[11px] text-kin-muted font-medium">No Available Agents</div>
+                <div className="text-[10px] text-kin-subtle">
                   {ollamaStatus.online
                     ? 'No installed models match configured agents'
                     : 'Ollama offline & no BYOK keys configured'}
@@ -269,7 +269,7 @@ export const Sidebar: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setSettingsModalOpen(true)}
-                  className="w-full py-1 rounded bg-[#1e293b] hover:bg-[#334155] text-emerald-400 text-[10px] font-semibold transition cursor-pointer"
+                  className="w-full py-1 rounded bg-kin-surface hover:bg-kin-surfaceHover border border-kin-border text-emerald-400 text-[10px] font-semibold transition cursor-pointer"
                 >
                   Configure in Settings →
                 </button>

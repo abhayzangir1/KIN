@@ -15,7 +15,7 @@ import { ChannelService } from '../src/communication/channel_service.js';
 import { AgentIdentity } from '../src/domain/types.js';
 
 describe('DeepSeek Harness & KIN Workforce Architecture Remediation Suite', () => {
-  const testDbPath = path.resolve(os.tmpdir(), './test_harness_remediation.sqlite');
+  let testDbPath: string;
   let db: KinDatabase;
   let workspaceRepo: WorkspaceRepository;
   let agentRepo: AgentRepository;
@@ -25,10 +25,17 @@ describe('DeepSeek Harness & KIN Workforce Architecture Remediation Suite', () =
   let contextCompiler: ContextCompiler;
   let toolGateway: ToolGateway;
 
-  beforeEach(() => {
-    if (fs.existsSync(testDbPath)) {
-      try { fs.unlinkSync(testDbPath); } catch {}
+  function cleanupDbFiles(p: string) {
+    for (const f of [p, `${p}-wal`, `${p}-shm`]) {
+      if (fs.existsSync(f)) {
+        try { fs.unlinkSync(f); } catch {}
+      }
     }
+  }
+
+  beforeEach(() => {
+    testDbPath = path.resolve(os.tmpdir(), `./test_harness_remediation_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.sqlite`);
+    cleanupDbFiles(testDbPath);
     db = new KinDatabase({ dbPath: testDbPath });
     new MigrationRunner(db).runMigrations();
 
@@ -91,8 +98,8 @@ describe('DeepSeek Harness & KIN Workforce Architecture Remediation Suite', () =
 
   afterEach(() => {
     try { db.close(); } catch {}
-    if (fs.existsSync(testDbPath)) {
-      try { fs.unlinkSync(testDbPath); } catch {}
+    if (testDbPath) {
+      cleanupDbFiles(testDbPath);
     }
   });
 
@@ -607,14 +614,13 @@ describe('DeepSeek Harness & KIN Workforce Architecture Remediation Suite', () =
   });
 
   describe('Remediation 4: Channel Message Admission Queue Fencing', () => {
-    const serverDbPath = path.resolve(os.tmpdir(), './test_harness_server_fencing.sqlite');
+    let serverDbPath: string;
     let server: CoreServer;
 
     beforeEach(() => {
-      if (fs.existsSync(serverDbPath)) {
-        try { fs.unlinkSync(serverDbPath); } catch {}
-      }
-      server = new CoreServer({ port: 59998, dbPath: serverDbPath });
+      serverDbPath = path.resolve(os.tmpdir(), `./test_harness_server_fencing_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.sqlite`);
+      cleanupDbFiles(serverDbPath);
+      server = new CoreServer({ port: 0, dbPath: serverDbPath });
       const now = Date.now();
       const wsRepo = (server as any).workspaceRepo as WorkspaceRepository;
       if (!wsRepo.getWorkspace('ws-default')) {
@@ -652,8 +658,8 @@ describe('DeepSeek Harness & KIN Workforce Architecture Remediation Suite', () =
 
     afterEach(async () => {
       try { await server.stop(); } catch {}
-      if (fs.existsSync(serverDbPath)) {
-        try { fs.unlinkSync(serverDbPath); } catch {}
+      if (serverDbPath) {
+        cleanupDbFiles(serverDbPath);
       }
     });
 

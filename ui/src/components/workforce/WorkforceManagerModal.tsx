@@ -67,6 +67,54 @@ export const WorkforceManagerModal: React.FC = () => {
   const specialists = agents.filter((a) => !a.isOrchestrator);
   const activeCount = agents.filter((a) => a.status === 'thinking' || a.status === 'working').length;
 
+  const renderAgentStatus = (status?: string) => {
+    switch (status) {
+      case 'working':
+        return (
+          <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] font-mono shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+            <span>Working</span>
+          </div>
+        );
+      case 'thinking':
+        return (
+          <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-blue-500/15 border border-blue-500/30 text-blue-300 text-[10px] font-mono shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+            <span>Thinking</span>
+          </div>
+        );
+      case 'needs_approval':
+        return (
+          <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-300 text-[10px] font-mono shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse" />
+            <span>Approval</span>
+          </div>
+        );
+      case 'recovering':
+        return (
+          <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 text-[10px] font-mono shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+            <span>Recovering</span>
+          </div>
+        );
+      case 'waiting':
+        return (
+          <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300 text-[10px] font-mono shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+            <span>Waiting</span>
+          </div>
+        );
+      case 'idle':
+      default:
+        return (
+          <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-[10px] font-mono shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            <span>Ready</span>
+          </div>
+        );
+    }
+  };
+
   const handleStartDm = (agentId: string) => {
     setActiveChannel(`dm-${agentId}`);
     setActiveMainView('chat');
@@ -206,7 +254,6 @@ export const WorkforceManagerModal: React.FC = () => {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {filteredAgents.map((agent) => {
-                const isWorking = agent.status === 'working' || agent.status === 'thinking';
                 const isExpanded = expandedPromptId === agent.id;
 
                 return (
@@ -250,14 +297,7 @@ export const WorkforceManagerModal: React.FC = () => {
 
                       {/* Status Indicator */}
                       <div className="flex items-center space-x-1.5 shrink-0">
-                        <span
-                          className={`w-2 h-2 rounded-full ${
-                            isWorking ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'
-                          }`}
-                        />
-                        <span className="text-[10px] font-mono text-kin-muted capitalize">
-                          {agent.status || 'Ready'}
-                        </span>
+                        {renderAgentStatus(agent.status)}
                       </div>
                     </div>
 
