@@ -149,9 +149,9 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ language = '', code }) => 
   const lines = code.split('\n');
 
   return (
-    <div className="my-3 rounded-xl border border-slate-200 dark:border-kin-border bg-slate-50 dark:bg-[#0d1117] overflow-hidden shadow-sm transition-colors">
+    <div className="my-3 rounded-xl border border-kin-border bg-kin-surface/95 overflow-hidden shadow-xs transition-colors">
       {/* Header Bar */}
-      <div className="flex items-center justify-between px-3.5 py-1.5 bg-slate-100 dark:bg-[#161b22] border-b border-slate-200 dark:border-kin-border text-[11px] font-mono select-none">
+      <div className="flex items-center justify-between px-3.5 py-1.5 bg-kin-card/80 border-b border-kin-border text-[11px] font-mono select-none">
         <div className="flex items-center space-x-2 text-slate-600 dark:text-slate-300">
           {isShellCommand ? (
             <Terminal className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />

@@ -37,12 +37,12 @@ export const ThinkingAccordion: React.FC<ThinkingAccordionProps> = ({
   if (!thinking && !isStreaming) return null;
 
   return (
-    <div className="my-2 rounded-xl border border-indigo-500/30 bg-[#090e1d]/80 overflow-hidden shadow-md text-xs transition-all">
+    <div className="my-2 rounded-xl border border-indigo-500/30 bg-kin-surface/85 backdrop-blur-md overflow-hidden shadow-xs text-xs transition-all">
       {/* Accordion Toggle Header */}
       <button
         type="button"
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full px-3 py-2 flex items-center justify-between bg-[#0e162d]/90 hover:bg-[#131e3d] text-indigo-300 font-mono text-[11px] transition cursor-pointer select-none"
+        className="w-full px-3.5 py-2 flex items-center justify-between bg-kin-card/80 hover:bg-kin-cardHover text-indigo-400 font-mono text-[11px] transition cursor-pointer select-none"
       >
         <div className="flex items-center space-x-2">
           <div className="relative">

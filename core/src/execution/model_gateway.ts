@@ -6,11 +6,12 @@
 
 import { SecretVault } from '../security/secret_vault.js';
 import { SecretBroker } from '../security/secret_broker.js';
-import { DiscoveredModel, ProviderReadiness, ModelDiscoveryService } from './model_discovery.js';
+import { ModelDiscoveryService, type DiscoveredModel, type ProviderReadiness } from './model_discovery.js';
 import { QuotaGuard } from './quota_guard.js';
 import { StreamingInferenceClient } from './streaming_client.js';
 
-export { DiscoveredModel, ProviderReadiness, ModelDiscoveryService, QuotaGuard, StreamingInferenceClient };
+export { ModelDiscoveryService, QuotaGuard, StreamingInferenceClient };
+export type { DiscoveredModel, ProviderReadiness };
 
 export interface ModelMessage {
   role: 'system' | 'user' | 'assistant';

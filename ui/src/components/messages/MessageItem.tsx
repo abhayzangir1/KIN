@@ -236,39 +236,39 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     <article
       role="article"
       aria-label={`Message from ${message.senderName || (isHuman ? 'Human Operator' : 'Agent')}`}
-      className="flex space-x-3 group relative select-text"
+      className="flex space-x-3.5 group relative select-text py-1.5"
     >
       {/* Avatar */}
       <div
-        className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 text-white ${
+        className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-xs border ${
           isHuman
-            ? 'bg-emerald-600'
+            ? 'bg-emerald-600 border-emerald-500/40 text-white'
             : agent?.isOrchestrator
-            ? 'bg-[#1e293b] border border-amber-500/40 text-amber-300 font-bold'
-            : 'bg-[#1e293b] border border-blue-500/40 text-blue-300 font-bold'
+            ? 'bg-gradient-to-br from-amber-500 to-amber-700 border-amber-400/40 text-white font-bold'
+            : 'bg-gradient-to-br from-blue-600 to-indigo-700 border-blue-400/30 text-white font-bold'
         }`}
       >
         {isHuman ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
       </div>
 
       {/* Message Body */}
-      <div className="flex-1 space-y-1">
-        <div className="flex items-center space-x-2 select-none">
-          <span className="font-semibold text-kin-text">
-            {isHuman ? 'Human' : agent?.displayName || message.senderName}
+      <div className="flex-1 space-y-1.5 min-w-0">
+        <div className="flex items-center space-x-2.5 select-none">
+          <span className="font-bold text-kin-text text-xs">
+            {isHuman ? 'Human Operator' : agent?.displayName || message.senderName}
           </span>
 
           {/* Role Badge */}
           {isHuman ? (
-            <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 font-mono font-bold">
+            <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-mono font-bold border border-emerald-500/25">
               Human
             </span>
           ) : agent?.isOrchestrator ? (
-            <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono font-bold">
+            <span className="text-[9px] uppercase px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-mono font-bold">
               Workspace Orchestrator
             </span>
           ) : (
-            <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 font-mono font-bold">
+            <span className="text-[9px] uppercase px-2 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/30 font-mono font-bold">
               {agent?.role || 'Specialist'}
             </span>
           )}
@@ -276,7 +276,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
           {/* Productivity score badge if present */}
           {typeof message.productivityScore === 'number' && (
             <span
-              className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 flex items-center space-x-1"
+              className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 flex items-center space-x-1 border border-emerald-500/20"
               title="Productivity Score"
             >
               <Sparkles className="w-2.5 h-2.5" />
@@ -287,7 +287,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
           {/* Static Model Tag for Agents */}
           {!isHuman && (agent?.activeModelId || (message.metadata as any)?.modelId) && (
             <span
-              className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-kin-card text-kin-muted border border-kin-border truncate max-w-[120px]"
+              className="text-[10px] font-mono px-2 py-0.5 rounded bg-kin-card text-kin-muted border border-kin-border truncate max-w-[140px]"
               title={`Executed with ${agent?.activeModelId || (message.metadata as any)?.modelId}`}
             >
               {(agent?.activeModelId || (message.metadata as any)?.modelId || '')
@@ -296,13 +296,13 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             </span>
           )}
 
-          <time dateTime={new Date(message.createdAt).toISOString()} className="text-[10px] text-[#64748b]">
+          <time dateTime={new Date(message.createdAt).toISOString()} className="text-[10px] font-mono text-kin-muted">
             {formattedTime}
           </time>
 
           {/* Steering Directive Badge */}
           {message.isSteer && (
-            <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono font-bold flex items-center space-x-1 border border-amber-500/30">
+            <span className="text-[9px] uppercase px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono font-bold flex items-center space-x-1 border border-amber-500/30">
               <Zap className="w-2.5 h-2.5 text-amber-400" />
               <span>Steer Directive</span>
             </span>
@@ -313,7 +313,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             <button
               type="button"
               onClick={handleQuote}
-              className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-[#1e293b] hover:bg-emerald-600/30 hover:text-emerald-300 text-[#94a3b8] text-[10px] font-mono transition"
+              className="flex items-center space-x-1 px-2 py-0.5 rounded bg-kin-surface hover:bg-emerald-500/20 hover:text-emerald-300 text-kin-muted text-[10px] font-mono border border-kin-border transition cursor-pointer"
               title="Quote this message in reply"
               aria-label="Quote reply"
             >
@@ -323,7 +323,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             <button
               type="button"
               onClick={handleCopy}
-              className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-[#1e293b] hover:bg-emerald-600/30 hover:text-emerald-300 text-[#94a3b8] text-[10px] font-mono transition"
+              className="flex items-center space-x-1 px-2 py-0.5 rounded bg-kin-surface hover:bg-emerald-500/20 hover:text-emerald-300 text-kin-muted text-[10px] font-mono border border-kin-border transition cursor-pointer"
               title="Copy message text"
               aria-label="Copy message text"
             >
@@ -333,16 +333,16 @@ export const MessageItem: React.FC<MessageItemProps> = ({
           </div>
         </div>
 
-        {/* Content Bubble */}
+        {/* Content Bubble (Non-flat, modern elevation, generous padding) */}
         <div
-          className={`text-kin-text text-xs leading-relaxed font-sans p-3 rounded-xl border transition ${
+          className={`text-kin-text text-xs leading-relaxed font-sans p-4 rounded-xl border shadow-xs transition-all ${
             isSideQuery
-              ? 'bg-amber-500/10 border-amber-500/30'
+              ? 'bg-amber-500/10 border-amber-500/30 shadow-amber-950/10'
               : isSlashCard
-              ? 'bg-blue-500/10 border-blue-500/30'
+              ? 'bg-blue-500/10 border-blue-500/30 shadow-blue-950/10'
               : isHuman
-              ? 'bg-emerald-500/10 border-emerald-500/20'
-              : 'bg-kin-card border-kin-border'
+              ? 'bg-emerald-500/10 border-emerald-500/25'
+              : 'bg-kin-card/90 border-kin-border hover:border-kin-border/80'
           }`}
         >
           {isSideQuery && (

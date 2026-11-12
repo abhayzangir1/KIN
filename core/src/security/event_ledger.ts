@@ -64,6 +64,7 @@ export class EventLedger {
       EventLedger.instance = new EventLedger(db);
     } else if (db && (EventLedger.instance.db !== db || (EventLedger.instance.db as any).isClosed)) {
       EventLedger.instance.db = db;
+      EventLedger.instance.lastRecordHash = null;
     }
     return EventLedger.instance;
   }

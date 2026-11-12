@@ -162,9 +162,9 @@ export const NewProjectModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-[#0f172a] border border-[#1e293b] rounded-xl shadow-2xl p-5 space-y-4">
+      <div className="w-full max-w-md bg-kin-surface border border-kin-border rounded-xl shadow-2xl p-5 space-y-4 backdrop-blur-xl text-kin-text">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-[#1e293b] pb-3">
+        <div className="flex items-center justify-between border-b border-kin-border pb-3">
           <div className="flex items-center space-x-2 text-kin-text font-bold text-sm">
             <FolderPlus className="w-4 h-4 text-emerald-400" />
             <span>Create New Workspace / Project</span>
@@ -208,20 +208,20 @@ export const NewProjectModal: React.FC = () => {
           )}
 
           <div>
-            <label className="block text-[#94a3b8] font-medium mb-1">Project Name</label>
+            <label className="block text-kin-muted font-medium mb-1">Project Name</label>
             <input
               type="text"
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. my-app, fintech-api"
-              className="w-full bg-[#090d16] border border-[#2d3748] rounded px-3 py-2 text-kin-text focus:outline-none focus:border-emerald-500"
+              className="w-full bg-kin-card border border-kin-border rounded-lg px-3 py-2 text-kin-text focus:outline-none focus:border-emerald-500"
             />
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="block text-[#94a3b8] font-medium">Root Repository Path</label>
+              <label className="block text-kin-muted font-medium">Root Repository Path</label>
               <button
                 type="button"
                 onClick={handleBrowse}
@@ -241,25 +241,25 @@ export const NewProjectModal: React.FC = () => {
               value={repoPath}
               onChange={(e) => setRepoPath(e.target.value)}
               placeholder="e.g. C:\Projects\my-app or /home/user/my-app"
-              className="w-full bg-[#090d16] border border-[#2d3748] rounded px-3 py-2 text-kin-text font-mono focus:outline-none focus:border-emerald-500"
+              className="w-full bg-kin-card border border-kin-border rounded-lg px-3 py-2 text-kin-text font-mono focus:outline-none focus:border-emerald-500"
             />
-            <p className="text-[10px] text-[#64748b] mt-1">
-              Absolute path to your local project folder (e.g. <code className="text-emerald-300">C:\Projects\my-app</code>).
+            <p className="text-[10px] text-kin-muted mt-1">
+              Absolute path to your local project folder (e.g. <code className="text-emerald-400">C:\Projects\my-app</code>).
             </p>
           </div>
 
-          <div className="pt-2 flex items-center justify-end space-x-2">
+          <div className="pt-2 flex items-center justify-end space-x-2 border-t border-kin-border">
             <button
               type="button"
               onClick={() => setNewProjectModalOpen(false)}
-              className="px-3.5 py-1.5 rounded bg-[#1e293b] text-[#94a3b8] hover:text-kin-text transition cursor-pointer"
+              className="px-3.5 py-1.5 rounded-lg bg-kin-card hover:bg-kin-cardHover border border-kin-border text-kin-muted hover:text-kin-text transition cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting || !name.trim() || !isConnected}
-              className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-medium transition cursor-pointer flex items-center space-x-1.5"
+              className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-semibold transition cursor-pointer flex items-center space-x-1.5 shadow-sm"
             >
               {isSubmitting && <Loader2 className="w-3 h-3 animate-spin" />}
               <span>{isSubmitting ? 'Creating...' : !isConnected ? 'Daemon Disconnected' : 'Create Project'}</span>

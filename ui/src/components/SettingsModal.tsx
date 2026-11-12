@@ -20,8 +20,6 @@ import {
   ArrowRight,
   Monitor,
   Network,
-  Sun,
-  Moon,
   Plus,
   AlertCircle,
   ChevronDown,
@@ -29,10 +27,12 @@ import {
   Server,
   Maximize2,
   Globe,
+  Palette,
 } from 'lucide-react';
 import { ConnectorsManager } from './ConnectorsManager.js';
 import { CredentialVaultTab } from './settings/CredentialVaultTab.js';
 import { EgressConsentTab } from './settings/EgressConsentTab.js';
+import { AppearanceTab } from './settings/AppearanceTab.js';
 
 export const SettingsModal: React.FC = () => {
   const {
@@ -277,6 +277,18 @@ export const SettingsModal: React.FC = () => {
             >
               <Shield className="w-4 h-4 shrink-0" />
               <span>Autonomy & Safety</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('appearance')}
+              className={`flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-medium transition text-left ${
+                activeTab === 'appearance'
+                  ? 'bg-cyan-600/20 text-cyan-400 border border-cyan-500/30'
+                  : 'text-kin-muted hover:bg-kin-cardHover hover:text-kin-text'
+              }`}
+            >
+              <Palette className="w-4 h-4 shrink-0 text-cyan-400" />
+              <span>Appearance & Theme</span>
             </button>
 
             <button
@@ -531,18 +543,26 @@ export const SettingsModal: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Minimalist Appearance & Theme Selector */}
+                {/* Appearance & Theme Studio Quick Card */}
                 <div className="space-y-2 pt-2 border-t border-kin-border">
                   <div className="flex items-center justify-between">
                     <div>
                       <h4 className="text-xs font-bold text-kin-text flex items-center space-x-1.5">
-                        {theme === 'light' ? <Sun className="w-3.5 h-3.5 text-amber-500" /> : <Moon className="w-3.5 h-3.5 text-amber-300" />}
-                        <span>Interface Appearance & Minimalist Theme</span>
+                        <Palette className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Interface Appearance & Theme Studio</span>
                       </h4>
                       <p className="text-[11px] text-kin-muted">
-                        Clean, borderless layout with subtle marginal boundaries modeled after Antigravity and Codex.
+                        60-30-10 visual architecture with Deep Ocean Haze, Light Sky Blue, Aurora mesh gradients, and customizable typography.
                       </p>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('appearance')}
+                      className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/30 text-xs font-semibold transition cursor-pointer"
+                    >
+                      <span>Open Theme Studio</span>
+                      <ArrowRight className="w-3.5 h-3.5 ml-1" />
+                    </button>
                   </div>
                   <div className="grid grid-cols-2 gap-3 pt-1">
                     <button
@@ -550,30 +570,30 @@ export const SettingsModal: React.FC = () => {
                       onClick={() => setTheme('dark')}
                       className={`p-3 rounded-lg border text-left transition cursor-pointer ${
                         theme === 'dark'
-                          ? 'bg-kin-card border-emerald-500 text-kin-text shadow-sm ring-1 ring-emerald-500/50'
+                          ? 'bg-kin-card border-cyan-500 text-kin-text shadow-sm ring-1 ring-cyan-500/50'
                           : 'bg-kin-surface border-kin-border text-kin-muted hover:border-kin-borderSubtle'
                       }`}
                     >
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-bold text-kin-text">Obsidian Dark</span>
-                        {theme === 'dark' && <Check className="w-3.5 h-3.5 text-emerald-400" />}
+                        <span className="text-xs font-bold text-kin-text">Deep Ocean Haze (Dark)</span>
+                        {theme === 'dark' && <Check className="w-3.5 h-3.5 text-cyan-400" />}
                       </div>
-                      <p className="text-[10px] text-kin-muted">High contrast deep dark mode for focus and low eye strain.</p>
+                      <p className="text-[10px] text-kin-muted">60% deep ocean canvas, 30% oceanic frosted slate, 10% electric cyan.</p>
                     </button>
                     <button
                       type="button"
                       onClick={() => setTheme('light')}
                       className={`p-3 rounded-lg border text-left transition cursor-pointer ${
                         theme === 'light'
-                          ? 'bg-kin-card border-emerald-500 text-kin-text shadow-sm ring-1 ring-emerald-500/50'
+                          ? 'bg-kin-card border-sky-500 text-kin-text shadow-sm ring-1 ring-sky-500/50'
                           : 'bg-kin-surface border-kin-border text-kin-muted hover:border-kin-borderSubtle'
                       }`}
                     >
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-bold text-kin-text">Minimal Light</span>
-                        {theme === 'light' && <Check className="w-3.5 h-3.5 text-emerald-600" />}
+                        <span className="text-xs font-bold text-kin-text">Light Sky Blue (Light)</span>
+                        {theme === 'light' && <Check className="w-3.5 h-3.5 text-sky-600" />}
                       </div>
-                      <p className="text-[10px] text-kin-muted">Clean off-white surfaces, slate typography, minimal borders.</p>
+                      <p className="text-[10px] text-kin-muted">60% light sky blue canvas, 30% crisp cloud surfaces, 10% deep cerulean.</p>
                     </button>
                   </div>
                 </div>
@@ -631,7 +651,10 @@ export const SettingsModal: React.FC = () => {
               </div>
             )}
 
-            {/* 2. OLLAMA & MODELS TAB */}
+            {/* 2. APPEARANCE & THEME STUDIO TAB */}
+            {activeTab === 'appearance' && <AppearanceTab />}
+
+            {/* 3. OLLAMA & MODELS TAB */}
             {activeTab === 'models' && (
               <div className="space-y-6">
                 <div>

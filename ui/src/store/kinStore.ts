@@ -5,6 +5,16 @@
 // ============================================================================
 
 import { create } from 'zustand';
+import {
+  ThemeSettings,
+  ThemePreset,
+  THEME_PRESETS,
+  loadInitialThemeSettings,
+  saveThemeSettings,
+  applyThemeToDom,
+} from '../utils/themeEngine.js';
+
+export type { ThemeSettings, ThemePreset } from '../utils/themeEngine.js';
 
 let cachedIpcToken: string | null = null;
 const nativeFetch = typeof window !== 'undefined' && typeof window.fetch === 'function' ? window.fetch.bind(window) : undefined;
@@ -526,6 +536,7 @@ export interface UploadItem {
 
 export type SettingsTab =
   | 'general'
+  | 'appearance'
   | 'models'
   | 'credentials'
   | 'egress'
@@ -1148,10 +1159,14 @@ interface KinState {
   toggleInspector: () => void;
   resetPanelWidths: () => void;
 
-  // Theme State
+  // Theme State & Appearance Engine
   theme: 'dark' | 'light';
+  themeSettings: ThemeSettings;
   setTheme: (theme: 'dark' | 'light') => void;
   toggleTheme: () => void;
+  setThemeSettings: (settings: Partial<ThemeSettings>) => void;
+  setThemePreset: (preset: ThemePreset) => void;
+  resetThemeSettings: () => void;
 
   // Main View Navigation
   activeMainView: 'chat' | 'automations' | 'dag';
@@ -1529,32 +1544,65 @@ export const useKinStore = create<KinState>((set, get) => ({
     }
   },
 
-  // Theme State
-  theme: (() => {
-    try {
-      const saved = localStorage.getItem('kin_theme');
-      if (saved === 'light' || saved === 'dark') return saved;
-    } catch (err) {
-      console.warn('[KIN UI] Theme storage load notice:', err);
+  // Theme State & Appearance Engine
+  themeSettings: (() => {
+    const initial = loadInitialThemeSettings();
+    if (typeof window !== 'undefined') {
+      setTimeout(() => applyThemeToDom(initial), 0);
     }
-    return 'light';
+    return initial;
+  })(),
+  theme: (() => {
+    const initial = loadInitialThemeSettings();
+    return initial.mode;
   })(),
   setTheme: (theme: 'dark' | 'light') => {
-    try {
-      localStorage.setItem('kin_theme', theme);
-    } catch (err) {
-      console.warn('[KIN UI] Theme storage save notice:', err);
-    }
-    set({ theme });
+    const current = get().themeSettings;
+    const basePreset = theme === 'dark' ? THEME_PRESETS['ocean-haze'] : THEME_PRESETS['sky-blue'];
+    const updated: ThemeSettings = {
+      ...basePreset,
+      mode: theme,
+      preset: theme === 'dark' ? 'ocean-haze' : 'sky-blue',
+      fontFamily: current.fontFamily || basePreset.fontFamily,
+    };
+    applyThemeToDom(updated);
+    saveThemeSettings(updated);
+    set({ theme, themeSettings: updated });
   },
   toggleTheme: () => {
-    const next = get().theme === 'dark' ? 'light' : 'dark';
-    try {
-      localStorage.setItem('kin_theme', next);
-    } catch (err) {
-      console.warn('[KIN UI] Theme storage save notice:', err);
+    const nextMode: 'dark' | 'light' = get().theme === 'dark' ? 'light' : 'dark';
+    get().setTheme(nextMode);
+  },
+  setThemeSettings: (partial: Partial<ThemeSettings>) => {
+    const current = get().themeSettings;
+    const updated: ThemeSettings = {
+      ...current,
+      ...partial,
+      preset: partial.preset || 'custom',
+    };
+    applyThemeToDom(updated);
+    saveThemeSettings(updated);
+    set({ theme: updated.mode, themeSettings: updated });
+  },
+  setThemePreset: (preset: ThemePreset) => {
+    if (preset === 'custom') {
+      get().setThemeSettings({ preset: 'custom' });
+      return;
     }
-    set({ theme: next });
+    const target = THEME_PRESETS[preset];
+    if (target) {
+      applyThemeToDom(target);
+      saveThemeSettings(target);
+      set({ theme: target.mode, themeSettings: target });
+    }
+  },
+  resetThemeSettings: () => {
+    const currentMode = get().theme;
+    const defaultPreset = currentMode === 'light' ? 'sky-blue' : 'ocean-haze';
+    const target = THEME_PRESETS[defaultPreset];
+    applyThemeToDom(target);
+    saveThemeSettings(target);
+    set({ theme: target.mode, themeSettings: target });
   },
 
   // Resizable Workspace Layout State

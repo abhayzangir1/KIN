@@ -62,18 +62,18 @@ export const CreateGoalModal: React.FC = () => {
       aria-labelledby="create-goal-heading"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn"
     >
-      <div className="bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-[#1e293b] rounded-xl w-full max-w-md shadow-2xl p-5 space-y-4 font-sans text-xs">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-[#1e293b]">
+      <div className="bg-kin-surface border border-kin-border rounded-xl w-full max-w-md shadow-2xl p-5 space-y-4 font-sans text-xs backdrop-blur-xl text-kin-text">
+        <div className="flex items-center justify-between pb-3 border-b border-kin-border">
           <div className="flex items-center space-x-2">
             <Target className="w-5 h-5 text-emerald-500 dark:text-emerald-400" />
-            <h2 id="create-goal-heading" className="text-sm font-bold text-slate-900 dark:text-white">
+            <h2 id="create-goal-heading" className="text-sm font-bold text-kin-text">
               Create Project Goal
             </h2>
           </div>
           <button
             type="button"
             onClick={() => setNewGoalModalOpen(false)}
-            className="text-slate-400 hover:text-slate-700 dark:hover:text-white transition cursor-pointer"
+            className="text-kin-muted hover:text-kin-text transition cursor-pointer"
             title="Close dialog"
           >
             <X className="w-4 h-4" />
@@ -82,55 +82,55 @@ export const CreateGoalModal: React.FC = () => {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
-            <div className="p-2 rounded bg-red-50 dark:bg-red-950/40 border border-red-300 dark:border-red-500/30 text-red-700 dark:text-red-300 text-xs">
+            <div className="p-2.5 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-300 dark:border-red-500/30 text-red-700 dark:text-red-300 text-xs">
               {error}
             </div>
           )}
 
           <div className="space-y-1">
-            <label className="text-slate-700 dark:text-[#94a3b8] font-medium">Goal Title *</label>
+            <label className="text-kin-muted font-medium">Goal Title *</label>
             <input
               type="text"
               autoFocus
               value={goalTitle}
               onChange={(e) => setGoalTitle(e.target.value)}
               placeholder="e.g. Real-Time Concurrency Architecture"
-              className="w-full bg-slate-50 dark:bg-[#090d16] border border-slate-300 dark:border-[#2d3748] rounded px-3 py-1.5 text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500"
+              className="w-full bg-kin-card border border-kin-border rounded-lg px-3 py-1.5 text-kin-text focus:outline-none focus:border-emerald-500"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-slate-700 dark:text-[#94a3b8] font-medium">Description & Scope (Optional)</label>
+            <label className="text-kin-muted font-medium">Description & Scope (Optional)</label>
             <textarea
               rows={3}
               value={goalDescription}
               onChange={(e) => setGoalDescription(e.target.value)}
               placeholder="e.g. Coordinate API and UI work using the configured model"
-              className="w-full bg-slate-50 dark:bg-[#090d16] border border-slate-300 dark:border-[#2d3748] rounded px-3 py-1.5 text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500 resize-none"
+              className="w-full bg-kin-card border border-kin-border rounded-lg px-3 py-1.5 text-kin-text focus:outline-none focus:border-emerald-500 resize-none"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-slate-700 dark:text-[#94a3b8] font-medium">Acceptance Criteria (Optional)</label>
+            <label className="text-kin-muted font-medium">Acceptance Criteria (Optional)</label>
             <input
               type="text"
               value={goalCriteria}
               onChange={(e) => setGoalCriteria(e.target.value)}
               placeholder="e.g. API contract documented, relevant tests pass (comma separated)"
-              className="w-full bg-slate-50 dark:bg-[#090d16] border border-slate-300 dark:border-[#2d3748] rounded px-3 py-1.5 text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500"
+              className="w-full bg-kin-card border border-kin-border rounded-lg px-3 py-1.5 text-kin-text focus:outline-none focus:border-emerald-500"
             />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="text-slate-700 dark:text-[#94a3b8] font-medium flex items-center space-x-1">
+              <label className="text-kin-muted font-medium flex items-center space-x-1">
                 <Clock className="w-3.5 h-3.5 text-blue-500" />
                 <span>Check-In Policy</span>
               </label>
               <select
                 value={checkInPolicy}
                 onChange={(e) => setCheckInPolicy(e.target.value)}
-                className="w-full bg-slate-50 dark:bg-[#090d16] border border-slate-300 dark:border-[#2d3748] rounded px-2.5 py-1.5 text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                className="w-full bg-kin-card border border-kin-border rounded-lg px-2.5 py-1.5 text-kin-text focus:outline-none focus:border-emerald-500"
               >
                 <option value="per_milestone">Per Milestone</option>
                 <option value="daily">Daily Cadence</option>
@@ -140,7 +140,7 @@ export const CreateGoalModal: React.FC = () => {
             </div>
 
             <div className="space-y-1">
-              <label className="text-slate-700 dark:text-[#94a3b8] font-medium flex items-center space-x-1">
+              <label className="text-kin-muted font-medium flex items-center space-x-1">
                 <Calendar className="w-3.5 h-3.5 text-purple-500" />
                 <span>Deadline (Optional)</span>
               </label>
@@ -148,34 +148,34 @@ export const CreateGoalModal: React.FC = () => {
                 type="date"
                 value={deadline}
                 onChange={(e) => setDeadline(e.target.value)}
-                className="w-full bg-slate-50 dark:bg-[#090d16] border border-slate-300 dark:border-[#2d3748] rounded px-2.5 py-1.5 text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                className="w-full bg-kin-card border border-kin-border rounded-lg px-2.5 py-1.5 text-kin-text focus:outline-none focus:border-emerald-500"
               />
             </div>
           </div>
 
-          <div className="p-2.5 rounded bg-slate-100 dark:bg-[#070b12] border border-slate-200 dark:border-[#1e293b] text-slate-600 dark:text-[#94a3b8] space-y-1 text-[11px]">
-            <div className="flex items-center space-x-1.5 text-emerald-600 dark:text-emerald-400 font-semibold">
+          <div className="p-3 rounded-lg bg-kin-card/80 border border-kin-border text-kin-muted space-y-1 text-[11px]">
+            <div className="flex items-center space-x-1.5 text-emerald-500 dark:text-emerald-400 font-semibold">
               <CheckCircle2 className="w-3.5 h-3.5" />
               <span>Project Grounding</span>
             </div>
             <p>
-              Target Project: <span className="font-mono text-slate-900 dark:text-white font-bold">{activeProject?.name || 'KIN'}</span>.
+              Target Project: <span className="font-mono text-kin-text font-bold">{activeProject?.name || 'KIN'}</span>.
               Creating a goal populates the task DAG and activates autonomous execution tracking.
             </p>
           </div>
 
-          <div className="flex items-center justify-end space-x-2 pt-2">
+          <div className="flex items-center justify-end space-x-2 pt-2 border-t border-kin-border">
             <button
               type="button"
               onClick={() => setNewGoalModalOpen(false)}
-              className="px-3 py-1.5 rounded bg-slate-200 hover:bg-slate-300 dark:bg-[#1e293b] dark:hover:bg-[#334155] text-slate-800 dark:text-white transition cursor-pointer"
+              className="px-3.5 py-1.5 rounded-lg bg-kin-card hover:bg-kin-cardHover border border-kin-border text-kin-muted hover:text-kin-text transition cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting || !goalTitle.trim()}
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition disabled:opacity-40 cursor-pointer shadow-xs"
+              className="flex items-center space-x-1.5 px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition disabled:opacity-40 cursor-pointer shadow-xs"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>{isSubmitting ? 'Creating...' : 'Create Goal'}</span>

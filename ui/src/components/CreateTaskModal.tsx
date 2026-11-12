@@ -85,15 +85,15 @@ export const CreateTaskModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
-      <div className="bg-[#0f172a] border border-[#1e293b] rounded-xl w-full max-w-md shadow-2xl p-5 space-y-4 font-sans text-xs max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between pb-3 border-b border-[#1e293b]">
+      <div className="bg-kin-surface border border-kin-border rounded-xl w-full max-w-md shadow-2xl p-5 space-y-4 font-sans text-xs max-h-[90vh] overflow-y-auto backdrop-blur-xl text-kin-text">
+        <div className="flex items-center justify-between pb-3 border-b border-kin-border">
           <div className="flex items-center space-x-2">
             <CheckSquare className="w-5 h-5 text-blue-400" />
             <h2 className="text-sm font-bold text-kin-text">Create Task in DAG</h2>
           </div>
           <button
             onClick={() => setNewTaskModalOpen(false)}
-            className="text-[#64748b] hover:text-kin-text transition"
+            className="text-kin-muted hover:text-kin-text transition cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -101,13 +101,13 @@ export const CreateTaskModal: React.FC = () => {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
-            <div className="p-2 rounded bg-red-950/40 border border-red-500/30 text-red-300 text-xs">
+            <div className="p-2.5 rounded-lg bg-red-950/40 border border-red-500/30 text-red-300 text-xs">
               {error}
             </div>
           )}
 
           <div className="space-y-1">
-            <label className="text-[#94a3b8] font-medium flex items-center space-x-1">
+            <label className="text-kin-muted font-medium flex items-center space-x-1">
               <Target className="w-3 h-3 text-emerald-400" />
               <span>Target Goal *</span>
             </label>
@@ -258,18 +258,18 @@ export const CreateTaskModal: React.FC = () => {
             )}
           </div>
 
-          <div className="flex items-center justify-end space-x-2 pt-2 border-t border-[#1e293b]">
+          <div className="flex items-center justify-end space-x-2 pt-2 border-t border-kin-border">
             <button
               type="button"
               onClick={() => setNewTaskModalOpen(false)}
-              className="px-3 py-1.5 rounded bg-transparent hover:bg-[#1e293b] text-[#94a3b8] transition"
+              className="px-3.5 py-1.5 rounded-lg bg-kin-card hover:bg-kin-cardHover border border-kin-border text-kin-muted hover:text-kin-text transition cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting || !taskTitle.trim() || !selectedGoalId}
-              className="flex items-center space-x-1.5 px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-semibold transition disabled:opacity-40 shadow-lg shadow-blue-900/30"
+              className="flex items-center space-x-1.5 px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold transition disabled:opacity-40 shadow-sm cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>{isSubmitting ? 'Creating...' : 'Create Task'}</span>

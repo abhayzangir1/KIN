@@ -5,16 +5,24 @@
 :root,
 html.dark {
   color-scheme: dark;
-  --kin-bg: #0a0d14;
-  --kin-surface: #111827;
-  --kin-surfaceHover: #161e2e;
-  --kin-card: #161e2e;
-  --kin-cardHover: #1c273a;
-  --kin-border: rgba(255, 255, 255, 0.08);
-  --kin-borderSubtle: rgba(255, 255, 255, 0.04);
+  /* 60% Dominant Canvas: Deep Ocean Haze */
+  --kin-bg: #0b1326;
+  /* 30% Secondary Surfaces: Oceanic Frosted Slate */
+  --kin-surface: #132247;
+  --kin-surfaceHover: rgba(255, 255, 255, 0.06);
+  --kin-card: #152449;
+  --kin-cardHover: rgba(255, 255, 255, 0.09);
+  --kin-border: rgba(56, 189, 248, 0.16);
+  --kin-borderSubtle: rgba(56, 189, 248, 0.08);
+  /* 10% Focus / Highlight: Electric Marine Azure */
+  --kin-primary: #00d2ff;
+  --kin-accent: #00d2ff;
   --kin-text: #f1f5f9;
   --kin-muted: #94a3b8;
   --kin-subtle: #64748b;
+
+  --kin-glass-blur: 16px;
+  --kin-glass-opacity: 0.85;
 
   /* Standard Component Geometry Radiuses */
   --kin-radius-container: 0.75rem; /* rounded-xl */
@@ -24,23 +32,64 @@ html.dark {
 
 html.light {
   color-scheme: light;
-  --kin-bg: #f8fafc;
+  /* 60% Dominant Canvas: Light Sky Blue */
+  --kin-bg: #eef6fc;
+  /* 30% Secondary Surfaces: Crisp Cloud & Frosted Glass */
   --kin-surface: #ffffff;
-  --kin-surfaceHover: #f1f5f9;
-  --kin-card: #f1f5f9;
-  --kin-cardHover: #e2e8f0;
-  --kin-border: rgba(15, 23, 42, 0.08);
-  --kin-borderSubtle: rgba(15, 23, 42, 0.04);
+  --kin-surfaceHover: rgba(0, 0, 0, 0.04);
+  --kin-card: #ffffff;
+  --kin-cardHover: rgba(0, 0, 0, 0.06);
+  --kin-border: rgba(2, 132, 199, 0.20);
+  --kin-borderSubtle: rgba(2, 132, 199, 0.08);
+  /* 10% Focus / Highlight: Deep Oceanic Cerulean */
+  --kin-primary: #0284c7;
+  --kin-accent: #0284c7;
   --kin-text: #0f172a;
-  --kin-muted: #64748b;
-  --kin-subtle: #94a3b8;
+  --kin-muted: #475569;
+  --kin-subtle: #64748b;
+
+  --kin-glass-blur: 16px;
+  --kin-glass-opacity: 0.88;
 }
 
+/* Modern Semi-Transparent Aurora Mesh Gradients */
+.kin-aurora-bg {
+  background-color: var(--kin-bg);
+  background-image:
+    radial-gradient(ellipse at 15% 15%, rgba(0, 210, 255, 0.08), transparent 45%),
+    radial-gradient(ellipse at 85% 85%, rgba(14, 165, 233, 0.07), transparent 50%),
+    radial-gradient(ellipse at 50% 40%, rgba(99, 102, 241, 0.04), transparent 60%);
+  background-attachment: fixed;
+}
+
+html.light.kin-aurora-bg,
+body.kin-aurora-bg.light {
+  background-color: var(--kin-bg);
+  background-image:
+    radial-gradient(ellipse at 10% 10%, rgba(186, 230, 253, 0.45), transparent 45%),
+    radial-gradient(ellipse at 90% 85%, rgba(224, 242, 254, 0.6), transparent 50%),
+    radial-gradient(ellipse at 50% 50%, rgba(240, 249, 255, 0.7), transparent 60%);
+  background-attachment: fixed;
+}
+
+/* Glassmorphism & Depth Layers */
+.kin-glass {
+  background-color: var(--kin-surface);
+  backdrop-filter: blur(var(--kin-glass-blur));
+  -webkit-backdrop-filter: blur(var(--kin-glass-blur));
+}
+
+.kin-glass-card {
+  background-color: var(--kin-card);
+  backdrop-filter: blur(var(--kin-glass-blur));
+  -webkit-backdrop-filter: blur(var(--kin-glass-blur));
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.12), 0 0 0 1px var(--kin-border);
+}
 
 body {
   background-color: var(--kin-bg);
   color: var(--kin-text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+  font-family: var(--kin-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif);
   letter-spacing: -0.01em;
   -webkit-font-smoothing: antialiased;
 }

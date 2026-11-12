@@ -350,7 +350,10 @@ export const Sidebar: React.FC = () => {
             </div>
           )}
         </div>
+      </div>
 
+      {/* DOCKED WORKFORCE UTILITIES (Goals, Decisions, Automations directly above Settings with border) */}
+      <div className="border-t border-kin-border p-2 space-y-3 bg-kin-surface/40 shrink-0 max-h-72 overflow-y-auto">
         {/* TASKS & GOALS SECTION */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between px-2 text-[10px] uppercase font-bold tracking-wider text-kin-muted">

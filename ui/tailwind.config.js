@@ -7,6 +7,9 @@ export default {
   darkMode: 'class',
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['var(--kin-font-family, system-ui)', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+      },
       colors: {
         kin: {
           bg: 'var(--kin-bg)',
@@ -16,8 +19,9 @@ export default {
           cardHover: 'var(--kin-cardHover)',
           border: 'var(--kin-border)',
           borderSubtle: 'var(--kin-borderSubtle)',
-          primary: '#10b981',
+          primary: 'var(--kin-primary, #10b981)',
           primaryHover: '#059669',
+          accent: 'var(--kin-accent, #00d2ff)',
           secondary: '#38bdf8',
           secondaryHover: '#0284c7',
           success: '#10b981',

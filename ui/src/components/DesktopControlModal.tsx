@@ -171,18 +171,18 @@ export const DesktopControlModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 select-none">
-      <div className="bg-[#0b101e] border border-[#232f48] rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl text-xs overflow-hidden">
+      <div className="bg-kin-surface border border-kin-border rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl text-xs overflow-hidden backdrop-blur-xl text-kin-text">
         {/* Header */}
-        <div className="h-14 px-6 border-b border-[#1e293b] flex items-center justify-between bg-[#0e1526]">
+        <div className="h-14 px-6 border-b border-kin-border flex items-center justify-between bg-kin-card">
           <div className="flex items-center space-x-3">
             <div className="p-2 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400">
               <Monitor className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-white flex items-center space-x-2">
+              <h2 className="text-sm font-bold text-kin-text flex items-center space-x-2">
                 <span>Computer & Web Control Center</span>
               </h2>
-              <p className="text-[11px] text-[#8b949e]">
+              <p className="text-[11px] text-kin-muted">
                 Application discovery, window management, persistent browser, and proactive routines
               </p>
             </div>
@@ -190,14 +190,14 @@ export const DesktopControlModal: React.FC = () => {
 
           <button
             onClick={() => setDesktopControlModalOpen(false)}
-            className="p-1.5 rounded-lg hover:bg-[#1e293b] text-[#8b949e] hover:text-white transition"
+            className="p-1.5 rounded-lg hover:bg-kin-cardHover text-kin-muted hover:text-kin-text transition cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex items-center px-6 border-b border-[#1e293b] bg-[#070b16] gap-2">
+        <div className="flex items-center px-6 border-b border-kin-border bg-kin-surface/80 gap-2">
           <button
             onClick={() => setActiveTab('apps')}
             className={`py-3 px-3 border-b-2 font-medium flex items-center space-x-2 transition ${

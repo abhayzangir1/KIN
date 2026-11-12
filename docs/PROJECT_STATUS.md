@@ -93,7 +93,7 @@ KIN is organized into three production workspaces backed by 31 authoritative SQL
 - `npm run build`: Succeeded with zero errors (1,935 Vite modules transformed into production assets).
 - `npm run build:binary`: Succeeded, producing native sidecar binary `binaries/kin-core.exe`.
 
-### Multi-OS CI/CD & Cross-Platform Packaging
+### Multi-Platform CI/CD & Packaging
 - `.github/workflows/ci.yml`: Automated quality gates across Windows, Ubuntu, and macOS.
 - `.github/workflows/release.yml`: Automated packaging producing NSIS `.exe`, WiX `.msi`, `.AppImage`, `.deb`, and `.dmg` bundles with cryptographic `SHA256SUMS.txt`.
 - Native one-click installers: `scripts/install.ps1` (Windows), `scripts/install.sh` (Linux), `scripts/install-mac.sh` (macOS).

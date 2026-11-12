@@ -1038,6 +1038,8 @@ export const CenterView: React.FC = () => {
                       const res = await resolveApproval(appr.id, true);
                       if (!res?.success) {
                         addToast(res?.error || 'Failed to execute approved action', 'error');
+                      } else {
+                        addToast('Action approved and executing', 'info');
                       }
                     }}
                     className="flex items-center space-x-1 px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-lg shadow-emerald-900/30 transition cursor-pointer"

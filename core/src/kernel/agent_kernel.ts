@@ -9,9 +9,10 @@ import { AgentRun, RunState } from '../domain/types.js';
 import { EventLedger } from '../security/event_ledger.js';
 import { SecretBroker } from '../security/secret_broker.js';
 import { v4 as uuidv4 } from 'uuid';
-import { RunStateMachine, StateTransitionError, RUN_STATE_TRANSITIONS, AuthoritativeRunState } from './state_machine.js';
+import { RunStateMachine, StateTransitionError, RUN_STATE_TRANSITIONS, type AuthoritativeRunState } from './state_machine.js';
 
-export { RunStateMachine, StateTransitionError, RUN_STATE_TRANSITIONS, AuthoritativeRunState };
+export { RunStateMachine, StateTransitionError, RUN_STATE_TRANSITIONS };
+export type { AuthoritativeRunState };
 
 export interface SpawnRunParams {
   agentId: string;

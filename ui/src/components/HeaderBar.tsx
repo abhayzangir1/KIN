@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useKinStore } from '../store/kinStore.js';
-import { Folder, Plus, X, Copy, Check, Activity, Network, PanelRight, PanelRightClose, Server, Sun, Moon } from 'lucide-react';
+import { Folder, Plus, X, Copy, Check, Network, PanelRight, PanelRightClose } from 'lucide-react';
 import { ConfirmDialog, requestConfirmation } from './ConfirmDialog.js';
 
 export const HeaderBar: React.FC = () => {
@@ -13,18 +13,13 @@ export const HeaderBar: React.FC = () => {
     setNewProjectModalOpen,
     setSwarmMapOpen,
     isConnected,
-    projectAnalytics,
     setDesktopControlModalOpen,
-    openSettingsModal,
-    mcpConnectors,
     browserStatus,
     activeTakeover,
     activeTakeovers,
     agents,
     isInspectorOpen,
     toggleInspector,
-    theme,
-    toggleTheme,
     addToast,
   } = useKinStore();
 
@@ -151,43 +146,24 @@ export const HeaderBar: React.FC = () => {
         </button>
       </div>
 
-      {/* Right: Consolidated System Status & Canonical Inspector Toggle */}
+      {/* Right: Machine Control Indicator & Canonical Inspector Toggle */}
       <div className="flex items-center space-x-2 text-[11px] font-mono">
-        {/* Consolidated System Health Capsule (SQLite WAL & Progress) */}
-        <div className="flex items-center space-x-2 px-2.5 py-0.5 rounded-md bg-kin-card border border-kin-border text-kin-muted">
-          {/* Real DB Status */}
+        {/* Machine Control Indicator */}
+        {isMachineControlActive && (
           <div
-            className={`flex items-center space-x-1 ${isConnected ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}
-            title={isConnected ? 'SQLite 3 WAL Engine Active' : 'Connecting to Core Daemon...'}
+            className="flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-red-100 dark:bg-red-950/70 border border-red-300 dark:border-red-500/50 text-red-800 dark:text-red-200 text-[11px] font-sans font-semibold animate-pulse"
+            title="An autonomous agent is driving desktop or browser actions"
           >
-            <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
-            <span>DB: {isConnected ? 'WAL' : 'Connecting...'}</span>
+            <span className="w-2 h-2 rounded-full bg-red-500 animate-ping shrink-0" />
+            <span>{activeMachineAgent || '@Agent'} Controlling Machine</span>
+            <button
+              onClick={() => setDesktopControlModalOpen(true)}
+              className="ml-1 px-1.5 py-0.2 rounded bg-red-200 hover:bg-red-300 dark:bg-red-800/80 dark:hover:bg-red-700 text-red-900 dark:text-white text-[10px] font-mono transition cursor-pointer"
+            >
+              Inspect
+            </button>
           </div>
-
-          {/* Project Tasks Progress */}
-          {projectAnalytics && (
-            <>
-              <span className="text-kin-muted/30">|</span>
-              <div
-                className="hidden xl:flex items-center space-x-1 text-kin-muted"
-                title={`Tasks: ${projectAnalytics.completedTasks}/${projectAnalytics.totalTasks} completed (${projectAnalytics.taskCompletionRate}%)`}
-              >
-                <Activity className="w-3 h-3 text-kin-primary shrink-0" />
-                <span>{projectAnalytics.completedTasks}/{projectAnalytics.totalTasks}</span>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* MCP Connectors Capsule */}
-        <button
-          onClick={() => openSettingsModal('connectors')}
-          className="hidden sm:flex items-center space-x-1 px-2.5 py-0.5 rounded-md bg-kin-card hover:bg-kin-cardHover border border-kin-border text-kin-muted hover:text-kin-text transition cursor-pointer"
-          title="Open Model Context Protocol (MCP) Connectors Hub in Settings"
-        >
-          <Server className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
-          <span className="text-[10px]">MCP: {mcpConnectors.filter((c) => !c.disabled).length}</span>
-        </button>
+        )}
 
         {/* Canonical Inspector Panel Toggle Button */}
         <button
@@ -206,38 +182,6 @@ export const HeaderBar: React.FC = () => {
           )}
           <span>Inspector</span>
         </button>
-
-        {/* Dual-Theme Quick Toggle */}
-        <button
-          onClick={toggleTheme}
-          className="flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-kin-card hover:bg-kin-cardHover border border-kin-border text-kin-muted hover:text-kin-text transition cursor-pointer"
-          title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
-          aria-label={`Toggle theme: currently ${theme}`}
-        >
-          {theme === 'dark' ? (
-            <Sun className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-          ) : (
-            <Moon className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-          )}
-          <span className="hidden sm:inline capitalize">{theme === 'dark' ? 'Light' : 'Dark'}</span>
-        </button>
-
-        {/* Machine Control Indicator */}
-        {isMachineControlActive && (
-          <div
-            className="flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-red-100 dark:bg-red-950/70 border border-red-300 dark:border-red-500/50 text-red-800 dark:text-red-200 text-[11px] font-sans font-semibold animate-pulse"
-            title="An autonomous agent is driving desktop or browser actions"
-          >
-            <span className="w-2 h-2 rounded-full bg-red-500 animate-ping shrink-0" />
-            <span>{activeMachineAgent || '@Agent'} Controlling Machine</span>
-            <button
-              onClick={() => setDesktopControlModalOpen(true)}
-              className="ml-1 px-1.5 py-0.2 rounded bg-red-200 hover:bg-red-300 dark:bg-red-800/80 dark:hover:bg-red-700 text-red-900 dark:text-white text-[10px] font-mono transition cursor-pointer"
-            >
-              Inspect
-            </button>
-          </div>
-        )}
       </div>
       <ConfirmDialog />
     </header>

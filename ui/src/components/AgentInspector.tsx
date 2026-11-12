@@ -1335,29 +1335,41 @@ export const AgentInspector: React.FC = () => {
       {/* ========================================================================= */}
       {activeRightTab === 'Agent' && (
         <div className="flex-1 flex flex-col min-h-0">
-          <div className="flex-1 overflow-y-auto p-3 space-y-3">
-            {/* Selected Agent Identity Card */}
-            <div className="p-3 rounded-lg bg-kin-card border border-kin-border space-y-2">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+            {/* Unified Agent Hero Card */}
+            <div className="p-4 rounded-xl bg-kin-card border border-kin-border space-y-3.5 shadow-xs">
               <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-2.5">
                   <div
-                    className={`w-6 h-6 rounded flex items-center justify-center font-bold text-xs border ${
+                    className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-sm shadow-xs ${
                       currentAgent?.isOrchestrator
-                        ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
-                        : 'bg-blue-500/20 border-blue-500/40 text-blue-300'
+                        ? 'bg-gradient-to-br from-amber-500 to-amber-700 text-white'
+                        : 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white'
                     }`}
                   >
-                    @
+                    {currentAgent?.displayName?.charAt(0) || '@'}
                   </div>
                   <div>
-                    <div className="font-semibold text-kin-text">{currentAgent?.displayName || '@Boss'}</div>
-                    <div className="text-[10px] text-kin-muted">{currentAgent?.role || 'Specialist'}</div>
+                    <div className="font-bold text-kin-text text-sm">{currentAgent?.displayName || '@Boss'}</div>
+                    <div className="text-[11px] text-kin-muted font-mono">{roleTitle || currentAgent?.role || 'Workspace Orchestrator'}</div>
                   </div>
                 </div>
 
-                <div className="flex items-center space-x-1.5">
+                <button
+                  type="button"
+                  onClick={() => currentAgent && openAgentSettings(currentAgent.id)}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 text-xs font-semibold transition cursor-pointer"
+                  title="Configure agent instructions, models, and boundaries"
+                >
+                  <Edit2 className="w-3 h-3 text-blue-400" />
+                  <span>Edit Settings</span>
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-kin-border/60 text-[10px]">
+                <div className="flex items-center space-x-2">
                   <span
-                    className={`text-[9px] uppercase px-1.5 py-0.5 rounded border font-medium flex items-center space-x-1 ${
+                    className={`text-[9px] uppercase px-2 py-0.5 rounded-full border font-medium flex items-center space-x-1 ${
                       isCurrentAgentModelReady
                         ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
                         : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
@@ -1367,43 +1379,40 @@ export const AgentInspector: React.FC = () => {
                     <span className={`w-1.5 h-1.5 rounded-full ${isCurrentAgentModelReady ? 'bg-emerald-400' : 'bg-amber-400'}`} />
                     <span>{isCurrentAgentModelReady ? 'MODEL READY' : 'MODEL OFFLINE'}</span>
                   </span>
-                  <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 font-bold">
+                  <span className="text-[9px] uppercase px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30 font-bold">
                     {currentAgent?.status?.toUpperCase() || 'IDLE'}
                   </span>
                 </div>
-              </div>
 
-              <div className="flex items-center justify-between pt-1 border-t border-kin-border text-[10px]">
                 <span className="text-kin-muted flex items-center space-x-1">
-                  <ShieldCheck className="w-3 h-3 text-emerald-400" />
-                  <span>Workspace Boundary</span>
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-emerald-400 font-medium">Boundary Enforced</span>
                 </span>
-                <span className="text-emerald-400 font-medium">Enforced</span>
               </div>
             </div>
 
             {/* Assigned Channels Section */}
-            <div className="p-3 rounded-lg bg-kin-card border border-kin-border space-y-2">
+            <div className="p-3.5 rounded-xl bg-kin-card border border-kin-border space-y-2.5 shadow-xs">
               <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-1.5 text-kin-text font-semibold text-[11px]">
+                <div className="flex items-center space-x-1.5 text-kin-text font-semibold text-xs">
                   <Hash className="w-3.5 h-3.5 text-emerald-400" />
                   <span>Assigned Channels</span>
                 </div>
-                <span className="text-[10px] text-kin-muted">
+                <span className="text-[10px] text-kin-muted font-mono">
                   {assignedChannels.length} {assignedChannels.length === 1 ? 'channel' : 'channels'}
                 </span>
               </div>
 
-              <div className="flex flex-wrap gap-1.5 pt-1 max-h-24 overflow-y-auto pr-1">
+              <div className="flex flex-wrap gap-1.5 pt-0.5 max-h-24 overflow-y-auto pr-1">
                 {assignedChannels.length > 0 ? (
                   assignedChannels.map((c) => (
                     <button
                       key={c.id}
                       onClick={() => setActiveChannel(c.id)}
-                      className={`px-2 py-0.5 rounded text-[11px] font-mono border transition ${
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-mono border transition cursor-pointer ${
                         c.id === activeChannelId
-                          ? 'bg-emerald-600/25 border-emerald-500/50 text-emerald-300 font-semibold'
-                          : 'bg-kin-card border-kin-border text-kin-muted hover:text-kin-text hover:bg-kin-cardHover'
+                          ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300 font-semibold shadow-xs'
+                          : 'bg-kin-surface border-kin-border text-kin-muted hover:text-kin-text hover:bg-kin-surfaceHover'
                       }`}
                     >
                       #{c.name}
@@ -1417,43 +1426,22 @@ export const AgentInspector: React.FC = () => {
 
             {/* Sub-tab 1: Contract & Prompts -> Modern Specialist Profile Overview */}
             {activeInspectorTab === 'Contract' ? (
-              <div className="p-3.5 rounded-xl bg-kin-card border border-kin-border space-y-4">
-                <div className="flex items-center justify-between pb-2 border-b border-kin-border">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-xs">
-                      {currentAgent?.displayName?.charAt(0) || 'A'}
-                    </div>
-                    <div>
-                      <div className="font-bold text-white text-xs">{currentAgent?.displayName}</div>
-                      <div className="text-[10px] text-gray-400 font-mono">{roleTitle}</div>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => currentAgent && openAgentSettings(currentAgent.id)}
-                    className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 border border-blue-500/40 text-[11px] font-semibold transition cursor-pointer"
-                    title="Open full Agent Settings Modal (Prompts, Model, Scopes, Capabilities)"
-                  >
-                    <Edit2 className="w-3 h-3 text-blue-400" />
-                    <span>Edit Settings</span>
-                  </button>
-                </div>
-
+              <div className="p-4 rounded-xl bg-kin-card border border-kin-border space-y-4 shadow-xs">
                 {/* Active Model Pill Card */}
-                <div className="p-2.5 rounded-lg bg-kin-card border border-kin-border flex items-center justify-between">
-                  <div className="flex items-center space-x-2 truncate mr-2">
-                    <div className="w-6 h-6 rounded bg-kin-surface border border-kin-border flex items-center justify-center shrink-0">
-                      <ProviderIcon provider={activeModelItem.provider || activeModelId} className="w-3.5 h-3.5" />
+                <div className="p-3 rounded-lg bg-kin-surface border border-kin-border flex items-center justify-between">
+                  <div className="flex items-center space-x-2.5 truncate mr-2">
+                    <div className="w-7 h-7 rounded bg-kin-card border border-kin-border flex items-center justify-center shrink-0">
+                      <ProviderIcon provider={activeModelItem.provider || activeModelId} className="w-4 h-4" />
                     </div>
                     <div className="truncate">
-                      <div className="text-xs font-semibold text-white truncate">{activeModelItem.name || activeModelId}</div>
-                      <div className="text-[9px] font-mono text-gray-400 truncate">{formatContextWindow(activeModelItem.contextWindow)} context</div>
+                      <div className="text-xs font-semibold text-kin-text truncate">{activeModelItem.name || activeModelId}</div>
+                      <div className="text-[10px] font-mono text-kin-muted truncate">{formatContextWindow(activeModelItem.contextWindow)} context</div>
                     </div>
                   </div>
                   <button
                     type="button"
                     onClick={() => openModelSelector(currentAgent?.id)}
-                    className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 transition shrink-0 cursor-pointer"
+                    className="text-xs font-medium px-2.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 transition shrink-0 cursor-pointer"
                   >
                     Switch
                   </button>

@@ -16,6 +16,7 @@ import { ModelOnboardingBanner } from './components/ModelOnboardingBanner.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { useKinStore } from './store/kinStore.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
+import { applyThemeToDom } from './utils/themeEngine.js';
 
 // Lazy-loaded heavy modals to eliminate background hook overhead and optimize initial bundle
 const SettingsModal = React.lazy(() => import('./components/SettingsModal.js').then(m => ({ default: m.SettingsModal })));
@@ -36,8 +37,11 @@ export const App: React.FC = () => {
     closeSSE,
     isInspectorOpen,
     setInspectorOpen,
-    theme,
+    themeSettings,
     isConnected,
+    projectAnalytics,
+    mcpConnectors,
+    openSettingsModal,
     isSettingsModalOpen,
     isSwarmMapOpen,
     isSkillsModalOpen,
@@ -62,14 +66,8 @@ export const App: React.FC = () => {
   const isCompact = windowWidth < 1100;
 
   useEffect(() => {
-    if (theme === 'light') {
-      document.documentElement.classList.add('light');
-      document.documentElement.classList.remove('dark');
-    } else {
-      document.documentElement.classList.add('dark');
-      document.documentElement.classList.remove('light');
-    }
-  }, [theme]);
+    applyThemeToDom(themeSettings);
+  }, [themeSettings]);
 
   // Synchronized startup execution: ensure fetchState and initSSE execute once when the daemon confirms readiness
   const isStartedRef = useRef(false);
@@ -133,7 +131,7 @@ export const App: React.FC = () => {
 
   return (
     <ErrorBoundary name="KIN Root Workspace">
-      <div className={`flex flex-col h-screen w-screen overflow-hidden font-sans antialiased select-none ${theme === 'light' ? 'bg-[#f6f8fa] text-slate-800' : 'bg-[#0d1117] text-kin-text'}`}>
+      <div className="flex flex-col h-screen w-screen overflow-hidden font-sans antialiased select-none bg-kin-bg text-kin-text kin-aurora-bg">
         {/* Desktop Frameless TitleBar */}
         <TitleBar />
 
@@ -234,6 +232,33 @@ export const App: React.FC = () => {
           )}
           <ToastContainer />
         </ErrorBoundary>
+
+        {/* Bottom-Right Micro-Telemetry Dock (Non-intrusive system health) */}
+        <div className="fixed bottom-2 right-3 z-30 pointer-events-auto flex items-center space-x-2 text-[10px] font-mono text-kin-muted/70 bg-kin-surface/85 backdrop-blur-md px-2.5 py-0.5 rounded-md border border-kin-border/60 shadow-xs select-none">
+          <div
+            className={`flex items-center space-x-1 ${isConnected ? 'text-emerald-500' : 'text-amber-500'}`}
+            title={isConnected ? 'SQLite 3 WAL Engine Active' : 'Connecting to Core Daemon...'}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
+            <span>DB: {isConnected ? 'WAL' : 'Connecting...'}</span>
+          </div>
+          {projectAnalytics && (
+            <>
+              <span className="text-kin-muted/30">|</span>
+              <span title={`Tasks: ${projectAnalytics.completedTasks}/${projectAnalytics.totalTasks} completed (${projectAnalytics.taskCompletionRate}%)`}>
+                Tasks: {projectAnalytics.completedTasks}/{projectAnalytics.totalTasks}
+              </span>
+            </>
+          )}
+          <span className="text-kin-muted/30">|</span>
+          <button
+            onClick={() => openSettingsModal('connectors')}
+            className="hover:text-kin-text transition cursor-pointer"
+            title="Model Context Protocol (MCP) Connectors Hub"
+          >
+            MCP: {mcpConnectors.filter((c) => !c.disabled).length}
+          </button>
+        </div>
       </div>
     </ErrorBoundary>
   );
