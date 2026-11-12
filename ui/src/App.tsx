@@ -57,7 +57,6 @@ export const App: React.FC = () => {
     previewFile,
     projects,
     activeProjectId,
-    autonomyMode,
     addToast,
   } = useKinStore();
 
@@ -251,40 +250,33 @@ export const App: React.FC = () => {
           <ToastContainer />
         </ErrorBoundary>
 
-        {/* Permanent Bottom Application Status Bar (Zero Overlap with Promptbox) */}
-        <footer className="h-6 bg-kin-surface/90 border-t border-kin-border px-3 flex items-center justify-between text-[10px] font-mono text-kin-muted shrink-0 select-none z-20">
-          <div className="flex items-center space-x-3">
+        {/* Compact Bottom Application Status Bar (Subtle & Positioned in Bottom-Right Corner) */}
+        <footer className="h-5 bg-kin-surface/80 border-t border-kin-border/60 px-3 flex items-center justify-between text-[9px] font-mono text-kin-muted/60 shrink-0 select-none z-20">
+          <div className="flex items-center space-x-2 text-kin-muted/40 text-[9px]">
+            <span>KIN Workforce Platform</span>
+            <span>·</span>
+            <span className="truncate max-w-[180px]">{projects.find((p) => p.id === activeProjectId)?.name || 'Default'}</span>
+          </div>
+
+          <div className="flex items-center space-x-2.5 text-[9px] text-kin-muted/70">
             <div
-              className={`flex items-center space-x-1.5 ${isConnected ? 'text-emerald-500' : 'text-amber-500'}`}
+              className={`flex items-center space-x-1 ${isConnected ? 'text-emerald-500/80' : 'text-amber-500/80'}`}
               title={isConnected ? 'SQLite 3 WAL Engine Active' : 'Connecting to Core Daemon...'}
             >
               <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
-              <span>DB: {isConnected ? 'WAL' : 'Connecting...'}</span>
+              <span>DB: {isConnected ? 'WAL' : 'Connecting'}</span>
             </div>
-            <span className="text-kin-border/60">|</span>
-            <span className="text-kin-text/80 truncate max-w-[200px]" title="Current Active Project">
-              Project: {projects.find((p) => p.id === activeProjectId)?.name || 'Default'}
-            </span>
-            <span className="text-kin-border/60">|</span>
-            <span className="text-kin-muted/80">Autonomy: {autonomyMode}</span>
-          </div>
-
-          <div className="flex items-center space-x-3">
+            <span className="text-kin-border/50">|</span>
             {projectAnalytics ? (
-              <>
-                <span title={`Tasks: ${projectAnalytics.completedTasks}/${projectAnalytics.totalTasks} completed (${projectAnalytics.taskCompletionRate}%)`}>
-                  Tasks: {projectAnalytics.completedTasks}/{projectAnalytics.totalTasks}
-                </span>
-                <span className="text-kin-border/60">|</span>
-              </>
+              <span title={`Tasks: ${projectAnalytics.completedTasks}/${projectAnalytics.totalTasks} completed (${projectAnalytics.taskCompletionRate}%)`}>
+                Tasks: {projectAnalytics.completedTasks}/{projectAnalytics.totalTasks}
+              </span>
             ) : (
-              <>
-                <span title={`Tasks: ${tasks.filter((t) => t.status === 'completed').length}/${tasks.length} completed`}>
-                  Tasks: {tasks.filter((t) => t.status === 'completed').length}/{tasks.length}
-                </span>
-                <span className="text-kin-border/60">|</span>
-              </>
+              <span title={`Tasks: ${tasks.filter((t) => t.status === 'completed').length}/${tasks.length} completed`}>
+                Tasks: {tasks.filter((t) => t.status === 'completed').length}/{tasks.length}
+              </span>
             )}
+            <span className="text-kin-border/50">|</span>
             <button
               onClick={() => openSettingsModal('connectors')}
               className="hover:text-kin-text transition cursor-pointer"

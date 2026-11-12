@@ -89,10 +89,12 @@ jobs:
           curl -sS --fail --retry 30 --retry-delay 1 --retry-connrefused --retry-max-time 60 http://127.0.0.1:54321/api/health
 
           echo "Stopping test daemon..."
-          kill -9 $DAEMON_PID 2>/dev/null || taskkill //F //PID $DAEMON_PID 2>/dev/null || taskkill //F //IM kin-core.exe 2>/dev/null || true
+          kill -9 $DAEMON_PID 2>/dev/null || true
+          pkill -9 -f kin-core 2>/dev/null || true
+          taskkill //F //IM kin-core.exe 2>/dev/null || true
 
       - name: Build Tauri Desktop Package & Publish Release Assets
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

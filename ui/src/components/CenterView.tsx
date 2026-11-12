@@ -649,7 +649,7 @@ export const CenterView: React.FC = () => {
                 {channelMembers.map((member) => (
                   <span
                     key={member.id}
-                    className={`flex items-center space-x-1.5 px-2 py-0.5 rounded-full text-[11px] font-mono border shrink-0 ${
+                    className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[11px] font-mono border shrink-0 ${
                       member.isOrchestrator
                         ? 'bg-amber-500/15 border-amber-500/30 text-amber-300'
                         : 'bg-blue-500/15 border-blue-500/30 text-blue-300'
@@ -657,19 +657,14 @@ export const CenterView: React.FC = () => {
                   >
                     <span
                       onClick={() => setSelectedAgentId(member.id)}
-                      className="cursor-pointer hover:underline"
+                      className="cursor-pointer hover:underline font-semibold"
                       title={`Inspect ${member.displayName} in Agent Inspector`}
                     >
                       {member.displayName}
                     </span>
-                    <AgentModelBadge
-                      agent={member}
-                      availableModels={availableModels}
-                      compact
-                    />
                     {member.isOrchestrator ? (
                       <span title="Default Orchestrator (Permanent)">
-                        <Shield className="w-2.5 h-2.5 text-amber-400 ml-0.5" />
+                        <Shield className="w-3 h-3 text-amber-400 ml-0.5" />
                       </span>
                     ) : (
                       <button
@@ -677,7 +672,7 @@ export const CenterView: React.FC = () => {
                         className="hover:text-red-400 transition ml-0.5 cursor-pointer"
                         title={`Remove ${member.displayName} from this channel`}
                       >
-                        <X className="w-2.5 h-2.5" />
+                        <X className="w-3 h-3" />
                       </button>
                     )}
                   </span>

@@ -1392,7 +1392,7 @@ export const AgentInspector: React.FC = () => {
             </div>
 
             {/* Assigned Channels Section */}
-            <div className="p-3.5 rounded-xl bg-kin-card border border-kin-border space-y-2.5 shadow-xs">
+            <div className="p-3.5 rounded-xl bg-kin-card/70 border border-kin-border space-y-2.5 shadow-xs">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-1.5 text-kin-text font-semibold text-xs">
                   <Hash className="w-3.5 h-3.5 text-emerald-400" />
@@ -1426,7 +1426,7 @@ export const AgentInspector: React.FC = () => {
 
             {/* Sub-tab 1: Contract & Prompts -> Modern Specialist Profile Overview */}
             {activeInspectorTab === 'Contract' ? (
-              <div className="p-4 rounded-xl bg-kin-card border border-kin-border space-y-4 shadow-xs">
+              <div className="p-4 rounded-xl bg-kin-card/70 border border-kin-border space-y-3.5 shadow-xs">
                 {/* Active Model Pill Card */}
                 <div className="p-3 rounded-lg bg-kin-surface border border-kin-border flex items-center justify-between">
                   <div className="flex items-center space-x-2.5 truncate mr-2">
@@ -1450,7 +1450,7 @@ export const AgentInspector: React.FC = () => {
                 {/* Instructions Preview Card */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] uppercase font-bold tracking-wider text-gray-400 flex items-center space-x-1">
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-kin-muted flex items-center space-x-1">
                       <FileText className="w-3 h-3 text-blue-400" />
                       <span>System Instructions</span>
                     </span>
@@ -1464,7 +1464,7 @@ export const AgentInspector: React.FC = () => {
                   </div>
                   <div
                     onClick={() => currentAgent && openAgentSettings(currentAgent.id)}
-                    className="p-3 rounded-lg bg-kin-surface border border-kin-border hover:border-blue-500/40 text-[11px] font-mono text-gray-300 leading-relaxed max-h-28 overflow-hidden relative cursor-pointer group"
+                    className="p-3 rounded-lg bg-kin-surface border border-kin-border hover:border-blue-500/40 text-[11px] font-mono text-kin-muted leading-relaxed max-h-28 overflow-hidden relative cursor-pointer group"
                     title="Click to edit full instructions in Agent Settings Modal"
                   >
                     <p className="line-clamp-4 select-none whitespace-pre-wrap">{customInstructions || 'No custom instructions defined. Click to configure persona and principles.'}</p>
@@ -1476,7 +1476,7 @@ export const AgentInspector: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => currentAgent && openAgentSettings(currentAgent.id)}
-                  className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition shadow flex items-center justify-center space-x-1.5 cursor-pointer"
+                  className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition shadow-xs flex items-center justify-center space-x-1.5 cursor-pointer border border-blue-400/30"
                 >
                   <Edit2 className="w-3.5 h-3.5" />
                   <span>Edit Specialist Prompts & Capabilities</span>
