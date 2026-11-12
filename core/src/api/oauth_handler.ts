@@ -5,7 +5,7 @@
 // ============================================================================
 
 import * as crypto from 'node:crypto';
-import { exec } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { CredentialScanner } from '../security/credential_scanner.js';
 
 interface PendingOAuthSession {
@@ -42,13 +42,21 @@ export class OAuthHandler {
    */
   public static openBrowser(url: string): void {
     try {
-      if (process.platform === 'win32') {
-        exec(`start "" "${url}"`);
-      } else if (process.platform === 'darwin') {
-        exec(`open "${url}"`);
-      } else {
-        exec(`xdg-open "${url}"`);
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        throw new Error(`Invalid OAuth browser URL protocol: ${parsed.protocol}`);
       }
+
+      let child;
+      if (process.platform === 'win32') {
+        child = spawn('cmd.exe', ['/c', 'start', '', url], { windowsHide: true, stdio: 'ignore' });
+      } else if (process.platform === 'darwin') {
+        child = spawn('open', [url], { stdio: 'ignore' });
+      } else {
+        child = spawn('xdg-open', [url], { stdio: 'ignore' });
+      }
+      child.on('error', (err) => console.debug('[OAuthHandler] Suppressed browser spawn error:', err));
+      child.unref();
     } catch (err) {
       console.warn('[OAuthHandler] Failed to spawn system browser:', err);
     }

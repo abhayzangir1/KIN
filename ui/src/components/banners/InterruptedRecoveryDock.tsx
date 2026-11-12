@@ -102,14 +102,14 @@ export const InterruptedRecoveryDock: React.FC<InterruptedRecoveryDockProps> = (
           return (
             <div
               key={runId}
-              className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg bg-white/70 dark:bg-[#0b0805] border border-amber-200 dark:border-amber-900/40 text-xs font-mono"
+              className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg bg-kin-card/80 border border-kin-border text-xs font-mono"
             >
               <div className="flex items-center space-x-2 min-w-0 pr-2 flex-1">
-                <span className="text-amber-800 dark:text-amber-400 font-bold shrink-0">{rec.agentName}</span>
-                <span className="text-slate-600 dark:text-[#94a3b8] text-[11px] truncate">
+                <span className="text-amber-600 dark:text-amber-400 font-bold shrink-0">{rec.agentName}</span>
+                <span className="text-kin-muted text-[11px] truncate">
                   Turn #{rec.interruptedTurn} ({rec.model || 'default'})
                 </span>
-                <span className="text-slate-500 dark:text-[#64748b] text-[10px] truncate max-w-[200px]">
+                <span className="text-kin-subtle text-[10px] truncate max-w-[200px]">
                   {rec.checkpointReason}
                 </span>
               </div>

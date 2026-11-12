@@ -74,7 +74,7 @@ export const ChatTimeline: React.FC<ChatTimelineProps> = ({
     >
       <div className="max-w-4xl mx-auto px-6 py-5 space-y-4">
         {messages.length === 0 ? (
-          <div className="h-56 flex flex-col items-center justify-center text-center p-6 space-y-2 border border-dashed border-slate-300 dark:border-[#1e293b] rounded-xl bg-slate-50/60 dark:bg-[#0c1222]/40 my-6 select-none">
+          <div className="h-56 flex flex-col items-center justify-center text-center p-6 space-y-2 border border-dashed border-kin-border rounded-xl bg-kin-card/40 my-6 select-none">
             <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
               <MessageSquare className="w-5 h-5" />
             </div>
@@ -131,18 +131,18 @@ export const ChatTimeline: React.FC<ChatTimelineProps> = ({
               return (
                 <div
                   key={draftKey}
-                  className="p-3.5 rounded-2xl bg-blue-50/90 dark:bg-gradient-to-r dark:from-[#091122]/90 dark:to-[#0c1830]/90 border border-blue-400/40 shadow-xl space-y-2 animate-fadeIn backdrop-blur-md"
+                  className="p-3.5 rounded-2xl bg-kin-surface border border-blue-500/40 shadow-xl space-y-2 animate-fadeIn backdrop-blur-md"
                 >
-                  <div className="flex items-center justify-between text-xs text-blue-700 dark:text-blue-300 font-mono">
+                  <div className="flex items-center justify-between text-xs text-blue-600 dark:text-blue-300 font-mono">
                     <div className="flex items-center space-x-2">
                       <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
                       <span className="font-bold">{agentLabel}</span>
                     </div>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20">
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-300 border border-blue-500/20">
                       Live
                     </span>
                   </div>
-                  <div className="font-mono text-xs text-slate-800 dark:text-[#cbd5e1] whitespace-pre-wrap leading-relaxed">
+                  <div className="font-mono text-xs text-kin-text whitespace-pre-wrap leading-relaxed">
                     {cleanProse(draftContent)}
                     <span className="inline-block w-1.5 h-3.5 bg-blue-500 ml-1 animate-pulse align-middle" />
                   </div>

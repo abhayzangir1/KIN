@@ -90,8 +90,13 @@ export class WakeupQueue {
       existing.scheduledAt = scheduledAt;
 
       existing.timer = setTimeout(() => {
-        this.dispatch(key);
+        this.dispatch(key).catch((err) => {
+          console.error(`[WakeupQueue] Error dispatching wakeup for key '${key}':`, err);
+        });
       }, this.debounceWindowMs);
+      if (typeof (existing.timer as any).unref === 'function') {
+        (existing.timer as any).unref();
+      }
 
       return {
         action: 'coalesced',
@@ -104,8 +109,13 @@ export class WakeupQueue {
     // New wakeup entry
     const scheduledAt = now + this.debounceWindowMs;
     const timer = setTimeout(() => {
-      this.dispatch(key);
+      this.dispatch(key).catch((err) => {
+        console.error(`[WakeupQueue] Error dispatching wakeup for key '${key}':`, err);
+      });
     }, this.debounceWindowMs);
+    if (typeof (timer as any).unref === 'function') {
+      (timer as any).unref();
+    }
 
     this.pendingEntries.set(key, {
       event,

@@ -124,7 +124,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({ content }) => 
         codeLines.push(lines[i]);
         i++;
       }
-      i++; // Skip closing ```
+      if (i < lines.length) i++; // Skip closing ``` if present
       elements.push(
         <div key={`code-${i}`} className="my-2">
           <CodeBlock language={lang} code={codeLines.join('\n')} />

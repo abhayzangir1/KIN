@@ -63,6 +63,9 @@ export class SchedulerService {
         }
       });
     }, 1000);
+    if (this.timerHandle && typeof (this.timerHandle as any).unref === 'function') {
+      (this.timerHandle as any).unref();
+    }
   }
 
   /**

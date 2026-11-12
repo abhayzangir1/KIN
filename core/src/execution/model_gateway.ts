@@ -123,8 +123,10 @@ async function readChunkWithTimeout(reader: any, timeoutMs = 30000): Promise<{ d
     }, timeoutMs);
   });
   try {
+    const readPromise = reader.read();
+    readPromise.catch?.(() => {});
     return await Promise.race([
-      reader.read(),
+      readPromise,
       timeoutPromise,
     ]);
   } finally {
@@ -1387,8 +1389,22 @@ export class ModelGateway {
         ];
         const nextFallback = freeFallbacks.find((m) => m !== modelName);
         if (nextFallback) {
-          console.warn(`[KIN MODEL GATEWAY] 429 rate limit on "${modelName}". Seamlessly failing over to resilient free tier model "${nextFallback}".`);
-          return this.invokeOpenAiCompatible(url, apiKey, nextFallback, params, startTime, provider, 0, attemptedKeys);
+          console.warn(`[KIN MODEL GATEWAY] 429 rate limit on "${modelName}". Failing over to resilient free tier model "${nextFallback}".`);
+          const fallbackRes = await this.invokeOpenAiCompatible(
+            url,
+            apiKey,
+            nextFallback,
+            { ...params, modelId: `openrouter/${nextFallback}` },
+            startTime,
+            provider,
+            0,
+            attemptedKeys
+          );
+          return {
+            ...fallbackRes,
+            modelId: `openrouter/${nextFallback}`,
+            switchedModelId: `openrouter/${nextFallback}`,
+          };
         }
       }
 

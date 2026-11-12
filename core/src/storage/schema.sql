@@ -483,3 +483,9 @@ CREATE INDEX IF NOT EXISTS idx_memory_versions_mem_ver ON memory_versions(memory
 CREATE INDEX IF NOT EXISTS idx_decisions_project_created ON decisions(project_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_goals_proj_updated ON goals(project_id, updated_at DESC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_identities_def ON agent_identities(definition_id);
+CREATE INDEX IF NOT EXISTS idx_models_provider ON models(provider_id);
+CREATE INDEX IF NOT EXISTS idx_approvals_agent ON approvals(agent_id, status);
+CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
+CREATE INDEX IF NOT EXISTS idx_goals_channel ON goals(origin_channel_id);
+CREATE INDEX IF NOT EXISTS idx_channels_project_name ON channels(project_id, name);
+CREATE INDEX IF NOT EXISTS idx_decisions_decided_by ON decisions(decided_by_id);

@@ -247,9 +247,9 @@ export class McpClientManager {
     } else if (res.startsWith('~/') || res.startsWith('~\\')) {
       res = path.join(userHome, res.slice(2));
     }
-    res = res.replace(/\$\{projectRoot\}|\$\{workspaceFolder\}/g, targetRoot);
-    res = res.replace(/\$\{userHome\}/g, userHome);
-    res = res.replace(/~(?=[/\\])/g, userHome);
+    res = res.replace(/\$\{projectRoot\}|\$\{workspaceFolder\}/g, () => targetRoot);
+    res = res.replace(/\$\{userHome\}/g, () => userHome);
+    res = res.replace(/~(?=[/\\])/g, () => userHome);
     return res;
   }
 
@@ -694,6 +694,15 @@ export class McpClientManager {
     if (blockedBinaries.has(baseCmdCheck)) {
       console.warn(`[KIN MCP] Refusing to start MCP server '${config.name}': Binary '${cmdTrim}' is prohibited.`);
       return [];
+    }
+
+    if (config.args && Array.isArray(config.args)) {
+      for (const arg of config.args) {
+        if (typeof arg === 'string' && /[\r\n\x00]/.test(arg)) {
+          console.warn(`[KIN MCP] Refusing to start MCP server '${config.name}': Argument contains prohibited control/newline characters.`);
+          return [];
+        }
+      }
     }
 
     const targetRoot = customRoot ? path.resolve(customRoot) : this.projectRoot;

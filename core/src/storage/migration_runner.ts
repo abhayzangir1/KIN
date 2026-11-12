@@ -135,9 +135,26 @@ export class MigrationRunner {
                 : null;
               const wsId = ws?.id || 'ws-default';
               if (existingTables.includes('workspaces') && !ws) {
-                this.db.exec(`INSERT OR IGNORE INTO workspaces (id, name, root_path, default_autonomy_mode, created_at, updated_at) VALUES ('${wsId}', 'Default Workspace', '.', 'AUTO', ${Date.now()}, ${Date.now()});`);
+                this.db.execute(
+                  'INSERT OR IGNORE INTO workspaces (id, name, root_path, default_autonomy_mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?);',
+                  wsId,
+                  'Default Workspace',
+                  '.',
+                  'AUTO',
+                  Date.now(),
+                  Date.now()
+                );
               }
-              this.db.exec(`INSERT OR IGNORE INTO projects (id, workspace_id, name, repo_path, settings_json, created_at, updated_at) VALUES ('proj-kin', '${wsId}', 'Default Project', '.', '{}', ${Date.now()}, ${Date.now()});`);
+              this.db.execute(
+                'INSERT OR IGNORE INTO projects (id, workspace_id, name, repo_path, settings_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?);',
+                'proj-kin',
+                wsId,
+                'Default Project',
+                '.',
+                '{}',
+                Date.now(),
+                Date.now()
+              );
             }
           }
           this.db.exec('ALTER TABLE agent_identities ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE CASCADE;');
@@ -544,6 +561,12 @@ export class MigrationRunner {
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_decisions_project_created ON decisions(project_id, created_at DESC);");
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_goals_proj_updated ON goals(project_id, updated_at DESC, created_at DESC);");
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_agent_identities_def ON agent_identities(definition_id);");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_models_provider ON models(provider_id);");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_approvals_agent ON approvals(agent_id, status);");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_goals_channel ON goals(origin_channel_id);");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_channels_project_name ON channels(project_id, name);");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_decisions_decided_by ON decisions(decided_by_id);");
 
       // Custom Tools & Harness Improvements table creation for existing databases
       this.db.exec(`

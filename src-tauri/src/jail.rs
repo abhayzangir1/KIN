@@ -53,9 +53,18 @@ impl FilesystemJail {
         // 2. Specific directory and full path patterns
         if path_str.ends_with("/.git/config")
             || path_str == ".git/config"
+            || path_str.ends_with("/.git/credentials")
+            || path_str == ".git/credentials"
+            || path_str.starts_with(".git/")
+            || path_str == ".git"
+            || path_str.contains("/.git/")
             || path_str.contains("/.ssh/")
+            || path_str.starts_with(".ssh/")
+            || path_str == ".ssh"
             || path_str.ends_with("/.ssh")
             || path_str.contains("/.aws/")
+            || path_str.starts_with(".aws/")
+            || path_str == ".aws"
             || path_str.ends_with("/.aws")
             || ((path_str.contains("/.kin/") || path_str.starts_with(".kin/"))
                 && !path_str.contains("/.kin/worktrees/"))

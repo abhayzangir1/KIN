@@ -967,6 +967,10 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
         });
       });
 
+      child.stdin.on('error', (err) => {
+        console.debug('[DesktopController] Suppressed child stdin error:', err);
+      });
+
       child.on('error', (err) => {
         if (killed) return;
         clearTimeout(timer);

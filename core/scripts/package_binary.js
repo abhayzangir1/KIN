@@ -200,6 +200,8 @@ if (fs.existsSync(schemaSrc)) {
   try {
     fs.copyFileSync(schemaSrc, path.resolve(tauriBinariesDir, 'schema.sql'));
     fs.copyFileSync(schemaSrc, path.resolve(coreBinariesDir, 'schema.sql'));
+    fs.mkdirSync(path.resolve(coreDir, 'dist', 'storage'), { recursive: true });
+    fs.copyFileSync(schemaSrc, path.resolve(coreDir, 'dist', 'storage', 'schema.sql'));
     console.log('[KIN PACKAGE] Successfully bundled schema.sql into binaries distributions.');
   } catch (schemaErr) {
     console.warn('[KIN PACKAGE] Warning bundling schema.sql:', schemaErr.message);

@@ -71,9 +71,9 @@ export const QuotaPauseBanner: React.FC<QuotaPauseBannerProps> = ({ selectableMo
         </button>
       </div>
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-mono p-2 rounded-lg bg-white/70 dark:bg-[#0b0616] border border-purple-200 dark:border-purple-900/40">
-        <div className="text-slate-700 dark:text-[#cbd5e1] text-[11px] truncate">
-          Agent <strong className="text-purple-700 dark:text-purple-300">{quotaPauseState.agentName ? (quotaPauseState.agentName.startsWith('@') ? quotaPauseState.agentName : `@${quotaPauseState.agentName}`) : 'specialist'}</strong> on provider <strong className="text-purple-700 dark:text-purple-300">{quotaPauseState.provider || 'frontier API'}</strong> reached rate limits.
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-mono p-2 rounded-lg bg-kin-card/80 border border-purple-500/30">
+        <div className="text-kin-text text-[11px] truncate">
+          Agent <strong className="text-purple-600 dark:text-purple-300">{quotaPauseState.agentName ? (quotaPauseState.agentName.startsWith('@') ? quotaPauseState.agentName : `@${quotaPauseState.agentName}`) : 'specialist'}</strong> on provider <strong className="text-purple-600 dark:text-purple-300">{quotaPauseState.provider || 'frontier API'}</strong> reached rate limits.
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5 shrink-0">

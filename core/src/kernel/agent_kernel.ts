@@ -497,7 +497,7 @@ export class AgentKernel {
     const allocatedTokens = run?.allocatedTokens ?? 100000;
     const exceeded = usedTokens >= allocatedTokens;
 
-    if (exceeded && run && run.state === 'running') {
+    if (exceeded && run && (run.state === 'running' || run.state.startsWith('waiting_'))) {
       this.transitionState(runId, 'failed', `Hard token budget exceeded: ${usedTokens}/${allocatedTokens} tokens used.`);
     }
 
@@ -515,7 +515,7 @@ export class AgentKernel {
         eventType,
         entityType,
         entityId,
-        runId,
+        runId: runId ?? (entityType === 'agent_run' ? entityId : undefined),
         payload,
       });
     } catch (err) {

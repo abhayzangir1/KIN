@@ -62,6 +62,29 @@ export interface WebStepResult {
 }
 
 export class BrowserController {
+  private static readonly activeControllers = new Set<BrowserController>();
+  private static exitHookInstalled = false;
+
+  private static ensureExitHook(): void {
+    if (this.exitHookInstalled) return;
+    this.exitHookInstalled = true;
+    process.once('exit', () => {
+      for (const ctrl of BrowserController.activeControllers) {
+        try {
+          if (ctrl.browser) {
+            const proc = typeof (ctrl.browser as any).process === 'function' ? (ctrl.browser as any).process() : null;
+            if (proc && !proc.killed) {
+              proc.kill('SIGKILL');
+            }
+          }
+        } catch {
+          // Suppressed during process termination
+        }
+      }
+      BrowserController.activeControllers.clear();
+    });
+  }
+
   private browser: Browser | null = null;
   private activePage: Page | null = null;
   private profileDir: string;
@@ -277,9 +300,13 @@ export class BrowserController {
         });
 
         this.browser.on('disconnected', () => {
+          BrowserController.activeControllers.delete(this);
           this.browser = null;
           this.activePage = null;
         });
+
+        BrowserController.ensureExitHook();
+        BrowserController.activeControllers.add(this);
 
         const pages = await this.browser.pages();
         this.activePage = pages.length > 0 ? pages[0] : await this.browser.newPage();
@@ -745,6 +772,7 @@ export class BrowserController {
    */
   public async close(): Promise<void> {
     this.launchPromise = null;
+    BrowserController.activeControllers.delete(this);
     if (this.browser) {
       const proc = typeof (this.browser as any).process === 'function' ? (this.browser as any).process() : null;
       try {
@@ -782,6 +810,12 @@ export class BrowserController {
       error,
       timestamp: Date.now(),
     };
+
+    // Rolling memory limit: prevent unbounded growth in long-running sessions
+    const MAX_STEP_HISTORY = 100;
+    if (this.stepHistory.length >= MAX_STEP_HISTORY) {
+      this.stepHistory.splice(0, this.stepHistory.length - MAX_STEP_HISTORY + 1);
+    }
     this.stepHistory.push(result);
     return result;
   }

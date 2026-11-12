@@ -2752,11 +2752,15 @@ Format strictly as JSON:
 
         if (routing.action === 'orchestrator_fallback' || (isBossTargeted && hasOrchestratorCommand && !channelId.startsWith('dm-'))) {
           if (boss) {
-            this.handleOrchestratorAction(boss, channelId, userMsg, allProjectAgents);
+            this.handleOrchestratorAction(boss, channelId, userMsg, allProjectAgents).catch((err) => {
+              console.error('[KIN CORE] Orchestrator action error:', err);
+            });
           }
         } else {
           // Sequential execution for specialists or direct response
-          this.executeSequentialAgents(routing.targetAgents, channelId, userMsg);
+          this.executeSequentialAgents(routing.targetAgents, channelId, userMsg).catch((err) => {
+            console.error('[KIN CORE] Sequential agents execution error:', err);
+          });
         }
         return;
   }

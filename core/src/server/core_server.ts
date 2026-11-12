@@ -2921,21 +2921,26 @@ export class CoreServer {
       return Promise.resolve();
     }
     const prev = this.channelQueues.get(channelId) || Promise.resolve();
-    const next = prev.then(fn, fn).finally(() => {
-      if (this.channelQueues.get(channelId) === next) {
-        this.channelQueues.delete(channelId);
-      }
-      if (this.isStopping || this.db.closed) {
-        return;
-      }
-      const activeInChan = Array.from(this.activeAgentExecutions.values()).filter((e) => e.channelId === channelId);
-      const delegationsInChan = this.activeDelegations.get(channelId) || 0;
-      if (activeInChan.length === 0 && delegationsInChan === 0) {
-        this.processNextQueuedMessage(channelId).catch((qErr) => {
-          console.warn('[KIN CORE] Notice processing next queued message on channel queue idle:', qErr);
-        });
-      }
-    });
+    const next = prev
+      .then(fn, fn)
+      .catch((err) => {
+        console.warn(`[CoreServer] Error in queued execution for channel ${channelId}:`, err);
+      })
+      .finally(() => {
+        if (this.channelQueues.get(channelId) === next) {
+          this.channelQueues.delete(channelId);
+        }
+        if (this.isStopping || this.db.closed) {
+          return;
+        }
+        const activeInChan = Array.from(this.activeAgentExecutions.values()).filter((e) => e.channelId === channelId);
+        const delegationsInChan = this.activeDelegations.get(channelId) || 0;
+        if (activeInChan.length === 0 && delegationsInChan === 0) {
+          this.processNextQueuedMessage(channelId).catch((qErr) => {
+            console.warn('[KIN CORE] Notice processing next queued message on channel queue idle:', qErr);
+          });
+        }
+      });
     this.channelQueues.set(channelId, next);
     return next;
   }
@@ -2945,11 +2950,16 @@ export class CoreServer {
       return Promise.resolve();
     }
     const prev = this.agentQueues.get(agentId) || Promise.resolve();
-    const next = prev.then(fn, fn).finally(() => {
-      if (this.agentQueues.get(agentId) === next) {
-        this.agentQueues.delete(agentId);
-      }
-    });
+    const next = prev
+      .then(fn, fn)
+      .catch((err) => {
+        console.warn(`[CoreServer] Error in queued execution for agent ${agentId}:`, err);
+      })
+      .finally(() => {
+        if (this.agentQueues.get(agentId) === next) {
+          this.agentQueues.delete(agentId);
+        }
+      });
     this.agentQueues.set(agentId, next);
     return next;
   }

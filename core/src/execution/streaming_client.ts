@@ -30,12 +30,20 @@ export class StreamingInferenceClient {
     let timer: NodeJS.Timeout | null = null;
     const timeoutPromise = new Promise<{ done: boolean; value?: T }>((_, reject) => {
       timer = setTimeout(() => {
+        try {
+          if (reader && typeof (reader as any).cancel === 'function') {
+            (reader as any).cancel().catch?.(() => {});
+          }
+        } catch {
+          // ignore stream cancel errors
+        }
         reject(new Error(`Inference stream chunk read timed out after ${timeoutMs}ms.`));
       }, timeoutMs);
     });
 
     try {
       const readPromise = reader.read();
+      (readPromise as any)?.catch?.(() => {});
       const result = await Promise.race([readPromise, timeoutPromise]);
       return result;
     } finally {

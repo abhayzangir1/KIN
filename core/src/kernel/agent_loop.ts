@@ -458,11 +458,13 @@ export class AgentLoopRunner {
       if (parentAbortSignal?.aborted && options.renewAbortSignal) {
         parentAbortSignal = options.renewAbortSignal();
       }
+      let onParentAbort: (() => void) | undefined;
       if (parentAbortSignal) {
         if (parentAbortSignal.aborted) {
           turnAbortController.abort(parentAbortSignal.reason);
         } else {
-          parentAbortSignal.addEventListener('abort', () => turnAbortController.abort(parentAbortSignal.reason), { once: true });
+          onParentAbort = () => turnAbortController.abort(parentAbortSignal.reason);
+          parentAbortSignal.addEventListener('abort', onParentAbort, { once: true });
         }
       }
       const abortSignal = turnAbortController.signal;
@@ -644,6 +646,9 @@ export class AgentLoopRunner {
         if (watchdogTimer) {
           clearInterval(watchdogTimer);
           watchdogTimer = null;
+        }
+        if (parentAbortSignal && onParentAbort) {
+          parentAbortSignal.removeEventListener('abort', onParentAbort);
         }
       }
 
@@ -835,13 +840,15 @@ export class AgentLoopRunner {
       }
 
       const toolAbortController = new AbortController();
+      let onToolParentAbort: (() => void) | undefined;
       if (toolParentAbortSignal) {
         if (toolParentAbortSignal.aborted) {
           toolAbortController.abort((toolParentAbortSignal as any).reason || 'Aborted');
         } else {
-          toolParentAbortSignal.addEventListener('abort', () => {
+          onToolParentAbort = () => {
             toolAbortController.abort((toolParentAbortSignal as any).reason || 'Aborted');
-          }, { once: true });
+          };
+          toolParentAbortSignal.addEventListener('abort', onToolParentAbort, { once: true });
         }
       }
       const toolAbortSignal = toolAbortController.signal;
@@ -913,6 +920,9 @@ export class AgentLoopRunner {
           if (toolWatchdogTimer) {
             clearInterval(toolWatchdogTimer);
             toolWatchdogTimer = null;
+          }
+          if (toolParentAbortSignal && onToolParentAbort) {
+            toolParentAbortSignal.removeEventListener('abort', onToolParentAbort);
           }
         }
 
@@ -1432,14 +1442,14 @@ To delegate or coordinate with another specialist:
 
       // 3. Normalize path backslashes in known file path fields
       cleaned = cleaned.replace(
-        /("(?:path|filePath|dirPath|targetPath|worktreeRoot|cwd|appNameOrPath)"\s*:\s*")([^"]*)(")/gi,
+        /("(?:path|filePath|dirPath|targetPath|worktreeRoot|cwd|appNameOrPath|file|filename|target|src|dest)"\s*:\s*")([^"]*)(")/gi,
         (_m, prefix, pathVal, suffix) => {
           const normalized = pathVal.replace(/\\+/g, '/');
           return `${prefix}${normalized}${suffix}`;
         }
       );
 
-      // 4. Escape unescaped newlines/tabs inside double-quoted string literals
+      // 4. Escape unescaped newlines/tabs/control characters inside double-quoted string literals
       let inStr = false;
       let esc = false;
       let out = '';
@@ -1473,13 +1483,25 @@ To delegate or coordinate with another specialist:
             out += '\\t';
             continue;
           }
+          if (ch === '\b') {
+            out += '\\b';
+            continue;
+          }
+          if (ch === '\f') {
+            out += '\\f';
+            continue;
+          }
+          if (ch.charCodeAt(0) < 0x20) {
+            out += '\\u' + ch.charCodeAt(0).toString(16).padStart(4, '0');
+            continue;
+          }
         }
         out += ch;
       }
       cleaned = out;
 
       // 5. Escape stray unescaped backslashes across all strings:
-      cleaned = cleaned.replace(/\\(?!["\\/bfnrt]|u[0-9a-fA-F]{4})/g, '\\\\');
+      cleaned = cleaned.replace(/(?<!\\)\\(?!["\\/bfnrt]|u[0-9a-fA-F]{4})/g, '\\\\');
 
       // 6. Pre-clean trailing commas in objects and arrays
       cleaned = cleaned.replace(/,\s*([}\]])/g, '$1');

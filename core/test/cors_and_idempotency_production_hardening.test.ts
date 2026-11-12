@@ -7,12 +7,12 @@ import * as path from 'node:path';
 describe('CORS Clobbering Fix & Project Creation Idempotency', () => {
   let server: CoreServer;
   let baseUrl: string;
-  const testPort = 54399;
+  let testPort: number;
   const dbPath = ':memory:';
 
   beforeAll(async () => {
-    server = new CoreServer({ port: testPort, dbPath, requireIpcAuth: true });
-    await server.start();
+    server = new CoreServer({ port: 0, dbPath, requireIpcAuth: true });
+    testPort = await server.start();
     baseUrl = `http://127.0.0.1:${testPort}`;
   });
 

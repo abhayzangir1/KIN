@@ -1370,6 +1370,7 @@ interface KinState {
 }
 
 let eventSourceInstance: EventSource | null = null;
+let sseConnectionGeneration = 0;
 let sseReconnectTimer: any = null;
 let sseReconnectAttempts = 0;
 let fetchStateRetryTimer: any = null;
@@ -2236,18 +2237,26 @@ export const useKinStore = create<KinState>((set, get) => ({
   },
 
   initSSE: () => {
+    const currentGen = ++sseConnectionGeneration;
     if (sseReconnectTimer) {
       clearTimeout(sseReconnectTimer);
       sseReconnectTimer = null;
     }
     if (eventSourceInstance) {
-      eventSourceInstance.close();
+      try {
+        eventSourceInstance.close();
+      } catch (err) {
+        console.warn('[KIN UI] SSE close notice:', err);
+      }
       eventSourceInstance = null;
     }
 
     (async () => {
       try {
         const token = await getIpcToken();
+        if (currentGen !== sseConnectionGeneration) {
+          return; // Connection superseded or closed while awaiting token
+        }
         const base = getApiBaseUrl();
         const sseUrl = token ? `${base}/api/events?token=${encodeURIComponent(token)}` : `${base}/api/events`;
         const sse = new EventSource(sseUrl);
@@ -3377,6 +3386,7 @@ export const useKinStore = create<KinState>((set, get) => ({
       };
 
       sse.onerror = () => {
+        if (currentGen !== sseConnectionGeneration) return;
         set({ isConnected: false });
         if (eventSourceInstance === sse) {
           try {
@@ -3395,8 +3405,10 @@ export const useKinStore = create<KinState>((set, get) => ({
         sseReconnectAttempts++;
         sseReconnectTimer = setTimeout(() => {
           sseReconnectTimer = null;
-          console.log(`[KIN UI] EventSource connection error or disconnect, auto-reconnecting (attempt ${sseReconnectAttempts}, delay ${delay}ms)...`);
-          get().initSSE();
+          if (currentGen === sseConnectionGeneration) {
+            console.log(`[KIN UI] EventSource connection error or disconnect, auto-reconnecting (attempt ${sseReconnectAttempts}, delay ${delay}ms)...`);
+            get().initSSE();
+          }
         }, delay);
       };
     } catch (err) {
@@ -3406,6 +3418,7 @@ export const useKinStore = create<KinState>((set, get) => ({
   },
 
   closeSSE: () => {
+    ++sseConnectionGeneration;
     sseReconnectAttempts = 0;
     if (sseReconnectTimer) {
       clearTimeout(sseReconnectTimer);

@@ -3684,10 +3684,18 @@ export class ToolGateway {
         base.endsWith('.sqlite-shm') ||
         p.includes('/.git/config') ||
         p === '.git/config' ||
+        p.includes('/.git/credentials') ||
+        p === '.git/credentials' ||
+        p.startsWith('.git/') ||
+        p === '.git' ||
         p.includes('/.ssh/') ||
         p.startsWith('.ssh/') ||
+        p.endsWith('/.ssh') ||
+        p === '.ssh' ||
         p.includes('/.aws/') ||
         p.startsWith('.aws/') ||
+        p.endsWith('/.aws') ||
+        p === '.aws' ||
         ((p.startsWith('.kin/') || p.includes('/.kin/')) && !p.includes('/.kin/worktrees/'))
       );
     };
@@ -4062,10 +4070,10 @@ export class ToolGateway {
           try {
             if (child.pid) {
               if (isWin) {
-                exec(`taskkill /pid ${child.pid} /T /F`);
+                exec(`taskkill /pid ${child.pid} /T /F`, () => {});
               } else {
                 try {
-                  exec(`pkill -P ${child.pid}`);
+                  exec(`pkill -P ${child.pid}`, () => {});
                 } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
                 child.kill('SIGKILL');
               }
@@ -4079,10 +4087,10 @@ export class ToolGateway {
           try {
             if (child.pid) {
               if (isWin) {
-                exec(`taskkill /pid ${child.pid} /T /F`);
+                exec(`taskkill /pid ${child.pid} /T /F`, () => {});
               } else {
                 try {
-                  exec(`pkill -P ${child.pid}`);
+                  exec(`pkill -P ${child.pid}`, () => {});
                 } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
                 child.kill('SIGKILL');
               }
