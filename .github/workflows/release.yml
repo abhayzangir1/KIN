@@ -115,18 +115,18 @@ jobs:
           includeUpdaterJson: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
           args: ${{ matrix.tauri_args }}
           releaseBody: |
-            ## KIN — Local-First Autonomous AI Workforce Platform (${{ github.ref_name }})
+            ## KIN — Local-First Autonomous AI Workforce Platform (${{ github.event.inputs.tag || github.ref_name }})
             
             ### Verified Quality Gates:
             - **TypeScript Typecheck**: 0 diagnostic errors across `@kin/core` and `@kin/ui`.
-            - **Test Suites**: All Vitest core unit tests and native Cargo supervisor tests passed.
-            - **Single Executable Application (SEA)**: Node 22 native SQLite daemon embedded with zero external runtime dependencies.
+            - **Test Suites**: All Vitest core/UI tests and native Cargo supervisor tests passed.
+            - **Single Executable Application (SEA)**: Node 22 native SQLite + QuickJS-WASM daemon embedded with zero external runtime dependencies.
             - **Process Supervision**: Native process lifecycle management with automatic cleanup guarantees.
             
             ### Downloads & Installers:
-            - **Windows**: `KIN_${{ github.ref_name }}_x64-setup.exe` (NSIS) or `KIN_${{ github.ref_name }}_x64.msi` (WiX)
-            - **macOS**: `KIN_${{ github.ref_name }}_universal.dmg`
-            - **Linux**: `KIN_${{ github.ref_name }}_amd64.AppImage` or `kin_${{ github.ref_name }}_amd64.deb`
+            - **Windows**: `KIN_<version>_x64-setup.exe` (NSIS) or `KIN_<version>_x64.msi` (WiX)
+            - **macOS**: `KIN_<version>_aarch64.dmg` (Apple Silicon)
+            - **Linux**: `KIN_<version>_amd64.AppImage` or `kin_<version>_amd64.deb`
             
             *Cryptographic SHA-256 checksums are attached below in `SHA256SUMS.txt`.*
           releaseDraft: false

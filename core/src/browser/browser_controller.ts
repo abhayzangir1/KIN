@@ -238,7 +238,12 @@ export class BrowserController {
       try {
         const pages = await this.browser.pages();
         const openPage = pages.find((p) => !p.isClosed());
-        this.activePage = openPage || (await this.browser.newPage());
+        if (openPage) {
+          this.activePage = openPage;
+        } else {
+          this.activePage = await this.browser.newPage();
+          this.attachRingBuffers(this.activePage);
+        }
         return { browser: this.browser, page: this.activePage };
       } catch {
         this.browser = null;
@@ -362,6 +367,14 @@ export class BrowserController {
         this.networkErrorBuffer.push(line);
         if (this.networkErrorBuffer.length > 30) this.networkErrorBuffer.shift();
       });
+      page.on('response', (res: any) => {
+        const status = typeof res?.status === 'function' ? res.status() : 0;
+        if (status >= 400) {
+          const line = `HTTP_${status} ${res?.url?.() || ''}`.slice(0, 300);
+          this.networkErrorBuffer.push(line);
+          if (this.networkErrorBuffer.length > 30) this.networkErrorBuffer.shift();
+        }
+      });
     } catch {
       // Ignore if mock page in unit test
     }
@@ -402,6 +415,25 @@ export class BrowserController {
       } else if (host.startsWith('::ffff:')) {
         decodedHost = host.slice('::ffff:'.length);
       }
+      const isBlockedIpv4 = (ip: string): boolean => {
+        const parts = ip.split('.').map((p) => Number(p));
+        if (parts.length !== 4 || !parts.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) return false;
+        if (parts[0] === 0 || parts[0] === 10 || parts[0] >= 224) return true;
+        if (parts[0] === 169 && parts[1] === 254) return true;
+        if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+        if (parts[0] === 192 && parts[1] === 168) return true;
+        if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
+        if (!isLocalHost && parts[0] === 127) return true;
+        return false;
+      };
+      const isBlockedResolvedIp = (ip: string): boolean => {
+        const clean = ip.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0];
+        if (clean === '::' || clean === '0:0:0:0:0:0:0:0') return true;
+        if (!isLocalHost && (clean === '::1' || clean === '0:0:0:0:0:0:0:1')) return true;
+        if (clean.startsWith('fc') || clean.startsWith('fd') || clean.startsWith('fe80:') || clean.startsWith('ff')) return true;
+        const ipv4Part = clean.startsWith('::ffff:') ? clean.slice('::ffff:'.length) : clean;
+        return isBlockedIpv4(ipv4Part) || ipv4Part === '100.100.100.200';
+      };
       if (
         isHexOrOctalIp ||
         host === '0.0.0.0' ||
@@ -413,8 +445,8 @@ export class BrowserController {
         host === 'metadata.google.internal' ||
         host === 'instance-data' ||
         host.endsWith('.metadata.google.internal') ||
-        host.startsWith('169.254.') ||
-        decodedHost.startsWith('169.254.')
+        isBlockedResolvedIp(host) ||
+        isBlockedResolvedIp(decodedHost)
       ) {
         throw new Error(`ACCESS_DENIED: Navigation to cloud metadata service or restricted IP '${host}' is blocked for security.`);
       }
@@ -422,8 +454,8 @@ export class BrowserController {
         try {
           const addrs = await dns.promises.lookup(host, { all: true });
           for (const a of addrs) {
-            if (a.address.startsWith('169.254.') || a.address === '100.100.100.200' || a.address.toLowerCase().startsWith('fd00:ec2:')) {
-              throw new Error(`ACCESS_DENIED: Hostname '${host}' resolves to blocked metadata IP '${a.address}'.`);
+            if (isBlockedResolvedIp(a.address)) {
+              throw new Error(`ACCESS_DENIED: Hostname '${host}' resolves to blocked internal/metadata IP '${a.address}'.`);
             }
           }
         } catch (dnsErr: any) {
@@ -435,6 +467,8 @@ export class BrowserController {
     }
 
     const { page } = await this.ensureBrowser();
+    this.consoleRingBuffer = [];
+    this.networkErrorBuffer = [];
 
     try {
       const response = await page.goto(formattedUrl, {

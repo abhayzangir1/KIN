@@ -509,8 +509,8 @@ Discard interrupted run checkpoints.
 
 ## 💻 11. Interactive Terminal & Files
 
-### `POST /api/terminal/execute`
-Execute a command in the project directory using the local PowerShell shell.
+### `POST /api/system/terminal`
+Execute a command in the project directory using the local shell (alias: `POST /api/terminal/exec`).
 - **Request Body**:
   ```json
   { "command": "git status -s" }

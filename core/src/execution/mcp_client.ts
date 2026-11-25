@@ -515,7 +515,10 @@ export class McpClientManager {
     if (entry.transport === 'http' && (entry.postUrl || entry.url)) {
       fetch(entry.postUrl || entry.url!, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...this.getResolvedHttpHeaders(actualName),
+        },
         body: payload,
       }).catch((err) => {
         console.warn(`[KIN MCP] Failed to send JSON-RPC response to '${actualName}':`, err);
@@ -664,6 +667,7 @@ export class McpClientManager {
         headers: {
           'Accept': 'text/event-stream',
           'Cache-Control': 'no-cache',
+          ...this.getResolvedHttpHeaders(serverName),
         },
         signal: probeSignal,
       });
@@ -700,14 +704,20 @@ export class McpClientManager {
               if (!line) {
                 if (currentEventType === 'endpoint' && currentData) {
                   try {
-                    const resolvedPostUrl = new URL(currentData.trim(), url).toString();
-                    entry.postUrl = resolvedPostUrl;
-                    if (!isEndpointDispatched) {
-                      isEndpointDispatched = true;
-                      resolveEndpoint(resolvedPostUrl);
+                    const baseOrigin = new URL(url).origin;
+                    const resolvedUrlObj = new URL(currentData.trim(), url);
+                    if (resolvedUrlObj.origin !== baseOrigin) {
+                      console.warn(`[KIN MCP] Blocked cross-origin SSE endpoint redirect from '${serverName}': ${resolvedUrlObj.origin}`);
+                    } else {
+                      const resolvedPostUrl = resolvedUrlObj.toString();
+                      entry.postUrl = resolvedPostUrl;
+                      if (!isEndpointDispatched) {
+                        isEndpointDispatched = true;
+                        resolveEndpoint(resolvedPostUrl);
+                      }
                     }
                   } catch {
-                    entry.postUrl = currentData.trim();
+                    console.warn(`[KIN MCP] Ignored invalid SSE endpoint URL from '${serverName}': ${currentData.trim()}`);
                   }
                 } else if (currentEventType === 'message' && currentData) {
                   this.handleIncomingJsonRpcMessage(serverName, currentData);
@@ -1039,11 +1049,15 @@ export class McpClientManager {
     // Temporarily record proc so sendRequest can communicate with it during handshake
     this.activeServers.set(config.name, { process: proc, transport: 'stdio', tools: [] });
 
-    // 1. Initialize
+    // 1. Initialize (MCP 2026-07-28 parity with HTTP)
     try {
       await this.sendRequest(config.name, 'initialize', {
-        protocolVersion: '2024-11-05',
-        capabilities: {},
+        protocolVersion: '2026-07-28',
+        capabilities: {
+          roots: { listChanged: false },
+          elicitation: { form: {}, url: {} },
+          ...(config.allowSampling ? { sampling: {} } : {}),
+        },
         clientInfo: { name: 'kin-core', version: '1.0.0' },
       }, 30000);
 
@@ -1127,7 +1141,10 @@ export class McpClientManager {
     if (entry.transport === 'http' && (entry.postUrl || entry.url)) {
       fetch(entry.postUrl || entry.url!, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...this.getResolvedHttpHeaders(actualName),
+        },
         body: JSON.stringify(payload),
       }).catch((err) => {
         console.warn(`[KIN MCP] Failed to send HTTP notification '${method}' to '${actualName}':`, err);
@@ -1220,6 +1237,7 @@ export class McpClientManager {
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json, text/plain, */*',
+            ...this.getResolvedHttpHeaders(actualName),
           },
           body: payload,
           signal: combinedSignal,
@@ -1246,7 +1264,10 @@ export class McpClientManager {
               } else {
                 resolve(json.result);
               }
-            } catch (err) { console.debug("[mcp_client] Suppressed exception in catch block:", err); }
+            } catch (err) {
+              cleanup();
+              reject(new Error(`Invalid JSON-RPC response from '${actualName}': ${err instanceof Error ? err.message : String(err)}`));
+            }
           })
           .catch((err) => {
             cleanup();

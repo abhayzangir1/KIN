@@ -46,6 +46,7 @@ import { ProviderIcon, formatContextWindow } from './ProviderIcon.js';
 import { UnifiedDiffViewer } from './code/UnifiedDiffViewer.js';
 
 export const AgentInspector: React.FC = () => {
+  const [worktreeBusy, setWorktreeBusy] = useState(false);
   const {
     agents,
     selectedAgentId,
@@ -957,6 +958,47 @@ export const AgentInspector: React.FC = () => {
                         </>
                       )}
                     </button>
+
+                    {/* Worktree Undo / Redo / Fork Controls */}
+                    {activeChannelId && (
+                      <div className="flex items-center space-x-1 ml-1">
+                        {(['undo', 'redo', 'fork'] as const).map((op) => (
+                          <button
+                            key={op}
+                            type="button"
+                            disabled={worktreeBusy}
+                            onClick={async () => {
+                              if (worktreeBusy) return;
+                              setWorktreeBusy(true);
+                              try {
+                                const res = await fetch(`/api/channels/${encodeURIComponent(activeChannelId)}/worktree/${op}`, {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({}),
+                                });
+                                const d = await res.json().catch(() => ({}));
+                                if (res.ok && d?.success) {
+                                  addToast(`Worktree ${op} succeeded`, 'success');
+                                  if (activeProject?.id) {
+                                    await fetchGitStatus(activeProject.id);
+                                  }
+                                } else {
+                                  addToast(d?.error || `Worktree ${op} failed`, 'error');
+                                }
+                              } catch {
+                                addToast(`Worktree ${op} request failed`, 'error');
+                              } finally {
+                                setWorktreeBusy(false);
+                              }
+                            }}
+                            className="px-1.5 py-0.5 rounded bg-kin-card hover:bg-kin-cardHover disabled:opacity-50 text-[10px] text-kin-muted hover:text-kin-text border border-kin-border capitalize transition cursor-pointer disabled:cursor-not-allowed"
+                            title={`Git worktree ${op}`}
+                          >
+                            {op}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

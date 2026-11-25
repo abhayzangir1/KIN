@@ -5,6 +5,7 @@
 // ============================================================================
 
 import * as crypto from 'node:crypto';
+import * as dns from 'node:dns';
 import { spawn } from 'node:child_process';
 import { CredentialScanner } from '../security/credential_scanner.js';
 
@@ -298,6 +299,71 @@ export class OAuthHandler {
    * RFC 9728 Protected Resource Metadata & RFC 8414 Authorization Server Metadata discovery
    * for MCP OAuth 2.1 (with Client ID Metadata Document / CIMD support).
    */
+  private static isBlockedSsrfIp(ip: string): boolean {
+    let clean = ip.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0];
+    if (clean.startsWith('::ffff:')) {
+      const mapped = clean.slice('::ffff:'.length);
+      if (mapped.includes('.')) {
+        clean = mapped;
+      } else {
+        const hexParts = mapped.split(':');
+        if (hexParts.length === 2) {
+          const hi = parseInt(hexParts[0], 16);
+          const lo = parseInt(hexParts[1], 16);
+          if (!Number.isNaN(hi) && !Number.isNaN(lo)) {
+            clean = `${(hi >> 8) & 255}.${hi & 255}.${(lo >> 8) & 255}.${lo & 255}`;
+          }
+        }
+      }
+    }
+    if (
+      clean === '::1' ||
+      clean === '::' ||
+      clean === '0:0:0:0:0:0:0:0' ||
+      clean === '0:0:0:0:0:0:0:1' ||
+      clean === 'localhost' ||
+      clean === '0.0.0.0'
+    ) {
+      return true;
+    }
+    if (
+      clean.startsWith('fe80:') ||
+      clean.startsWith('fc') ||
+      clean.startsWith('fd') ||
+      clean.startsWith('ff') ||
+      clean.startsWith('64:ff9b:')
+    ) {
+      return true;
+    }
+    const parts = clean.split('.').map((p) => Number(p));
+    if (parts.length === 4 && parts.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) {
+      if (parts[0] === 127 || parts[0] === 10 || parts[0] === 0 || parts[0] >= 224) return true;
+      if (parts[0] === 169 && parts[1] === 254) return true;
+      if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+      if (parts[0] === 192 && parts[1] === 168) return true;
+      if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
+    }
+    return false;
+  }
+
+  private static async assertSafeOAuthMetadataUrl(rawUrl: string): Promise<URL> {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      throw new Error(`Unsupported OAuth metadata protocol: ${parsed.protocol}`);
+    }
+    const host = parsed.hostname.toLowerCase();
+    if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal') || this.isBlockedSsrfIp(host)) {
+      throw new Error(`SSRF blocked for OAuth metadata host '${host}'.`);
+    }
+    const addrs = await dns.promises.lookup(host, { all: true });
+    for (const a of addrs) {
+      if (this.isBlockedSsrfIp(a.address)) {
+        throw new Error(`SSRF blocked for OAuth metadata resolved IP '${a.address}'.`);
+      }
+    }
+    return parsed;
+  }
+
   public static async discoverOAuthMetadata(resourceUrl: string): Promise<{
     resourceMetadataUrl: string;
     authorizationServer?: string;
@@ -306,27 +372,38 @@ export class OAuthHandler {
     registrationEndpoint?: string;
     clientIdMetadataDocumentSupported?: boolean;
   }> {
-    const parsed = new URL(resourceUrl);
+    const parsed = await this.assertSafeOAuthMetadataUrl(resourceUrl);
     const prmUrl = `${parsed.origin}/.well-known/oauth-protected-resource`;
     let authorizationServer: string | undefined;
     try {
-      const prmRes = await fetch(prmUrl, { signal: AbortSignal.timeout(5000) });
+      await this.assertSafeOAuthMetadataUrl(prmUrl);
+      const prmRes = await fetch(prmUrl, { signal: AbortSignal.timeout(5000), redirect: 'error' });
       if (prmRes.ok) {
         const prm = (await prmRes.json()) as any;
         if (Array.isArray(prm?.authorization_servers) && prm.authorization_servers.length > 0) {
           authorizationServer = String(prm.authorization_servers[0]);
         }
       }
-    } catch {
-      // Fallback to origin as auth server
+    } catch (err: any) {
+      if (err?.message?.startsWith('SSRF blocked')) throw err;
     }
 
-    const authOrigin = authorizationServer ? new URL(authorizationServer).origin : parsed.origin;
+    let authOrigin = parsed.origin;
+    if (authorizationServer) {
+      const validatedAs = await this.assertSafeOAuthMetadataUrl(authorizationServer);
+      authOrigin = validatedAs.origin;
+    }
     const asUrl = `${authOrigin}/.well-known/oauth-authorization-server`;
     try {
-      const asRes = await fetch(asUrl, { signal: AbortSignal.timeout(5000) });
+      await this.assertSafeOAuthMetadataUrl(asUrl);
+      const asRes = await fetch(asUrl, { signal: AbortSignal.timeout(5000), redirect: 'error' });
       if (asRes.ok) {
         const asMeta = (await asRes.json()) as any;
+        for (const ep of [asMeta.authorization_endpoint, asMeta.token_endpoint, asMeta.registration_endpoint]) {
+          if (typeof ep === 'string' && ep.trim()) {
+            await this.assertSafeOAuthMetadataUrl(ep);
+          }
+        }
         return {
           resourceMetadataUrl: prmUrl,
           authorizationServer: authOrigin,
@@ -336,8 +413,8 @@ export class OAuthHandler {
           clientIdMetadataDocumentSupported: Boolean(asMeta.client_id_metadata_document_supported),
         };
       }
-    } catch {
-      // Metadata unavailable
+    } catch (err: any) {
+      if (err?.message?.startsWith('SSRF blocked')) throw err;
     }
 
     return { resourceMetadataUrl: prmUrl, authorizationServer: authOrigin };
@@ -356,6 +433,9 @@ export class OAuthHandler {
     const { verifier, challenge } = this.generatePkce();
     const state = crypto.randomBytes(24).toString('hex');
     const url = new URL(params.authorizationEndpoint);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+      throw new Error(`Unsupported OAuth authorization endpoint protocol: ${url.protocol}`);
+    }
     url.searchParams.set('response_type', 'code');
     url.searchParams.set('client_id', params.clientIdMetadataUrl);
     url.searchParams.set('redirect_uri', params.redirectUri);

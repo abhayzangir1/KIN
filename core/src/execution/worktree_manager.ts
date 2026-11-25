@@ -71,9 +71,18 @@ export class WorktreeManager {
       isShadow = true;
     }
 
-    const cleanSlug = slug.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
-    const branchName = `feat/kin-${taskId}-${cleanSlug}`;
-    const worktreePath = path.join(this.worktreesDir, `${taskId}-${cleanSlug}`);
+    const cleanTaskId = String(taskId || 'task')
+      .replace(/[^a-zA-Z0-9_-]/g, '-')
+      .replace(/^-+|-+$/g, '') || 'task';
+    const cleanSlug = String(slug || 'work')
+      .replace(/[^a-zA-Z0-9_-]/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLowerCase() || 'work';
+    const branchName = `feat/kin-${cleanTaskId}-${cleanSlug}`;
+    const worktreePath = path.resolve(this.worktreesDir, `${cleanTaskId}-${cleanSlug}`);
+    if (!worktreePath.startsWith(path.resolve(this.worktreesDir) + path.sep)) {
+      throw new Error(`Invalid worktree path outside worktreesDir: ${worktreePath}`);
+    }
 
     // If worktree folder already exists, remove it cleanly first
     if (fs.existsSync(worktreePath)) {
@@ -539,8 +548,19 @@ export class WorktreeManager {
     }
     try {
       const baseSha = await WorktreeManager.getHeadSha(cwd);
-      const cleanSlug = (branchSlug || `fork-${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
-      const branch = `fork/${cleanSlug}`;
+      let cleanSlug = (branchSlug || `fork-${Date.now()}`)
+        .replace(/[^a-zA-Z0-9_-]/g, '-')
+        .replace(/^-+/, '')
+        .toLowerCase();
+      if (!cleanSlug) cleanSlug = `fork-${Date.now()}`;
+      let branch = `fork/${cleanSlug}`;
+      try {
+        await execFileAsync('git', ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`], { cwd });
+        cleanSlug = `${cleanSlug}-${Date.now()}`;
+        branch = `fork/${cleanSlug}`;
+      } catch {
+        // Branch does not exist yet
+      }
       const forkPath = path.join(this.worktreesDir, `fork-${cleanSlug}`);
       if (fs.existsSync(forkPath)) {
         await this.removeWorktree(forkPath);

@@ -249,7 +249,7 @@ describe('Wave 2 Ecosystem, Sandbox & Security Verification', () => {
     expect(res.output).toEqual({ hasProcess: false, sum: 42 });
   });
 
-  it('OAuthHandler builds RFC 8707 + CIMD OAuth 2.1 URLs and McpClientManager resolves elicitation', () => {
+  it('OAuthHandler builds RFC 8707 + CIMD OAuth 2.1 URLs and McpClientManager resolves elicitation', async () => {
     const auth = OAuthHandler.buildMcpOAuth21AuthUrl({
       authorizationEndpoint: 'https://auth.example.com/authorize',
       clientIdMetadataUrl: 'https://kin.local/client-metadata.json',
@@ -265,5 +265,11 @@ describe('Wave 2 Ecosystem, Sandbox & Security Verification', () => {
     const mcp = new McpClientManager(process.cwd());
     expect(mcp.listPendingElicitations()).toEqual([]);
     expect(mcp.resolveElicitation('missing-id', { action: 'decline' })).toBe(false);
+
+    await expect(OAuthHandler.discoverOAuthMetadata('http://169.254.169.254/latest/meta-data')).rejects.toThrow(/SSRF blocked/i);
+    await expect(OAuthHandler.discoverOAuthMetadata('http://127.0.0.1:8080/mcp')).rejects.toThrow(/SSRF blocked/i);
+    await expect(OAuthHandler.discoverOAuthMetadata('http://10.0.0.1/mcp')).rejects.toThrow(/SSRF blocked/i);
+    await expect(OAuthHandler.discoverOAuthMetadata('http://[::1]/mcp')).rejects.toThrow(/SSRF blocked/i);
+    await expect(OAuthHandler.discoverOAuthMetadata('http://[::ffff:7f00:1]/mcp')).rejects.toThrow(/SSRF blocked/i);
   });
 });
