@@ -141,6 +141,16 @@ export class KinDatabase {
     return this.db;
   }
 
+  private busyWaitSync(attempt: number): void {
+    const baseMs = Math.min(25, 4 * Math.pow(2, attempt - 1));
+    const delayMs = Math.max(2, Math.floor(baseMs + Math.random() * 5));
+    try {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+    } catch {
+      // Fallback if SharedArrayBuffer is unavailable
+    }
+  }
+
   public exec(sql: string): void {
     if (this.isClosed) throw new Error('Database connection is closed.');
     const maxRetries = 3;
@@ -150,6 +160,7 @@ export class KinDatabase {
         return;
       } catch (err: unknown) {
         if (this.isBusyError(err) && attempt < maxRetries) {
+          this.busyWaitSync(attempt);
           continue;
         }
         throw err;
@@ -172,6 +183,7 @@ export class KinDatabase {
         return results as unknown as T[];
       } catch (err: unknown) {
         if (this.isBusyError(err) && attempt < maxRetries) {
+          this.busyWaitSync(attempt);
           continue;
         }
         throw err;
@@ -190,6 +202,7 @@ export class KinDatabase {
         return result as unknown as T | undefined;
       } catch (err: unknown) {
         if (this.isBusyError(err) && attempt < maxRetries) {
+          this.busyWaitSync(attempt);
           continue;
         }
         throw err;
@@ -208,6 +221,7 @@ export class KinDatabase {
         return stmt.run(...params);
       } catch (err: unknown) {
         if (this.isBusyError(err) && attempt < maxRetries) {
+          this.busyWaitSync(attempt);
           continue;
         }
         throw err;

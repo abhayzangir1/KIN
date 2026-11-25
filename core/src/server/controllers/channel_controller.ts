@@ -6,6 +6,7 @@ import { AgentDefinition, AgentIdentity, Channel, Goal, Task, Decision } from '.
 import { ContextCompactor } from '../../context/context_compactor.js';
 import { WorktreeManager } from '../../execution/worktree_manager.js';
 import { isPathWithinRoot } from '../../security/path_jail.js';
+import { safeJsonParseObject } from '../../storage/db.js';
 import { BaseController } from './base_controller.js';
 
 export class ChannelController extends BaseController {
@@ -263,7 +264,7 @@ export class ChannelController extends BaseController {
             channelId: r.channel_id,
             senderId: r.sender_id,
             content: r.content,
-            metadata: JSON.parse(r.metadata_json || '{}'),
+            metadata: safeJsonParseObject(r.metadata_json),
             createdAt: r.created_at,
           })),
         });

@@ -305,11 +305,19 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
   useEffect(() => {
     const fetchElicitations = () => {
       fetch('/api/mcp/elicitations')
-        .then((r) => (r.ok ? r.json() : null))
+        .then((r) => {
+          if (!r.ok) {
+            console.warn(`[KIN UI] Failed to poll MCP elicitations (HTTP ${r.status})`);
+            return null;
+          }
+          return r.json();
+        })
         .then((d) => {
           if (Array.isArray(d?.elicitations)) setPendingElicitations(d.elicitations);
         })
-        .catch(() => {});
+        .catch((err) => {
+          console.warn('[KIN UI] MCP elicitations poll error:', err);
+        });
     };
     fetchElicitations();
     const timer = setInterval(fetchElicitations, 5000);

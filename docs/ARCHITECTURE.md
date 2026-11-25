@@ -293,7 +293,7 @@ flowchart TD
 KIN organizes agents within a project-scoped organization boundary. Every project maintains its own isolated Boss orchestrator (`agent-boss-${projectId}`) and specialist coworkers.
 
 - `RunnerAdapter`: A pluggable interface and registry (`core/src/kernel/runner_adapter.ts`) decoupling execution engines from KIN's state and security authority. The default engine is `NativeReActRunnerAdapter`, wrapping `AgentLoopRunner`.
-- `4-Tier Memory Scoping`:
+- `4-Tier Prompt Visibility (backed by 7 SQLite MemoryScopes)`: `ContextCompiler` projects the 7 storage scopes (`global`, `workspace`, `project`, `team`, `channel`, `agent_private`, `task`) into four prompt visibility tiers:
   - **Tier 1 (Project-Shared Memory)**: Project goals, architectural decisions, and project memories accessible to all project coworkers.
   - **Tier 2 (Conversation-Scoped Context)**: Channel message trajectories and channel memories accessible to enrolled channel members.
   - **Tier 3 (Agent-Private Memory)**: Personal agent reflections, learned skills, and scratchpad state (`scope: 'agent_private'`).

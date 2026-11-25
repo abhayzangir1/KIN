@@ -86,8 +86,10 @@ export class ContextCompactor {
     ];
 
     // Measure actual post-compaction token estimate
-    const actualChars = compactedMessages.reduce((acc, m) => acc + (m.content?.length || 0), 0);
-    const estimatedNewTokens = Math.max(1, Math.ceil(actualChars / 4));
+    const estimatedNewTokens = Math.max(
+      1,
+      compactedMessages.reduce((acc, m) => acc + this.estimateMessageTokens(m), 0)
+    );
 
     return {
       didCompact: true,
@@ -124,8 +126,18 @@ export class ContextCompactor {
       }
       return msg;
     });
-    const tokensAfter = Math.max(1, Math.ceil(result.reduce((a, m) => a + (m.content?.length || 0), 0) / 4));
+    const tokensAfter = Math.max(
+      1,
+      result.reduce((a, m) => a + this.estimateMessageTokens(m), 0)
+    );
     return { didMicrocompact: changed, messages: result, tokensAfter };
+  }
+
+  public estimateMessageTokens(m: Message): number {
+    const contentChars = m.content?.length || 0;
+    const reasoningChars = typeof (m as any).reasoning_content === 'string' ? (m as any).reasoning_content.length : 0;
+    const imagesCount = Array.isArray((m as any).images) ? (m as any).images.length : 0;
+    return Math.ceil((contentChars + reasoningChars) / 4) + imagesCount * 1000;
   }
 
   public maskOlderObservations(message: Message): Message {
@@ -149,29 +161,35 @@ export class ContextCompactor {
   }
 
   public formatSnapshot(snapshot: CompactionSnapshot): string {
+    const trunc = (s: string, max = 300) => (s && s.length > max ? s.slice(0, max) + '...' : s);
+    const completed = snapshot.completedTasks.slice(-15);
+    const modified = snapshot.modifiedFiles.slice(-30);
+    const errors = snapshot.encounteredErrorsAndResolutions.slice(-10);
+    const decisions = snapshot.immutableDecisions.slice(-15);
+    const pending = snapshot.pendingTaskDag.slice(0, 20);
     return [
       `### [SYSTEM COMPACTION SNAPSHOT — Working State at ${new Date(snapshot.compactedAt).toISOString()}]`,
-      `**Goal**: ${snapshot.primaryObjective} (ID: ${snapshot.goalId})`,
-      `**Active Task**: ${snapshot.activeTask.title} (${snapshot.activeTask.id}) ${snapshot.activeTask.currentStep ? `| Step: ${snapshot.activeTask.currentStep}` : ''}`,
+      `**Goal**: ${trunc(snapshot.primaryObjective, 500)} (ID: ${snapshot.goalId})`,
+      `**Active Task**: ${trunc(snapshot.activeTask.title, 200)} (${snapshot.activeTask.id}) ${snapshot.activeTask.currentStep ? `| Step: ${trunc(snapshot.activeTask.currentStep, 120)}` : ''}`,
       `**Completed Tasks**:`,
-      snapshot.completedTasks.length > 0
-        ? snapshot.completedTasks.map((t) => ` - [x] ${t.title} (ID: ${t.id})${t.evidenceUri ? ` [Evidence: ${t.evidenceUri}]` : ''}`).join('\n')
+      completed.length > 0
+        ? completed.map((t) => ` - [x] ${trunc(t.title, 200)} (ID: ${t.id})${t.evidenceUri ? ` [Evidence: ${trunc(t.evidenceUri, 120)}]` : ''}`).join('\n')
         : ` - None yet`,
       `**Files Modified**:`,
-      snapshot.modifiedFiles.length > 0
-        ? snapshot.modifiedFiles.map((f) => ` - \`${f.path}\`${f.gitHash ? ` (commit: ${f.gitHash})` : ''}`).join('\n')
+      modified.length > 0
+        ? modified.map((f) => ` - \`${trunc(f.path, 200)}\`${f.gitHash ? ` (commit: ${f.gitHash})` : ''}`).join('\n')
         : ` - None yet`,
       `**Encountered Errors & Resolutions**:`,
-      snapshot.encounteredErrorsAndResolutions.length > 0
-        ? snapshot.encounteredErrorsAndResolutions.map((e) => ` - Error: ${e.error} => Resolution: ${e.fixApplied}`).join('\n')
+      errors.length > 0
+        ? errors.map((e) => ` - Error: ${trunc(e.error, 200)} => Resolution: ${trunc(e.fixApplied, 200)}`).join('\n')
         : ` - None`,
       `**Decisions**:`,
-      snapshot.immutableDecisions.length > 0
-        ? snapshot.immutableDecisions.map((d) => ` - ${d.key}: ${d.decision}`).join('\n')
+      decisions.length > 0
+        ? decisions.map((d) => ` - ${trunc(d.key, 100)}: ${trunc(d.decision, 300)}`).join('\n')
         : ` - Standard project conventions`,
       `**Pending Tasks**:`,
-      snapshot.pendingTaskDag.length > 0
-        ? snapshot.pendingTaskDag.map((p) => ` - [ ] ${p.title} (Depends on: ${p.dependsOn.join(', ') || 'None'})`).join('\n')
+      pending.length > 0
+        ? pending.map((p) => ` - [ ] ${trunc(p.title, 200)} (Depends on: ${p.dependsOn.slice(0, 10).join(', ') || 'None'})`).join('\n')
         : ` - None remaining`,
     ].join('\n\n');
   }

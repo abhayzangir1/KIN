@@ -133,7 +133,7 @@ Artifacts include documents, research notes with source references, generated fi
 
 ## 9. Memory and context
 
-KIN implements four distinct visibility tiers:
+KIN stores memory across seven storage scopes (`global`, `workspace`, `project`, `team`, `channel`, `agent_private`, `task`) and projects them into four distinct prompt-visibility tiers:
 
 1. **Project shared memory:** Facts, goals, decisions, standards, and project notes available to authorized project agents.
 2. **Channel memory:** Department/channel facts available only to members of that channel. An agent's admitted channel context expands to every channel it belongs to.

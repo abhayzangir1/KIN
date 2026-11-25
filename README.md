@@ -18,7 +18,7 @@ Local-first execution • Hybrid model routing (Local Ollama, NVIDIA NIM & BYOK 
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org/)
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri)](https://tauri.app/)
 [![SQLite](https://img.shields.io/badge/SQLite-WAL%20Mode-003B57?logo=sqlite)](https://sqlite.org/)
-[![Tests](https://img.shields.io/badge/Tests-1%2C260%20Passed-success)](docs/PROJECT_STATUS.md)
+[![Tests](https://img.shields.io/badge/Tests-1%2C261%20Passed-success)](docs/PROJECT_STATUS.md)
 
 [Overview](#-overview) •
 [Key Features](#-key-features) •
@@ -135,8 +135,8 @@ Preview shared images with smooth pan/zoom, inspect embedded PDFs, browse syntax
 - **Multi-Channel Mobility**: Agents can be assigned to multiple departmental channels (`assignCoworker`), convene meetings (`callMeeting`), broadcast updates (`channel_post`), and recruit dynamic specialists (`hireSpecialist`).
 - **Private Peer DMs**: Autonomous agent-to-agent private communication channels with a 5-turn depth ceiling, completion token detection, and operator transparency.
 
-### 🧠 7-Tier Scoped Memory Fabric
-State and context are strictly layered across seven privacy boundaries with Optimistic Concurrency Control (OCC) version fencing and historical version archiving (`memory_versions` table):
+### 🧠 7-Scope Memory Storage & 4-Tier Prompt Compilation
+State and context are stored across seven privacy scopes (`core/src/domain/types.ts`) with Optimistic Concurrency Control (OCC) version fencing and historical version archiving (`memory_versions` table), and compiled into four prompt-visibility tiers in `ContextCompiler`:
 1. **Global Memory**: System-wide configuration and baseline defaults.
 2. **Workspace Memory**: Workspace-wide conventions and preferences.
 3. **Project Memory (`rememberProject`)**: High-level domain conventions, architecture, and rules shared across all project agents.
@@ -253,7 +253,7 @@ Clone and run KIN directly from source code:
    # Typecheck monorepo across all workspaces
    npm run typecheck
 
-   # Run core backend Vitest suite (90 files, 1,257 tests) and UI suite (1 file, 3 tests)
+   # Run core backend Vitest suite (90 files, 1,258 tests) and UI suite (1 file, 3 tests)
    npm test --workspace=core
 
    # Run Tauri process supervisor tests (14 tests)
@@ -286,7 +286,7 @@ Comprehensive guides, technical references, and tutorials are available in the [
 - **[REST & IPC API Reference](docs/API.md)**: Full endpoint specification covering Channels, Messages, Agents, Models, Desktop, Browser, and Automations.
 - **[Product Requirements Document (PRD)](PRD.md)**: Product vision, user personas, UX architecture, and functional requirements.
 - **[Technical Requirements Document (TRD)](docs/TRD.md)**: Non-functional requirements, security model, and performance boundaries.
-- **[Project Status & Verification Audit](docs/PROJECT_STATUS.md)**: Live verification status of all 1,260 tests, audit remediations, and roadmap.
+- **[Project Status & Verification Audit](docs/PROJECT_STATUS.md)**: Live verification status of all 1,261 tests, audit remediations, and roadmap.
 - **[Tutorials & Guides](docs/TUTORIALS.md)**:
   - [01: Assembling a Research Swarm](docs/TUTORIALS/01-research-swarm.md)
   - [02: Automating Daily Proactive Routines](docs/TUTORIALS/02-daily-routines.md)

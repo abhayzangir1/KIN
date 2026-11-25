@@ -66,6 +66,7 @@ export interface ActiveMcpServerEntry {
   url?: string;
   postUrl?: string;
   sseController?: AbortController;
+  sseConnected?: boolean;
   transport: 'stdio' | 'http';
   tools: McpToolDefinition[];
 }
@@ -174,12 +175,16 @@ export class McpClientManager {
     const nextLock = new Promise<void>((resolve) => {
       releaseLock = resolve;
     });
-    McpClientManager.fileLocks.set(key, prevLock.then(() => nextLock, () => nextLock));
+    const tailLock = prevLock.then(() => nextLock, () => nextLock);
+    McpClientManager.fileLocks.set(key, tailLock);
     await prevLock;
     try {
       return await fn();
     } finally {
       releaseLock!();
+      if (McpClientManager.fileLocks.get(key) === tailLock) {
+        McpClientManager.fileLocks.delete(key);
+      }
     }
   }
 
@@ -741,6 +746,8 @@ export class McpClientManager {
             }
           }
         } catch (err) { console.debug("[mcp_client] Suppressed exception in catch block:", err); } finally {
+          entry.sseController = undefined;
+          entry.sseConnected = false;
           if (!isEndpointDispatched) {
             isEndpointDispatched = true;
             resolveEndpoint(url);
@@ -805,7 +812,7 @@ export class McpClientManager {
     this.activeServers.set(config.name, entry);
 
     // Try connecting via SSE first
-    await this.connectSseIfSupported(config.name, serverUrl);
+    entry.sseConnected = await this.connectSseIfSupported(config.name, serverUrl);
 
     try {
       // 1. Initialize (MCP 2026-07-28)
@@ -947,9 +954,15 @@ export class McpClientManager {
       detached: !isWindows,
     });
 
+    const MAX_STDOUT_BUFFER_CHARS = 10 * 1024 * 1024;
     let buffer = '';
     proc.stdout?.on('data', (data) => {
       buffer += data.toString();
+      if (buffer.length > MAX_STDOUT_BUFFER_CHARS) {
+        console.warn(`[KIN MCP] Stdout buffer exceeded ${MAX_STDOUT_BUFFER_CHARS} chars for '${config.name}'; clearing buffer.`);
+        buffer = '';
+        return;
+      }
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
 
@@ -1248,11 +1261,21 @@ export class McpClientManager {
               throw new Error(`HTTP MCP request '${method}' to '${actualName}' failed (${res.status}): ${errText}`);
             }
             if (res.status === 202) {
+              if (!entry.sseConnected || !entry.sseController) {
+                cleanup();
+                reject(new Error(`HTTP MCP request '${method}' to '${actualName}' returned 202 Accepted without an active SSE stream.`));
+                return;
+              }
               // Standard SSE asynchronous processing — response arrives via SSE stream
               return;
             }
             const text = await res.text();
             if (!text || !text.trim()) {
+              if (!entry.sseConnected || !entry.sseController) {
+                cleanup();
+                reject(new Error(`HTTP MCP request '${method}' to '${actualName}' returned an empty body without an active SSE stream.`));
+                return;
+              }
               // Empty body — response delivered via SSE message event
               return;
             }

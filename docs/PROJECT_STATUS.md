@@ -1,6 +1,6 @@
 # KIN Project Status & Verification Audit
 
-**Updated:** 2026-11-11  
+**Updated:** 2026-11-25  
 **Scope:** Source-level inventory and live runtime verification report of this repository.
 
 ---
@@ -22,7 +22,7 @@ KIN is organized into three production workspaces backed by 36 authoritative SQL
 - **Organizational Isolation**: Every project maintains an independent boundary with dedicated channels, agents, task DAGs, and memories.
 - **Project Orchestrators (`@Boss`)**: Authoritative lead agent automatically seeded per project for intake and task decomposition.
 - **Departmental Channels & Peer DMs**: Multi-channel workforce enrollment (`assignCoworker`), department convening (`callMeeting`), cross-channel broadcasting (`channel_post`), and private peer-to-peer direct messages (`dm-${agentA}-${agentB}`) with participant-only context isolation.
-- **7-Tier Scoped Memory**: Global, Workspace, Project, Team, Channel, Agent-Private, and Task memory scopes with OCC versioning and historical version archiving.
+- **7-Scope Memory Storage & 4-Tier Prompt Compilation**: Global, Workspace, Project, Team, Channel, Agent-Private, and Task memory scopes in SQLite projected into 4 prompt-visibility tiers in `ContextCompiler`, with OCC versioning and historical version archiving.
 - **Dedicated Machine-Executable ToolEngine**: Clean separation between procedural natural language skills (`SkillEngine`) and machine-executable dynamic tools (`ToolEngine` in `core/src/execution/tool_engine.ts`). Both execute untrusted JavaScript inside QuickJS-WASM (`core/src/execution/worker_quickjs.ts`) with bounded memory, interrupt timeouts, frozen prototypes, and canonical path confinement.
 - **Tokenized Jaccard Duplicate Interception**: Tool creation evaluates token similarity against existing tools. If similarity is $\ge 75\%$, a duplicate advisory is returned. Models can supply `forceCreation: true` to bypass directly to operator approval and prevent infinite debating loops.
 - **Non-Blocking Approval Resolution**: In `AUTO` or supervised mode, unapproved tools generate approval cards. If denied by the operator, the agent receives an informative denial observation without crashing or halting the run. On approval, the tool activates swarm-wide and is injected into ContextCompiler Block 3 across all project agents.
@@ -69,7 +69,7 @@ KIN is organized into three production workspaces backed by 36 authoritative SQL
 ### Automated Test Suite
 - **Core Test Suite (`npm test --workspace=core`)**:
   - **90 Core Test Files**: All 90 passed deterministically without regressions.
-  - **1,257 Core Tests (+ UI Suite)**: 1,257 core tests + 3 UI tests passing (0 failed, 0 skipped, 0 regressions).
+  - **1,258 Core Tests (+ UI Suite)**: 1,258 core tests + 3 UI tests passing (0 failed, 0 skipped, 0 regressions).
   - Full regression coverage spans all production layers: cold boot, health telemetry, static asset serving, task lease contention, message ingestion fencing, atomic CAS approval gates, SHA-256 EventLedger cryptographic integrity, NVIDIA NIM streaming backoff, Workspace Trust quarantine, QuickJS-WASM sandboxing, and MCP 2026-07-28 runtime validation.
   - Zero mock data or synthetic score facades: dynamic rubric evaluation from database records, authentic credential-gated model discovery, and centralized fallback model configuration (`DEFAULT_FALLBACK_MODEL_ID`).
   - Cross-project DAG isolation: child task advancement strictly queries parent goal project identity and origin channel.
@@ -89,7 +89,7 @@ KIN is organized into three production workspaces backed by 36 authoritative SQL
 - `cargo test --manifest-path src-tauri/Cargo.toml`: Succeeded (14/14 tests passed).
 - `cargo check --manifest-path src-tauri/Cargo.toml`: Succeeded with 0 warnings/errors.
 - `npm run typecheck`: Succeeded with zero diagnostic errors across `@kin/core` and `@kin/ui`.
-- `npm run build`: Succeeded with zero errors (1,935 Vite modules transformed into production assets).
+- `npm run build`: Succeeded with zero errors (1,963 Vite modules transformed into production assets).
 - `npm run build:binary`: Succeeded, producing native sidecar binary `binaries/kin-core.exe`.
 
 ### Multi-Platform CI/CD & Packaging

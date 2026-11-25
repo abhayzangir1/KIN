@@ -14,11 +14,16 @@ export const OnboardingWizardModal: React.FC = () => {
   const openSettingsModal = useKinStore((s) => s.openSettingsModal);
   const ollamaStatus = useKinStore((s) => s.ollamaStatus);
   const [hw, setHw] = useState<HardwareSummary | null>(null);
+  const [hwError, setHwError] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
+    setHwError(false);
     fetch('/api/system/governor')
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
       .then((data) => {
         const profile = data?.hardwareProfile || data?.hardware;
         if (profile) {
@@ -29,7 +34,9 @@ export const OnboardingWizardModal: React.FC = () => {
           });
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        setHwError(true);
+      });
   }, [isOpen]);
 
   const dismiss = () => {
@@ -54,12 +61,13 @@ export const OnboardingWizardModal: React.FC = () => {
   if (!isOpen) return null;
 
   const ramGb = hw?.totalMemoryGb ?? 0;
-  const localTierLabel =
-    ramGb >= 32
-      ? 'High-RAM Workstation (14B–32B local models)'
-      : ramGb >= 16
-      ? 'Standard Workstation (7B–14B local models)'
-      : 'Lean Device (3B–7B quantized or Cloud BYOK)';
+  const localTierLabel = hwError
+    ? 'Host hardware detection unavailable — choose Local Ollama or Cloud API below'
+    : ramGb >= 32
+    ? 'High-RAM Workstation (14B–32B local models)'
+    : ramGb >= 16
+    ? 'Standard Workstation (7B–14B local models)'
+    : 'Lean Device (3B–7B quantized or Cloud BYOK)';
 
   return (
     <div

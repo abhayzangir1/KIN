@@ -272,4 +272,36 @@ describe('Wave 2 Ecosystem, Sandbox & Security Verification', () => {
     await expect(OAuthHandler.discoverOAuthMetadata('http://[::1]/mcp')).rejects.toThrow(/SSRF blocked/i);
     await expect(OAuthHandler.discoverOAuthMetadata('http://[::ffff:7f00:1]/mcp')).rejects.toThrow(/SSRF blocked/i);
   });
+
+  it('ContextCompactor accounts for reasoning_content and images and bounds snapshot size', async () => {
+    const { ContextCompactor } = await import('../src/context/context_compactor.js');
+    const compactor = new ContextCompactor();
+    const tokens = compactor.estimateMessageTokens({
+      id: 'm1',
+      channelId: 'c1',
+      senderId: 'a1',
+      senderType: 'agent',
+      content: 'hello',
+      reasoning_content: 'x'.repeat(400),
+      images: ['data:image/png;base64,abc'],
+      mentions: [],
+      productivityScore: 100,
+      createdAt: Date.now(),
+    } as any);
+    expect(tokens).toBeGreaterThanOrEqual(1100);
+
+    const snapshot = compactor.formatSnapshot({
+      goalId: 'g1',
+      primaryObjective: 'Test',
+      activeTask: { id: 't1', title: 'Task 1', currentStep: 'step' },
+      completedTasks: Array.from({ length: 25 }, (_, i) => ({ id: `c-${i}`, title: `Done ${i}` })),
+      modifiedFiles: [],
+      encounteredErrorsAndResolutions: [],
+      immutableDecisions: [],
+      pendingTaskDag: [],
+      compactedAt: Date.now(),
+    });
+    expect(snapshot).toContain('Done 24');
+    expect(snapshot).not.toContain('Done 0\n');
+  });
 });

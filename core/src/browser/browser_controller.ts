@@ -819,9 +819,29 @@ export class BrowserController {
    * Evaluates JavaScript directly in the active browser page context via Chrome DevTools Protocol.
    * Avoids DOM window.eval to maintain strict compatibility with sites enforcing CSP 'unsafe-eval' restrictions.
    */
-  public async evaluate(script: string): Promise<any> {
+  public async evaluate(script: string, timeoutMs: number = 20000): Promise<any> {
     const { page } = await this.ensureBrowser();
-    return page.evaluate(script);
+    const runEval = () => {
+      return page.evaluate(script);
+    };
+    let timer: NodeJS.Timeout | null = null;
+    try {
+      return await Promise.race([
+        runEval(),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`Browser evaluate() timed out after ${timeoutMs}ms`)), timeoutMs);
+          if (typeof (timer as any).unref === 'function') (timer as any).unref();
+        }),
+      ]);
+    } catch (err: any) {
+      const msg = String(err?.message || '').toLowerCase();
+      if (msg.includes('target closed') || msg.includes('session closed') || msg.includes('detached')) {
+        this.activePage = null;
+      }
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   /**
@@ -983,8 +1003,16 @@ export class BrowserController {
     durationMs?: number
   ): WebStepResult {
     this.stepCount++;
-    const url = this.activePage && !this.activePage.isClosed() ? this.activePage.url() : '';
+    let url = '';
+    try {
+      url = this.activePage && !this.activePage.isClosed() ? this.activePage.url() : '';
+    } catch {
+      url = '';
+    }
     const title = output?.title || this.lastKnownTitle || '';
+    const sanitizedOutput = output && typeof output === 'object' && typeof output.base64 === 'string'
+      ? { ...output, base64: `[screenshot omitted: ${output.base64.length} chars]` }
+      : output;
     const result: WebStepResult = {
       stepIndex: this.stepCount,
       action: action.action,
@@ -997,13 +1025,17 @@ export class BrowserController {
       error,
       timestamp: Date.now(),
     };
+    const historyEntry: WebStepResult = {
+      ...result,
+      output: sanitizedOutput,
+    };
 
     // Rolling memory limit: prevent unbounded growth in long-running sessions
     const MAX_STEP_HISTORY = 100;
     if (this.stepHistory.length >= MAX_STEP_HISTORY) {
       this.stepHistory.splice(0, this.stepHistory.length - MAX_STEP_HISTORY + 1);
     }
-    this.stepHistory.push(result);
+    this.stepHistory.push(historyEntry);
     return result;
   }
 }

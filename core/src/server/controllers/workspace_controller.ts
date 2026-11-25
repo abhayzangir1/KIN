@@ -791,7 +791,7 @@ export class WorkspaceController extends BaseController {
             channelId: r.channel_id,
             senderId: r.sender_id,
             content: r.content,
-            metadata: JSON.parse(r.metadata_json || '{}'),
+            metadata: safeJsonParseObject(r.metadata_json),
             createdAt: r.created_at,
           })),
         });
