@@ -692,10 +692,10 @@ export class Sentinel {
     // 1. Explicit destructive tool names
     if (
       lowerTool.includes('delete') ||
-      lowerTool.includes('removefile') ||
-      lowerTool.includes('droptable') ||
-      lowerTool.includes('truncatedata') ||
-      lowerTool.includes('purgedatabase')
+      normalizedTool.includes('removefile') ||
+      normalizedTool.includes('droptable') ||
+      normalizedTool.includes('truncatedata') ||
+      normalizedTool.includes('purgedatabase')
     ) {
       return {
         isDestructive: true,

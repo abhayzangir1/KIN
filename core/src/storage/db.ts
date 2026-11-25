@@ -420,6 +420,7 @@ export class KinDatabase {
             break;
           } catch (err) {
             if (this.isBusyError(err) && attempt < 3) {
+              this.busyWaitSync(attempt);
               continue;
             }
             throw err;
@@ -528,7 +529,22 @@ export function safeJsonParse<T>(raw: unknown, fallback: T): T {
   if (raw === null || raw === undefined) {
     return fallback;
   }
-  if (typeof raw !== 'string' || !raw.trim()) {
+  if (typeof raw !== 'string') {
+    if (typeof raw === 'symbol' || typeof raw === 'function' || typeof raw === 'bigint') {
+      return fallback;
+    }
+    if (Array.isArray(fallback)) {
+      return Array.isArray(raw) ? (raw as T) : fallback;
+    }
+    if (typeof fallback === 'object' && fallback !== null) {
+      return typeof raw === 'object' && !Array.isArray(raw) ? (raw as T) : fallback;
+    }
+    if (typeof raw !== typeof fallback) {
+      return fallback;
+    }
+    return raw as T;
+  }
+  if (!raw.trim()) {
     return fallback;
   }
   try {

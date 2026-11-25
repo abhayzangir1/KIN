@@ -89,25 +89,19 @@ export class TaskRepository {
    */
   public wouldCreateCycle(taskId: string, dependsOnTaskId: string): boolean {
     if (taskId === dependsOnTaskId) return true;
-    const visited = new Set<string>();
-    const queue = [dependsOnTaskId];
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      if (current === taskId) return true;
-      if (!visited.has(current)) {
-        visited.add(current);
-        const deps = this.db.query<{ depends_on_task_id: string }>(
-          'SELECT depends_on_task_id FROM task_dependencies WHERE task_id = ?',
-          current
-        );
-        for (const dep of deps) {
-          if (!visited.has(dep.depends_on_task_id)) {
-            queue.push(dep.depends_on_task_id);
-          }
-        }
-      }
-    }
-    return false;
+    const row = this.db.queryOne<{ found: number }>(
+      `WITH RECURSIVE reach(id) AS (
+         SELECT ?
+         UNION
+         SELECT td.depends_on_task_id
+         FROM task_dependencies td
+         JOIN reach r ON td.task_id = r.id
+       )
+       SELECT 1 AS found FROM reach WHERE id = ? LIMIT 1`,
+      dependsOnTaskId,
+      taskId
+    );
+    return Boolean(row?.found);
   }
 
   public getTaskDependencies(taskId: string): string[] {
@@ -127,17 +121,19 @@ export class TaskRepository {
   }
 
   public addDependency(taskId: string, dependsOnTaskId: string): void {
-    if (taskId === dependsOnTaskId) {
-      throw new Error(`Self-dependency not permitted for task '${taskId}'.`);
-    }
-    if (this.wouldCreateCycle(taskId, dependsOnTaskId)) {
-      throw new Error(`Adding dependency '${taskId}' -> '${dependsOnTaskId}' would introduce a cycle.`);
-    }
-    this.db.execute(
-      'INSERT OR IGNORE INTO task_dependencies (task_id, depends_on_task_id) VALUES (?, ?)',
-      taskId,
-      dependsOnTaskId
-    );
+    this.db.transactionSync(() => {
+      if (taskId === dependsOnTaskId) {
+        throw new Error(`Self-dependency not permitted for task '${taskId}'.`);
+      }
+      if (this.wouldCreateCycle(taskId, dependsOnTaskId)) {
+        throw new Error(`Adding dependency '${taskId}' -> '${dependsOnTaskId}' would introduce a cycle.`);
+      }
+      this.db.execute(
+        'INSERT OR IGNORE INTO task_dependencies (task_id, depends_on_task_id) VALUES (?, ?)',
+        taskId,
+        dependsOnTaskId
+      );
+    });
   }
 
   public removeDependency(taskId: string, dependsOnTaskId: string): void {
@@ -149,23 +145,35 @@ export class TaskRepository {
   }
 
   public cascadeBlockDependents(failedOrCancelledTaskId: string): string[] {
-    const dependentTaskIds = this.getTaskDependents(failedOrCancelledTaskId);
-    const blockedTaskIds: string[] = [];
-
-    for (const depTaskId of dependentTaskIds) {
-      const res = this.db.execute(
-        `UPDATE tasks SET status = 'blocked', updated_at = ? WHERE id = ? AND status IN ('backlog', 'ready', 'assigned')`,
-        Date.now(),
-        depTaskId
+    return this.db.transactionSync(() => {
+      const rows = this.db.query<{ id: string }>(
+        `WITH RECURSIVE downstream(id) AS (
+           SELECT t.id FROM task_dependencies td
+           JOIN tasks t ON t.id = td.task_id
+           WHERE td.depends_on_task_id = ? AND t.status IN ('backlog', 'ready', 'assigned')
+           UNION
+           SELECT t.id FROM task_dependencies td
+           JOIN downstream d ON td.depends_on_task_id = d.id
+           JOIN tasks t ON t.id = td.task_id
+           WHERE t.status IN ('backlog', 'ready', 'assigned')
+         )
+         SELECT id FROM downstream`,
+        failedOrCancelledTaskId
       );
-      if (Number(res.changes) > 0) {
-        blockedTaskIds.push(depTaskId);
-        const subBlocked = this.cascadeBlockDependents(depTaskId);
-        blockedTaskIds.push(...subBlocked);
+      const blockedTaskIds: string[] = [];
+      const now = Date.now();
+      for (const r of rows) {
+        const res = this.db.execute(
+          `UPDATE tasks SET status = 'blocked', updated_at = ? WHERE id = ? AND status IN ('backlog', 'ready', 'assigned')`,
+          now,
+          r.id
+        );
+        if (Number(res.changes) > 0) {
+          blockedTaskIds.push(r.id);
+        }
       }
-    }
-
-    return [...new Set(blockedTaskIds)];
+      return blockedTaskIds;
+    });
   }
 
   public getTask(id: string): Task | undefined {
@@ -231,54 +239,56 @@ export class TaskRepository {
    * Allows reclaiming expired leases from stalled/crashed runs.
    */
   public claimTaskWithLease(taskId: string, agentId: string, runId: string, leaseDurationMs: number = 300000): boolean {
-    const now = Date.now();
-    const leaseExpiresAt = now + leaseDurationMs;
+    return this.db.transactionSync(() => {
+      const now = Date.now();
+      const leaseExpiresAt = now + leaseDurationMs;
 
-    if (runId) {
-      try {
-        const existingRun = this.db.queryOne('SELECT id FROM agent_runs WHERE id = ?', runId);
-        if (!existingRun) {
-          this.db.execute(
-            `INSERT INTO agent_runs (id, agent_id, state, heartbeat_at, allocated_tokens, used_tokens, created_at)
-             VALUES (?, ?, 'running', ?, 50000, 0, ?)`,
-            runId,
-            agentId,
-            now,
-            now
-          );
+      if (runId) {
+        try {
+          const existingRun = this.db.queryOne('SELECT id FROM agent_runs WHERE id = ?', runId);
+          if (!existingRun) {
+            this.db.execute(
+              `INSERT INTO agent_runs (id, agent_id, state, heartbeat_at, allocated_tokens, used_tokens, created_at)
+               VALUES (?, ?, 'running', ?, 50000, 0, ?)`,
+              runId,
+              agentId,
+              now,
+              now
+            );
+          }
+        } catch (e) {
+          console.warn('[TASK_REPO] Notice ensuring agent run record:', e);
         }
-      } catch (e) {
-        console.warn('[TASK_REPO] Notice ensuring agent run record:', e);
       }
-    }
 
-    const result = this.db.execute(
-      `UPDATE tasks
-       SET status = 'running',
-           assigned_agent_id = ?,
-           claimed_by_run_id = ?,
-           lease_expires_at = ?,
-           fence_token = COALESCE(fence_token, 0) + 1,
-           updated_at = ?
-       WHERE id = ?
-         AND (assigned_agent_id IS NULL OR assigned_agent_id = '' OR assigned_agent_id = ?)
-         AND (
-           status = 'ready'
-           OR status = 'assigned'
-           OR (status = 'running' AND claimed_by_run_id = ?)
-           OR (status = 'running' AND (lease_expires_at IS NULL OR lease_expires_at < ?))
-         )`,
-      agentId,
-      runId,
-      leaseExpiresAt,
-      now,
-      taskId,
-      agentId,
-      runId,
-      now
-    );
+      const result = this.db.execute(
+        `UPDATE tasks
+         SET status = 'running',
+             assigned_agent_id = ?,
+             claimed_by_run_id = ?,
+             lease_expires_at = ?,
+             fence_token = COALESCE(fence_token, 0) + 1,
+             updated_at = ?
+         WHERE id = ?
+           AND (assigned_agent_id IS NULL OR assigned_agent_id = '' OR assigned_agent_id = ?)
+           AND (
+             status = 'ready'
+             OR status = 'assigned'
+             OR (status = 'running' AND claimed_by_run_id = ?)
+             OR (status = 'running' AND (lease_expires_at IS NULL OR lease_expires_at < ?))
+           )`,
+        agentId,
+        runId,
+        leaseExpiresAt,
+        now,
+        taskId,
+        agentId,
+        runId,
+        now
+      );
 
-    return Number(result.changes) > 0;
+      return Number(result.changes) > 0;
+    });
   }
 
   /**
@@ -440,15 +450,19 @@ export class TaskRepository {
   }
 
   public updateTaskStatus(taskId: string, status: TaskStatus): void {
-    this.db.execute(
-      `UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`,
-      status,
-      Date.now(),
-      taskId
-    );
-    if (status === 'failed' || status === 'cancelled') {
-      this.cascadeBlockDependents(taskId);
-    }
+    this.db.transactionSync(() => {
+      this.db.execute(
+        `UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`,
+        status,
+        Date.now(),
+        taskId
+      );
+      if (status === 'failed' || status === 'cancelled') {
+        this.cascadeBlockDependents(taskId);
+      } else if (status === 'completed') {
+        this.promoteDependentTasks(taskId);
+      }
+    });
   }
 
   /**
@@ -767,7 +781,7 @@ export class TaskRepository {
 
       if (incompleteDeps[0]?.count === 0) {
         const res = this.db.execute(
-          `UPDATE tasks SET status = 'ready', updated_at = ? WHERE id = ? AND status = 'backlog'`,
+          `UPDATE tasks SET status = 'ready', updated_at = ? WHERE id = ? AND status IN ('backlog', 'blocked')`,
           Date.now(),
           depTaskId
         );

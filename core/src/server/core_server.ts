@@ -4345,8 +4345,7 @@ export class CoreServer {
         !(
           loopResult.finalContent &&
           loopResult.finalContent.trim().length > 0 &&
-          (!loopResult.actions[loopResult.actions.length - 1]?.error ||
-            loopResult.actions.slice(loopResult.actions.findIndex((a: any) => !!a.error) + 1).some((a: any) => !a.error))
+          !loopResult.actions[loopResult.actions.length - 1]?.error
         )
       ) {
         const errorList = loopResult.actions.filter((a: any) => !!a.error).map((a: any) => a.error).join('; ');

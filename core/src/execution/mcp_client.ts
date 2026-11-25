@@ -1453,9 +1453,10 @@ export class McpClientManager {
       const needsWrite = !fs.existsSync(scriptPath) ||
         (() => {
           try {
-            return fs.readFileSync(scriptPath, 'utf-8').includes('Math.sqrtoePIabsroundfloorceil');
+            const existing = fs.readFileSync(scriptPath, 'utf-8');
+            return existing.includes('Math.sqrtoePIabsroundfloorceil') || !existing.includes('kin_storage.sqlite');
           } catch {
-            return false;
+            return true;
           }
         })();
 
@@ -1580,10 +1581,28 @@ function handleToolCall(name, args = {}) {
     }
     case 'query_sqlite': {
       const sql = args.sql;
-      const dbPath = resolvePath(args.dbPath || ':memory:');
+      const rawDbPath = String(args.dbPath || ':memory:').trim();
       const params = Array.isArray(args.params) ? args.params : (args.params !== undefined ? [args.params] : []);
       if (!sql || typeof sql !== 'string') {
         return { isError: true, content: [{ type: 'text', text: 'Missing required "sql" parameter.' }] };
+      }
+      let dbPath = ':memory:';
+      if (rawDbPath !== ':memory:') {
+        const cwdRoot = path.resolve(process.cwd());
+        const resolvedDb = path.resolve(cwdRoot, resolvePath(rawDbPath));
+        const relDb = path.relative(cwdRoot, resolvedDb).replace(/\\\\/g, '/').toLowerCase();
+        if (
+          relDb === '..' ||
+          relDb.startsWith('../') ||
+          path.isAbsolute(relDb) ||
+          relDb === '.kin' ||
+          relDb.startsWith('.kin/') ||
+          relDb.includes('/.kin/') ||
+          relDb.includes('kin_storage.sqlite')
+        ) {
+          return { isError: true, content: [{ type: 'text', text: 'Access denied: query_sqlite dbPath must stay inside workspace and cannot target KIN internal databases.' }] };
+        }
+        dbPath = resolvedDb;
       }
       try {
         const db = new DatabaseSync(dbPath);

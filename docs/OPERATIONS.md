@@ -143,7 +143,7 @@ sqlite3 kin_storage.sqlite ".backup kin_backup_$(date +%Y%m%d).sqlite"
 
 ### Automated Test Execution
 
-KIN maintains a comprehensive automated testing suite (90 core test files / 1,260 tests + UI test suite, verified via `npm test`).
+KIN maintains a comprehensive automated testing suite (90 core test files / 1,261 tests + UI test suite, verified via `npm test`).
 
 **Monorepo Test Command:**
 ```bash

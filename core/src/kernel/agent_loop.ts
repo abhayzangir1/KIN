@@ -208,6 +208,7 @@ export class AgentLoopRunner {
       actions.push(...options.resumeFromTurnCheckpoint.actions);
     }
     let finalContent = '';
+    const pendingStrategies = new Map<string, string>();
 
     try {
     while (currentTurn < maxTurns) {
@@ -1136,24 +1137,35 @@ export class AgentLoopRunner {
             verifySpec.disallowedPatterns = ['error 404', 'access denied', 'recaptcha', 'cloudflare', 'blocked'];
 
             const verification = this.recoveryEngine.verify(preState, postState, verifySpec);
+            const strategyKey = toolCall.name;
             if (!verification.passed) {
-              this.recoveryEngine.recordRecoveryExperience({
-                runId: options.runId,
-                actionName: toolCall.name,
-                objective: options.userPrompt,
-                outcome: 'failure',
-                failureReason: verification.discrepancies.join('; '),
-                repairStrategy: verification.suggestedRecoveryStrategy,
-              });
+              if (verification.suggestedRecoveryStrategy) {
+                pendingStrategies.set(strategyKey, verification.suggestedRecoveryStrategy);
+              }
+              try {
+                this.recoveryEngine.recordRecoveryExperience({
+                  runId: options.runId,
+                  actionName: toolCall.name,
+                  objective: options.userPrompt,
+                  outcome: 'failure',
+                  failureReason: verification.discrepancies.join('; '),
+                  repairStrategy: verification.suggestedRecoveryStrategy,
+                });
+              } catch {}
 
               recoveryNote += `\n⚠️ [RECOVERY ENGINE VERIFICATION DISCREPANCY]:\n${verification.discrepancies.map((d: string) => `- ${d}`).join('\n')}\nRecommended Self-Healing Strategy: '${verification.suggestedRecoveryStrategy || 'alternative_selector'}'. Please adjust your next action accordingly.`;
             } else if (!toolError) {
-              this.recoveryEngine.recordRecoveryExperience({
-                runId: options.runId,
-                actionName: toolCall.name,
-                objective: options.userPrompt,
-                outcome: 'success',
-              });
+              const priorStrategy = pendingStrategies.get(strategyKey);
+              if (priorStrategy) pendingStrategies.delete(strategyKey);
+              try {
+                this.recoveryEngine.recordRecoveryExperience({
+                  runId: options.runId,
+                  actionName: toolCall.name,
+                  objective: options.userPrompt,
+                  outcome: 'success',
+                  repairStrategy: priorStrategy,
+                });
+              } catch {}
             }
           }
         }

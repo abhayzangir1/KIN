@@ -268,16 +268,26 @@ export class DynamicHiringService {
    * Cleans up and unenrolls an ephemeral child agent upon completion or termination.
    */
   public static teardownEphemeralAgent(agentId: string, db: KinDatabase): boolean {
-    const identity = db.queryOne<{ id: string; is_ephemeral: number }>(
-      'SELECT id, is_ephemeral FROM agent_identities WHERE id = ?',
+    const identity = db.queryOne<{ id: string; is_ephemeral: number; definition_id: string }>(
+      'SELECT id, is_ephemeral, definition_id FROM agent_identities WHERE id = ?',
       agentId
     );
     if (!identity || identity.is_ephemeral !== 1) {
       return false;
     }
 
-    db.execute('DELETE FROM channel_members WHERE agent_id = ?', agentId);
-    db.execute('DELETE FROM agent_identities WHERE id = ?', agentId);
+    db.transactionSync(() => {
+      db.execute('UPDATE agent_identities SET parent_agent_id = NULL WHERE parent_agent_id = ?', agentId);
+      db.execute('DELETE FROM channel_members WHERE agent_id = ?', agentId);
+      db.execute('DELETE FROM agent_identities WHERE id = ?', agentId);
+      const remaining = db.queryOne<{ count: number }>(
+        'SELECT COUNT(*) as count FROM agent_identities WHERE definition_id = ?',
+        identity.definition_id
+      );
+      if ((remaining?.count ?? 0) === 0) {
+        db.execute('DELETE FROM agent_definitions WHERE id = ?', identity.definition_id);
+      }
+    });
     return true;
   }
 
@@ -304,7 +314,7 @@ export class DynamicHiringService {
     callerAgentId: string | undefined,
     db?: KinDatabase
   ): string[] {
-    let callerCaps: string[] = ['*'];
+    let callerCaps: string[] = [];
     if (callerAgentId && db) {
       const callerRow = db.queryOne<{ capabilities_json: string; is_orchestrator: number }>(
         `SELECT d.capabilities_json, i.is_orchestrator 
@@ -313,13 +323,18 @@ export class DynamicHiringService {
          WHERE i.id = ?`,
         callerAgentId
       );
-      if (callerRow && !callerRow.is_orchestrator) {
+      if (callerRow?.is_orchestrator) {
+        callerCaps = ['*'];
+      } else if (callerRow) {
         try {
           callerCaps = JSON.parse(callerRow.capabilities_json || '[]');
         } catch {
           callerCaps = [];
         }
       }
+    } else if (!callerAgentId) {
+      // System / direct UI operator hire (no caller agent)
+      callerCaps = ['*'];
     }
 
     const defaultCaps = ['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate', 'mcp:call'];

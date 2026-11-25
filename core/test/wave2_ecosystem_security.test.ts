@@ -338,4 +338,41 @@ describe('Wave 2 Ecosystem, Sandbox & Security Verification', () => {
     expect(res.targetAgents.map((a) => a.id)).toEqual(['agent-dev']);
     expect(res.matchReason).toBe('direct_mention');
   });
+
+  it('Enforces fail-closed DynamicHiring attenuation, Sentinel delete_skill destructiveness, PolicyEngine flag block, and safeJsonParse passthrough', async () => {
+    const { DynamicHiringService } = await import('../src/kernel/dynamic_hiring.js');
+    const { Sentinel } = await import('../src/security/sentinel.js');
+    const { PolicyEngine } = await import('../src/policy/policy_engine.js');
+    const { safeJsonParse, KinDatabase } = await import('../src/storage/db.js');
+    const { MigrationRunner } = await import('../src/storage/migration_runner.js');
+
+    const db = new KinDatabase(':memory:');
+    new MigrationRunner(db).runMigrations();
+    // Missing callerAgentId in DB -> must fail closed (not ['*'])
+    const attenuated = DynamicHiringService.attenuateCapabilities(['fs:write', 'shell:exec'], 'nonexistent-caller', db);
+    expect(attenuated).toEqual([]);
+    db.close();
+
+    expect(safeJsonParse({ a: 1 }, {})).toEqual({ a: 1 });
+    expect(safeJsonParse([1, 2], [])).toEqual([1, 2]);
+    expect(safeJsonParse(Symbol('test'), 'fallback')).toBe('fallback');
+
+    const sentinel = new Sentinel();
+    expect(sentinel.isDestructiveAction('delete_skill', {}).isDestructive).toBe(false);
+    expect(sentinel.isDestructiveAction('drop_table', {}).isDestructive).toBe(true);
+
+    const policy = new PolicyEngine();
+    const evalRes = policy.evaluateAction({
+      agentId: 'a1',
+      agentName: '@Sub',
+      toolName: 'executeShell',
+      agentCapabilities: ['shell:exec'],
+      commandOrPath: 'node -e "console.log(1)"',
+      riskLevel: 'HIGH',
+      autonomyMode: 'AUTO',
+      parentRunId: 'run-parent-1',
+      subagentApprovedWhitelist: { permittedCommands: ['node'] },
+    } as any);
+    expect(evalRes.requiresInteractiveApproval).toBe(true);
+  });
 });

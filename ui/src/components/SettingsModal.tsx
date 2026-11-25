@@ -293,7 +293,7 @@ export const SettingsModal: React.FC = () => {
               <h2 className="text-base font-bold text-kin-text flex items-center space-x-2">
                 <span>System Settings & Preferences</span>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                  KIN Platform v1.0
+                  KIN Platform v0.1.4
                 </span>
               </h2>
               <p className="text-xs text-kin-muted">Configure autonomy, LLM engine, database, and draggable layout</p>

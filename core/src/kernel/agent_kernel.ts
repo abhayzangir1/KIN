@@ -404,7 +404,7 @@ export class AgentKernel {
    */
   public getLatestCheckpoint(runId: string): any {
     const rows = this.db.query<{ snapshot_json: string }>(
-      'SELECT snapshot_json FROM checkpoints WHERE run_id = ? ORDER BY created_at DESC LIMIT 5',
+      'SELECT snapshot_json FROM checkpoints WHERE run_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 5',
       runId
     );
     if (!rows || rows.length === 0) return undefined;
@@ -482,7 +482,7 @@ export class AgentKernel {
         this.recordEvent('agent.run.resuming', 'agent_run', row.id, { reason: 'stale_heartbeat_lease_detected', previousState: row.state });
 
         const latestCp = this.db.queryOne<{ snapshot_json: string; created_at: number }>(
-          `SELECT snapshot_json, created_at FROM checkpoints WHERE run_id = ? ORDER BY created_at DESC LIMIT 1`,
+          `SELECT snapshot_json, created_at FROM checkpoints WHERE run_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`,
           row.id
         );
 
@@ -570,10 +570,11 @@ export class AgentKernel {
    * Increments agent_runs.used_tokens by turn usage and checks hard budget limit.
    */
   public recordTokenUsage(runId: string, tokens: number): { usedTokens: number; allocatedTokens: number; exceeded: boolean } {
+    const safeTokens = Number.isFinite(tokens) && tokens > 0 ? Math.floor(tokens) : 0;
     return this.db.transactionSync(() => {
       this.db.execute(
         `UPDATE agent_runs SET used_tokens = used_tokens + ? WHERE id = ?`,
-        tokens,
+        safeTokens,
         runId
       );
       const run = this.getRun(runId);

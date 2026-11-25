@@ -599,8 +599,9 @@ export class ChannelController extends BaseController {
               let answer = '';
               let modelUsed = answeringAgent.activeModelId;
 
-              // Check if OpenRouter is active in BYOK credentials
-              const openRouterKey = this.modelGateway.resolveApiKey('openrouter');
+              // Check if OpenRouter is active in BYOK credentials and cloud egress is permitted
+              const cloudEgressAllowed = Boolean(this.server?.egressConsent?.masterEgressEnabled);
+              const openRouterKey = cloudEgressAllowed ? this.modelGateway.resolveApiKey('openrouter') : undefined;
               const ollamaInfo = await this.getLocalOllamaModels();
 
               try {
