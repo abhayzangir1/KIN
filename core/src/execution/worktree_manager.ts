@@ -418,4 +418,123 @@ export class WorktreeManager {
     }
     return shadowDir;
   }
+
+  public static async getHeadSha(worktreeDir: string): Promise<string | undefined> {
+    try {
+      const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: path.resolve(worktreeDir) });
+      const sha = stdout.trim();
+      return sha || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  public async captureTurnCommit(worktreeDir: string, message: string): Promise<string | undefined> {
+    const cwd = path.resolve(worktreeDir);
+    if (!(await this.checkIsGitRepo(cwd))) return undefined;
+    try {
+      const { stdout: status } = await execFileAsync('git', ['status', '--porcelain'], { cwd });
+      if (status.trim().length > 0) {
+        await execFileAsync('git', ['add', '-A'], { cwd });
+        await execFileAsync('git', ['commit', '-m', message], { cwd });
+      }
+      return await WorktreeManager.getHeadSha(cwd);
+    } catch {
+      return await WorktreeManager.getHeadSha(cwd);
+    }
+  }
+
+  private getRedoStackPath(worktreeDir: string): string {
+    const resolved = path.resolve(worktreeDir);
+    const dotGitPath = path.join(resolved, '.git');
+    try {
+      if (fs.existsSync(dotGitPath)) {
+        const stat = fs.statSync(dotGitPath);
+        if (stat.isDirectory()) {
+          return path.join(dotGitPath, 'kin-redo-stack.json');
+        }
+        if (stat.isFile()) {
+          const content = fs.readFileSync(dotGitPath, 'utf-8');
+          const match = content.match(/^gitdir:\s*(.+)$/im);
+          if (match) {
+            const gitDir = path.resolve(resolved, match[1].trim());
+            if (fs.existsSync(gitDir) && fs.statSync(gitDir).isDirectory()) {
+              return path.join(gitDir, 'kin-redo-stack.json');
+            }
+          }
+        }
+      }
+    } catch {}
+    return path.join(resolved, '.kin-redo-stack.json');
+  }
+
+  public async undoLastTurn(worktreeDir: string): Promise<{ success: boolean; previousSha?: string; currentSha?: string; error?: string }> {
+    const cwd = path.resolve(worktreeDir);
+    if (!(await this.checkIsGitRepo(cwd))) {
+      return { success: false, error: 'Workspace is not a git repository or worktree.' };
+    }
+    try {
+      const currentSha = await WorktreeManager.getHeadSha(cwd);
+      if (!currentSha) return { success: false, error: 'Unable to resolve HEAD commit.' };
+      const { stdout: parentOut } = await execFileAsync('git', ['rev-parse', 'HEAD~1'], { cwd });
+      const parentSha = parentOut.trim();
+      if (!parentSha) return { success: false, error: 'No parent commit available to undo.' };
+
+      const redoPath = this.getRedoStackPath(cwd);
+      let stack: string[] = [];
+      try {
+        if (fs.existsSync(redoPath)) stack = JSON.parse(fs.readFileSync(redoPath, 'utf-8'));
+      } catch { stack = []; }
+      stack.push(currentSha);
+      try { fs.writeFileSync(redoPath, JSON.stringify(stack.slice(-20)), 'utf-8'); } catch {}
+
+      await execFileAsync('git', ['reset', '--hard', parentSha], { cwd });
+      return { success: true, previousSha: currentSha, currentSha: parentSha };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Git undo failed' };
+    }
+  }
+
+  public async redoLastTurn(worktreeDir: string): Promise<{ success: boolean; currentSha?: string; error?: string }> {
+    const cwd = path.resolve(worktreeDir);
+    if (!(await this.checkIsGitRepo(cwd))) {
+      return { success: false, error: 'Workspace is not a git repository or worktree.' };
+    }
+    const redoPath = this.getRedoStackPath(cwd);
+    let stack: string[] = [];
+    try {
+      if (fs.existsSync(redoPath)) stack = JSON.parse(fs.readFileSync(redoPath, 'utf-8'));
+    } catch { stack = []; }
+    const targetSha = stack.pop();
+    if (!targetSha) {
+      return { success: false, error: 'Nothing to redo.' };
+    }
+    try {
+      await execFileAsync('git', ['reset', '--hard', targetSha], { cwd });
+      try { fs.writeFileSync(redoPath, JSON.stringify(stack), 'utf-8'); } catch {}
+      return { success: true, currentSha: targetSha };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Git redo failed' };
+    }
+  }
+
+  public async forkWorktree(worktreeDir: string, branchSlug?: string): Promise<{ success: boolean; branch?: string; worktreePath?: string; baseSha?: string; error?: string }> {
+    const cwd = path.resolve(worktreeDir);
+    if (!(await this.checkIsGitRepo(cwd))) {
+      return { success: false, error: 'Workspace is not a git repository or worktree.' };
+    }
+    try {
+      const baseSha = await WorktreeManager.getHeadSha(cwd);
+      const cleanSlug = (branchSlug || `fork-${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
+      const branch = `fork/${cleanSlug}`;
+      const forkPath = path.join(this.worktreesDir, `fork-${cleanSlug}`);
+      if (fs.existsSync(forkPath)) {
+        await this.removeWorktree(forkPath);
+      }
+      await execFileAsync('git', ['worktree', 'add', '-b', branch, forkPath, baseSha || 'HEAD'], { cwd });
+      return { success: true, branch, worktreePath: forkPath, baseSha };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Git fork failed' };
+    }
+  }
 }

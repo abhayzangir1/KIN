@@ -12,7 +12,7 @@ This manual provides authoritative operational guidelines for running, configuri
 | **Node.js** | v20.0.0 LTS | v22 LTS |
 | **npm** | v10.0.0 | Latest |
 | **Rust / Cargo** | v1.75+ | Required only when compiling the Tauri desktop shell |
-| **SQLite** | 3.40+ (Bundled via `better-sqlite3`) | Runs in WAL (Write-Ahead Logging) mode |
+| **SQLite** | Node.js `node:sqlite` (`DatabaseSync`) | Runs in WAL (Write-Ahead Logging) mode |
 | **Ollama** | Optional (v0.3.0+) | For local offline inference (`16GB+ RAM` recommended) |
 
 ---
@@ -78,7 +78,7 @@ Configure KIN by creating a `.env` file in the repository root or exporting envi
 |---|---|---|
 | `KIN_PORT` | `54321` | TCP port for the KIN Core Daemon HTTP REST and SSE server. |
 | `KIN_HOST` | `127.0.0.1` | Network binding interface. Keep as `127.0.0.1` for local-first security. |
-| `KIN_DB_PATH` | `./kin_storage.sqlite` | Path to the authoritative SQLite database. |
+| `KIN_DB_PATH` | platform app-data dir (`kin_storage.sqlite`) | Path to the authoritative SQLite database (defaults to `getDataDirectory()`). |
 | `KIN_IPC_TOKEN` | *Auto-generated* | Secret bearer token required for authenticating all API and SSE connections. |
 | `OLLAMA_HOST` | `http://127.0.0.1:11434` | Endpoint for connecting to the local Ollama inference service. |
 | `NODE_ENV` | `development` | Runtime environment (`development` or `production`). |
@@ -124,7 +124,7 @@ sqlite3 kin_storage.sqlite ".backup kin_backup_$(date +%Y%m%d).sqlite"
 
 1. **Loopback Confinement**: KIN binds exclusively to `127.0.0.1`. Never expose KIN to public networks without a secure reverse proxy enforcing TLS and strict IP allowlisting.
 2. **IPC Token Authentication**: When `KIN_IPC_TOKEN` is active, all HTTP endpoints and SSE streams require the header `Authorization: Bearer <token>`.
-3. **Encrypted Secret Vault**: API keys and cloud credentials entered in the UI are encrypted via AES-256-GCM before writing to the `secrets` table. Plaintext keys are never logged or exposed in client responses.
+3. **Encrypted Secret Vault**: API keys and cloud credentials entered in the UI are encrypted via AES-256-GCM before writing to the `managed_credentials` table. Plaintext keys are never logged or exposed in client responses.
 4. **Git Worktree Isolation**: All coding tasks execute inside temporary directories (`.kin/worktrees/`). Path traversal outside the active project boundary is rejected by `ToolGateway`.
 
 ---
@@ -134,7 +134,7 @@ sqlite3 kin_storage.sqlite ".backup kin_backup_$(date +%Y%m%d).sqlite"
 - **SSE Stream**: Monitor real-time system events by subscribing to `GET /api/events`.
 - **System Diagnostics**: Inspect memory usage, database size, and Ollama connectivity via:
   ```bash
-  curl -H "Authorization: Bearer $KIN_TOKEN" http://127.0.0.1:54321/api/diagnostics
+  curl -H "Authorization: Bearer $KIN_TOKEN" http://127.0.0.1:54321/api/system/health
   ```
 - **Daemon Logs**: Tail stdout/stderr in your terminal or redirect to a dedicated logfile (`kin.log`).
 
@@ -144,7 +144,7 @@ sqlite3 kin_storage.sqlite ".backup kin_backup_$(date +%Y%m%d).sqlite"
 
 ### Automated Test Execution
 
-KIN maintains a comprehensive automated testing suite (750 tests across 53 test suites, all passing deterministically).
+KIN maintains a comprehensive automated testing suite (90 core test files / 1,257 tests + UI test suite, verified via `npm test`).
 
 **Monorepo Test Command:**
 ```bash

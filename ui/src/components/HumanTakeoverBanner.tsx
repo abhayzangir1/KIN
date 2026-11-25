@@ -1,2 +1,3 @@
-export { HumanTakeoverBanner } from './banners/HumanTakeoverBanner.js';
-export default './banners/HumanTakeoverBanner.js';
+import { HumanTakeoverBanner } from './banners/HumanTakeoverBanner.js';
+export { HumanTakeoverBanner };
+export default HumanTakeoverBanner;

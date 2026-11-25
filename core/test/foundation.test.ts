@@ -28,15 +28,18 @@ describe('KIN Phase 0: Storage & Persistence Engine', () => {
     }
   });
 
-  it('initializes all 31 authoritative tables and passes PRAGMA integrity_check', () => {
+  it('initializes all 34 authoritative base tables + FTS5 virtual tables and passes PRAGMA integrity_check', () => {
     const integrity = db.queryOne<{ integrity_check: string }>('PRAGMA integrity_check;');
     expect(integrity?.integrity_check).toBe('ok');
 
     const tables = db.query<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%';"
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%_fts%';"
     ).map((r) => r.name);
 
-    expect(tables).toHaveLength(31);
+    expect(tables).toHaveLength(34);
+    expect(tables).toContain('wakeup_outbox');
+    expect(tables).toContain('exception_queue');
+    expect(tables).toContain('artifacts');
     expect(tables).toContain('queued_messages');
     expect(tables).toContain('workspaces');
     expect(tables).toContain('agent_identities');

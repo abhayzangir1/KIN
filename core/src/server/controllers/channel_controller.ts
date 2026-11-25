@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { AgentDefinition, AgentIdentity, Channel, Goal, Task, Decision } from '../../domain/types.js';
 import { ContextCompactor } from '../../context/context_compactor.js';
+import { WorktreeManager } from '../../execution/worktree_manager.js';
 import { BaseController } from './base_controller.js';
 
 export class ChannelController extends BaseController {
@@ -28,6 +29,32 @@ export class ChannelController extends BaseController {
           memberIds: this.workspaceRepo.listChannelMemberIds(c.id),
         }));
         return this.sendJson(res, 200, { channels: mapped });
+      }
+
+      // 7b. POST /api/channels/:id/worktree/undo|redo|fork — Git worktree turn navigation
+      const worktreeActionMatch = pathname.match(/^\/api\/channels\/([^/]+)\/worktree\/(undo|redo|fork)$/);
+      if (req.method === 'POST' && worktreeActionMatch) {
+        const channelId = worktreeActionMatch[1];
+        const action = worktreeActionMatch[2];
+        const channel = this.workspaceRepo.getChannel(channelId);
+        if (!channel) {
+          return this.sendJson(res, 404, { error: `Channel '${channelId}' not found` });
+        }
+        const project = this.workspaceRepo.getProject(channel.projectId);
+        const repoRoot = (project as any)?.repoRoot || project?.repoPath || process.cwd();
+        const body = await this.parseJsonBody<{ worktreePath?: string; branchSlug?: string }>(req);
+        const targetDir = body?.worktreePath ? path.resolve(body.worktreePath) : repoRoot;
+        const wm = new WorktreeManager(repoRoot);
+        if (action === 'undo') {
+          const result = await wm.undoLastTurn(targetDir);
+          return this.sendJson(res, result.success ? 200 : 400, result);
+        }
+        if (action === 'redo') {
+          const result = await wm.redoLastTurn(targetDir);
+          return this.sendJson(res, result.success ? 200 : 400, result);
+        }
+        const result = await wm.forkWorktree(targetDir, body?.branchSlug);
+        return this.sendJson(res, result.success ? 200 : 400, result);
       }
 
       // 7b. POST /api/channels — Create channel in project
@@ -2536,6 +2563,47 @@ Format strictly as JSON:
             });
 
             this.broadcastEvent('grill_me:session', sessionData);
+          }
+          return;
+        }
+
+        // 5f-bis. /undo, /redo, /fork — Git worktree turn navigation
+        if (
+          contentLower === '/undo' ||
+          contentLower === '/redo' ||
+          contentLower === '/fork' ||
+          contentLower.startsWith('/fork ')
+        ) {
+          const proj = this.workspaceRepo.getProject(targetProjectId);
+          const repoRoot = (proj as any)?.repoRoot || proj?.repoPath || process.cwd();
+          const wm = new WorktreeManager(repoRoot);
+          let summary = '';
+          if (contentLower === '/undo') {
+            const resUndo = await wm.undoLastTurn(repoRoot);
+            summary = resUndo.success
+              ? `Reverted worktree to previous commit \`${resUndo.currentSha?.slice(0, 8)}\` (was \`${resUndo.previousSha?.slice(0, 8)}\`).`
+              : `Worktree undo failed: ${resUndo.error}`;
+          } else if (contentLower === '/redo') {
+            const resRedo = await wm.redoLastTurn(repoRoot);
+            summary = resRedo.success
+              ? `Restored worktree to \`${resRedo.currentSha?.slice(0, 8)}\`.`
+              : `Worktree redo failed: ${resRedo.error}`;
+          } else {
+            const slug = contentTrimmed.slice('/fork'.length).trim() || undefined;
+            const resFork = await wm.forkWorktree(repoRoot, slug);
+            summary = resFork.success
+              ? `Forked branch \`${resFork.branch}\` at \`${resFork.worktreePath}\` (base \`${resFork.baseSha?.slice(0, 8)}\`).`
+              : `Worktree fork failed: ${resFork.error}`;
+          }
+          if (boss) {
+            const reply = this.channelService.sendMessage({
+              channelId,
+              senderId: boss.id,
+              senderType: 'agent',
+              content: summary,
+              productivityScore: 100,
+            });
+            this.broadcastEvent('channel:message', { message: reply, channelId });
           }
           return;
         }

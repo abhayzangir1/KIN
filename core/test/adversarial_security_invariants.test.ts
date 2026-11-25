@@ -513,7 +513,8 @@ describe('Adversarial Security Invariants & Audit Regressions', () => {
     expect(check1.valid).toBe(true);
     expect(check1.verifiedCount).toBe(3);
 
-    // 3. Tampering with an event payload breaks chain verification
+    // 3. Tampering with an event payload breaks chain verification (simulates offline SQLite file tampering)
+    db.execute('DROP TRIGGER IF EXISTS trg_event_journal_prevent_update');
     db.execute("UPDATE event_journal SET payload_json = '{\"title\":\"TAMPERED_INJECTION\"}' WHERE id = 1");
     const check2 = ledger.verifyChainIntegrity();
     expect(check2.valid).toBe(false);

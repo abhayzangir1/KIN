@@ -139,6 +139,7 @@ export class AgentRepository {
       isEphemeral: row.is_ephemeral === 1,
       roleTitle: row.def_role ?? undefined,
       systemPrompt: row.def_system_prompt ?? undefined,
+      capabilities,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -203,6 +204,7 @@ export class AgentRepository {
       isEphemeral: row.is_ephemeral === 1,
       roleTitle: row.def_role ?? undefined,
       systemPrompt: row.def_system_prompt ?? undefined,
+      capabilities,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -278,6 +280,7 @@ export class AgentRepository {
         isEphemeral: row.is_ephemeral === 1,
         roleTitle: row.def_role ?? undefined,
         systemPrompt: row.def_system_prompt ?? undefined,
+        capabilities,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       };
@@ -334,6 +337,7 @@ export class AgentRepository {
         isEphemeral: row.is_ephemeral === 1,
         roleTitle: row.def_role ?? undefined,
         systemPrompt: row.def_system_prompt ?? undefined,
+        capabilities,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       };
@@ -395,6 +399,7 @@ export class AgentRepository {
         isEphemeral: row.is_ephemeral === 1,
         roleTitle: row.def_role ?? undefined,
         systemPrompt: row.def_system_prompt ?? undefined,
+        capabilities,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       };

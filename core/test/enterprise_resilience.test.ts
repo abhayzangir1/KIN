@@ -254,6 +254,45 @@ describe('KIN Enterprise Resilience & Crash Recovery Suite', () => {
     expect(cp.actions[0].toolName).toBe('bash');
   });
 
+  it('enforces rolling checkpoint retention to keep only latest 5 checkpoints per run', () => {
+    const run = kernel.spawnRun({
+      agentId: 'agent-worker',
+      projectId: 'proj-test',
+      channelId: 'chan-1',
+      allocatedTokens: 50000,
+    });
+
+    // Save 12 sequential checkpoints
+    for (let turn = 1; turn <= 12; turn++) {
+      kernel.saveCheckpoint(run.id, {
+        turn,
+        conversationHistory: [{ role: 'user', content: `Turn ${turn}` }],
+      });
+    }
+
+    // Verify only 5 checkpoints remain in the database for this run
+    const remaining = db.query<{ id: string; snapshot_json: string }>(
+      'SELECT id, snapshot_json FROM checkpoints WHERE run_id = ? ORDER BY created_at DESC, rowid DESC',
+      run.id
+    );
+
+    expect(remaining.length).toBe(5);
+
+    // Verify the latest 5 turns (turns 12 down to 8) are preserved
+    const turns = remaining.map((row) => JSON.parse(row.snapshot_json).turn);
+    expect(turns).toEqual([12, 11, 10, 9, 8]);
+
+    // Verify KinDatabase.prototype.pruneCheckpoints can prune further
+    const prunedCount = db.pruneCheckpoints(run.id, 3);
+    expect(prunedCount).toBe(2);
+
+    const remainingAfterCustomPrune = db.query<{ id: string }>(
+      'SELECT id FROM checkpoints WHERE run_id = ?',
+      run.id
+    );
+    expect(remainingAfterCustomPrune.length).toBe(3);
+  });
+
   it('injects Goal Ancestry & Objective Anchor into context assembly', () => {
     const compiled = contextCompiler.compile({
       agentDefinition: {

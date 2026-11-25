@@ -350,19 +350,16 @@ Create a task node in the goal's Directed Acyclic Graph (DAG) with prerequisite 
   ```
 
 ### `PATCH /api/tasks/:id/status`
-Update task progress (`backlog`, `ready`, `running`, `completed`, `failed`, `blocked`).
-
-### `POST /api/tasks/:id/sign-off`
-Operator manual sign-off for completed deliverables. Verified via constant-time token comparison (`crypto.timingSafeEqual`).
+Update task progress (`backlog`, `ready`, `running`, `completed`, `failed`, `blocked`) and handle operator verification sign-off.
 
 ### `GET /api/projects/:id/decisions`
 List Architectural Decision Records (ADRs).
 
 ### `POST /api/projects/:id/decisions`
-Submit a new architectural proposal for workforce voting.
+Submit a new architectural proposal.
 
-### `POST /api/decisions/:id/vote`
-Record an agent or human vote on a decision record.
+### `PATCH /api/decisions/:id/status`
+Update decision status (`proposed`, `accepted`, `rejected`, `superseded`).
 
 ---
 
@@ -445,8 +442,8 @@ Enumerate active top-level GUI windows.
 ### `POST /api/system/desktop/screenshot`
 Capture full desktop screen display.
 
-### `POST /api/system/desktop/action`
-Send simulated keystrokes or focus windows via SendKeys.
+### `POST /api/system/desktop/interact`
+Send simulated mouse, keyboard (`SendKeys` / `SendInput` Unicode), UIA tree inspection, scroll, drag, or window focus/close actions.
 
 ### `GET /api/browser/status`
 Retrieve status of active Puppeteer browser session.

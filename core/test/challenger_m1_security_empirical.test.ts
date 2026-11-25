@@ -482,7 +482,8 @@ describe('Milestone 1 Adversarial Security Challenger: Empirical Stress Harness'
       expect(initialCheck.valid).toBe(true);
       expect(initialCheck.verifiedCount).toBe(2);
 
-      // ATTACK: Direct payload tampering without updating hash
+      // ATTACK: Direct payload tampering without updating hash (simulates offline SQLite file tampering)
+      db.execute('DROP TRIGGER IF EXISTS trg_event_journal_prevent_update');
       db.execute(
         `UPDATE event_journal SET payload_json = ? WHERE id = ?`,
         JSON.stringify({ command: 'rm -rf / --no-preserve-root' }),
@@ -514,7 +515,8 @@ describe('Milestone 1 Adversarial Security Challenger: Empirical Stress Harness'
         payload: { command: 'npm test' },
       });
 
-      // ATTACK: Break the link to prev_hash
+      // ATTACK: Break the link to prev_hash (simulates offline SQLite file tampering)
+      db.execute('DROP TRIGGER IF EXISTS trg_event_journal_prevent_update');
       db.execute(`UPDATE event_journal SET prev_hash = 'BROKEN_HASH_LINK' WHERE id = ?`, id2);
 
       const check = ledger.verifyChainIntegrity();
@@ -563,7 +565,8 @@ describe('Milestone 1 Adversarial Security Challenger: Empirical Stress Harness'
       const rawData = `${row.prev_hash}:${row.event_type}:${row.entity_type}:${row.entity_id}:${row.run_id || ''}:${tamperedPayload}:${row.created_at}`;
       const unkeyedSha256 = crypto.createHash('sha256').update(rawData).digest('hex');
 
-      // Attacker writes tampered payload and unkeyed sha256 into database
+      // Attacker writes tampered payload and unkeyed sha256 into database (simulating offline SQLite tampering)
+      db.execute('DROP TRIGGER IF EXISTS trg_event_journal_prevent_update');
       db.execute(
         `UPDATE event_journal SET payload_json = ?, record_hash = ? WHERE id = ?`,
         tamperedPayload,

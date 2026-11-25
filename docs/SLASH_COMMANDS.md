@@ -224,12 +224,15 @@ Controls or queries the persistent headless/headed browser instance.
 **Syntax:**
 ```text
 /browser <url>
-/browser inspect
+/undo
+/redo
+/fork [branch-slug]
 ```
 
 **Examples:**
-- `/browser https://github.com/trending`
-- `/browser inspect` — Captures screenshot and extracts current DOM accessibility tree.
+- `/browser https://github.com/trending` — Navigates the persistent Puppeteer browser to the target URL.
+- `/undo` / `/redo` — Reverts or restores the project git worktree commit.
+- `/fork feature-x` — Creates an isolated forked git worktree branch.
 
 ---
 

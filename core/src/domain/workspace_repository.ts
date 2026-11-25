@@ -332,7 +332,7 @@ export class WorkspaceRepository {
             wsId = 'ws-default';
             try {
               this.db.execute(
-                `INSERT OR IGNORE INTO workspaces (id, name, created_at, updated_at) VALUES (?, 'Default Workspace', ?, ?)`,
+                `INSERT OR IGNORE INTO workspaces (id, name, root_path, default_autonomy_mode, created_at, updated_at) VALUES (?, 'Default Workspace', '.', 'AUTO', ?, ?)`,
                 wsId,
                 Date.now(),
                 Date.now()

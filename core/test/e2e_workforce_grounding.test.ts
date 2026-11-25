@@ -13,7 +13,7 @@ import { SecretBroker } from '../src/security/secret_broker.js';
 import { Sentinel } from '../src/security/sentinel.js';
 import { EventLedger } from '../src/security/event_ledger.js';
 import { SkillEngine } from '../src/skills/skill_engine.js';
-import { LoopBreaker } from '../src/communication/loop_breaker.js';
+import { LoopBreaker } from '../src/kernel/loop_breaker.js';
 import { ContextCompactor } from '../src/context/context_compactor.js';
 import { OutputSpiller } from '../src/context/output_spiller.js';
 import { Message } from '../src/domain/types.js';
@@ -203,7 +203,7 @@ describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () =>
 
       const identity = agentRepo.getIdentity('agent-spec-1');
       expect(identity).toBeDefined();
-      expect((identity as any)?.capabilities).toBeUndefined();
+      expect(identity?.capabilities).toEqual(['web:browse', 'shell:exec', 'mcp:call']);
 
       const definition = agentRepo.getDefinition(identity!.definitionId);
       expect(definition).toBeDefined();
@@ -1515,7 +1515,7 @@ describe('KIN E2E Workforce Grounding & Architectural Verification Suite', () =>
       expect(recoveredIds).toContain(runAbandoned.id);
       expect(recoveredIds).not.toContain(runFresh.id);
 
-      expect(kernel.getRun(runAbandoned.id)?.state).toBe('recovering');
+      expect(kernel.getRun(runAbandoned.id)?.state).toBe('resuming');
       expect(kernel.getRun(runFresh.id)?.state).toBe('waiting_for_approval');
     });
 

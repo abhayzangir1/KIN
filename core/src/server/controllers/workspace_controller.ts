@@ -7,6 +7,8 @@ import { EventLedger } from '../../security/event_ledger.js';
 import { safeJsonParseObject } from '../../storage/db.js';
 import { DEFAULT_FALLBACK_MODEL_ID } from '../../domain/agent_repository.js';
 import { BaseController } from './base_controller.js';
+import { WorkspaceTrustManager } from '../../policy/workspace_trust.js';
+import { PluginManager } from '../../skills/plugin_manager.js';
 
 export class WorkspaceController extends BaseController {
   public async handle(
@@ -147,6 +149,7 @@ export class WorkspaceController extends BaseController {
         this.activeProjectId = projectId;
         this.agentRepo.ensureProjectBoss(projectId);
         const targetRepoRoot = (proj as any).repoRoot || proj.repoPath;
+        let trustStatus = targetRepoRoot ? WorkspaceTrustManager.getInstance().getTrustStatus(targetRepoRoot) : undefined;
         if (targetRepoRoot) {
           try {
             await this.mcpClient.reloadProject(targetRepoRoot);
@@ -155,12 +158,59 @@ export class WorkspaceController extends BaseController {
               this.skillEngine.setSkillsDir(projectSkillsDir);
               this.skillEngine.loadSkillsFromDirectory(projectSkillsDir);
             }
+            await PluginManager.getInstance().loadPluginFromRepo(targetRepoRoot, {
+              skillEngine: this.skillEngine,
+              mcpClient: this.mcpClient,
+            });
           } catch (mcpErr) {
             console.warn(`[KIN CORE] Failed to reload MCP servers or skills for project ${projectId}:`, mcpErr);
           }
         }
-        this.broadcastEvent('project:activated', { projectId });
-        return this.sendJson(res, 200, { success: true, activeProjectId: this.activeProjectId });
+        this.broadcastEvent('project:activated', { projectId, trustStatus });
+        return this.sendJson(res, 200, { success: true, activeProjectId: this.activeProjectId, trustStatus });
+      }
+
+      // 7c. GET /api/projects/:id/trust & POST /api/projects/:id/trust — Workspace Trust SHA-256 quarantine
+      const projectTrustMatch = pathname.match(/^\/api\/projects\/([^/]+)\/trust$/);
+      if (projectTrustMatch) {
+        const projectId = projectTrustMatch[1];
+        const proj = this.workspaceRepo.getProject(projectId);
+        if (!proj) {
+          return this.sendJson(res, 404, { error: `Project '${projectId}' not found` });
+        }
+        const targetRepoRoot = (proj as any).repoRoot || proj.repoPath;
+        if (!targetRepoRoot) {
+          return this.sendJson(res, 400, { error: 'Project has no repository root path configured.' });
+        }
+        const trustMgr = WorkspaceTrustManager.getInstance();
+        if (req.method === 'GET') {
+          return this.sendJson(res, 200, trustMgr.getTrustStatus(targetRepoRoot));
+        }
+        if (req.method === 'POST') {
+          const body = await this.parseJsonBody<{ trusted?: boolean; trustedBy?: string }>(req);
+          const shouldTrust = body?.trusted !== false;
+          const status = shouldTrust
+            ? trustMgr.trustWorkspace(targetRepoRoot, String(body?.trustedBy || 'operator'))
+            : trustMgr.revokeTrust(targetRepoRoot);
+          if (shouldTrust) {
+            try {
+              await this.mcpClient.reloadProject(targetRepoRoot, true);
+              const projectSkillsDir = path.join(targetRepoRoot, '.kin', 'skills');
+              if (fs.existsSync(projectSkillsDir)) {
+                this.skillEngine.setSkillsDir(projectSkillsDir);
+                this.skillEngine.loadSkillsFromDirectory(projectSkillsDir);
+              }
+              await PluginManager.getInstance().loadPluginFromRepo(targetRepoRoot, {
+                skillEngine: this.skillEngine,
+                mcpClient: this.mcpClient,
+              });
+            } catch (reloadErr) {
+              console.warn(`[KIN CORE] Trust reload notice for project ${projectId}:`, reloadErr);
+            }
+          }
+          this.broadcastEvent('workspace:trust_updated', { projectId, ...status });
+          return this.sendJson(res, 200, status);
+        }
       }
 
       // 7a. GET /api/projects/:id/agents — List all agents in project
@@ -447,10 +497,13 @@ export class WorkspaceController extends BaseController {
             '.gz': 'application/gzip',
           };
           const contentType = mimeTypes[ext] || (isBinary ? 'application/octet-stream' : 'text/plain; charset=utf-8');
-          const isDownload = parsedUrl.searchParams.get('download') === 'true';
+          const activeWebExts = new Set(['.html', '.htm', '.svg', '.js', '.mjs', '.xml', '.xhtml']);
+          const isDownload = parsedUrl.searchParams.get('download') === 'true' || activeWebExts.has(ext);
           const safeFilename = path.basename(resolvedPath).replace(/["\r\n\x00-\x1f]/g, '_');
           res.writeHead(200, {
             'Content-Type': contentType,
+            'X-Content-Type-Options': 'nosniff',
+            ...(activeWebExts.has(ext) ? { 'Content-Security-Policy': "default-src 'none'; sandbox;" } : {}),
             ...(isDownload ? { 'Content-Disposition': `attachment; filename="${safeFilename}"` } : {}),
             'Content-Length': stats.size,
           });
@@ -1366,9 +1419,15 @@ export class WorkspaceController extends BaseController {
 
         this.handleCors(res, req);
         const safeFilename = path.basename(record.originalName || 'download').replace(/["\r\n\x00-\x1f]/g, '_');
+        const ext = path.extname(safeFilename).toLowerCase();
+        const isActiveWeb = ['.html', '.htm', '.svg', '.js', '.mjs', '.xml', '.xhtml'].includes(ext)
+          || /html|svg|javascript|xml/i.test(record.mimeType || '');
+        const isDownload = parsedUrl.searchParams.get('download') === 'true' || isActiveWeb;
         res.writeHead(200, {
           'Content-Type': record.mimeType || 'application/octet-stream',
-          'Content-Disposition': `attachment; filename="${safeFilename}"`,
+          'X-Content-Type-Options': 'nosniff',
+          ...(isActiveWeb ? { 'Content-Security-Policy': "default-src 'none'; sandbox;" } : {}),
+          ...(isDownload ? { 'Content-Disposition': `attachment; filename="${safeFilename}"` } : {}),
           'Content-Length': fs.statSync(diskPath).size,
         });
         fs.createReadStream(diskPath).pipe(res);

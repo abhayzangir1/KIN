@@ -18,16 +18,21 @@ echo [1/5] Checking Node.js runtime environment...
 where node >nul 2>nul
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] Node.js is not found on your system.
-    echo KIN requires Node.js v20.0.0 or higher.
+    echo KIN requires Node.js v22.5.0 or higher.
     echo.
     echo Opening https://nodejs.org/ in your browser...
     start https://nodejs.org/
-    echo Please install Node.js (LTS), restart this command prompt, and run install.bat again.
+    echo Please install Node.js (LTS v22+), restart this command prompt, and run install.bat again.
     pause
     exit /b 1
 )
 
 for /f "tokens=*" %%v in ('node -v') do set NODE_VERSION=%%v
+node -e "const [maj,min]=process.versions.node.split('.').map(Number); if(maj<22||(maj===22&&min<5)){console.error('[ERROR] Node.js >= 22.5.0 is required for node:sqlite. Found '+process.version); process.exit(1);}"
+if %ERRORLEVEL% neq 0 (
+    pause
+    exit /b 1
+)
 echo       Found Node.js %NODE_VERSION% - OK.
 
 :: 2. Install Dependencies

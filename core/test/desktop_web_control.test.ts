@@ -765,7 +765,7 @@ Imported skill instructions.`;
         for (const file of fs.readdirSync(dir)) {
           const full = path.join(dir, file);
           if (fs.statSync(full).isDirectory()) {
-            if (file !== 'node_modules' && file !== '.git' && file !== 'assets') scanFiles(full);
+            if (file !== 'node_modules' && file !== '.git' && file !== 'assets' && file !== 'archive') scanFiles(full);
           } else if (file.endsWith('.md')) {
             const content = fs.readFileSync(full, 'utf-8');
             for (const phrase of bannedPhrases) {

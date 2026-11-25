@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useKinStore } from '../../store/kinStore.js';
 import { Sidebar } from '../Sidebar.js';
 import { CenterView } from '../CenterView.js';
 import { AgentInspector } from '../AgentInspector.js';
+import { ArtifactSidePane } from '../ArtifactSidePane.js';
 import { ErrorBoundary } from '../ErrorBoundary.js';
 
 interface WorkbenchLayoutProps {
@@ -11,14 +13,26 @@ interface WorkbenchLayoutProps {
 
 export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({ isCompact = false }) => {
   const {
+    sidebarWidth,
+    inspectorWidth,
     setSidebarWidth,
     setInspectorWidth,
     isInspectorOpen,
     activeProjectId,
-  } = useKinStore();
+  } = useKinStore(
+    useShallow((s) => ({
+      sidebarWidth: s.sidebarWidth,
+      inspectorWidth: s.inspectorWidth,
+      setSidebarWidth: s.setSidebarWidth,
+      setInspectorWidth: s.setInspectorWidth,
+      isInspectorOpen: s.isInspectorOpen,
+      activeProjectId: s.activeProjectId,
+    }))
+  );
 
   const [isDraggingLeft, setIsDraggingLeft] = useState(false);
   const [isDraggingRight, setIsDraggingRight] = useState(false);
+  const [isArtifactPaneOpen, setIsArtifactPaneOpen] = useState(false);
 
   // Restore and persist widths in localStorage
   useEffect(() => {
@@ -43,25 +57,34 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({ isCompact = fa
   }, [activeProjectId, setSidebarWidth, setInspectorWidth]);
 
   // Window mousemove / mouseup drag listeners
+  const latestLeftWidth = useRef(sidebarWidth);
+  const latestRightWidth = useRef(inspectorWidth);
+
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isDraggingLeft) {
         const newWidth = Math.max(180, Math.min(500, e.clientX));
+        latestLeftWidth.current = newWidth;
         setSidebarWidth(newWidth);
-        try {
-          localStorage.setItem(`kin_sidebar_width_${activeProjectId || 'default'}`, String(newWidth));
-        } catch {}
       }
       if (isDraggingRight) {
         const newWidth = Math.max(250, Math.min(650, window.innerWidth - e.clientX));
+        latestRightWidth.current = newWidth;
         setInspectorWidth(newWidth);
-        try {
-          localStorage.setItem(`kin_inspector_width_${activeProjectId || 'default'}`, String(newWidth));
-        } catch {}
       }
     };
 
     const handleMouseUp = () => {
+      if (isDraggingLeft) {
+        try {
+          localStorage.setItem(`kin_sidebar_width_${activeProjectId || 'default'}`, String(latestLeftWidth.current));
+        } catch {}
+      }
+      if (isDraggingRight) {
+        try {
+          localStorage.setItem(`kin_inspector_width_${activeProjectId || 'default'}`, String(latestRightWidth.current));
+        } catch {}
+      }
       setIsDraggingLeft(false);
       setIsDraggingRight(false);
     };
@@ -139,6 +162,21 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({ isCompact = fa
             <AgentInspector />
           </ErrorBoundary>
         </>
+      )}
+
+      {/* Pane 5: Artifact Review Side Pane */}
+      <ErrorBoundary name="Artifact Side Pane">
+        <ArtifactSidePane isOpen={isArtifactPaneOpen} onClose={() => setIsArtifactPaneOpen(false)} />
+      </ErrorBoundary>
+      {!isArtifactPaneOpen && (
+        <button
+          type="button"
+          onClick={() => setIsArtifactPaneOpen(true)}
+          className="fixed bottom-4 left-4 z-30 px-3 py-1.5 rounded-full bg-kin-surface border border-kin-border text-xs font-semibold text-cyan-400 hover:bg-kin-cardHover shadow-lg cursor-pointer"
+          title="Open Artifacts & Review Pane"
+        >
+          Artifacts
+        </button>
       )}
     </div>
   );

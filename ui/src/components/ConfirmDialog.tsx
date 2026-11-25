@@ -29,16 +29,18 @@ export const ConfirmDialog: React.FC = () => {
       if (e.key === 'Escape') {
         e.preventDefault();
         closeConfirmDialog();
-      } else if (e.key === 'Enter') {
+      } else if (e.key === 'Enter' && confirmDialog.variant !== 'danger') {
+        const activeTag = (document.activeElement?.tagName || '').toLowerCase();
+        if (activeTag === 'button' || activeTag === 'input' || activeTag === 'textarea') return;
         e.preventDefault();
         if (confirmDialog.onConfirm) {
           const res = confirmDialog.onConfirm();
           if (res && typeof (res as Promise<void>).then === 'function') {
-            (res as Promise<void>).finally(() => closeConfirmDialog());
+            (res as Promise<void>).finally(() => closeConfirmDialog(true));
             return;
           }
         }
-        closeConfirmDialog();
+        closeConfirmDialog(true);
       }
     };
 
@@ -63,7 +65,7 @@ export const ConfirmDialog: React.FC = () => {
         await onConfirm();
       }
     } finally {
-      closeConfirmDialog();
+      closeConfirmDialog(true);
     }
   };
 
@@ -93,6 +95,7 @@ export const ConfirmDialog: React.FC = () => {
       onClick={handleCancel}
       role="dialog"
       aria-modal="true"
+      aria-labelledby="kin-confirm-title"
     >
       <div
         className="relative w-full max-w-md bg-kin-surface border border-kin-border rounded-xl shadow-2xl overflow-hidden text-kin-text animate-scaleUp p-5 space-y-4"
@@ -101,7 +104,7 @@ export const ConfirmDialog: React.FC = () => {
         <div className="flex items-start justify-between">
           <div className="flex items-center space-x-3">
             <div
-              className={`p-2 rounded-lg ${
+              className={`p-2 rounded-lg shrink-0 ${
                 variant === 'danger'
                   ? 'bg-red-500/10 border border-red-500/30'
                   : variant === 'warning'
@@ -111,11 +114,12 @@ export const ConfirmDialog: React.FC = () => {
             >
               {icon}
             </div>
-            <h3 className="text-sm font-semibold text-kin-text">{title}</h3>
+            <h3 id="kin-confirm-title" className="text-sm font-semibold text-kin-text">{title}</h3>
           </div>
           <button
             type="button"
             onClick={handleCancel}
+            aria-label="Close confirmation dialog"
             className="p-1 rounded-md text-kin-muted hover:text-kin-text hover:bg-kin-cardHover transition cursor-pointer"
           >
             <X className="w-4 h-4" />

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useKinStore } from '../store/kinStore.js';
 import { Folder, Plus, X, Copy, Check, Network, Users, PanelRight, PanelRightClose } from 'lucide-react';
 import { ConfirmDialog, requestConfirmation } from './ConfirmDialog.js';
@@ -22,7 +23,27 @@ export const HeaderBar: React.FC = () => {
     isInspectorOpen,
     toggleInspector,
     addToast,
-  } = useKinStore();
+  } = useKinStore(
+    useShallow((s) => ({
+      projects: s.projects,
+      activeProjectId: s.activeProjectId,
+      activeProject: s.activeProject,
+      setActiveProject: s.setActiveProject,
+      deleteProject: s.deleteProject,
+      setNewProjectModalOpen: s.setNewProjectModalOpen,
+      setSwarmMapOpen: s.setSwarmMapOpen,
+      setWorkforceModalOpen: s.setWorkforceModalOpen,
+      isConnected: s.isConnected,
+      setDesktopControlModalOpen: s.setDesktopControlModalOpen,
+      browserStatus: s.browserStatus,
+      activeTakeover: s.activeTakeover,
+      activeTakeovers: s.activeTakeovers,
+      agents: s.agents,
+      isInspectorOpen: s.isInspectorOpen,
+      toggleInspector: s.toggleInspector,
+      addToast: s.addToast,
+    }))
+  );
 
   const isMachineTool = (tool?: string) => {
     if (!tool) return false;

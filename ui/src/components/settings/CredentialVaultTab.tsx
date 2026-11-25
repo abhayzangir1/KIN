@@ -12,7 +12,7 @@ import {
   Shield,
 } from 'lucide-react';
 import { useKinStore, ManagedCredentialItem } from '../../store/kinStore.js';
-import { ProviderIcon } from '../ModelSelectorModal.js';
+import { ProviderIcon } from '../ProviderIcon.js';
 import { requestConfirmation } from '../ConfirmDialog.js';
 
 export const CredentialVaultTab: React.FC = () => {

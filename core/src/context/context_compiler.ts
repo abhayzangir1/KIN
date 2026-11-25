@@ -16,6 +16,7 @@ import {
   Tier4DirectMessageMemory,
 } from '../domain/types.js';
 import { CompactionSnapshot } from './context_compactor.js';
+import { RulesLoader } from './rules_loader.js';
 
 export interface ToolDefinitionSchema {
   name: string;
@@ -89,6 +90,8 @@ export interface ContextCompileInput {
   reportingLine?: { manager?: string; subordinates?: string[] };
   customTools?: Array<{ name: string; description: string; usageCount?: number; successCount?: number }>;
   harnessImprovements?: Array<{ domain: string; componentType: string; verifiedAdaptation: string }>;
+  hybridMemories?: Array<{ scope: string; key: string; type: string; value: unknown; score: number }>;
+  workspaceRules?: string[];
 }
 
 export interface CompiledContextBlocks {
@@ -239,26 +242,6 @@ export class ContextCompiler {
       );
     }
 
-    if (input.projectRoster && input.projectRoster.length > 0) {
-      const rosterLines = input.projectRoster.map((m) =>
-        `- ${m.displayName} (${m.role}): Domain: ${m.domainAuthority || 'General'}, Status: ${m.status || 'Active'}${m.activeTask ? `, Current Task: "${m.activeTask}"` : ''}`
-      );
-      block1Parts.push(
-        `[PROJECT WORKFORCE ROSTER & RESPONSIBILITIES]`,
-        rosterLines.join('\n')
-      );
-    }
-
-    if (input.otherAssignedChannelRosters && input.otherAssignedChannelRosters.length > 0) {
-      const otherRosterLines = input.otherAssignedChannelRosters.map((c) =>
-        `- #${c.channelName.replace(/^#/, '')}${c.topic ? ` (${c.topic})` : ''}: Members: ${c.members.join(', ')}`
-      );
-      block1Parts.push(
-        `[OTHER ASSIGNED DEPARTMENTS & ROSTERS]`,
-        otherRosterLines.join('\n')
-      );
-    }
-
     const block1 = block1Parts.join('\n\n');
 
     // Block 2: Immutable Tool Schemas (Alphabetically sorted for deterministic caching)
@@ -347,8 +330,37 @@ export class ContextCompiler {
 
     const block3 = block3Sections.join('\n\n');
 
-    // Block 4: Compaction Snapshot & Cross-Channel Operational Memory (Preserves Blocks 1-3 prefix-cache stability)
+    // Block 4: Dynamic Operational State, Rules, Hybrid Recall, Roster, Compaction Snapshot & Cross-Channel Memory
     const block4Parts: string[] = [];
+    const loadedRules = input.workspaceRules && input.workspaceRules.length > 0
+      ? input.workspaceRules
+      : (input.project?.repoPath && input.project.repoPath !== '.' ? RulesLoader.loadRootRules(input.project.repoPath) : []);
+    if (loadedRules.length > 0) {
+      block4Parts.push(`[WORKSPACE INSTRUCTIONS & PROJECT RULES]\n${loadedRules.join('\n\n')}`);
+    }
+    if (input.hybridMemories && input.hybridMemories.length > 0) {
+      const hybridLines = input.hybridMemories.map((hm) => {
+        const val = typeof hm.value === 'string' ? hm.value : JSON.stringify(hm.value);
+        return `- [${hm.scope}/${hm.type}] ${hm.key}: ${val.slice(0, 300)}`;
+      });
+      block4Parts.push(`[HYBRID SEMANTIC RECALL (BM25 + Vector RRF)]\n${hybridLines.join('\n')}`);
+    }
+    if (input.projectRoster && input.projectRoster.length > 0) {
+      const rosterLines = input.projectRoster.map((m) =>
+        `- ${m.displayName} (${m.role}): Domain: ${m.domainAuthority || 'General'}, Status: ${m.status || 'Active'}${m.activeTask ? `, Current Task: "${m.activeTask}"` : ''}`
+      );
+      block4Parts.push(
+        `[PROJECT WORKFORCE ROSTER & RESPONSIBILITIES]\n${rosterLines.join('\n')}`
+      );
+    }
+    if (input.otherAssignedChannelRosters && input.otherAssignedChannelRosters.length > 0) {
+      const otherRosterLines = input.otherAssignedChannelRosters.map((c) =>
+        `- #${c.channelName.replace(/^#/, '')}${c.topic ? ` (${c.topic})` : ''}: Members: ${c.members.join(', ')}`
+      );
+      block4Parts.push(
+        `[OTHER ASSIGNED DEPARTMENTS & ROSTERS]\n${otherRosterLines.join('\n')}`
+      );
+    }
     if (input.compactionSnapshot) {
       block4Parts.push(
         [

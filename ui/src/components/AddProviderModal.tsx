@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useKinStore } from '../store/kinStore.js';
-import { ProviderIcon } from './ModelSelectorModal.js';
+import { ProviderIcon } from './ProviderIcon.js';
 import {
   X,
   Key,

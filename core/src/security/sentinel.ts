@@ -51,10 +51,75 @@ export class Sentinel {
   private policyEngine: PolicyEngine;
   private secretBroker: SecretBroker;
   private validApprovalTokens: Map<string, { toolName: string; runId?: string; paramDigest?: string; expiresAt: number }> = new Map();
+  private taintedRuns: Map<string, Set<string>> = new Map();
 
   private constructor() {
     this.policyEngine = new PolicyEngine();
     this.secretBroker = SecretBroker.getInstance();
+  }
+
+  public markRunTainted(runId: string, source: string): void {
+    if (!runId) return;
+    let sources = this.taintedRuns.get(runId);
+    if (!sources) {
+      sources = new Set<string>();
+      this.taintedRuns.set(runId, sources);
+    }
+    sources.add(source);
+  }
+
+  public isRunTainted(runId?: string): boolean {
+    if (!runId) return false;
+    const sources = this.taintedRuns.get(runId);
+    return !!sources && sources.size > 0;
+  }
+
+  public getTaintSources(runId?: string): string[] {
+    if (!runId) return [];
+    return Array.from(this.taintedRuns.get(runId) || []);
+  }
+
+  public clearRunTaint(runId: string): void {
+    if (!runId) return;
+    this.taintedRuns.delete(runId);
+  }
+
+  private isTaintEscalationSink(toolName: string, params: Record<string, any> = {}): boolean {
+    const lower = toolName.toLowerCase();
+    if (
+      lower === 'executeshell' ||
+      lower === 'execute_command' ||
+      lower === 'shell' ||
+      lower === 'execute' ||
+      lower === 'terminal' ||
+      lower === 'bash' ||
+      lower === 'cmd' ||
+      lower === 'run_command' ||
+      lower === 'execute_code' ||
+      lower === 'sendexternalmessage' ||
+      lower === 'send_external_message' ||
+      lower === 'sendwebhookmessage' ||
+      lower === 'send_webhook_message'
+    ) {
+      return true;
+    }
+    if (lower === 'writefile' || lower === 'write_file' || lower === 'editfile' || lower === 'edit_file') {
+      const target = String(params?.filePath || params?.path || '').replace(/\\/g, '/').toLowerCase();
+      if (
+        target.includes('.kin/') ||
+        target.includes('.git/') ||
+        target.endsWith('.env') ||
+        target.includes('.env.') ||
+        target.endsWith('hooks.json') ||
+        target.endsWith('mcp.json') ||
+        target.endsWith('plugin.json') ||
+        target.endsWith('skill.md') ||
+        target.endsWith('package.json')
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public static getInstance(): Sentinel {
@@ -176,6 +241,24 @@ export class Sentinel {
     }
 
     if (
+      toolName.startsWith('custom__') ||
+      toolName.startsWith('tool__') ||
+      toolName === 'create_tool' ||
+      toolName === 'createTool' ||
+      toolName === 'execute_custom_tool' ||
+      toolName === 'executeCustomTool' ||
+      toolName === 'search_tools' ||
+      toolName === 'searchTools' ||
+      toolName === 'delete_custom_tool' ||
+      toolName === 'deleteCustomTool'
+    ) {
+      return {
+        primary: 'tools:manage',
+        aliases: ['tools:manage', 'tools', 'tool', 'skills:manage', 'skills', 'agent:coordinate', toolName, '*'],
+      };
+    }
+
+    if (
       toolName.startsWith('skill__') ||
       toolName.startsWith('skill_') ||
       toolName === 'create_skill' ||
@@ -184,12 +267,14 @@ export class Sentinel {
       toolName === 'importSkill' ||
       toolName === 'execute_skill' ||
       toolName === 'executeSkill' ||
+      toolName === 'load_skill' ||
+      toolName === 'loadSkill' ||
       toolName === 'delete_skill' ||
       toolName === 'deleteSkill' ||
       toolName === 'dispose_tool' ||
       toolName === 'disposeTool'
     ) {
-      return { primary: 'skills:manage', aliases: ['skills:manage', 'skills', 'skill', 'agent:coordinate', 'create_skill', 'createSkill', 'import_skill', 'importSkill', 'execute_skill', 'executeSkill', 'delete_skill', 'deleteSkill', 'dispose_tool', 'disposeTool', toolName, '*'] };
+      return { primary: 'skills:manage', aliases: ['skills:manage', 'skills', 'skill', 'agent:coordinate', 'create_skill', 'createSkill', 'import_skill', 'importSkill', 'execute_skill', 'executeSkill', 'load_skill', 'loadSkill', 'delete_skill', 'deleteSkill', 'dispose_tool', 'disposeTool', toolName, '*'] };
     }
 
     switch (toolName) {
@@ -199,11 +284,13 @@ export class Sentinel {
       case 'importSkill':
       case 'execute_skill':
       case 'executeSkill':
+      case 'load_skill':
+      case 'loadSkill':
       case 'delete_skill':
       case 'deleteSkill':
       case 'dispose_tool':
       case 'disposeTool':
-        return { primary: 'skills:manage', aliases: ['skills:manage', 'skills', 'skill', 'agent:coordinate', 'create_skill', 'createSkill', 'import_skill', 'importSkill', 'execute_skill', 'executeSkill', 'delete_skill', 'deleteSkill', 'dispose_tool', 'disposeTool', '*'] };
+        return { primary: 'skills:manage', aliases: ['skills:manage', 'skills', 'skill', 'agent:coordinate', 'create_skill', 'createSkill', 'import_skill', 'importSkill', 'execute_skill', 'executeSkill', 'load_skill', 'loadSkill', 'delete_skill', 'deleteSkill', 'dispose_tool', 'disposeTool', '*'] };
 
       case 'read_spill':
       case 'readSpill':
@@ -211,18 +298,24 @@ export class Sentinel {
       case 'read_file':
       case 'listDirectory':
       case 'list_directory':
-        return { primary: 'fs:read', aliases: ['fs:read', 'fs_read', 'read', 'fs', 'read_spill', 'readSpill', 'readFile', 'read_file', 'listDirectory', 'list_directory'] };
+      case 'grep':
+      case 'glob':
+        return { primary: 'fs:read', aliases: ['fs:read', 'fs_read', 'read', 'fs', 'read_spill', 'readSpill', 'readFile', 'read_file', 'listDirectory', 'list_directory', 'grep', 'glob'] };
       case 'writeFile':
       case 'write_file':
-        return { primary: 'fs:write', aliases: ['fs:write', 'fs_write', 'write', 'fs', 'writeFile', 'write_file'] };
+      case 'editFile':
+      case 'edit_file':
+        return { primary: 'fs:write', aliases: ['fs:write', 'fs_write', 'write', 'fs', 'writeFile', 'write_file', 'editFile', 'edit_file'] };
       case 'executeShell':
+      case 'execute_command':
+      case 'execute_code':
       case 'shell':
       case 'execute':
       case 'terminal':
       case 'bash':
       case 'cmd':
       case 'run_command':
-        return { primary: 'shell:exec', aliases: ['shell:exec', 'shell', 'exec', 'execute', 'terminal', 'bash', 'cmd', 'run_command'] };
+        return { primary: 'shell:exec', aliases: ['shell:exec', 'shell', 'exec', 'execute', 'terminal', 'bash', 'cmd', 'run_command', 'execute_command'] };
       case 'browser':
       case 'browserNavigate':
       case 'browserClick':
@@ -273,14 +366,20 @@ export class Sentinel {
       case 'sendDirectMessage':
       case 'send_direct_message':
       case 'directMessage':
-        return { primary: 'chat:write', aliases: ['chat:write', 'chat', 'sendDirectMessage', 'send_direct_message', 'directMessage', 'agent:delegate', 'delegate', 'agent', '*'] };
+      case 'channel_post':
+      case 'channelPost':
+      case 'awaitBoardWakeup':
+      case 'await_board_wakeup':
+        return { primary: 'chat:write', aliases: ['chat:write', 'chat', 'sendDirectMessage', 'send_direct_message', 'directMessage', 'channel_post', 'awaitBoardWakeup', 'agent:coordinate', 'agent:delegate', 'delegate', 'agent', '*'] };
       case 'delegateToAgent':
       case 'delegate_to_agent':
       case 'coordinateWithAgent':
       case 'coordinate_with_agent':
       case 'delegateTask':
       case 'delegate':
-        return { primary: 'agent:delegate', aliases: ['agent:delegate', 'delegate', 'agent', 'delegateToAgent', 'delegate_to_agent', 'coordinateWithAgent', 'coordinate_with_agent', 'delegateTask', '*'] };
+      case 'run_workflow':
+      case 'runWorkflow':
+        return { primary: 'agent:delegate', aliases: ['agent:delegate', 'delegate', 'agent', 'delegateToAgent', 'delegate_to_agent', 'coordinateWithAgent', 'coordinate_with_agent', 'delegateTask', 'run_workflow', '*'] };
       case 'proposePlanAdjustment':
       case 'propose_plan_adjustment':
         return { primary: 'agent:plan_adjustment', aliases: ['agent:plan_adjustment', 'plan:propose', 'write:goals', 'agent:delegate', 'delegate', 'proposePlanAdjustment', '*'] };
@@ -339,8 +438,8 @@ export class Sentinel {
     // Unified first-class capabilities risk classification
     if (toolName === 'computer') {
       const act = safeParams.action;
-      if (act === 'screenshot') return 'LOW';
-      if (act === 'type' || act === 'key') return 'HIGH';
+      if (act === 'screenshot' || act === 'list_windows' || act === 'cursor_position' || act === 'inspect_ui') return 'LOW';
+      if (act === 'type' || act === 'key' || act === 'send_key') return 'HIGH';
       return 'MEDIUM';
     }
 
@@ -554,7 +653,9 @@ export class Sentinel {
       lowerTool === 'readfile' ||
       lowerTool === 'read_file' ||
       lowerTool === 'writefile' ||
-      lowerTool === 'write_file'
+      lowerTool === 'write_file' ||
+      lowerTool === 'editfile' ||
+      lowerTool === 'edit_file'
     ) {
       const targetPath = (safeParams.filePath || safeParams.path || '').toLowerCase();
       if (
@@ -582,12 +683,9 @@ export class Sentinel {
   public isDestructiveAction(toolName: string, params: Record<string, any>): { isDestructive: boolean; reason?: string } {
     const lowerTool = toolName.toLowerCase();
 
-    // Exempt skill/tool deletion & disposal from operator confirmation gates
+    // Registry management tools (protected by skills:manage capability & built-in guards)
     const normalizedTool = lowerTool.replace(/[-_]/g, '');
-    if (
-      normalizedTool === 'deleteskill' ||
-      normalizedTool === 'disposetool'
-    ) {
+    if (normalizedTool === 'deleteskill' || normalizedTool === 'disposetool') {
       return { isDestructive: false };
     }
 
@@ -606,14 +704,14 @@ export class Sentinel {
     }
 
     // 2. Destructive shell commands
-    if (lowerTool === 'executeshell' || lowerTool === 'shell') {
+    if (lowerTool === 'executeshell' || lowerTool === 'shell' || lowerTool === 'execute_command' || lowerTool === 'run_command') {
       const rawCmd = (params?.command || '').trim();
       const lowerCmd = rawCmd.toLowerCase();
       const safePrefixes = [
         'echo ', 'git status', 'git diff', 'git log', 'git show',
         'node -v', 'npm test', 'cargo test', 'pwd', 'whoami', 'dir', 'ls '
       ];
-      if (safePrefixes.some((p) => lowerCmd.startsWith(p)) && !/[|;&\n]/.test(rawCmd)) {
+      if (safePrefixes.some((p) => lowerCmd.startsWith(p)) && !/[|;&`$<>\r\n]/.test(rawCmd)) {
         return { isDestructive: false };
       }
       const cmd = lowerCmd;
@@ -725,6 +823,22 @@ export class Sentinel {
         requiresApproval: true,
         reason: destructive.reason || `Non-reversible or destructive operation requires explicit operator approval.`,
         isDestructive: true,
+        sanitizedParams: request.params,
+      };
+    }
+
+    // 3b. Taint-tracking escalation: external web/MCP reads taint the run (and child subagent runs);
+    // subsequent shell, external message, or config writes require explicit approval.
+    const effectiveTaintedRunId = this.isRunTainted(request.runId)
+      ? request.runId
+      : (this.isRunTainted(request.parentRunId) ? request.parentRunId : undefined);
+    if (effectiveTaintedRunId && this.isTaintEscalationSink(request.toolName, request.params)) {
+      const sources = this.getTaintSources(effectiveTaintedRunId);
+      return {
+        allowed: true,
+        requiresApproval: true,
+        reason: `TAINT ESCALATION: Run '${effectiveTaintedRunId}' ingested untrusted external content (${sources.join(', ')}); '${request.toolName}' requires explicit operator approval.`,
+        isDestructive: false,
         sanitizedParams: request.params,
       };
     }

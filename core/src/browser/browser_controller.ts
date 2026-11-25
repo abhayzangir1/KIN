@@ -5,6 +5,7 @@
 // ============================================================================
 
 import * as fs from 'node:fs';
+import * as dns from 'node:dns';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import puppeteer, { Browser, Page } from 'puppeteer-core';
@@ -20,6 +21,7 @@ export interface BrowserSessionInfo {
 }
 
 export interface InteractiveElement {
+  somId?: number;
   tag: string;
   id?: string;
   name?: string;
@@ -29,6 +31,13 @@ export interface InteractiveElement {
   selector: string;
   ariaLabel?: string;
   isVisible: boolean;
+  rect?: { x: number; y: number; width: number; height: number };
+}
+
+export interface AxNodeSummary {
+  role: string;
+  name?: string;
+  value?: string;
 }
 
 export interface PageInspectionResult {
@@ -37,6 +46,9 @@ export interface PageInspectionResult {
   interactiveElements: InteractiveElement[];
   formsCount: number;
   bodySnippet: string;
+  axNodes?: AxNodeSummary[];
+  consoleLogs?: string[];
+  networkErrors?: string[];
 }
 
 export interface WebStepAction {
@@ -95,6 +107,7 @@ export class BrowserController {
 
   private agentId?: string;
   private pageProvider?: () => Promise<{ page: Page; browser?: Browser }>;
+  private onClose?: () => Promise<void> | void;
 
   constructor(
     customProfileDirOrOptions?:
@@ -105,6 +118,7 @@ export class BrowserController {
           page?: Page;
           browser?: Browser;
           pageProvider?: () => Promise<{ page: Page; browser?: Browser }>;
+          onClose?: () => Promise<void> | void;
         }
   ) {
     if (typeof customProfileDirOrOptions === 'object' && customProfileDirOrOptions !== null) {
@@ -117,6 +131,9 @@ export class BrowserController {
       }
       if (customProfileDirOrOptions.pageProvider) {
         this.pageProvider = customProfileDirOrOptions.pageProvider;
+      }
+      if (customProfileDirOrOptions.onClose) {
+        this.onClose = customProfileDirOrOptions.onClose;
       }
 
       const dataDir = getDataDirectory();
@@ -229,8 +246,8 @@ export class BrowserController {
       }
     }
 
-    if (this.activePage && !this.activePage.isClosed()) {
-      return { browser: this.browser as Browser, page: this.activePage };
+    if (this.activePage && !this.activePage.isClosed() && this.browser?.connected) {
+      return { browser: this.browser, page: this.activePage };
     }
 
     if (this.launchPromise) {
@@ -252,11 +269,15 @@ export class BrowserController {
                 defaultViewport: null,
               });
               this.browser.on('disconnected', () => {
+                BrowserController.activeControllers.delete(this);
                 this.browser = null;
                 this.activePage = null;
               });
+              BrowserController.ensureExitHook();
+              BrowserController.activeControllers.add(this);
               const pages = await this.browser.pages();
               this.activePage = pages.find((p) => !p.isClosed()) || (await this.browser.newPage());
+              this.attachRingBuffers(this.activePage);
               return { browser: this.browser, page: this.activePage };
             }
           } catch (err) { console.debug("[browser_controller] Suppressed exception in catch block:", err); }
@@ -310,6 +331,7 @@ export class BrowserController {
 
         const pages = await this.browser.pages();
         this.activePage = pages.length > 0 ? pages[0] : await this.browser.newPage();
+        this.attachRingBuffers(this.activePage);
 
         return { browser: this.browser, page: this.activePage };
       } finally {
@@ -321,6 +343,29 @@ export class BrowserController {
   }
 
   private cookiesCount: number = 0;
+  private consoleRingBuffer: string[] = [];
+  private networkErrorBuffer: string[] = [];
+  private ringBufferAttachedPages = new WeakSet<object>();
+
+  private attachRingBuffers(page: Page): void {
+    if (!page || this.ringBufferAttachedPages.has(page as any)) return;
+    this.ringBufferAttachedPages.add(page as any);
+    if (typeof (page as any).on !== 'function') return;
+    try {
+      page.on('console', (msg: any) => {
+        const line = `[${msg?.type?.() || 'log'}] ${msg?.text?.() || ''}`.slice(0, 300);
+        this.consoleRingBuffer.push(line);
+        if (this.consoleRingBuffer.length > 50) this.consoleRingBuffer.shift();
+      });
+      page.on('requestfailed', (req: any) => {
+        const line = `FAILED ${req?.method?.() || 'GET'} ${req?.url?.() || ''} (${req?.failure?.()?.errorText || 'unknown'})`.slice(0, 300);
+        this.networkErrorBuffer.push(line);
+        if (this.networkErrorBuffer.length > 30) this.networkErrorBuffer.shift();
+      });
+    } catch {
+      // Ignore if mock page in unit test
+    }
+  }
 
   /**
    * Navigates to target URL with session cookies intact.
@@ -345,16 +390,21 @@ export class BrowserController {
 
     try {
       const parsed = new URL(formattedUrl);
-      const host = parsed.hostname.toLowerCase();
+      const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
       const isIntegerIp = /^[0-9]+$/.test(host);
+      const isHexOrOctalIp = /^0x[0-9a-f]+$/i.test(host) || (/^0[0-7.]+$/.test(host) && host !== '0');
       let decodedHost = host;
       if (isIntegerIp) {
         const num = parseInt(host, 10);
         if (num >= 0 && num <= 0xffffffff) {
           decodedHost = `${(num >>> 24) & 255}.${(num >>> 16) & 255}.${(num >>> 8) & 255}.${num & 255}`;
         }
+      } else if (host.startsWith('::ffff:')) {
+        decodedHost = host.slice('::ffff:'.length);
       }
       if (
+        isHexOrOctalIp ||
+        host === '0.0.0.0' ||
         host === '169.254.169.254' ||
         decodedHost === '169.254.169.254' ||
         host === '100.100.100.200' ||
@@ -366,7 +416,19 @@ export class BrowserController {
         host.startsWith('169.254.') ||
         decodedHost.startsWith('169.254.')
       ) {
-        throw new Error(`ACCESS_DENIED: Navigation to cloud metadata service '${host}' is blocked for security.`);
+        throw new Error(`ACCESS_DENIED: Navigation to cloud metadata service or restricted IP '${host}' is blocked for security.`);
+      }
+      if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && host && !isLocalHost) {
+        try {
+          const addrs = await dns.promises.lookup(host, { all: true });
+          for (const a of addrs) {
+            if (a.address.startsWith('169.254.') || a.address === '100.100.100.200' || a.address.toLowerCase().startsWith('fd00:ec2:')) {
+              throw new Error(`ACCESS_DENIED: Hostname '${host}' resolves to blocked metadata IP '${a.address}'.`);
+            }
+          }
+        } catch (dnsErr: any) {
+          if (dnsErr?.message?.startsWith('ACCESS_DENIED')) throw dnsErr;
+        }
       }
     } catch (err: any) {
       if (err.message?.startsWith('ACCESS_DENIED')) throw err;
@@ -550,65 +612,96 @@ export class BrowserController {
   }
 
   /**
-   * Inspects the page and returns interactive elements for agent action synthesis.
+   * Inspects the page with deep Shadow DOM / same-origin iframe traversal,
+   * Set-of-Mark bounding boxes, CDP Accessibility Tree, and console/network ring buffers.
    */
   public async inspect(selector?: string): Promise<PageInspectionResult> {
     const { page } = await this.ensureBrowser();
+    this.attachRingBuffers(page);
     const url = page.url();
     const title = await page.title();
 
     const inspection = await page.evaluate((targetSelector) => {
       const root = targetSelector ? document.querySelector(targetSelector) || document.body : document.body;
       const elements: any[] = [];
-      const interactives = root.querySelectorAll(
-        'button, a, input, select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="tab"], [role="menuitem"], [contenteditable="true"], [onclick]'
-      );
+      const selectorQuery =
+        'button, a, input, select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="tab"], [role="menuitem"], [contenteditable="true"], [onclick]';
 
-      let count = 0;
-      for (const el of Array.from(interactives)) {
-        if (count >= 50) break; // Limit elements for model context efficiency
-        const htmlEl = el as HTMLElement;
-        const rect = htmlEl.getBoundingClientRect();
-        const isVisible = rect.width > 0 && rect.height > 0 && window.getComputedStyle(htmlEl).display !== 'none';
+      const collectFromRoot = (nodeRoot: Document | ShadowRoot | Element, offsetX = 0, offsetY = 0) => {
+        if (elements.length >= 60) return;
+        const interactives = nodeRoot.querySelectorAll(selectorQuery);
+        for (const el of Array.from(interactives)) {
+          if (elements.length >= 60) break;
+          const htmlEl = el as HTMLElement;
+          const rect = htmlEl.getBoundingClientRect();
+          const isVisible = rect.width > 0 && rect.height > 0 && window.getComputedStyle(htmlEl).display !== 'none';
+          if (isVisible) {
+            const somId = elements.length + 1;
+            const tag = htmlEl.tagName.toLowerCase();
+            const id = htmlEl.id || undefined;
+            const name = htmlEl.getAttribute('name') || undefined;
+            const type = htmlEl.getAttribute('type') || undefined;
+            const text = (
+              htmlEl.innerText ||
+              htmlEl.getAttribute('value') ||
+              htmlEl.getAttribute('aria-label') ||
+              htmlEl.getAttribute('title') ||
+              ''
+            ).trim().slice(0, 80);
+            const placeholder = htmlEl.getAttribute('placeholder') || undefined;
+            const ariaLabel = htmlEl.getAttribute('aria-label') || undefined;
 
-        if (isVisible) {
-          count++;
-          const tag = htmlEl.tagName.toLowerCase();
-          const id = htmlEl.id || undefined;
-          const name = htmlEl.getAttribute('name') || undefined;
-          const type = htmlEl.getAttribute('type') || undefined;
-          const text = (
-            htmlEl.innerText ||
-            htmlEl.getAttribute('value') ||
-            htmlEl.getAttribute('aria-label') ||
-            htmlEl.getAttribute('title') ||
-            ''
-          ).trim().slice(0, 80);
-          const placeholder = htmlEl.getAttribute('placeholder') || undefined;
-          const ariaLabel = htmlEl.getAttribute('aria-label') || undefined;
+            let generatedSelector = tag;
+            if (id) generatedSelector += `#${id}`;
+            else if (name) generatedSelector += `[name="${name}"]`;
+            else if (htmlEl.className && typeof htmlEl.className === 'string') {
+              const firstClass = htmlEl.className.trim().split(/\s+/)[0];
+              if (firstClass) generatedSelector += `.${firstClass}`;
+            }
 
-          let generatedSelector = tag;
-          if (id) generatedSelector += `#${id}`;
-          else if (name) generatedSelector += `[name="${name}"]`;
-          else if (htmlEl.className && typeof htmlEl.className === 'string') {
-            const firstClass = htmlEl.className.trim().split(/\s+/)[0];
-            if (firstClass) generatedSelector += `.${firstClass}`;
+            elements.push({
+              somId,
+              tag,
+              id,
+              name,
+              type,
+              text,
+              placeholder,
+              selector: generatedSelector,
+              ariaLabel,
+              isVisible,
+              rect: {
+                x: Math.round(rect.left + offsetX),
+                y: Math.round(rect.top + offsetY),
+                width: Math.round(rect.width),
+                height: Math.round(rect.height),
+              },
+            });
           }
-
-          elements.push({
-            tag,
-            id,
-            name,
-            type,
-            text,
-            placeholder,
-            selector: generatedSelector,
-            ariaLabel,
-            isVisible,
-          });
         }
-      }
 
+        // Traverse open Shadow DOM roots and same-origin iframes
+        const allNodes = nodeRoot.querySelectorAll('*');
+        for (const el of Array.from(allNodes)) {
+          if (elements.length >= 60) break;
+          if ((el as any).shadowRoot) {
+            collectFromRoot((el as any).shadowRoot, offsetX, offsetY);
+          }
+          if (el.tagName === 'IFRAME') {
+            try {
+              const doc = (el as HTMLIFrameElement).contentDocument;
+              if (doc) {
+                const frameRect = el.getBoundingClientRect();
+                collectFromRoot(doc, offsetX + frameRect.left, offsetY + frameRect.top);
+              }
+            } catch {
+              // Cross-origin iframe
+            }
+          }
+        }
+      };
+
+      if (root) collectFromRoot(root);
       const formsCount = document.querySelectorAll('form').length;
       const bodySnippet = document.body.innerText.slice(0, 1000).replace(/\s+/g, ' ');
 
@@ -619,12 +712,37 @@ export class BrowserController {
       };
     }, selector);
 
+    let axNodes: AxNodeSummary[] | undefined;
+    try {
+      const target = typeof (page as any).target === 'function' ? (page as any).target() : null;
+      if (target && typeof target.createCDPSession === 'function') {
+        const cdp = await target.createCDPSession();
+        const axRes = await cdp.send('Accessibility.getFullAXTree');
+        await cdp.detach?.();
+        if (Array.isArray(axRes?.nodes)) {
+          axNodes = axRes.nodes
+            .filter((n: any) => !n.ignored && n.role?.value && n.role.value !== 'none' && (n.name?.value || n.value?.value))
+            .slice(0, 60)
+            .map((n: any) => ({
+              role: String(n.role.value),
+              name: n.name?.value ? String(n.name.value).slice(0, 100) : undefined,
+              value: n.value?.value ? String(n.value.value).slice(0, 100) : undefined,
+            }));
+        }
+      }
+    } catch {
+      // CDP AXTree optional if running against minimal mock page
+    }
+
     return {
       url,
       title,
       interactiveElements: inspection.elements,
       formsCount: inspection.formsCount,
       bodySnippet: inspection.bodySnippet,
+      ...(axNodes && axNodes.length > 0 ? { axNodes } : {}),
+      ...(this.consoleRingBuffer.length > 0 ? { consoleLogs: [...this.consoleRingBuffer] } : {}),
+      ...(this.networkErrorBuffer.length > 0 ? { networkErrors: [...this.networkErrorBuffer] } : {}),
     };
   }
 
@@ -773,6 +891,16 @@ export class BrowserController {
   public async close(): Promise<void> {
     this.launchPromise = null;
     BrowserController.activeControllers.delete(this);
+    if (this.onClose) {
+      try {
+        await this.onClose();
+      } catch (err) {
+        console.debug('[browser_controller] Suppressed exception in onClose:', err);
+      }
+      this.browser = null;
+      this.activePage = null;
+      return;
+    }
     if (this.browser) {
       const proc = typeof (this.browser as any).process === 'function' ? (this.browser as any).process() : null;
       try {

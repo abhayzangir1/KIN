@@ -103,7 +103,6 @@ To import a skill directory from local disk or repository:
 You can manage skills programmatically via KIN's REST API:
 - `GET /api/skills` — List all registered skills.
 - `POST /api/skills` — Register a new skill.
-- `GET /api/skills/:id` — Retrieve skill details and instruction prompt.
 - `PUT /api/skills/:id` — Update or enable/disable a skill.
 - `DELETE /api/skills/:id` — Remove a skill from the database.
 
@@ -125,7 +124,7 @@ KIN maintains a strict architectural separation between **Procedural Skills** (h
 | **SQLite Storage** | `skills` table | `custom_tools` table |
 | **Purpose** | Domain recipes, guidelines, and prompt directives | Programmatic, high-throughput data processing & automation |
 | **Format** | YAML frontmatter + Markdown (`SKILL.md`) | JavaScript / TypeScript executable functions |
-| **Execution Realm** | Node.js `node:vm` context (numeric timer handles) | Node.js `worker_threads` (128MB RAM, configurable timeout) |
+| **Execution Realm** | QuickJS-WASM (`worker_quickjs.ts`) | QuickJS-WASM + jailed `fs` (`worker_quickjs.ts`) |
 | **Prompt Injection** | Injected into ContextCompiler Block 5 (Guidance) | Injected into ContextCompiler Block 3 (Available Tools) |
 | **Duplicate Prevention** | Keyword & regex trigger matching | Tokenized Jaccard similarity ($\ge 75\%$ duplicate advisory) |
 | **Loop Mitigation** | Static trigger priority | `forceCreation: true` anti-loop bypass |

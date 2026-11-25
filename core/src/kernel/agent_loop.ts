@@ -6,6 +6,7 @@
 // ============================================================================
 
 import { ModelGateway, separateThinkingAndContent } from '../execution/model_gateway.js';
+import { QuotaGuard } from '../execution/quota_guard.js';
 import { ToolGateway, ToolExecutionContext } from '../execution/tool_gateway.js';
 import { SchedulerService } from '../automation/scheduler.js';
 import { SkillEngine, Skill } from '../skills/skill_engine.js';
@@ -15,7 +16,9 @@ import { AutonomyMode } from '../domain/types.js';
 import * as path from 'node:path';
 import { OutputSpiller } from '../context/output_spiller.js';
 import { ContextCompactor } from '../context/context_compactor.js';
-import { LoopBreaker } from '../communication/loop_breaker.js';
+import { LoopBreaker } from './loop_breaker.js';
+import { HookRegistry } from '../policy/hook_registry.js';
+import { Sentinel } from '../security/sentinel.js';
 
 export interface AgentLoopOptions {
   runId: string;
@@ -128,7 +131,9 @@ export class AgentLoopRunner {
       const db = this.toolGateway?.getDatabase();
       if (db) {
         db.execute(
-          'UPDATE agent_runs SET interrupted_turn = ? WHERE id = ?;',
+          'UPDATE agent_runs SET interrupted_turn = ?, session_turns = ?, cumulative_turn = MAX(COALESCE(cumulative_turn, 0), ?) WHERE id = ?;',
+          turn,
+          turn,
           turn,
           runId
         );
@@ -142,36 +147,30 @@ export class AgentLoopRunner {
   public async execute(options: AgentLoopOptions): Promise<AgentLoopResult> {
     const maxTurns = options.maxTurns || 12;
     const actions: AgentLoopAction[] = [];
+    const unlockedToolNames = new Set<string>();
     const promptForSkills = options.userPrompt || (options.initialMessages?.slice(-1)[0]?.content ?? '');
     const standardCapabilities = [
       'readFile',
       'writeFile',
+      'editFile',
       'listDirectory',
+      'grep',
+      'glob',
       'executeShell',
       'schedule',
       'cancelSchedule',
       'listSchedules',
       'computer',
-      'application',
       'browser',
-      'desktopScreenshot',
-      'desktopDiscoverApps',
-      'desktopLaunchApp',
-      'desktopListWindows',
-      'desktopFocusWindow',
-      'desktopCloseWindow',
-      'desktopMouseMove',
-      'desktopMouseClick',
-      'desktopType',
-      'desktopSendKey',
-      'browserNavigate',
-      'browserClick',
-      'browserType',
-      'browserInspect',
-      'browserScreenshot',
-      'browserEvaluate',
-      'browserStep',
-      'browserClose',
+      'fetchUrl',
+      'webSearch',
+      'sendExternalMessage',
+      'load_skill',
+      'read_spill',
+      'search_tools',
+      'mcp_call',
+      'run_workflow',
+      'awaitBoardWakeup',
       'delegateToAgent',
       'hireSpecialist',
       'hire_specialist',
@@ -234,25 +233,37 @@ export class AgentLoopRunner {
 
       currentTurn++;
 
-      // Check for mid-task steering directives at turn boundary
-      if (options.getSteerDirectives) {
-        const turnSteers = options.getSteerDirectives();
-        if (turnSteers && turnSteers.length > 0) {
-          const steerNotes = turnSteers.map((s) => `- "${s}"`).join('\n');
-          conversationHistory.push({
-            role: 'user',
-            content: `⚠️ [PRIORITY MID-EXECUTION STEERING DIRECTIVE FROM HUMAN OPERATOR]:\n${steerNotes}\nThe human operator redirected the active task in real-time. Immediately adapt your plan, acknowledge what was previously being done, and pivot to address this priority instruction.`,
-          });
-        }
-      }
-
       // Multi-turn context compaction to prevent prompt context bloat
       if (conversationHistory.length > 3) {
         const estimatedTokens = conversationHistory.reduce((acc, m) => acc + Math.ceil(m.content.length / 4), 0);
         const isLocalModel = !options.modelId || options.modelId.includes('gemma') || options.modelId.includes('qwen') || options.modelId.includes('llama') || !options.modelId.includes('/');
         const maxTokens = (options as any).maxContextTokens || (isLocalModel ? 5500 : 16000);
         const thresholdRatio = isLocalModel ? 0.65 : 0.75;
-        if (estimatedTokens > maxTokens * thresholdRatio) {
+
+        // Tier-1 zero-LLM-cost microcompaction above 55% budget before full snapshot compaction
+        if (estimatedTokens > maxTokens * 0.55) {
+          const microInput = conversationHistory.map((m, idx) => ({
+            id: `micro-${options.runId}-${idx}`,
+            channelId: options.channelId || 'chan-general',
+            senderId: m.role === 'assistant' ? options.agentId : (m.role === 'system' ? 'system' : 'user'),
+            senderType: (m.role === 'assistant' ? 'agent' : (m.role === 'system' ? 'system' : 'human')) as 'agent' | 'system' | 'human',
+            content: m.content,
+            mentions: [],
+            productivityScore: 100,
+            createdAt: Date.now() - (conversationHistory.length - idx) * 1000,
+          }));
+          const microRes = this.contextCompactor.microcompact(microInput, maxTokens, estimatedTokens, 6);
+          if (microRes.didMicrocompact) {
+            conversationHistory = microRes.messages.map((m, idx) => ({
+              ...(conversationHistory[idx] as any),
+              role: (m.senderType === 'system' ? 'system' : (m.senderType === 'agent' ? 'assistant' : 'user')) as 'system' | 'assistant' | 'user',
+              content: m.content,
+            }));
+          }
+        }
+
+        const postMicroTokens = conversationHistory.reduce((acc, m) => acc + Math.ceil(m.content.length / 4), 0);
+        if (postMicroTokens > maxTokens * thresholdRatio) {
           let persistedMessages: Array<{ id: string; content: string }> = [];
           if (options.taskRepo?.db && options.channelId) {
             try {
@@ -280,7 +291,7 @@ export class AgentLoopRunner {
           const realModifiedFiles = Array.from(
             new Set(
               actions
-                .filter((a) => a.toolName === 'writeFile' && !a.error)
+                .filter((a) => (a.toolName === 'writeFile' || a.toolName === 'editFile' || a.toolName === 'edit_file') && !a.error)
                 .map((a) => a.params?.filePath || a.params?.path)
                 .filter((f): f is string => typeof f === 'string' && f.length > 0)
             )
@@ -298,7 +309,7 @@ export class AgentLoopRunner {
                 .map((t: any) => ({
                   id: t.id,
                   title: t.title + (t.description ? ` (${t.description})` : ''),
-                  dependsOn: t.dependencies || [],
+                  dependsOn: t.dependsOnTaskIds || t.dependencies || [],
                 }));
 
               completedTasks = allTasks
@@ -329,9 +340,15 @@ export class AgentLoopRunner {
             ? (activeTaskObj.description ? `${activeTaskObj.title}: ${activeTaskObj.description}` : activeTaskObj.title)
             : (options.taskId ? `Task ${options.taskId}` : `Turn ${currentTurn}`);
 
+          await HookRegistry.getInstance().runHooks('PreCompact', {
+            repoRoot: options.worktreeRoot,
+            runId: options.runId,
+            agentId: options.agentId,
+          });
+
           const compactionResult = this.contextCompactor.evaluateAndCompact({
             messages: compMessages,
-            currentTokens: estimatedTokens,
+            currentTokens: postMicroTokens,
             maxTokens,
             compactionThresholdRatio: thresholdRatio,
             snapshotState: {
@@ -373,15 +390,17 @@ export class AgentLoopRunner {
             conversationHistory = compactionResult.compactedMessages.map((m) => ({
               role: (m.senderType === 'system' ? 'system' : (m.senderType === 'agent' ? 'assistant' : 'user')) as 'system' | 'assistant' | 'user',
               content: m.content,
+              ...((m as any).reasoning_content ? { reasoning_content: (m as any).reasoning_content } : {}),
             }));
-            if (compactionResult.snapshot) {
-              const snapshotFormatted = this.contextCompactor.formatSnapshot(compactionResult.snapshot);
-              const sysIdx = conversationHistory.findIndex((m) => m.role === 'system');
-              if (sysIdx >= 0) {
-                conversationHistory[sysIdx].content = `${snapshotFormatted}\n\n${conversationHistory[sysIdx].content}`;
-              } else {
-                conversationHistory.unshift({ role: 'system', content: snapshotFormatted });
-              }
+            if (options.runId && this.toolGateway?.getDatabase()) {
+              try {
+                const summaryStr = `Objective: ${options.userPrompt.slice(0, 300)} | Active: ${activeTaskTitle} | Modified: ${realModifiedFiles.join(', ') || 'None'}`;
+                this.toolGateway.getDatabase()!.execute(
+                  'UPDATE agent_runs SET last_session_summary = ? WHERE id = ?;',
+                  summaryStr,
+                  options.runId
+                );
+              } catch {}
             }
           }
         }
@@ -501,8 +520,19 @@ export class AgentLoopRunner {
           (watchdogTimer as any).unref();
         }
 
-        const formattedTools = this.toolGateway
-          ? this.toolGateway.getToolSchemas().map((schema) => ({
+        const rawSchemas = this.toolGateway
+          ? (() => {
+              const compact = typeof (this.toolGateway as any).getCompactToolSchemas === 'function'
+                ? (this.toolGateway as any).getCompactToolSchemas()
+                : this.toolGateway.getToolSchemas();
+              if (unlockedToolNames.size === 0) return compact;
+              const seen = new Set(compact.map((s: any) => s.name));
+              const extra = this.toolGateway.getToolSchemas().filter((s) => unlockedToolNames.has(s.name) && !seen.has(s.name));
+              return [...compact, ...extra];
+            })()
+          : undefined;
+        const formattedTools = rawSchemas
+          ? rawSchemas.map((schema: any) => ({
               type: 'function' as const,
               function: {
                 name: schema.name,
@@ -605,7 +635,7 @@ export class AgentLoopRunner {
           };
         }
         const errMsg = err?.message || String(err);
-        if (this.isQuotaError(errMsg)) {
+        if (QuotaGuard.isQuotaError(errMsg)) {
           const resetAt = Date.now() + 15 * 60 * 1000;
           this.recordInterruptedTurn(options.runId, currentTurn);
           if (options.onTurnCheckpoint) {
@@ -664,7 +694,7 @@ export class AgentLoopRunner {
         };
       }
 
-      if (response.isError && this.isQuotaError(response.content)) {
+      if (response.isError && QuotaGuard.isQuotaError(response.content)) {
         const resetAt = Date.now() + 15 * 60 * 1000;
         this.recordInterruptedTurn(options.runId, currentTurn);
         if (options.onTurnCheckpoint) {
@@ -715,7 +745,9 @@ export class AgentLoopRunner {
       }
       const content = cleanContent;
       const validTools = this.toolGateway ? new Set(this.toolGateway.getToolSchemas().map((s) => s.name)) : undefined;
-      let toolCall = this.extractToolCall(content, validTools);
+      let toolCall = (response.toolCalls && response.toolCalls.length > 0)
+        ? { name: response.toolCalls[0].name, params: response.toolCalls[0].parameters || {} }
+        : this.extractToolCall(content, validTools);
       if (!toolCall && response.thinking) {
         toolCall = this.extractToolCall(response.thinking, validTools);
       }
@@ -862,6 +894,7 @@ export class AgentLoopRunner {
         autonomyMode: options.autonomyMode,
         allowedCapabilities: effectiveCapabilities,
         abortSignal: toolAbortSignal,
+        stepKey: (toolCall as any).id ? `turn-${currentTurn}:${(toolCall as any).id}` : `turn-${currentTurn}:step-${actions.length}:${toolCall.name}`,
       };
 
       // Check if already aborted before invoking tool
@@ -1129,6 +1162,13 @@ export class AgentLoopRunner {
           toolOutput = (toolOutput ? JSON.stringify(toolOutput) : '') + recoveryNote;
         }
 
+        // Dynamic tool discovery: unlock matched schemas returned by search_tools for subsequent turns
+        if ((toolCall.name === 'search_tools' || toolCall.name === 'searchTools') && !toolError && toolOutput && Array.isArray((toolOutput as any).tools)) {
+          for (const discovered of (toolOutput as any).tools) {
+            if (discovered?.name) unlockedToolNames.add(String(discovered.name));
+          }
+        }
+
       const durationMs = Date.now() - startTime;
       actions.push({
         toolName: toolCall.name,
@@ -1172,15 +1212,23 @@ export class AgentLoopRunner {
         console.warn('[AgentLoopRunner] Experience recording notice:', expErr);
       }
 
-      // Append assistant step & observation to conversation history
-      conversationHistory.push({ role: 'assistant', content });
+      // Append assistant step (preserving intra-turn reasoning_content for DeepSeek V3.2) & observation
+      conversationHistory.push({
+        role: 'assistant',
+        content,
+        ...(response.thinking ? { reasoning_content: response.thinking } : {}),
+      } as any);
 
       let displayOutput = toolOutput;
+      let attachedImages: Array<{ mimeType: string; base64: string }> | undefined;
       if (toolOutput && typeof toolOutput === 'object' && typeof toolOutput.base64 === 'string') {
-        // Omit massive raw image base64 strings from prompt context to prevent token overflows
+        attachedImages = [{
+          mimeType: toolOutput.mimeType || 'image/png',
+          base64: toolOutput.base64,
+        }];
         displayOutput = {
           ...toolOutput,
-          base64: `[base64 image payload: ${toolOutput.mimeType || 'image/png'}, ${toolOutput.width ? toolOutput.width + 'x' + toolOutput.height + ', ' : ''}${Math.round(toolOutput.base64.length * 0.75 / 1024)} KB omitted from LLM prompt]`,
+          base64: `[base64 image payload attached as multimodal input: ${toolOutput.mimeType || 'image/png'}, ${toolOutput.width ? toolOutput.width + 'x' + toolOutput.height + ', ' : ''}${Math.round(toolOutput.base64.length * 0.75 / 1024)} KB]`,
         };
       }
 
@@ -1190,8 +1238,8 @@ export class AgentLoopRunner {
         ? displayOutput
         : JSON.stringify(displayOutput, null, 2);
 
-      // Spill oversized tool output (>4000 characters) to disk using OutputSpiller
-      if (rawObservationStr.length > 4000) {
+      // Spill oversized tool output (>4000 UTF-8 bytes) to disk using OutputSpiller
+      if (Buffer.byteLength(rawObservationStr, 'utf-8') > 4000) {
         const spill = this.outputSpiller.processOutput(rawObservationStr, toolCall.name);
         rawObservationStr = spill.content;
       }
@@ -1199,10 +1247,122 @@ export class AgentLoopRunner {
       // Sanitize payment details and sensitive tokens before injecting into model context
       rawObservationStr = this.financialSafety.scrubSensitiveContext(rawObservationStr);
 
+      // Neutralize delimiter collision attacks inside untrusted observation output with per-turn nonce
+      const obsNonce = Math.random().toString(36).slice(2, 10);
+      const safeObservationStr = rawObservationStr
+        .replace(/<\/?(observation|tool_call|tool|function_call|invoke|think)\b/gi, (m) => m.replace('<', '<\\'));
+
+      // Evict older image byte payloads beyond the most recent 1 screenshot to bound tokens/VRAM
+      if (attachedImages) {
+        for (const msg of conversationHistory as any[]) {
+          if (msg.images) delete msg.images;
+        }
+      }
+
       conversationHistory.push({
         role: 'user',
-        content: `<observation>\n${rawObservationStr}\n</observation>\nEvaluate this observation and proceed to your next step or provide your final response.`,
-      });
+        content: `<observation nonce="${obsNonce}">\n${safeObservationStr}\n</observation>\nEvaluate this observation and proceed to your next step or provide your final response.`,
+        ...(attachedImages ? { images: attachedImages } : {}),
+      } as any);
+
+      // If agent invoked awaitBoardWakeup and parked on the board, pause/exit loop cleanly
+      if (toolOutput && typeof toolOutput === 'object' && (toolOutput as any).parked === true) {
+        finalContent = (toolOutput as any).message || 'Parked waiting on board wakeup.';
+        if (options.onTurnCheckpoint) {
+          try {
+            await options.onTurnCheckpoint(currentTurn, conversationHistory, actions);
+          } catch {}
+        }
+        break;
+      }
+
+      // If the LLM returned multiple parallel toolCalls in this turn, run each through full safety, approval, and spill guards
+      const remainingParallelCalls = (response.toolCalls && response.toolCalls.length > 1)
+        ? response.toolCalls.slice(1, 5)
+        : [];
+      if (remainingParallelCalls.length > 0) {
+        for (const extraCall of remainingParallelCalls) {
+          if (options.getAbortSignal?.()?.aborted) break;
+          if (options.checkTakeoverStatus?.() === 'abort') break;
+
+          const extraParams = extraCall.parameters || {};
+          const extraRisk = this.toolGateway.classifyRisk(extraCall.name, extraParams);
+          const extraFin = this.financialSafety.evaluateFinancialRisk(extraCall.name, extraParams);
+          if (extraFin.requiresHardStop && !(options as any).approvalToken) {
+            return {
+              finalContent: `Execution suspended awaiting human operator approval for financial action: ${extraCall.name}`,
+              turnCount: currentTurn,
+              actions,
+              requiresApproval: true,
+              interruptedTurn: currentTurn,
+              pendingApprovalDetails: {
+                toolName: extraCall.name,
+                params: extraParams,
+                riskLevel: extraRisk,
+              },
+              history: conversationHistory,
+            };
+          }
+
+          if (options.onToolStart) {
+            options.onToolStart(extraCall.name, extraParams);
+          }
+
+          const extraCtx: ToolExecutionContext = {
+            ...toolCtx,
+            stepKey: (extraCall as any).id ? `turn-${currentTurn}:${(extraCall as any).id}` : `turn-${currentTurn}:step-${actions.length}:${extraCall.name}`,
+          };
+          const extraStart = Date.now();
+          let extraRes: any;
+          try {
+            extraRes = await this.toolGateway.executeTool(extraCall.name, extraParams, extraCtx);
+          } catch (err: any) {
+            extraRes = { success: false, error: err?.message || String(err), riskLevel: extraRisk };
+          }
+          const extraDur = Date.now() - extraStart;
+
+          if (options.onToolEnd) {
+            options.onToolEnd(extraCall.name, extraRes.output, extraRes.error);
+          }
+
+          actions.push({
+            toolName: extraCall.name,
+            params: extraParams,
+            output: extraRes.output,
+            error: extraRes.error,
+            durationMs: extraDur,
+          });
+
+          if (extraRes.requiresApproval) {
+            return {
+              finalContent: `Execution suspended awaiting human operator approval for ${extraCall.name}: ${extraRes.error || ''}`,
+              turnCount: currentTurn,
+              actions,
+              requiresApproval: true,
+              interruptedTurn: currentTurn,
+              pendingApprovalDetails: {
+                toolName: extraCall.name,
+                params: extraParams,
+                riskLevel: extraRes.riskLevel || extraRisk,
+              },
+              history: conversationHistory,
+            };
+          }
+
+          const extraRaw = extraRes.error
+            ? `ERROR: ${extraRes.error}`
+            : (typeof extraRes.output === 'string' ? extraRes.output : JSON.stringify(extraRes.output, null, 2));
+          const extraScrubbed = this.financialSafety.scrubSensitiveContext(extraRaw);
+          const extraText = this.outputSpiller.processOutput(extraScrubbed, extraCall.name).content;
+          const extraSafe = extraText
+            .replace(/<\/?(observation|tool_call|tool|function_call|invoke|think)\b/gi, (m: string) => m.replace('<', '<\\'));
+          const extraNonce = Math.random().toString(36).slice(2, 10);
+          conversationHistory.push({
+            role: 'user',
+            content: `<observation nonce="${extraNonce}">\n${extraSafe}\n</observation>`,
+          } as any);
+        }
+      }
 
       // Save turn checkpoint at each completed turn boundary
       if (options.onTurnCheckpoint) {
@@ -1258,6 +1418,14 @@ export class AgentLoopRunner {
       }
     } catch (err) { console.debug("[agent_loop] Suppressed exception in catch block:", err); }
 
+    await HookRegistry.getInstance().runHooks('Stop', {
+      repoRoot: options.worktreeRoot,
+      runId: options.runId,
+      agentId: options.agentId,
+      result: { finalContent, turnCount: currentTurn, actionCount: actions.length },
+    });
+    Sentinel.getInstance().clearRunTaint(options.runId);
+
     return {
       finalContent,
       turnCount: currentTurn,
@@ -1291,37 +1459,24 @@ export class AgentLoopRunner {
       : `
 TOOL INSTRUCTIONS:
 You have access to the following native and desktop tools:
-1. readFile(path: string) — Read file contents from project jail.
-2. writeFile(path: string, content: string) — Write or overwrite file in project jail.
-3. listDirectory(path?: string) — List files and directories in path.
-4. executeShell(command: string) — Run shell/PowerShell command in project jail.
-5. schedule(type: "one_shot" | "cron", prompt: string, durationSeconds?: number, cronExpression?: string) — Schedule non-blocking timer/wakeup.
-6. computer(action: "screenshot"|"mouse_move"|"left_click"|"right_click"|"double_click"|"type"|"key", x?: number, y?: number, text?: string, key?: string) — Unified standard computer use action.
-7. application(action: "list"|"launch"|"list_windows"|"focus"|"close", name?: string, titleOrPid?: string|number, args?: string[]) — Unified application & window manager.
-8. browser(action: "navigate"|"click"|"type"|"inspect"|"screenshot"|"evaluate"|"step"|"close"|"status", url?: string, selector?: string, text?: string, script?: string) — Controllable persistent browser session.
-9. desktopScreenshot() — Capture desktop screen.
-10. desktopDiscoverApps() — Discover installed desktop applications (VS Code, Android Studio, WhatsApp, browsers, etc.).
-11. desktopLaunchApp(appNameOrPath: string, args?: string[]) — Launch an installed desktop application.
-12. desktopListWindows() — List active GUI windows on host.
-13. desktopFocusWindow(titleOrPid: string | number) — Focus/bring window to foreground.
-14. desktopMouseMove(x: number, y: number) — Move cursor.
-15. desktopMouseClick(x: number, y: number, button?: "left"|"right"|"middle", doubleClick?: boolean) — Click mouse.
-16. desktopType(text: string) — Type text at cursor.
-17. browserNavigate(url: string) — Open URL in persistent browser session with session cookies.
-18. browserClick(selector?: string, x?: number, y?: number) — Click web element by selector or coordinate.
-19. browserType(selector: string, text: string, clear?: boolean) — Type into web form input.
-20. browserInspect(selector?: string) — Inspect interactive elements on page.
-21. browserScreenshot() — Take screenshot of current browser page.
-22. browserStep(action: "navigate"|"click"|"type"|"scroll"|"screenshot"|"wait", url?: string, selector?: string, text?: string) — Step-by-step browser automation.
-23. browserClose() — Close browser session.
-24. delegateToAgent(targetAgent: string, directive: string) [or coordinateWithAgent] — Coordinate or delegate task directive to a peer specialist agent (e.g. @Backend, @Frontend, @QA, @AndroidDev).
-25. hireSpecialist(displayName: string, roleTitle: string, systemPrompt?: string, suggestedModel?: string, domainAuthority?: string[]) — Onboard and hire a new specialist or subagent into this project and channel. Both orchestrators and specialists can hire subagents under them as required.
-26. read_spill(hash: string, offset?: number, limit?: number) — Read bounded excerpt of a spilled large observation log from disk by content hash.
-27. rememberChannel(key: string, value: any, type?: string) — Record department-level memory or working context in the current channel scope.
-28. recallChannel(key?: string, type?: string) — Retrieve memories recorded in this channel or department.
-29. sendDirectMessage(recipient: string, message: string) — Send private 1-on-1 direct message to the human operator ("user" or "human") or to a coworker agent.
-30. assignCoworker(coworker: string, channelId?: string) — Assign/call an existing coworker agent from another channel of this project into this channel.
-31. callMeeting(topic: string, agenda: string, participants: string[]) — Convene a dedicated meeting channel with an agenda and invited coworker agents.${mcpToolsText}`;
+1. readFile(filePath: string) — Read file contents from project jail.
+2. writeFile(filePath: string, content: string) — Write or overwrite file in project jail.
+3. editFile(filePath: string, target?: string, replacement?: string, unifiedDiff?: string) — Surgical edit via search-replace or unified diff.
+4. listDirectory(path?: string) — List files and directories in path.
+5. grep(pattern: string, path?: string, isRegex?: boolean) — Search code across workspace.
+6. glob(pattern: string, path?: string) — Find files matching glob pattern.
+7. executeShell(command: string) — Run shell/PowerShell command in project jail.
+8. schedule(type: "one_shot" | "cron", prompt: string, durationSeconds?: number, cronExpression?: string) — Schedule non-blocking timer/wakeup.
+9. computer(action: "screenshot"|"mouse_move"|"mouse_click"|"type"|"send_key"|"list_windows"|"focus_window"|"close_window", x?: number, y?: number, text?: string, key?: string, titleOrPid?: string) — Unified desktop GUI control.
+10. browser(action: "navigate"|"click"|"type"|"inspect"|"screenshot"|"evaluate"|"step"|"close"|"status", url?: string, selector?: string, text?: string, script?: string) — Unified controllable browser session.
+11. load_skill(nameOrId?: string, level?: "L0"|"L1"|"L2") — Progressively load reusable procedural skills.
+12. search_tools(query: string) — Discover extended management or custom tools.
+13. delegateToAgent(targetAgent: string, directive: string, isolated?: boolean) — Coordinate or delegate task directive to a peer specialist agent.
+14. run_workflow(steps: Array<{ id: string, toolName: string, params: object }>) — Execute bounded multi-step tool DAG.
+15. awaitBoardWakeup(channelId?: string, mentionsOnly?: boolean) — Park cleanly until woken by a channel message.
+16. read_spill(hash: string, offset?: number, limit?: number) — Read bounded excerpt of a spilled large observation log from disk by content hash.
+17. hireSpecialist(displayName: string, roleTitle: string, systemPrompt?: string, suggestedModel?: string, domainAuthority?: string[]) — Onboard and hire a new specialist or subagent into this project and channel. Both orchestrators and specialists can hire subagents under them as required.
+18. rememberProject / recallChannel / sendDirectMessage / assignCoworker / callMeeting (available natively or via search_tools).${mcpToolsText}`;
 
     return `${basePrompt}${skillText}${toolsSection}
 
@@ -1599,10 +1754,15 @@ To delegate or coordinate with another specialist:
       if (res) return res;
     }
 
+    const isValidExtractedTool = (name: string): boolean => {
+      if (!validTools || validTools.size === 0) return true;
+      return validTools.has(name) || name.startsWith('mcp__') || name.startsWith('skill_');
+    };
+
     // 1b. XML-style function call syntax (Dots Studio, Hermes, MiniMax, Anthropic XML):
     // <invoke name="tool_name"><parameter name="key">val</parameter></invoke> or <call name="tool_name">...
     const xmlInvokeMatch = nonQuotedContent.match(/<(?:invoke|function_call|function|call)\s+name=["']([^"']+)["']>([\s\S]*?)<\/(?:invoke|function_call|function|call)>/i);
-    if (xmlInvokeMatch) {
+    if (xmlInvokeMatch && isValidExtractedTool(xmlInvokeMatch[1].trim())) {
       const toolName = xmlInvokeMatch[1].trim();
       const inner = xmlInvokeMatch[2];
       const params: Record<string, any> = {};
@@ -1637,7 +1797,7 @@ To delegate or coordinate with another specialist:
     if (dotsMatch) {
       const inner = dotsMatch[1];
       const nameMatch = inner.match(/=\s*["']?([a-zA-Z0-9_-]+)["']?/);
-      if (nameMatch) {
+      if (nameMatch && isValidExtractedTool(nameMatch[1].trim())) {
         const toolName = nameMatch[1].trim();
         const paramsMatch = inner.match(/parameters\s*=\s*(\{[\s\S]*?\})/i);
         let params: Record<string, any> = {};
@@ -1688,22 +1848,6 @@ To delegate or coordinate with another specialist:
     }
 
     return null;
-  }
-
-  private isQuotaError(text: string): boolean {
-    if (!text) return false;
-    const lower = text.toLowerCase();
-    return (
-      lower.includes('429') ||
-      lower.includes('resource_exhausted') ||
-      lower.includes('rate_limit') ||
-      lower.includes('quota') ||
-      lower.includes('too many requests') ||
-      lower.includes('capacity exceeded') ||
-      lower.includes('overloaded') ||
-      lower.includes('tpm') ||
-      lower.includes('rpm')
-    );
   }
 }
 

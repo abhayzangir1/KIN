@@ -1,4 +1,5 @@
 import React from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
 import { Folder, Hash, Plus, MessageSquare, UserPlus, Settings, Target, CheckCircle2, PlayCircle, AlertCircle, Clock, Scale, Trash2, Users, ShieldAlert, Edit2, ChevronDown, ChevronRight, GitCommit } from 'lucide-react';
 
@@ -35,7 +36,41 @@ export const Sidebar: React.FC = () => {
     activeMainView,
     setActiveMainView,
     addToast,
-  } = useKinStore();
+  } = useKinStore(
+    useShallow((s) => ({
+      activeProject: s.activeProject,
+      channels: s.channels,
+      activeChannelId: s.activeChannelId,
+      setActiveChannel: s.setActiveChannel,
+      deleteChannel: s.deleteChannel,
+      agents: s.agents,
+      ollamaStatus: s.ollamaStatus,
+      credentials: s.credentials,
+      availableModels: s.availableModels,
+      selectedAgentId: s.selectedAgentId,
+      setSelectedAgentId: s.setSelectedAgentId,
+      setCreateChannelModalOpen: s.setCreateChannelModalOpen,
+      setAddAgentModalOpen: s.setAddAgentModalOpen,
+      openAgentSettings: s.openAgentSettings,
+      openSettingsModal: s.openSettingsModal,
+      setWorkforceModalOpen: s.setWorkforceModalOpen,
+      goals: s.goals,
+      tasks: s.tasks,
+      deleteGoal: s.deleteGoal,
+      deleteTask: s.deleteTask,
+      updateTaskStatus: s.updateTaskStatus,
+      setNewGoalModalOpen: s.setNewGoalModalOpen,
+      decisions: s.decisions,
+      setDecisionsModalOpen: s.setDecisionsModalOpen,
+      schedules: s.schedules,
+      sidebarWidth: s.sidebarWidth,
+      setSettingsModalOpen: s.setSettingsModalOpen,
+      autonomyMode: s.autonomyMode,
+      activeMainView: s.activeMainView,
+      setActiveMainView: s.setActiveMainView,
+      addToast: s.addToast,
+    }))
+  );
 
   const [confirmDeleteChannelId, setConfirmDeleteChannelId] = React.useState<string | null>(null);
   const [confirmDeleteGoalId, setConfirmDeleteGoalId] = React.useState<string | null>(null);

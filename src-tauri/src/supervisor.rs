@@ -6,7 +6,7 @@
 
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
@@ -233,6 +233,7 @@ impl Drop for ProcessSupervisor {
 }
 
 static GLOBAL_SUPERVISOR: OnceLock<Mutex<Option<ProcessSupervisor>>> = OnceLock::new();
+static CHILD_STDIN: OnceLock<Mutex<Option<std::process::ChildStdin>>> = OnceLock::new();
 
 fn get_supervisor() -> &'static Mutex<Option<ProcessSupervisor>> {
     GLOBAL_SUPERVISOR.get_or_init(|| Mutex::new(None))
@@ -254,6 +255,11 @@ impl ProcessSupervisor {
 
     pub fn shutdown() {
         crate::log_diagnostic("[KIN SUPERVISOR] ProcessSupervisor shutdown invoked.");
+        if let Some(lock_cell) = CHILD_STDIN.get() {
+            if let Ok(mut guard) = lock_cell.lock() {
+                *guard = None;
+            }
+        }
         #[cfg(unix)]
         unix_impl::UnixProcessSupervisor::cleanup();
     }
@@ -391,9 +397,8 @@ impl ProcessSupervisor {
                     command.stderr(err_file);
                 }
             }
-            if let Some(parent) = sidecar_path.parent() {
-                command.current_dir(parent);
-            }
+            command.current_dir(&kin_data_dir);
+            command.stdin(std::process::Stdio::piped());
 
             #[cfg(windows)]
             {
@@ -408,6 +413,12 @@ impl ProcessSupervisor {
             }
 
             let mut child = command.spawn().map_err(|e| format!("Failed to spawn sidecar daemon: {}", e))?;
+            if let Some(stdin_handle) = child.stdin.take() {
+                let cell = CHILD_STDIN.get_or_init(|| Mutex::new(None));
+                if let Ok(mut guard) = cell.lock() {
+                    *guard = Some(stdin_handle);
+                }
+            }
 
             #[cfg(windows)]
             {
@@ -432,8 +443,8 @@ impl ProcessSupervisor {
                 }
             }
 
-            // Wait briefly for daemon port to be ready
-            for _ in 0..45 {
+            // Wait briefly for daemon port to be ready (80 * 300ms = 24s for cold Defender scans)
+            for _ in 0..80 {
                 std::thread::sleep(Duration::from_millis(300));
                 if let Ok(Some(status)) = child.try_wait() {
                     eprintln!("[KIN SUPERVISOR] Sidecar daemon exited prematurely with status: {:?}", status);
@@ -496,6 +507,7 @@ impl ProcessSupervisor {
         let kin_data_dir = Self::resolve_data_dir();
         let _ = std::fs::create_dir_all(&kin_data_dir);
         command.env("KIN_DATA_DIR", kin_data_dir.to_string_lossy().to_string());
+        command.stdin(Stdio::piped());
 
         #[cfg(windows)]
         {
@@ -510,6 +522,12 @@ impl ProcessSupervisor {
         }
 
         let mut child = command.spawn().map_err(|e| format!("Failed to spawn daemon: {}", e))?;
+        if let Some(stdin_handle) = child.stdin.take() {
+            let cell = CHILD_STDIN.get_or_init(|| Mutex::new(None));
+            if let Ok(mut guard) = cell.lock() {
+                *guard = Some(stdin_handle);
+            }
+        }
 
         #[cfg(windows)]
         {

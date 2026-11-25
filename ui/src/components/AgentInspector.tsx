@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useKinStore, isAgentAvailable } from '../store/kinStore.js';
 import { requestConfirmation } from './ConfirmDialog.js';
 import {
@@ -41,7 +42,7 @@ import {
   PanelRightClose,
   Edit2,
 } from 'lucide-react';
-import { ProviderIcon, formatContextWindow } from './ModelSelectorModal.js';
+import { ProviderIcon, formatContextWindow } from './ProviderIcon.js';
 import { UnifiedDiffViewer } from './code/UnifiedDiffViewer.js';
 
 export const AgentInspector: React.FC = () => {
@@ -93,13 +94,66 @@ export const AgentInspector: React.FC = () => {
     openModelSelector,
     openAgentSettings,
     addToast,
-  } = useKinStore();
+  } = useKinStore(
+    useShallow((s) => ({
+      agents: s.agents,
+      selectedAgentId: s.selectedAgentId,
+      activeProject: s.activeProject,
+      channels: s.channels,
+      activeChannelId: s.activeChannelId,
+      setActiveChannel: s.setActiveChannel,
+      goals: s.goals,
+      tasks: s.tasks,
+      sendMessage: s.sendMessage,
+      ollamaStatus: s.ollamaStatus,
+      activeRightTab: s.activeRightTab,
+      setActiveRightTab: s.setActiveRightTab,
+      activeInspectorTab: s.activeInspectorTab,
+      setActiveInspectorTab: s.setActiveInspectorTab,
+      terminalHistory: s.terminalHistory,
+      runTerminalCommand: s.runTerminalCommand,
+      clearTerminalHistory: s.clearTerminalHistory,
+      artifacts: s.artifacts,
+      selectedArtifact: s.selectedArtifact,
+      fetchArtifacts: s.fetchArtifacts,
+      selectArtifact: s.selectArtifact,
+      clearSelectedArtifact: s.clearSelectedArtifact,
+      gitStatus: s.gitStatus,
+      activeGitDiff: s.activeGitDiff,
+      isLoadingDiff: s.isLoadingDiff,
+      fetchGitStatus: s.fetchGitStatus,
+      fetchGitDiff: s.fetchGitDiff,
+      clearGitDiff: s.clearGitDiff,
+      revertGitFile: s.revertGitFile,
+      stageGitFile: s.stageGitFile,
+      requestAiReview: s.requestAiReview,
+      uploads: s.uploads,
+      isUploading: s.isUploading,
+      fetchUploads: s.fetchUploads,
+      uploadFile: s.uploadFile,
+      deleteUpload: s.deleteUpload,
+      inspectorWidth: s.inspectorWidth,
+      setInspectorOpen: s.setInspectorOpen,
+      agentEvaluations: s.agentEvaluations,
+      evaluationsLoading: s.evaluationsLoading,
+      credentials: s.credentials,
+      fetchEvaluations: s.fetchEvaluations,
+      runAgentEvaluation: s.runAgentEvaluation,
+      availableModels: s.availableModels,
+      openModelSelector: s.openModelSelector,
+      openAgentSettings: s.openAgentSettings,
+      addToast: s.addToast,
+    }))
+  );
 
   const currentAgent = agents.find((a) => a.id === selectedAgentId) || agents[0];
 
   // Contract form state
   const [roleTitle, setRoleTitle] = useState(currentAgent?.role || 'Workspace Orchestrator');
   const [activeModelId, setActiveModelId] = useState(currentAgent?.activeModelId || availableModels[0]?.id || '');
+  const [customInstructions, setCustomInstructions] = useState(
+    currentAgent?.systemPrompt || 'Optional custom instructions specific to this agent'
+  );
 
   useEffect(() => {
     if (currentAgent) {
@@ -108,9 +162,6 @@ export const AgentInspector: React.FC = () => {
       setCustomInstructions(currentAgent.systemPrompt || 'Optional custom instructions specific to this agent');
     }
   }, [currentAgent?.id, currentAgent?.role, currentAgent?.activeModelId, currentAgent?.systemPrompt, availableModels]);
-  const [customInstructions, setCustomInstructions] = useState(
-    currentAgent?.systemPrompt || 'Optional custom instructions specific to this agent'
-  );
 
   // Dynamic models & assignment state
 

@@ -263,16 +263,21 @@ export function getNextCronOccurrence(
     // 3. Check Hour (0-23)
     const currentHour = candidate.getHours();
     if (!parsed.hour.allowedValues.has(currentHour)) {
-      // Advance to next hour at 00:00
+      const prevMs = candidate.getTime();
       candidate.setHours(candidate.getHours() + 1, 0, 0, 0);
+      // DST fall-back guard: ensure monotonic forward epoch progress
+      if (candidate.getTime() <= prevMs) {
+        candidate.setTime(prevMs + 3600_000);
+        candidate.setMinutes(0, 0, 0);
+      }
       continue;
     }
 
     // 4. Check Minute (0-59)
     const currentMinute = candidate.getMinutes();
     if (!parsed.minute.allowedValues.has(currentMinute)) {
-      // Advance by 1 minute
-      candidate.setMinutes(candidate.getMinutes() + 1);
+      const prevMs = candidate.getTime();
+      candidate.setTime(prevMs + 60_000);
       continue;
     }
 

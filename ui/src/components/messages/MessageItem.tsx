@@ -94,7 +94,7 @@ export const parseDecisionProposal = (content: string) => {
   return null;
 };
 
-export const MessageItem: React.FC<MessageItemProps> = ({
+const MessageItemComponent: React.FC<MessageItemProps> = ({
   message,
   onQuoteReply,
   agents = [],
@@ -104,7 +104,9 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [expandedAttachments, setExpandedAttachments] = useState(false);
-  const { openFilePreview, setReplyingToMessage, activeProjectId: storeProjectId } = useKinStore();
+  const openFilePreview = useKinStore((s) => s.openFilePreview);
+  const setReplyingToMessage = useKinStore((s) => s.setReplyingToMessage);
+  const storeProjectId = useKinStore((s) => s.activeProjectId);
   const currentProjectId = _activeProjectId || storeProjectId;
 
   const isHuman = message.senderType === 'human';
@@ -600,3 +602,5 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     </article>
   );
 };
+
+export const MessageItem = React.memo(MessageItemComponent);

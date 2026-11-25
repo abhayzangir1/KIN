@@ -40,10 +40,11 @@ export class ModelDiscoveryService {
     const supportsVision = Boolean(
       idLower.includes('vision') ||
       idLower.includes('vl') ||
+      idLower.includes('vlm') ||
+      idLower.includes('neva') ||
       idLower.includes('4o') ||
       idLower.includes('claude-3') ||
-      idLower.includes('gemini-1.5') ||
-      idLower.includes('gemini-2') ||
+      idLower.includes('gemini') ||
       rawData?.architecture?.modality?.includes('image')
     );
 
@@ -53,6 +54,8 @@ export class ModelDiscoveryService {
       idLower.includes('o3') ||
       idLower.includes('reason') ||
       idLower.includes('thinking') ||
+      idLower.includes('nemotron') ||
+      idLower.includes('qwq') ||
       idLower.includes('deepseek-r1')
     );
 

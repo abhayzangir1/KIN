@@ -116,8 +116,11 @@ export const FilePreviewModal: React.FC = () => {
           ? window.sessionStorage?.getItem('kin_ipc_token') || window.localStorage?.getItem('kin_ipc_token')
           : null;
         const headers: Record<string, string> = {};
-        if (token) headers['x-kin-ipc-token'] = token;
-        const fetchUrl = `/api/projects/${activeProjectId}/artifacts?path=${encodeURIComponent(cleanPath)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+        if (token) {
+          headers['x-kin-auth'] = token;
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        const fetchUrl = `/api/projects/${activeProjectId}/artifacts?path=${encodeURIComponent(cleanPath)}`;
         fetch(fetchUrl, { headers })
           .then((res) => {
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -137,11 +140,11 @@ export const FilePreviewModal: React.FC = () => {
           ? window.sessionStorage?.getItem('kin_ipc_token') || window.localStorage?.getItem('kin_ipc_token')
           : null;
         const headers: Record<string, string> = {};
-        if (token) headers['x-kin-ipc-token'] = token;
-        const fetchUrl = previewFile.url.includes('?')
-          ? `${previewFile.url}${token ? `&token=${encodeURIComponent(token)}` : ''}`
-          : `${previewFile.url}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
-        fetch(fetchUrl, { headers })
+        if (token) {
+          headers['x-kin-auth'] = token;
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        fetch(previewFile.url, { headers })
           .then((res) => {
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             return res.text();
@@ -215,24 +218,53 @@ export const FilePreviewModal: React.FC = () => {
     );
   }, [csvData, tableSearch]);
 
+  const previewCleanPath = previewFile?.path
+    ? previewFile.path.replace(/^file:\/\/\//, '').replace(/#[L\d-]+$/i, '')
+    : undefined;
+  const previewToken = typeof window !== 'undefined'
+    ? window.sessionStorage?.getItem('kin_ipc_token') || window.localStorage?.getItem('kin_ipc_token')
+    : null;
+  const rawUrl =
+    previewFile?.url ||
+    (previewCleanPath && activeProjectId
+      ? `/api/projects/${activeProjectId}/artifacts?path=${encodeURIComponent(previewCleanPath)}&raw=true`
+      : undefined);
+  const [blobPreviewUrl, setBlobPreviewUrl] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    let revoked = false;
+    let objectUrl: string | undefined;
+    if (!rawUrl || (!isImage(previewFile?.filename || '', previewFile?.mimeType || '') && !isPdf(previewFile?.filename || '', previewFile?.mimeType || '') && !isAudio(previewFile?.filename || '', previewFile?.mimeType || '') && !isVideo(previewFile?.filename || '', previewFile?.mimeType || ''))) {
+      setBlobPreviewUrl(undefined);
+      return;
+    }
+    const headers: Record<string, string> = {};
+    if (previewToken) {
+      headers['x-kin-auth'] = previewToken;
+      headers['Authorization'] = `Bearer ${previewToken}`;
+    }
+    fetch(rawUrl, { headers })
+      .then((res) => (res.ok ? res.blob() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((blob) => {
+        if (revoked) return;
+        objectUrl = URL.createObjectURL(blob);
+        setBlobPreviewUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!revoked) setBlobPreviewUrl(rawUrl);
+      });
+    return () => {
+      revoked = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [rawUrl, previewToken, previewFile?.filename, previewFile?.mimeType]);
+
+  const effectiveUrl = useMemo(() => blobPreviewUrl || rawUrl, [blobPreviewUrl, rawUrl]);
+
   if (!previewFile) return null;
 
   const filename = previewFile.filename || (previewFile as any).name || 'file';
   const { mimeType = '', size, path } = previewFile;
-  const cleanPath = previewFile.path ? previewFile.path.replace(/^file:\/\/\//, '').replace(/#[L\d-]+$/i, '') : undefined;
-  const token = typeof window !== 'undefined'
-    ? window.sessionStorage?.getItem('kin_ipc_token') || window.localStorage?.getItem('kin_ipc_token')
-    : null;
-  const rawUrl =
-    previewFile.url ||
-    (cleanPath && activeProjectId
-      ? `/api/projects/${activeProjectId}/artifacts?path=${encodeURIComponent(cleanPath)}&raw=true`
-      : undefined);
-  const effectiveUrl = useMemo(() => {
-    if (!rawUrl) return undefined;
-    if (!token) return rawUrl;
-    return rawUrl.includes('?') ? `${rawUrl}&token=${encodeURIComponent(token)}` : `${rawUrl}?token=${encodeURIComponent(token)}`;
-  }, [rawUrl, token]);
 
   const isImg = isImage(filename, mimeType);
   const isDocPdf = isPdf(filename, mimeType);
@@ -564,7 +596,7 @@ export const FilePreviewModal: React.FC = () => {
                 srcDoc={textContent || undefined}
                 src={!textContent ? effectiveUrl : undefined}
                 title={filename}
-                sandbox="allow-same-origin allow-scripts"
+                sandbox="allow-scripts"
                 style={{ backgroundColor: '#ffffff' }}
                 className="w-full flex-1 border-0"
               />

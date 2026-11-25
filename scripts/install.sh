@@ -48,12 +48,12 @@ if [ -z "${TAG_NAME}" ]; then
 fi
 echo -e "      Target Release: \033[1;32m${TAG_NAME}\033[0m"
 
-# Find AppImage download URL
-DOWNLOAD_URL="$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": "[^"]*"' | cut -d'"' -f4 | grep -E '\.AppImage$' | head -n 1 || true)"
+# Find AppImage download URL matching host architecture
+DOWNLOAD_URL="$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": "[^"]*"' | cut -d'"' -f4 | grep -E "(${ARCH_PATTERN}).*\.AppImage$" | head -n 1 || true)"
 
 if [ -z "${DOWNLOAD_URL}" ]; then
     # Fallback to .deb if AppImage not found
-    DOWNLOAD_URL="$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": "[^"]*"' | cut -d'"' -f4 | grep -E '\.deb$' | head -n 1 || true)"
+    DOWNLOAD_URL="$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": "[^"]*"' | cut -d'"' -f4 | grep -E "(${ARCH_PATTERN}).*\.deb$" | head -n 1 || true)"
 fi
 
 if [ -z "${DOWNLOAD_URL}" ]; then
@@ -82,7 +82,11 @@ if [ -n "${CHECKSUM_URL}" ]; then
         echo -e "      SHA-256 Verified: \033[1;32m${ACTUAL_HASH}\033[0m"
     fi
 else
-    echo -e "\033[1;33m[3/4] Skipping checksum verification (SHA256SUMS.txt not attached).\033[0m"
+    if [ "${KIN_ALLOW_UNVERIFIED:-0}" != "1" ]; then
+        echo -e "\033[1;31mError: Release is missing SHA256SUMS.txt checksum manifest. Refusing unverified install (set KIN_ALLOW_UNVERIFIED=1 to override).\033[0m"
+        exit 1
+    fi
+    echo -e "\033[1;33m[3/4] Skipping checksum verification via KIN_ALLOW_UNVERIFIED=1.\033[0m"
 fi
 
 echo -e "\033[1;33m[4/4] Installing KIN...\033[0m"

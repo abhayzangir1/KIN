@@ -67,8 +67,8 @@ export class SecretBroker {
   private resolveString(str: string, callerAgentId?: string): string {
     const vaultPattern = /\{\{vault:([a-zA-Z0-9_\-.:]+)\}\}/g;
     return str.replace(vaultPattern, (_match, keyName) => {
-      // 1. If keyName is already a vault ciphertext (e.g. vault:v1:...), decrypt directly
-      if (keyName.startsWith('vault:v1:')) {
+      // 1. If keyName is already a vault ciphertext (vault:v1:... or vault:v2:...), decrypt directly
+      if (keyName.startsWith('vault:v1:') || keyName.startsWith('vault:v2:')) {
         if (callerAgentId && callerAgentId !== 'system' && callerAgentId !== 'operator') {
           return `[DENIED_UNAUTHORIZED_KEY_ACCESS:${keyName}]`;
         }

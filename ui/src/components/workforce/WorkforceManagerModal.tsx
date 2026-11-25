@@ -91,10 +91,11 @@ export const WorkforceManagerModal: React.FC = () => {
           </div>
         );
       case 'recovering':
+      case 'resuming':
         return (
           <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 text-[10px] font-mono shrink-0">
             <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-            <span>Recovering</span>
+            <span>Resuming</span>
           </div>
         );
       case 'waiting':

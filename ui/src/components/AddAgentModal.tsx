@@ -15,7 +15,7 @@ import {
   Wrench,
   Brain,
 } from 'lucide-react';
-import { ProviderIcon, formatContextWindow } from './ModelSelectorModal.js';
+import { ProviderIcon, formatContextWindow } from './ProviderIcon.js';
 
 export const AddAgentModal: React.FC = () => {
   const {
@@ -32,6 +32,7 @@ export const AddAgentModal: React.FC = () => {
     credentials,
     addCustomModel,
     openAddProviderModal,
+    addToast,
   } = useKinStore();
 
   const [tab, setTab] = useState<'assign' | 'hire'>('assign');
@@ -191,9 +192,16 @@ export const AddAgentModal: React.FC = () => {
     if (!res.success) {
       setError(res.error || 'Failed to hire agent');
     } else {
+      const hiredName = displayName.trim();
       setDisplayName('');
       setRoleTitle('');
       setSystemPrompt('');
+      setAddAgentModalOpen(false);
+      addToast({
+        title: 'Specialist Hired',
+        message: `${hiredName} has joined the workforce.`,
+        type: 'success',
+      });
     }
   };
 

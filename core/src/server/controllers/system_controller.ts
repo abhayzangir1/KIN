@@ -11,9 +11,18 @@ import { Sentinel } from '../../security/sentinel.js';
 import { EventLedger } from '../../security/event_ledger.js';
 import { OCCConflictError } from '../../domain/memory_repository.js';
 import { SecretVault } from '../../security/secret_vault.js';
+import { HardwareProfiler } from '../../evaluation/hardware_profiler.js';
 import { BaseController } from './base_controller.js';
 
 export class SystemController extends BaseController {
+  private scannedHostCredCache = new Map<string, {
+    provider: string;
+    keyAlias: string;
+    token: string;
+    baseUrl?: string;
+    expiresAt: number;
+  }>();
+
   public async handle(
     req: http.IncomingMessage,
     res: http.ServerResponse,
@@ -1575,6 +1584,11 @@ export class SystemController extends BaseController {
         if (sqliteIntegrity?.integrity_check !== 'ok') activeAlerts.push('SQLite corruption');
         if (gov.tier === 'low') activeAlerts.push('Host memory throttled');
 
+        const profiler = new HardwareProfiler();
+        const hwSpecs = profiler.detectHostHardware();
+        const hwTier = profiler.classifyTier(hwSpecs);
+        const hwConstraints = profiler.getTierConstraints(hwTier);
+
         return this.sendJson(res, 200, {
           status: isHealthy ? 'healthy' : 'degraded',
           timestamp: Date.now(),
@@ -1599,13 +1613,34 @@ export class SystemController extends BaseController {
           },
           limits,
           activeAlerts,
+          hardwareProfile: {
+            tier: hwTier,
+            tierName: hwConstraints.tierName,
+            specs: hwSpecs,
+            recommendedLocalModels: hwConstraints.recommendedLocalModels,
+            ollamaContextSize: hwConstraints.ollamaContextSize,
+            maxActiveRuns: hwConstraints.maxActiveRuns,
+          },
         });
       }
 
       // 57. GET /api/system/governor — Dynamic RAM Concurrency Limiter
       if (req.method === 'GET' && pathname === '/api/system/governor') {
         const gov = this.computerSupervisor.getGovernorStatus();
-        return this.sendJson(res, 200, gov);
+        const profiler = new HardwareProfiler();
+        const hwSpecs = profiler.detectHostHardware();
+        const hwTier = profiler.classifyTier(hwSpecs);
+        const hwConstraints = profiler.getTierConstraints(hwTier);
+        return this.sendJson(res, 200, {
+          ...gov,
+          hardwareProfile: {
+            tier: hwTier,
+            tierName: hwConstraints.tierName,
+            constraints: hwConstraints,
+            totalMemoryGb: hwSpecs.totalRamGB,
+            cpuCores: hwSpecs.cpuCores,
+          },
+        });
       }
 
       // 58. GET /api/system/actions — Audited tool execution action records
@@ -2224,27 +2259,148 @@ export class SystemController extends BaseController {
         const activeProj = this.workspaceRepo.getProject(this.activeProjectId);
         const existingCreds = this.db.query<{ key_fingerprint: string }>('SELECT key_fingerprint FROM managed_credentials WHERE key_fingerprint IS NOT NULL');
         const fingerprints = new Set(existingCreds.map((c) => c.key_fingerprint));
-        const discovered = CredentialScanner.scanHostCredentials(activeProj?.repoPath, fingerprints);
+        const discoveredRaw = CredentialScanner.scanHostCredentials(activeProj?.repoPath, fingerprints);
+        const now = Date.now();
+        for (const [k, v] of this.scannedHostCredCache.entries()) {
+          if (v.expiresAt <= now) this.scannedHostCredCache.delete(k);
+        }
+        const discovered = discoveredRaw.map((c: any) => {
+          if (c.id && c.token) {
+            this.scannedHostCredCache.set(c.id, {
+              provider: c.provider,
+              keyAlias: c.keyAlias || `${c.provider}-detected`,
+              token: c.token,
+              baseUrl: c.baseUrl,
+              expiresAt: now + 5 * 60 * 1000,
+            });
+          }
+          const { token: _stripped, ...safeCred } = c;
+          return safeCred;
+        });
         return this.sendJson(res, 200, { success: true, discovered });
       }
 
       // 71c. POST /api/settings/credentials/import-discovered — Import detected credential into SQLite
       if (req.method === 'POST' && (pathname === '/api/settings/credentials/import-discovered' || pathname === '/api/credentials/import-discovered')) {
         const body = await this.parseJsonBody<any>(req);
-        if (!body.provider || !body.token) {
-          return this.sendJson(res, 400, { error: 'Missing provider or token' });
+        const cached = body.id ? this.scannedHostCredCache.get(body.id) : undefined;
+        const provider = cached?.provider || body.provider;
+        const token = cached?.token || body.token;
+        const keyAlias = body.keyAlias || cached?.keyAlias || `${provider}-detected`;
+        const baseUrl = body.baseUrl || cached?.baseUrl;
+        if (!provider || !token) {
+          return this.sendJson(res, 400, { error: 'Missing provider or token (re-scan host credentials if expired)' });
         }
         const result = CredentialScanner.importCredential(this.db, {
-          provider: body.provider,
-          keyAlias: body.keyAlias || `${body.provider}-detected`,
-          token: body.token,
-          baseUrl: body.baseUrl,
+          provider,
+          keyAlias,
+          token,
+          baseUrl,
         });
+        if (body.id) this.scannedHostCredCache.delete(body.id);
         if (result.success) {
           this.syncModelGatewayProviders();
-          this.broadcastEvent('credentials:updated', { id: result.id, provider: body.provider });
+          this.broadcastEvent('credentials:updated', { id: result.id, provider });
         }
         return this.sendJson(res, result.success ? 200 : 400, result);
+      }
+
+      // 71e. GET /api/settings/egress — Get cloud egress consent policy
+      if (req.method === 'GET' && pathname === '/api/settings/egress') {
+        return this.sendJson(res, 200, { success: true, consent: this.server.egressConsent });
+      }
+
+      // 71f. POST /api/settings/egress — Update cloud egress consent policy
+      if (req.method === 'POST' && pathname === '/api/settings/egress') {
+        const body = await this.parseJsonBody<any>(req);
+        const sanitized: Record<string, boolean> = {};
+        for (const key of [
+          'masterEgressEnabled',
+          'allowPrompts',
+          'allowSharedMemory',
+          'allowPrivateNotes',
+          'allowDirectMessages',
+          'allowWebSearchContext',
+        ] as const) {
+          if (typeof body?.[key] === 'boolean') {
+            sanitized[key] = body[key];
+          }
+        }
+        this.server.egressConsent = {
+          ...this.server.egressConsent,
+          ...sanitized,
+        };
+        try {
+          const now = Date.now();
+          const existing = this.db.queryOne<{ id: string }>(
+            "SELECT id FROM memories WHERE scope = 'global' AND scope_id = 'system' AND key = 'egress_consent'"
+          );
+          if (existing) {
+            this.db.execute(
+              "UPDATE memories SET value_json = ?, updated_at = ? WHERE scope = 'global' AND scope_id = 'system' AND key = 'egress_consent'",
+              JSON.stringify(this.server.egressConsent),
+              now
+            );
+          } else {
+            this.db.execute(
+              "INSERT INTO memories (id, scope, scope_id, type, key, value_json, created_at, updated_at) VALUES (?, 'global', 'system', 'preference', 'egress_consent', ?, ?, ?)",
+              `mem-egress-${now}`,
+              JSON.stringify(this.server.egressConsent),
+              now,
+              now
+            );
+          }
+        } catch (e) {
+          console.warn('[system_controller] Failed persisting egress consent:', e);
+        }
+        this.broadcastEvent('settings:egress_updated', { consent: this.server.egressConsent });
+        return this.sendJson(res, 200, { success: true, consent: this.server.egressConsent });
+      }
+
+      // 71d-2. POST /api/oauth/github/device & /api/oauth/github/device/poll — GitHub Device Flow (RFC 8628)
+      if (req.method === 'POST' && pathname === '/api/oauth/github/device') {
+        const body = await this.parseJsonBody<{ clientId?: string; scope?: string }>(req).catch(() => ({} as any));
+        try {
+          const data = await OAuthHandler.startGitHubDeviceFlow(body?.clientId, body?.scope);
+          return this.sendJson(res, 200, { success: true, ...data });
+        } catch (err: any) {
+          return this.sendJson(res, 400, { success: false, error: err?.message || String(err) });
+        }
+      }
+      if (req.method === 'POST' && pathname === '/api/oauth/github/device/poll') {
+        const body = await this.parseJsonBody<{ deviceCode: string; clientId?: string }>(req).catch(() => ({} as any));
+        if (!body?.deviceCode) {
+          return this.sendJson(res, 400, { success: false, error: 'deviceCode is required' });
+        }
+        try {
+          const data = await OAuthHandler.pollGitHubDeviceToken(body.deviceCode, body.clientId);
+          return this.sendJson(res, 200, { success: true, ...data });
+        } catch (err: any) {
+          return this.sendJson(res, 400, { success: false, error: err?.message || String(err) });
+        }
+      }
+
+      // 71d-3. POST /api/oauth/mcp/discover — RFC 9728/8414/8707 + CIMD OAuth 2.1 metadata discovery
+      if (req.method === 'POST' && pathname === '/api/oauth/mcp/discover') {
+        const body = await this.parseJsonBody<{ resourceUrl: string; clientIdMetadataUrl?: string; scope?: string }>(req).catch(() => ({} as any));
+        if (!body?.resourceUrl) {
+          return this.sendJson(res, 400, { success: false, error: 'resourceUrl is required' });
+        }
+        try {
+          const meta = await OAuthHandler.discoverOAuthMetadata(body.resourceUrl);
+          const auth = meta.authorizationEndpoint && body.clientIdMetadataUrl
+            ? OAuthHandler.buildMcpOAuth21AuthUrl({
+                authorizationEndpoint: meta.authorizationEndpoint,
+                clientIdMetadataUrl: body.clientIdMetadataUrl,
+                redirectUri: `http://127.0.0.1:${this.port || 54321}/api/oauth/callback`,
+                resource: body.resourceUrl,
+                scope: body.scope,
+              })
+            : undefined;
+          return this.sendJson(res, 200, { success: true, metadata: meta, ...(auth ? { auth } : {}) });
+        } catch (err: any) {
+          return this.sendJson(res, 400, { success: false, error: err?.message || String(err) });
+        }
       }
 
       // 71d. POST /api/oauth/authorize/:provider — Initiate 1-click OAuth flow
@@ -2327,6 +2483,172 @@ export class SystemController extends BaseController {
         } catch (dialogErr: any) {
           return this.sendJson(res, 500, { error: dialogErr?.message || 'Folder dialog failed', canceled: true });
         }
+      }
+
+      // GET /api/system/backup — Consistent online SQLite snapshot via VACUUM INTO (streamed to avoid heap OOM)
+      if (req.method === 'GET' && pathname === '/api/system/backup') {
+        const osMod = await import('node:os');
+        const tmpBackup = path.join(osMod.tmpdir(), `kin-backup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.sqlite`);
+        const cleanupTmp = () => { try { if (fs.existsSync(tmpBackup)) fs.unlinkSync(tmpBackup); } catch {} };
+        try {
+          const escaped = tmpBackup.replace(/'/g, "''");
+          this.db.exec(`VACUUM INTO '${escaped}';`);
+          const stat = fs.statSync(tmpBackup);
+          res.writeHead(200, {
+            'Content-Type': 'application/octet-stream',
+            'Content-Disposition': `attachment; filename="kin-backup-${new Date().toISOString().slice(0, 10)}.sqlite"`,
+            'Content-Length': String(stat.size),
+            'X-Content-Type-Options': 'nosniff',
+          });
+          await new Promise<void>((resolve, reject) => {
+            const stream = fs.createReadStream(tmpBackup);
+            stream.on('error', (err) => { cleanupTmp(); reject(err); });
+            stream.on('close', () => { cleanupTmp(); resolve(); });
+            stream.pipe(res);
+          });
+          return true;
+        } catch (err: any) {
+          cleanupTmp();
+          if (!res.headersSent) {
+            return this.sendJson(res, 500, { error: err?.message || 'Database backup failed' });
+          }
+          return true;
+        }
+      }
+
+      // POST /api/system/restore — Streamed SQLite snapshot validation (schema + integrity) and staging
+      if (req.method === 'POST' && pathname === '/api/system/restore') {
+        const hasIntentHeader = Boolean(req.headers['x-kin-restore'] || req.headers['x-kin-auth'] || req.headers['authorization']);
+        if (!hasIntentHeader) {
+          return this.sendJson(res, 403, { error: 'Forbidden: Missing x-kin-restore or auth header for database restore' });
+        }
+        const osMod = await import('node:os');
+        const stagingPath = path.join(osMod.tmpdir(), `kin-restore-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.sqlite`);
+        const cleanupStaging = () => { try { if (fs.existsSync(stagingPath)) fs.unlinkSync(stagingPath); } catch {} };
+        try {
+          let totalBytes = 0;
+          const maxBytes = 256 * 1024 * 1024;
+          const headerChunks: Buffer[] = [];
+          let headerLen = 0;
+          const ws = fs.createWriteStream(stagingPath);
+          try {
+            for await (const chunk of req) {
+              const b = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+              totalBytes += b.length;
+              if (totalBytes > maxBytes) {
+                ws.destroy();
+                cleanupStaging();
+                return this.sendJson(res, 413, { error: 'Backup file exceeds 256MB limit' });
+              }
+              if (headerLen < 16) {
+                headerChunks.push(b);
+                headerLen += b.length;
+              }
+              if (!ws.write(b)) {
+                await new Promise<void>((r) => ws.once('drain', r));
+              }
+            }
+            await new Promise<void>((resolve, reject) => {
+              ws.end(() => resolve());
+              ws.on('error', reject);
+            });
+          } catch (streamErr) {
+            ws.destroy();
+            cleanupStaging();
+            throw streamErr;
+          }
+          const headerBuf = Buffer.concat(headerChunks);
+          if (totalBytes < 100 || headerBuf.subarray(0, 16).toString('utf8') !== 'SQLite format 3\0') {
+            cleanupStaging();
+            return this.sendJson(res, 400, { error: 'Invalid SQLite database file header' });
+          }
+          try {
+            const { KinDatabase } = await import('../../storage/db.js');
+            const verifyDb = new KinDatabase({ dbPath: stagingPath });
+            const check = verifyDb.queryOne<{ integrity_check: string }>('PRAGMA integrity_check(5);');
+            const tables = verifyDb.query<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table';").map((t) => t.name);
+            verifyDb.close();
+            if (check?.integrity_check !== 'ok') {
+              cleanupStaging();
+              return this.sendJson(res, 400, { error: `SQLite integrity check failed: ${check?.integrity_check || 'unknown'}` });
+            }
+            for (const reqTable of ['workspaces', 'projects', 'agent_runs']) {
+              if (!tables.includes(reqTable)) {
+                cleanupStaging();
+                return this.sendJson(res, 400, { error: `Incompatible SQLite database: missing required KIN table '${reqTable}'` });
+              }
+            }
+            const dbPath = (this.db as any).dbPath || (this.db as any).getDbPath?.();
+            if (!dbPath || dbPath === ':memory:') {
+              cleanupStaging();
+              return this.sendJson(res, 400, { error: 'Cannot restore over an in-memory database' });
+            }
+            const pendingRestorePath = `${dbPath}.pending_restore`;
+            fs.copyFileSync(stagingPath, pendingRestorePath);
+            cleanupStaging();
+            return this.sendJson(res, 200, {
+              success: true,
+              pendingRestorePath,
+              message: 'Verified SQLite backup staged. Restart KIN to complete restore.',
+            });
+          } catch (innerErr: any) {
+            cleanupStaging();
+            return this.sendJson(res, 400, { error: innerErr?.message || 'Backup verification failed' });
+          }
+        } catch (err: any) {
+          cleanupStaging();
+          return this.sendJson(res, 500, { error: err?.message || 'Database restore failed' });
+        }
+      }
+
+      // GET /api/exceptions — List structured exception queue items
+      if (req.method === 'GET' && pathname === '/api/exceptions') {
+        const projId = parsedUrl.searchParams.get('projectId') || this.activeProjectId;
+        const statusParam = parsedUrl.searchParams.get('status');
+        let sql = `SELECT * FROM exception_queue WHERE (project_id = ? OR project_id IS NULL)`;
+        const args: any[] = [projId];
+        if (statusParam) {
+          sql += ` AND status = ?`;
+          args.push(statusParam);
+        }
+        sql += ` ORDER BY created_at DESC LIMIT 100`;
+        const rows = this.db.query<any>(sql, ...args);
+        return this.sendJson(res, 200, { exceptions: rows });
+      }
+
+      // POST /api/exceptions/:id/resolve — Acknowledge, resolve, or dismiss an exception item
+      const excMatch = pathname.match(/^\/api\/exceptions\/([^/]+)\/resolve$/);
+      if (req.method === 'POST' && excMatch) {
+        const excId = excMatch[1];
+        const body = await this.parseJsonBody<{ status?: string }>(req).catch(() => ({} as { status?: string }));
+        const nextStatus = body?.status && ['acknowledged', 'resolved', 'dismissed'].includes(body.status)
+          ? body.status
+          : 'resolved';
+        const resUpd = this.db.execute(
+          `UPDATE exception_queue SET status = ?, resolved_at = ? WHERE id = ?`,
+          nextStatus,
+          nextStatus === 'acknowledged' ? null : Date.now(),
+          excId
+        );
+        if (Number(resUpd.changes) === 0) {
+          return this.sendJson(res, 404, { error: `Exception '${excId}' not found` });
+        }
+        return this.sendJson(res, 200, { success: true, id: excId, status: nextStatus });
+      }
+
+      // GET /api/artifacts — Query SQLite artifacts registry
+      if (req.method === 'GET' && pathname === '/api/artifacts') {
+        const projId = parsedUrl.searchParams.get('projectId') || this.activeProjectId;
+        const taskId = parsedUrl.searchParams.get('taskId');
+        let sql = `SELECT * FROM artifacts WHERE (project_id = ? OR project_id IS NULL)`;
+        const args: any[] = [projId];
+        if (taskId) {
+          sql += ` AND task_id = ?`;
+          args.push(taskId);
+        }
+        sql += ` ORDER BY created_at DESC LIMIT 200`;
+        const rows = this.db.query<any>(sql, ...args);
+        return this.sendJson(res, 200, { artifacts: rows });
       }
 
     return false;

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck,
   Globe,
@@ -48,6 +48,17 @@ export const EgressConsentTab: React.FC = () => {
     };
   });
 
+  useEffect(() => {
+    fetch('/api/settings/egress')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.success && data.consent) {
+          setConsent((prev) => ({ ...prev, ...data.consent }));
+        }
+      })
+      .catch((err) => console.debug('[KIN UI] Egress fetch notice:', err));
+  }, []);
+
   const saveConsent = (updated: Partial<EgressConsentState>) => {
     const newState = {
       ...consent,
@@ -57,6 +68,11 @@ export const EgressConsentTab: React.FC = () => {
     setConsent(newState);
     try {
       localStorage.setItem(storageKey, JSON.stringify(newState));
+      fetch('/api/settings/egress', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newState),
+      }).catch((err) => console.debug('[KIN UI] Egress sync notice:', err));
       addToast('Cloud Egress Policy updated', 'success');
     } catch (err) {
       console.error('[KIN UI] Failed to persist egress consent:', err);

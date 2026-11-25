@@ -241,6 +241,52 @@ export class McpController extends BaseController {
         return this.sendJson(res, 200, result);
       }
 
+      // 35i. GET /api/mcp/registry — Search Official MCP Registry (with resilient offline fallback)
+      if (req.method === 'GET' && pathname === '/api/mcp/registry') {
+        const query = (parsedUrl.searchParams.get('q') || '').trim();
+        try {
+          const url = `https://registry.modelcontextprotocol.io/v0/servers?search=${encodeURIComponent(query)}&limit=20`;
+          const regRes = await fetch(url, { signal: AbortSignal.timeout(4000) });
+          if (regRes.ok) {
+            const data = (await regRes.json()) as any;
+            const servers = Array.isArray(data?.servers) ? data.servers : [];
+            return this.sendJson(res, 200, { source: 'official_registry', servers });
+          }
+        } catch {
+          // Fall back cleanly when offline
+        }
+        return this.sendJson(res, 200, { source: 'offline_fallback', servers: [] });
+      }
+
+      // 35j. GET /api/mcp/apps/read — Fetch ui:// HTML resource for sandboxed MCP App rendering
+      if (req.method === 'GET' && pathname === '/api/mcp/apps/read') {
+        const serverName = parsedUrl.searchParams.get('server') || '';
+        const uri = parsedUrl.searchParams.get('uri') || '';
+        if (!serverName || !uri.startsWith('ui://')) {
+          return this.sendJson(res, 400, { error: 'Valid server and ui:// uri are required' });
+        }
+        try {
+          const content = await this.mcpClient.readResource(serverName, uri);
+          return this.sendJson(res, 200, { server: serverName, uri, ...content });
+        } catch (err: any) {
+          return this.sendJson(res, 502, { error: err?.message || 'Failed to read MCP App resource' });
+        }
+      }
+
+      // 35k. GET /api/mcp/elicitations & POST /api/mcp/elicitation/:id/respond
+      if (req.method === 'GET' && pathname === '/api/mcp/elicitations') {
+        return this.sendJson(res, 200, { elicitations: this.mcpClient.listPendingElicitations() });
+      }
+      const elicitMatch = pathname.match(/^\/api\/mcp\/elicitation\/([^/]+)\/respond$/);
+      if (req.method === 'POST' && elicitMatch) {
+        const body = await this.parseJsonBody<{ action: 'accept' | 'decline' | 'cancel'; content?: Record<string, any> }>(req);
+        const ok = this.mcpClient.resolveElicitation(elicitMatch[1], {
+          action: body?.action || 'decline',
+          content: body?.content,
+        });
+        return this.sendJson(res, ok ? 200 : 404, { success: ok });
+      }
+
     return false;
   }
 }

@@ -48,91 +48,93 @@ export class AgentKernel {
    * Spawns an execution run with quota checks and initial heartbeat.
    */
   public spawnRun(params: SpawnRunParams): AgentRun {
-    // 1. Concurrency quota check
-    const activeCount = this.getActiveRunCount();
-    const shouldQueue = activeCount >= this.maxActiveConcurrentRuns;
-    if (shouldQueue && !params.queueIfExceeded) {
-      throw new Error(
-        `QUOTA EXCEEDED: Maximum active concurrent runs (${this.maxActiveConcurrentRuns}) reached. Run queued.`
+    return this.db.transactionSync(() => {
+      // 1. Concurrency quota check
+      const activeCount = this.getActiveRunCount();
+      const shouldQueue = activeCount >= this.maxActiveConcurrentRuns;
+      if (shouldQueue && !params.queueIfExceeded) {
+        throw new Error(
+          `QUOTA EXCEEDED: Maximum active concurrent runs (${this.maxActiveConcurrentRuns}) reached. Run queued.`
+        );
+      }
+
+      // 2. Delegation depth & descendant quota checks
+      if (params.parentRunId) {
+        const depth = this.calculateDelegationDepth(params.parentRunId);
+        if (depth >= this.maxDelegationDepth) {
+          throw new Error(
+            `QUOTA EXCEEDED: Maximum delegation depth (${this.maxDelegationDepth}) reached. Cannot swarm further subagents.`
+          );
+        }
+
+        const totalDescendants = this.countDescendants(params.parentRunId);
+        if (totalDescendants >= this.maxTotalDescendants) {
+          throw new Error(
+            `QUOTA EXCEEDED: Maximum goal descendants (${this.maxTotalDescendants}) reached for parent run ${params.parentRunId}.`
+          );
+        }
+      }
+
+      const id = uuidv4();
+      const now = Date.now();
+
+      let allocatedTokens = params.allocatedTokens;
+      if (params.parentRunId) {
+        const parentRun = this.getRun(params.parentRunId);
+        if (allocatedTokens === undefined && parentRun) {
+          // Inherit remaining token budget from parent run
+          const remainingBudget = Math.max(1000, parentRun.allocatedTokens - parentRun.usedTokens);
+          allocatedTokens = remainingBudget;
+        }
+      }
+      if (allocatedTokens === undefined) {
+        allocatedTokens = 100000;
+      }
+
+      const runState: RunState = shouldQueue ? 'queued' : 'running';
+
+      const run: AgentRun = {
+        id,
+        agentId: params.agentId,
+        projectId: params.projectId,
+        parentRunId: params.parentRunId,
+        taskId: params.taskId,
+        channelId: params.channelId,
+        triggerMessageId: params.triggerMessageId,
+        state: runState,
+        heartbeatAt: now,
+        allocatedTokens,
+        usedTokens: 0,
+        modelId: params.modelId,
+        createdAt: now,
+      };
+
+      this.db.execute(
+        `INSERT INTO agent_runs (id, agent_id, project_id, parent_run_id, task_id, channel_id, trigger_message_id, state, heartbeat_at, allocated_tokens, used_tokens, model_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        run.id,
+        run.agentId,
+        run.projectId ?? null,
+        run.parentRunId ?? null,
+        run.taskId ?? null,
+        run.channelId ?? null,
+        run.triggerMessageId ?? null,
+        run.state,
+        run.heartbeatAt,
+        run.allocatedTokens,
+        run.usedTokens,
+        run.modelId ?? null,
+        run.createdAt
       );
-    }
 
-    // 2. Delegation depth & descendant quota checks
-    if (params.parentRunId) {
-      const depth = this.calculateDelegationDepth(params.parentRunId);
-      if (depth >= this.maxDelegationDepth) {
-        throw new Error(
-          `QUOTA EXCEEDED: Maximum delegation depth (${this.maxDelegationDepth}) reached. Cannot swarm further subagents.`
-        );
+      if (runState === 'queued') {
+        this.recordEvent('agent.run.queued', 'agent_run', run.id, { agentId: run.agentId, taskId: run.taskId });
+      } else {
+        this.recordEvent('agent.run.started', 'agent_run', run.id, { agentId: run.agentId, taskId: run.taskId });
       }
 
-      const totalDescendants = this.countDescendants(params.parentRunId);
-      if (totalDescendants >= this.maxTotalDescendants) {
-        throw new Error(
-          `QUOTA EXCEEDED: Maximum goal descendants (${this.maxTotalDescendants}) reached for parent run ${params.parentRunId}.`
-        );
-      }
-    }
-
-    const id = uuidv4();
-    const now = Date.now();
-
-    let allocatedTokens = params.allocatedTokens;
-    if (params.parentRunId) {
-      const parentRun = this.getRun(params.parentRunId);
-      if (allocatedTokens === undefined && parentRun) {
-        // Inherit remaining token budget from parent run
-        const remainingBudget = Math.max(1000, parentRun.allocatedTokens - parentRun.usedTokens);
-        allocatedTokens = remainingBudget;
-      }
-    }
-    if (allocatedTokens === undefined) {
-      allocatedTokens = 100000;
-    }
-
-    const runState: RunState = shouldQueue ? 'queued' : 'running';
-
-    const run: AgentRun = {
-      id,
-      agentId: params.agentId,
-      projectId: params.projectId,
-      parentRunId: params.parentRunId,
-      taskId: params.taskId,
-      channelId: params.channelId,
-      triggerMessageId: params.triggerMessageId,
-      state: runState,
-      heartbeatAt: now,
-      allocatedTokens,
-      usedTokens: 0,
-      modelId: params.modelId,
-      createdAt: now,
-    };
-
-    this.db.execute(
-      `INSERT INTO agent_runs (id, agent_id, project_id, parent_run_id, task_id, channel_id, trigger_message_id, state, heartbeat_at, allocated_tokens, used_tokens, model_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      run.id,
-      run.agentId,
-      run.projectId ?? null,
-      run.parentRunId ?? null,
-      run.taskId ?? null,
-      run.channelId ?? null,
-      run.triggerMessageId ?? null,
-      run.state,
-      run.heartbeatAt,
-      run.allocatedTokens,
-      run.usedTokens,
-      run.modelId ?? null,
-      run.createdAt
-    );
-
-    if (runState === 'queued') {
-      this.recordEvent('agent.run.queued', 'agent_run', run.id, { agentId: run.agentId, taskId: run.taskId });
-    } else {
-      this.recordEvent('agent.run.started', 'agent_run', run.id, { agentId: run.agentId, taskId: run.taskId });
-    }
-
-    return run;
+      return run;
+    });
   }
 
   public queueRun(params: SpawnRunParams): AgentRun {
@@ -140,18 +142,20 @@ export class AgentKernel {
   }
 
   public admitNextQueuedRun(): AgentRun | undefined {
-    const activeCount = this.getActiveRunCount();
-    if (activeCount >= this.maxActiveConcurrentRuns) {
-      return undefined;
-    }
-    const now = Date.now();
-    const nextQueued = this.db.queryOne<{ id: string }>(
-      `SELECT id FROM agent_runs WHERE state = 'queued' ORDER BY (COALESCE(priority, 50) + MIN(100, ((? - created_at) / 5000) * 10)) DESC, created_at ASC LIMIT 1`,
-      now
-    );
-    if (!nextQueued) return undefined;
-    this.transitionState(nextQueued.id, 'running', 'Admitted from persistent run queue');
-    return this.getRun(nextQueued.id);
+    return this.db.transactionSync(() => {
+      const activeCount = this.getActiveRunCount();
+      if (activeCount >= this.maxActiveConcurrentRuns) {
+        return undefined;
+      }
+      const now = Date.now();
+      const nextQueued = this.db.queryOne<{ id: string }>(
+        `SELECT id FROM agent_runs WHERE state = 'queued' ORDER BY (COALESCE(priority, 50) + MIN(100, ((? - created_at) / 5000) * 10)) DESC, created_at ASC LIMIT 1`,
+        now
+      );
+      if (!nextQueued) return undefined;
+      this.transitionState(nextQueued.id, 'running', 'Admitted from persistent run queue');
+      return this.getRun(nextQueued.id);
+    });
   }
 
   public admitAllQueuedRuns(): AgentRun[] {
@@ -212,52 +216,73 @@ export class AgentKernel {
    * Transitions a run into quota_paused state with backoff reset timestamp.
    */
   public pauseForQuota(runId: string, resetWindowMs: number = 900000): void {
-    const run = this.getRun(runId);
-    if (!run) throw new Error(`Run '${runId}' not found.`);
-    if (run.state === 'completed' || run.state === 'failed' || run.state === 'cancelled') {
-      throw new Error(`Cannot pause terminal run '${runId}' (current state: ${run.state}).`);
-    }
+    this.db.transactionSync(() => {
+      const run = this.getRun(runId);
+      if (!run) throw new Error(`Run '${runId}' not found.`);
+      if (run.state === 'completed' || run.state === 'failed' || run.state === 'cancelled') {
+        throw new Error(`Cannot pause terminal run '${runId}' (current state: ${run.state}).`);
+      }
 
-    const now = Date.now();
-    const quotaResetsAt = now + resetWindowMs;
+      const canonical = RunStateMachine.normalizeRunState(run.state);
+      if (canonical !== 'paused_rate_limit') {
+        RunStateMachine.validateTransition(run.state, 'paused_rate_limit');
+      }
 
-    this.db.execute(
-      `UPDATE agent_runs
-       SET state = 'quota_paused',
-           quota_resets_at = ?,
-           heartbeat_at = ?
-       WHERE id = ?`,
-      quotaResetsAt,
-      now,
-      runId
-    );
+      const now = Date.now();
+      const quotaResetsAt = now + resetWindowMs;
 
-    this.recordEvent('agent.run.quota_paused', 'agent_run', runId, { quotaResetsAt });
+      const res = this.db.execute(
+        `UPDATE agent_runs
+         SET state = 'quota_paused',
+             quota_resets_at = ?,
+             heartbeat_at = ?
+         WHERE id = ? AND state = ?`,
+        quotaResetsAt,
+        now,
+        runId,
+        run.state
+      );
+      if (res.changes === 0) {
+        throw new Error(`CAS conflict pausing run '${runId}' for quota.`);
+      }
+
+      this.recordEvent('agent.run.quota_paused', 'agent_run', runId, { quotaResetsAt });
+    });
   }
 
   /**
    * Resumes an execution run from paused or quota_paused state.
    */
   public resumeRun(runId: string): void {
-    const run = this.getRun(runId);
-    if (!run) throw new Error(`Run '${runId}' not found.`);
-    if (run.state === 'completed' || run.state === 'failed' || run.state === 'cancelled') {
-      throw new Error(`Cannot resume terminal run '${runId}' (current state: ${run.state}).`);
-    }
+    this.db.transactionSync(() => {
+      const run = this.getRun(runId);
+      if (!run) throw new Error(`Run '${runId}' not found.`);
+      if (run.state === 'completed' || run.state === 'failed' || run.state === 'cancelled') {
+        throw new Error(`Cannot resume terminal run '${runId}' (current state: ${run.state}).`);
+      }
 
-    const now = Date.now();
+      if (run.state !== 'running') {
+        RunStateMachine.validateTransition(run.state, 'running');
+      }
 
-    this.db.execute(
-      `UPDATE agent_runs
-       SET state = 'running',
-           quota_resets_at = NULL,
-           heartbeat_at = ?
-       WHERE id = ?`,
-      now,
-      runId
-    );
+      const now = Date.now();
 
-    this.recordEvent('agent.run.resumed', 'agent_run', runId, { resumedAt: now });
+      const res = this.db.execute(
+        `UPDATE agent_runs
+         SET state = 'running',
+             quota_resets_at = NULL,
+             heartbeat_at = ?
+         WHERE id = ? AND state = ?`,
+        now,
+        runId,
+        run.state
+      );
+      if (res.changes === 0) {
+        throw new Error(`CAS conflict resuming run '${runId}'.`);
+      }
+
+      this.recordEvent('agent.run.resumed', 'agent_run', runId, { resumedAt: now });
+    });
   }
 
   /**
@@ -265,7 +290,7 @@ export class AgentKernel {
    */
   public heartbeat(runId: string): void {
     this.db.execute(
-      `UPDATE agent_runs SET heartbeat_at = ? WHERE id = ? AND (state = 'running' OR state LIKE 'waiting_%')`,
+      `UPDATE agent_runs SET heartbeat_at = ? WHERE id = ? AND (state IN ('running', 'resuming', 'recovering') OR state LIKE 'waiting_%' OR state LIKE 'paused_%')`,
       Date.now(),
       runId
     );
@@ -283,47 +308,95 @@ export class AgentKernel {
   }
 
   /**
-   * State transitions with terminal state validation.
+   * State transitions with terminal state validation and CAS guard.
    */
   public transitionState(runId: string, newState: RunState, reason?: string): void {
-    const run = this.getRun(runId);
-    if (!run) throw new Error(`Run '${runId}' not found.`);
+    this.db.transactionSync(() => {
+      const run = this.getRun(runId);
+      if (!run) throw new Error(`Run '${runId}' not found.`);
 
-    if (run.state === newState) {
-      return; // Idempotent transition
-    }
+      if (run.state === newState) {
+        return; // Idempotent transition
+      }
 
-    RunStateMachine.validateTransition(run.state, newState);
+      RunStateMachine.validateTransition(run.state, newState);
 
-    const now = Date.now();
-    const completedAt = (newState === 'completed' || newState === 'failed' || newState === 'cancelled') ? now : null;
+      const now = Date.now();
+      const completedAt = (newState === 'completed' || newState === 'failed' || newState === 'cancelled') ? now : null;
 
-    this.db.execute(
-      `UPDATE agent_runs SET state = ?, completed_at = ?, heartbeat_at = ? WHERE id = ?`,
-      newState,
-      completedAt,
-      now,
-      runId
-    );
+      const res = this.db.execute(
+        `UPDATE agent_runs SET state = ?, completed_at = ?, heartbeat_at = ? WHERE id = ? AND state = ?`,
+        newState,
+        completedAt,
+        now,
+        runId,
+        run.state
+      );
+      if (res.changes === 0) {
+        throw new Error(`CAS conflict transitioning run '${runId}' from '${run.state}' to '${newState}'.`);
+      }
 
-    this.recordEvent(`agent.run.${newState}`, 'agent_run', runId, { previousState: run.state, reason });
+      this.recordEvent(`agent.run.${newState}`, 'agent_run', runId, { previousState: run.state, reason });
+    });
   }
 
   /**
-   * Persists a turn checkpoint snapshot into the checkpoints table.
+   * Persists a turn checkpoint snapshot into the checkpoints table,
+   * automatically pruning older checkpoints to retain only the latest 5.
+   * Atomic execution prevents inconsistent checkpoint retention state under crash.
    */
-  public saveCheckpoint(runId: string, snapshot: any, worktreeCommitSha?: string): string {
+  public saveCheckpoint(runId: string, snapshot: any, worktreeCommitSha?: string, retentionLimit: number = 5): string {
     const id = `chk-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-    this.db.execute(
-      `INSERT INTO checkpoints (id, run_id, snapshot_json, worktree_commit_sha, created_at)
-       VALUES (?, ?, ?, ?, ?)`,
-      id,
-      runId,
-      typeof snapshot === 'string' ? snapshot : JSON.stringify(snapshot),
-      worktreeCommitSha || null,
-      Date.now()
-    );
+    const snapshotStr = typeof snapshot === 'string' ? snapshot : JSON.stringify(snapshot);
+    const sha = worktreeCommitSha || null;
+    const now = Date.now();
+
+    const doSave = () => {
+      this.db.execute(
+        `INSERT INTO checkpoints (id, run_id, snapshot_json, worktree_commit_sha, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        id,
+        runId,
+        snapshotStr,
+        sha,
+        now
+      );
+      if (retentionLimit > 0) {
+        this.pruneCheckpoints(runId, retentionLimit);
+      }
+    };
+
+    if (typeof (this.db as any).transactionSync === 'function') {
+      (this.db as any).transactionSync(doSave);
+    } else {
+      doSave();
+    }
+
     return id;
+  }
+
+  /**
+   * Prunes older checkpoints for a given run, retaining only the latest `retentionLimit` checkpoints.
+   * Prevents unbounded SQLite database growth during long-running agent executions.
+   */
+  public pruneCheckpoints(runId: string, retentionLimit: number = 5): number {
+    if (typeof (this.db as any).pruneCheckpoints === 'function') {
+      return (this.db as any).pruneCheckpoints(runId, retentionLimit);
+    }
+    const result = this.db.execute(
+      `DELETE FROM checkpoints
+       WHERE run_id = ?
+         AND id NOT IN (
+           SELECT id FROM checkpoints
+           WHERE run_id = ?
+           ORDER BY created_at DESC, rowid DESC
+           LIMIT ?
+         )`,
+      runId,
+      runId,
+      retentionLimit
+    );
+    return Number(result.changes || 0);
   }
 
   /**
@@ -331,7 +404,7 @@ export class AgentKernel {
    */
   public getLatestCheckpoint(runId: string): any {
     const rows = this.db.query<{ snapshot_json: string }>(
-      'SELECT snapshot_json FROM checkpoints WHERE run_id = ? ORDER BY created_at DESC',
+      'SELECT snapshot_json FROM checkpoints WHERE run_id = ? ORDER BY created_at DESC LIMIT 5',
       runId
     );
     if (!rows || rows.length === 0) return undefined;
@@ -376,10 +449,11 @@ export class AgentKernel {
       project_id: string | null;
       task_id: string | null;
       interrupted_turn: number | null;
+      state: string;
     }>(
-      `SELECT id, agent_id, project_id, task_id, interrupted_turn FROM agent_runs
-       WHERE (state IN ('running', 'waiting_for_tool', 'waiting_for_agent', 'waiting_for_model') AND heartbeat_at < ?)
-          OR (state = 'waiting_for_approval' AND heartbeat_at < ?)`,
+      `SELECT id, agent_id, project_id, task_id, interrupted_turn, state FROM agent_runs
+       WHERE (state IN ('running', 'resuming', 'recovering', 'waiting_for_tool', 'waiting_for_agent', 'waiting_for_model') AND heartbeat_at < ?)
+          OR (state IN ('waiting_for_approval', 'paused_approval') AND heartbeat_at < ?)`,
       cutoff,
       approvalCutoff
     );
@@ -397,28 +471,32 @@ export class AgentKernel {
     }> = [];
 
     for (const row of staleRuns) {
-      this.db.execute(
-        `UPDATE agent_runs SET state = 'recovering', heartbeat_at = ? WHERE id = ?`,
-        Date.now(),
-        row.id
-      );
-      this.recordEvent('agent.run.recovering', 'agent_run', row.id, { reason: 'stale_heartbeat_lease_detected' });
+      this.db.transactionSync(() => {
+        const res = this.db.execute(
+          `UPDATE agent_runs SET state = 'resuming', heartbeat_at = ? WHERE id = ? AND state = ?`,
+          Date.now(),
+          row.id,
+          row.state
+        );
+        if (res.changes === 0) return;
+        this.recordEvent('agent.run.resuming', 'agent_run', row.id, { reason: 'stale_heartbeat_lease_detected', previousState: row.state });
 
-      const latestCp = this.db.queryOne<{ snapshot_json: string; created_at: number }>(
-        `SELECT snapshot_json, created_at FROM checkpoints WHERE run_id = ? ORDER BY created_at DESC LIMIT 1`,
-        row.id
-      );
+        const latestCp = this.db.queryOne<{ snapshot_json: string; created_at: number }>(
+          `SELECT snapshot_json, created_at FROM checkpoints WHERE run_id = ? ORDER BY created_at DESC LIMIT 1`,
+          row.id
+        );
 
-      recovered.push({
-        id: row.id,
-        agentId: row.agent_id,
-        projectId: row.project_id || undefined,
-        taskId: row.task_id || undefined,
-        interruptedTurn: row.interrupted_turn ?? undefined,
-        checkpoint: latestCp ? {
-          snapshotJson: latestCp.snapshot_json,
-          createdAt: latestCp.created_at,
-        } : undefined,
+        recovered.push({
+          id: row.id,
+          agentId: row.agent_id,
+          projectId: row.project_id || undefined,
+          taskId: row.task_id || undefined,
+          interruptedTurn: row.interrupted_turn ?? undefined,
+          checkpoint: latestCp ? {
+            snapshotJson: latestCp.snapshot_json,
+            createdAt: latestCp.created_at,
+          } : undefined,
+        });
       });
     }
 
@@ -450,7 +528,7 @@ export class AgentKernel {
     const freshCutoff = Date.now() - 60000;
     const row = this.db.queryOne<{ count: number }>(
       `SELECT COUNT(*) as count FROM agent_runs 
-       WHERE state IN ('running', 'waiting_for_tool', 'waiting_for_agent', 'waiting_for_model') 
+       WHERE state IN ('running', 'resuming', 'recovering', 'waiting_for_tool', 'waiting_for_agent', 'waiting_for_model') 
          AND heartbeat_at >= ?`,
       freshCutoff
     );
@@ -459,9 +537,14 @@ export class AgentKernel {
 
   public calculateDelegationDepth(runId: string): number {
     let depth = 1;
+    const visited = new Set<string>([runId]);
     let currentRun = this.getRun(runId);
 
     while (currentRun && currentRun.parentRunId) {
+      if (visited.has(currentRun.parentRunId) || depth > 64) {
+        break;
+      }
+      visited.add(currentRun.parentRunId);
       depth++;
       currentRun = this.getRun(currentRun.parentRunId);
     }
@@ -487,25 +570,27 @@ export class AgentKernel {
    * Increments agent_runs.used_tokens by turn usage and checks hard budget limit.
    */
   public recordTokenUsage(runId: string, tokens: number): { usedTokens: number; allocatedTokens: number; exceeded: boolean } {
-    this.db.execute(
-      `UPDATE agent_runs SET used_tokens = used_tokens + ? WHERE id = ?`,
-      tokens,
-      runId
-    );
-    const run = this.getRun(runId);
-    const usedTokens = run?.usedTokens ?? 0;
-    const allocatedTokens = run?.allocatedTokens ?? 100000;
-    const exceeded = usedTokens >= allocatedTokens;
+    return this.db.transactionSync(() => {
+      this.db.execute(
+        `UPDATE agent_runs SET used_tokens = used_tokens + ? WHERE id = ?`,
+        tokens,
+        runId
+      );
+      const run = this.getRun(runId);
+      const usedTokens = run?.usedTokens ?? 0;
+      const allocatedTokens = run?.allocatedTokens ?? 100000;
+      const exceeded = usedTokens >= allocatedTokens;
 
-    if (exceeded && run && (run.state === 'running' || run.state.startsWith('waiting_'))) {
-      this.transitionState(runId, 'failed', `Hard token budget exceeded: ${usedTokens}/${allocatedTokens} tokens used.`);
-    }
+      if (exceeded && run && (run.state === 'running' || run.state.startsWith('waiting_'))) {
+        this.transitionState(runId, 'failed', `Hard token budget exceeded: ${usedTokens}/${allocatedTokens} tokens used.`);
+      }
 
-    return {
-      usedTokens,
-      allocatedTokens,
-      exceeded,
-    };
+      return {
+        usedTokens,
+        allocatedTokens,
+        exceeded,
+      };
+    });
   }
 
   private recordEvent(eventType: string, entityType: string, entityId: string, payload: Record<string, unknown>, runId?: string): void {

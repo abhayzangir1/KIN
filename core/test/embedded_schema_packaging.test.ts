@@ -63,7 +63,7 @@ describe('Embedded Schema Packaging & Migration Fallback', () => {
     expect(EMBEDDED_SCHEMA_SQL).toMatch(/provider_type.*openrouter/i);
   });
 
-  it('MigrationRunner initializes a fresh database with all 31 tables and passes integrity check', () => {
+  it('MigrationRunner initializes a fresh database with all 34 base tables and passes integrity check', () => {
     const db = new KinDatabase(':memory:');
     try {
       const runner = new MigrationRunner(db);
@@ -71,11 +71,11 @@ describe('Embedded Schema Packaging & Migration Fallback', () => {
 
       expect(report.success).toBe(true);
       expect(report.integrityCheck).toBe('ok');
-      expect(report.tablesVerified.length).toBe(31);
+      expect(report.tablesVerified.length).toBe(34);
 
       // Verify all tables exist via sqlite_master
       const tables = db
-        .query<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%';")
+        .query<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%_fts%';")
         .map((t) => t.name);
 
       for (const required of REQUIRED_TABLES) {
@@ -106,11 +106,11 @@ describe('Embedded Schema Packaging & Migration Fallback', () => {
 
       expect(report.success).toBe(true);
       expect(report.integrityCheck).toBe('ok');
-      expect(report.tablesVerified.length).toBe(31);
+      expect(report.tablesVerified.length).toBe(34);
 
-      // Verify all 29 tables exist via sqlite_master
+      // Verify all tables exist via sqlite_master
       const tables = db
-        .query<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%';")
+        .query<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%_fts%';")
         .map((t) => t.name);
 
       for (const required of REQUIRED_TABLES) {
@@ -132,7 +132,43 @@ describe('Embedded Schema Packaging & Migration Fallback', () => {
       const report2 = runner.runMigrations();
       expect(report2.success).toBe(true);
       expect(report2.integrityCheck).toBe('ok');
-      expect(report2.tablesVerified.length).toBe(31);
+      expect(report2.tablesVerified.length).toBe(34);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('enforces write-once append-only integrity on event_journal via SQLite BEFORE UPDATE and BEFORE DELETE triggers', () => {
+    const db = new KinDatabase(':memory:');
+    try {
+      new MigrationRunner(db).runMigrations();
+      const raw = db.getRawDb();
+
+      // Seed a legitimate event
+      raw.prepare(
+        `INSERT INTO event_journal (event_type, entity_type, entity_id, payload_json, created_at)
+         VALUES ('TEST_EVENT', 'system', 'sys-1', '{"status":"ok"}', ?)`
+      ).run(Date.now());
+
+      // Attempting direct raw UPDATE must raise ABORT from trigger
+      expect(() => {
+        raw.prepare("UPDATE event_journal SET payload_json = '{\"status\":\"tampered\"}' WHERE id = 1").run();
+      }).toThrow(/event_journal is append-only and cannot be updated/i);
+
+      // Attempting direct raw DELETE must raise ABORT from trigger
+      expect(() => {
+        raw.prepare("DELETE FROM event_journal WHERE id = 1").run();
+      }).toThrow(/event_journal is append-only and cannot be deleted/i);
+
+      // Attempting KinDatabase.execute UPDATE must also fail without bypass
+      expect(() => {
+        db.execute("UPDATE event_journal SET payload_json = '{\"status\":\"tampered\"}' WHERE id = 1");
+      }).toThrow(/event_journal is append-only and cannot be updated/i);
+
+      // Attempting KinDatabase.execute DELETE must also fail without bypass
+      expect(() => {
+        db.execute("DELETE FROM event_journal WHERE id = 1");
+      }).toThrow(/event_journal is append-only and cannot be deleted/i);
     } finally {
       db.close();
     }

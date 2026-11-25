@@ -194,8 +194,8 @@ describe('Phase 3 Adversarial Recovery, State Machine & Quota Guard', () => {
       expect(parsedCp.turn).toBe(4);
       expect(parsedCp.conversationHistory.length).toBe(2);
 
-      // Status in DB should now be 'recovering'
-      expect(kernel.getRun(run.id)?.state).toBe('recovering');
+      // Status in DB should now be 'resuming'
+      expect(kernel.getRun(run.id)?.state).toBe('resuming');
     });
   });
 

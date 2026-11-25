@@ -557,7 +557,7 @@ export class TaskController extends BaseController {
       // 16a-2. GET /api/decisions — List all decisions across projects
       if (req.method === 'GET' && pathname === '/api/decisions') {
         const decisions = this.taskRepo.listAllDecisions();
-        return this.sendJson(res, 200, decisions);
+        return this.sendJson(res, 200, { decisions });
       }
 
       // 16a-3. POST /api/decisions — Record Architecture Decision for default project
@@ -871,7 +871,7 @@ export class TaskController extends BaseController {
 
           let promotedTaskIds: string[] = [];
           try {
-            promotedTaskIds = this.taskRepo.completeTask(taskId, evidenceId);
+            promotedTaskIds = this.taskRepo.completeTask(taskId, evidenceId, currentTask.claimedByRunId || undefined);
           } catch (completeErr: any) {
             return this.sendJson(res, 400, { error: completeErr.message });
           }

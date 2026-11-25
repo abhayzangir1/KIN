@@ -107,7 +107,6 @@ describe('KIN Milestone 4: Adversarial Concurrency & Stress Hardening Suite', ()
     db.execute('DELETE FROM task_dependencies;');
     db.execute('DELETE FROM tasks;');
     db.execute('DELETE FROM agent_runs;');
-    db.execute('DELETE FROM event_journal;');
     db.execute('DELETE FROM memory_versions;');
     db.execute('DELETE FROM memories;');
   });

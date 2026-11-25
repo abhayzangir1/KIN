@@ -293,6 +293,105 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
   // Add / Edit Modal Drawer State
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingConnector, setEditingConnector] = useState<McpConnectorItem | null>(null);
+
+  // Official MCP Registry Search & ui:// MCP Apps Sandboxed Preview
+  const [registryQuery, setRegistryQuery] = useState('');
+  const [registryResults, setRegistryResults] = useState<any[]>([]);
+  const [isSearchingRegistry, setIsSearchingRegistry] = useState(false);
+  const [mcpAppPreview, setMcpAppPreview] = useState<{ server: string; uri: string; html: string } | null>(null);
+  const [pendingElicitations, setPendingElicitations] = useState<any[]>([]);
+  const [deviceFlowPrompt, setDeviceFlowPrompt] = useState<{ user_code: string; verification_uri: string; device_code: string } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/mcp/elicitations')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (Array.isArray(d?.elicitations)) setPendingElicitations(d.elicitations);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleRespondElicitation = async (id: string, action: 'accept' | 'decline' | 'cancel') => {
+    try {
+      const res = await fetch(`/api/mcp/elicitation/${encodeURIComponent(id)}/respond`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      if (!res.ok) {
+        addToast(`Failed to respond to MCP elicitation (HTTP ${res.status})`, 'error');
+        return;
+      }
+      setPendingElicitations((prev) => prev.filter((e) => e.id !== id));
+    } catch {
+      addToast('Failed to respond to MCP elicitation', 'error');
+    }
+  };
+
+  const handleStartGitHubDeviceFlow = async () => {
+    try {
+      const res = await fetch('/api/oauth/github/device', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (data?.user_code && data?.verification_uri) {
+        setDeviceFlowPrompt({
+          user_code: data.user_code,
+          verification_uri: data.verification_uri,
+          device_code: data.device_code,
+        });
+      } else {
+        addToast(data?.error || 'GitHub Device Flow unavailable (missing KIN_GITHUB_CLIENT_ID)', 'error');
+      }
+    } catch {
+      addToast('Failed to start GitHub Device Flow', 'error');
+    }
+  };
+
+  const handleSearchRegistry = async () => {
+    setIsSearchingRegistry(true);
+    try {
+      const res = await fetch(`/api/mcp/registry?q=${encodeURIComponent(registryQuery)}`);
+      if (res.ok) {
+        const data = await res.json();
+        const servers = Array.isArray(data?.servers) ? data.servers : [];
+        setRegistryResults(servers);
+        if (servers.length === 0) {
+          addToast(
+            data?.source === 'offline_fallback'
+              ? 'Official MCP Registry unreachable (offline fallback)'
+              : 'No matching servers found in Official MCP Registry',
+            'info'
+          );
+        }
+      } else {
+        addToast(`Registry search failed (HTTP ${res.status})`, 'error');
+      }
+    } catch {
+      setRegistryResults([]);
+      addToast('Failed to query Official MCP Registry', 'error');
+    } finally {
+      setIsSearchingRegistry(false);
+    }
+  };
+
+  const handlePreviewMcpApp = async (server: string, uri: string) => {
+    try {
+      const res = await fetch(`/api/mcp/apps/read?server=${encodeURIComponent(server)}&uri=${encodeURIComponent(uri)}`);
+      if (res.ok) {
+        const data = await res.json();
+        const html = data?.contents?.[0]?.text || '<p>No HTML content returned</p>';
+        setMcpAppPreview({ server, uri, html });
+      } else {
+        const err = await res.json().catch(() => ({}));
+        addToast(err?.error || `MCP App '${uri}' unavailable on '${server}'`, 'error');
+      }
+    } catch {
+      addToast('Failed to load ui:// MCP App resource', 'error');
+    }
+  };
   const [formScope, setFormScope] = useState<'global' | 'project'>('project');
   const [formType, setFormType] = useState<'stdio' | 'http'>('stdio');
   const [formName, setFormName] = useState('');
@@ -758,6 +857,39 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isLoadingConnectors ? 'animate-spin' : ''}`} />
               <span>Reload All</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleSearchRegistry}
+              disabled={isSearchingRegistry}
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-kin-surface hover:bg-kin-cardHover text-cyan-400 text-xs font-semibold border border-cyan-500/30 transition cursor-pointer disabled:opacity-50"
+              title="Search Official MCP Registry"
+            >
+              <Globe className="w-3.5 h-3.5" />
+              <span>{isSearchingRegistry ? 'Searching...' : 'Registry'}</span>
+            </button>
+            {mcpConnectors.some((c) => c.status === 'active') && (
+              <button
+                type="button"
+                onClick={() => {
+                  const active = mcpConnectors.find((c) => c.status === 'active');
+                  if (active) handlePreviewMcpApp(active.name, 'ui://app/index.html');
+                }}
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-kin-surface hover:bg-kin-cardHover text-purple-400 text-xs font-semibold border border-purple-500/30 transition cursor-pointer"
+                title="Preview ui:// MCP App in sandboxed iframe"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>MCP App</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleStartGitHubDeviceFlow}
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-kin-surface hover:bg-kin-cardHover text-kin-text text-xs font-semibold border border-kin-border transition cursor-pointer"
+              title="Sign in with GitHub Device Flow"
+            >
+              <Shield className="w-3.5 h-3.5 text-emerald-400" />
+              <span>GitHub SSO</span>
             </button>
             <button
               type="button"
@@ -1709,6 +1841,150 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
       )}
 
       {/* Claude Desktop / Claude Code JSON Import/Export Modal */}
+      {/* Pending MCP Elicitations & GitHub Device Flow Prompt */}
+      {deviceFlowPrompt && (
+        <div className="p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/40 flex items-center justify-between gap-4">
+          <div className="text-xs text-kin-text">
+            Enter code <code className="px-2 py-0.5 rounded bg-black/40 font-mono text-emerald-300 font-bold">{deviceFlowPrompt.user_code}</code> at{' '}
+            <span className="text-cyan-400 underline">{deviceFlowPrompt.verification_uri}</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const res = await fetch('/api/oauth/github/device/poll', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ deviceCode: deviceFlowPrompt.device_code }),
+                  });
+                  const d = await res.json().catch(() => ({}));
+                  if (res.ok && d?.access_token) {
+                    addToast('GitHub Device Flow authorized!', 'success');
+                    setDeviceFlowPrompt(null);
+                  } else {
+                    addToast(d?.error_description || d?.error || `Waiting for authorization (HTTP ${res.status})...`, 'info');
+                  }
+                } catch {
+                  addToast('Failed to poll GitHub Device Flow status', 'error');
+                }
+              }}
+              className="px-3 py-1 rounded bg-emerald-600 text-white text-xs font-semibold cursor-pointer"
+            >
+              Verify Login
+            </button>
+            <button type="button" onClick={() => setDeviceFlowPrompt(null)} className="text-kin-muted hover:text-kin-text cursor-pointer">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {pendingElicitations.length > 0 && (
+        <div className="p-4 rounded-xl bg-amber-950/20 border border-amber-500/40 space-y-2">
+          <div className="text-xs font-bold text-amber-300">Pending MCP Elicitations</div>
+          {pendingElicitations.map((elicit) => (
+            <div key={elicit.id} className="p-2.5 rounded-lg bg-kin-surface border border-kin-border flex items-center justify-between gap-2">
+              <div className="text-xs text-kin-text">
+                <strong className="text-cyan-400">{elicit.serverName}</strong>: {elicit.params?.message || 'Input requested'}
+              </div>
+              <div className="flex items-center space-x-1.5">
+                <button type="button" onClick={() => handleRespondElicitation(elicit.id, 'accept')} className="px-2 py-1 rounded bg-emerald-600 text-white text-[11px] font-semibold cursor-pointer">Accept</button>
+                <button type="button" onClick={() => handleRespondElicitation(elicit.id, 'decline')} className="px-2 py-1 rounded bg-kin-card border border-kin-border text-kin-muted text-[11px] font-semibold cursor-pointer">Decline</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Official MCP Registry Search Results */}
+      {registryResults.length > 0 && (
+        <div className="p-4 rounded-xl bg-kin-card border border-cyan-500/30 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-xs font-bold text-cyan-400">Official MCP Registry</div>
+            <div className="flex items-center space-x-2">
+              <input
+                type="text"
+                value={registryQuery}
+                onChange={(e) => setRegistryQuery(e.target.value)}
+                placeholder="Filter registry..."
+                className="bg-kin-surface border border-kin-border rounded px-2 py-1 text-xs text-kin-text"
+              />
+              <button
+                type="button"
+                onClick={handleSearchRegistry}
+                className="px-2.5 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-xs text-white font-semibold cursor-pointer"
+              >
+                Search
+              </button>
+              <button
+                type="button"
+                onClick={() => setRegistryResults([])}
+                className="text-kin-muted hover:text-kin-text cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+            {registryResults.slice(0, 8).map((srv: any, idx: number) => (
+              <div key={srv?.name || idx} className="p-2.5 rounded-lg bg-kin-surface border border-kin-border flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold text-kin-text truncate">{srv?.name || 'MCP Server'}</div>
+                  <div className="text-[11px] text-kin-muted truncate">{srv?.description || ''}</div>
+                </div>
+                {srv?.url && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const res = await saveMcpConnector({
+                        name: String(srv.name || `reg-${idx}`).replace(/[^a-zA-Z0-9_-]/g, '-'),
+                        scope: 'project',
+                        config: { url: srv.url },
+                      });
+                      if (res?.success) {
+                        addToast(`Installed MCP connector '${srv.name}'`, 'success');
+                      } else {
+                        addToast(res?.error || `Failed to install '${srv.name}'`, 'error');
+                      }
+                    }}
+                    className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-[11px] text-white font-semibold shrink-0 cursor-pointer"
+                  >
+                    Install
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Sandboxed ui:// MCP App Preview Modal */}
+      {mcpAppPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-3xl rounded-2xl bg-kin-surface border border-kin-border overflow-hidden shadow-2xl">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-kin-border">
+              <div className="text-xs font-bold text-kin-text">
+                MCP App: <span className="text-cyan-400 font-mono">{mcpAppPreview.server}</span> ({mcpAppPreview.uri})
+              </div>
+              <button
+                type="button"
+                onClick={() => setMcpAppPreview(null)}
+                className="text-kin-muted hover:text-kin-text cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <iframe
+              title={`MCP App ${mcpAppPreview.uri}`}
+              sandbox="allow-scripts"
+              srcDoc={mcpAppPreview.html}
+              className="w-full h-[460px] bg-white border-0"
+            />
+          </div>
+        </div>
+      )}
+
       {isJsonModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="bg-kin-surface border border-kin-border rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col text-kin-text">

@@ -750,7 +750,8 @@ describe('R1: Adversarial Concurrency & Stress Testing Suite', () => {
       const rows = db.query<{ id: number }>('SELECT id FROM event_journal ORDER BY id ASC');
       const targetRowId = rows[7].id;
 
-      // Tamper directly with the payload JSON of row index 7
+      // Tamper directly with the payload JSON of row index 7 (simulates offline SQLite file tampering)
+      db.execute('DROP TRIGGER IF EXISTS trg_event_journal_prevent_update');
       db.execute(
         `UPDATE event_journal SET payload_json = '{"tampered":true,"forged":1}' WHERE id = ?`,
         targetRowId
@@ -776,7 +777,8 @@ describe('R1: Adversarial Concurrency & Stress Testing Suite', () => {
       const rows = db.query<{ id: number }>('SELECT id FROM event_journal ORDER BY id ASC');
       const targetRowId = rows[5].id;
 
-      // Corrupt prev_hash of row index 5
+      // Corrupt prev_hash of row index 5 (simulates offline SQLite file tampering)
+      db.execute('DROP TRIGGER IF EXISTS trg_event_journal_prevent_update');
       db.execute(
         `UPDATE event_journal SET prev_hash = 'tampered_previous_hash_0000000000000000' WHERE id = ?`,
         targetRowId

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useKinStore } from '../store/kinStore.js';
-import { ProviderIcon } from './ModelSelectorModal.js';
+import { requestConfirmation } from './ConfirmDialog.js';
+import { ProviderIcon } from './ProviderIcon.js';
 import {
   X,
   Settings,
@@ -71,7 +73,45 @@ export const SettingsModal: React.FC = () => {
     activeSettingsTab: activeTab,
     setActiveSettingsTab: setActiveTab,
     addToast,
-  } = useKinStore();
+  } = useKinStore(
+    useShallow((s) => ({
+      isSettingsModalOpen: s.isSettingsModalOpen,
+      setSettingsModalOpen: s.setSettingsModalOpen,
+      setConnectorsModalOpen: s.setConnectorsModalOpen,
+      mcpConnectors: s.mcpConnectors,
+      autonomyMode: s.autonomyMode,
+      setAutonomyMode: s.setAutonomyMode,
+      ollamaStatus: s.ollamaStatus,
+      startOllama: s.startOllama,
+      activeProject: s.activeProject,
+      projectAnalytics: s.projectAnalytics,
+      sidebarWidth: s.sidebarWidth,
+      setSidebarWidth: s.setSidebarWidth,
+      inspectorWidth: s.inspectorWidth,
+      setInspectorWidth: s.setInspectorWidth,
+      resetPanelWidths: s.resetPanelWidths,
+      agents: s.agents,
+      setActiveRightTab: s.setActiveRightTab,
+      setActiveInspectorTab: s.setActiveInspectorTab,
+      credentials: s.credentials,
+      fetchCredentials: s.fetchCredentials,
+      availableModels: s.availableModels,
+      fetchAvailableModels: s.fetchAvailableModels,
+      isLoadingModels: s.isLoadingModels,
+      providerReadiness: s.providerReadiness,
+      verifyProviderKey: s.verifyProviderKey,
+      addCustomModel: s.addCustomModel,
+      setSkillsModalOpen: s.setSkillsModalOpen,
+      setSwarmMapOpen: s.setSwarmMapOpen,
+      setDesktopControlModalOpen: s.setDesktopControlModalOpen,
+      browserStatus: s.browserStatus,
+      theme: s.theme,
+      setTheme: s.setTheme,
+      activeSettingsTab: s.activeSettingsTab,
+      setActiveSettingsTab: s.setActiveSettingsTab,
+      addToast: s.addToast,
+    }))
+  );
 
   const [isQueryingModels, setIsQueryingModels] = useState(false);
   const [vacuumStatus, setVacuumStatus] = useState<string | null>(null);
@@ -194,10 +234,10 @@ export const SettingsModal: React.FC = () => {
     }
   };
 
-  // Close on Escape key
+  // Close on Escape key (unless a ConfirmDialog is open above it)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isSettingsModalOpen) {
+      if (e.key === 'Escape' && isSettingsModalOpen && !useKinStore.getState().confirmDialog?.isOpen) {
         setSettingsModalOpen(false);
       }
     };
@@ -260,7 +300,9 @@ export const SettingsModal: React.FC = () => {
             </div>
           </div>
           <button
+            type="button"
             onClick={() => setSettingsModalOpen(false)}
+            aria-label="Close Settings"
             className="p-1.5 rounded-lg hover:bg-kin-cardHover text-kin-muted hover:text-kin-text transition cursor-pointer"
             title="Close Settings (Esc)"
           >
@@ -271,7 +313,7 @@ export const SettingsModal: React.FC = () => {
         {/* Modal Body with Left Navigation & Right Content */}
         <div className="flex flex-1 overflow-hidden min-h-[420px]">
           {/* Settings Left Tabs Sidebar */}
-          <div className="w-52 border-r border-kin-border bg-kin-card p-3 flex flex-col space-y-1 shrink-0 select-none">
+          <div role="tablist" aria-label="Settings sections" className="w-52 border-r border-kin-border bg-kin-card p-3 flex flex-col space-y-1 shrink-0 select-none">
             <button
               onClick={() => setActiveTab('general')}
               className={`flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-medium transition text-left ${
@@ -1464,6 +1506,87 @@ export const SettingsModal: React.FC = () => {
                       {vacuumStatus}
                     </div>
                   )}
+                  <div className="pt-2 border-t border-kin-border flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-[11px] text-kin-muted">
+                      Download a consistent SQLite snapshot or restore from a backup file.
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const res = await fetch('/api/system/backup');
+                            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                            const blob = await res.blob();
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `kin-backup-${new Date().toISOString().slice(0, 10)}.sqlite`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                            addToast('SQLite backup downloaded.', 'success');
+                          } catch (err: any) {
+                            addToast(`Backup failed: ${err?.message || 'error'}`, 'error');
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-semibold transition"
+                      >
+                        Download Backup
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isOptimizing}
+                        onClick={() => {
+                          const input = document.getElementById('kin-restore-file-input') as HTMLInputElement | null;
+                          input?.click();
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-xs font-semibold transition disabled:opacity-50"
+                      >
+                        Restore Snapshot
+                      </button>
+                      <input
+                        id="kin-restore-file-input"
+                        type="file"
+                        accept=".sqlite,.db"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          e.target.value = '';
+                          if (!file) return;
+                          const confirmed = await requestConfirmation({
+                            title: 'Stage SQLite Backup Restore?',
+                            message: `Replace active KIN database on next restart with "${file.name}" (${(file.size / 1024).toFixed(1)} KB)?`,
+                            confirmLabel: 'Stage Restore',
+                            variant: 'warning',
+                          });
+                          if (!confirmed) return;
+                          setIsOptimizing(true);
+                          setVacuumStatus('Validating & staging SQLite snapshot...');
+                          try {
+                            const buf = await file.arrayBuffer();
+                            const res = await fetch('/api/system/restore', {
+                              method: 'POST',
+                              headers: {
+                                'Content-Type': 'application/octet-stream',
+                                'x-kin-restore': '1',
+                              },
+                              body: buf,
+                            });
+                            const data = await res.json().catch(() => ({}));
+                            if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+                            setVacuumStatus(data.message || 'Backup verified and staged for next restart.');
+                            addToast('Backup verified and staged. Restart KIN to apply.', 'success');
+                          } catch (err: any) {
+                            const msg = err?.message || 'error';
+                            setVacuumStatus(`Restore failed: ${msg}`);
+                            addToast(`Restore failed: ${msg}`, 'error');
+                          } finally {
+                            setIsOptimizing(false);
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

@@ -90,7 +90,7 @@ describe('KIN Phase 1/3: Agent Kernel Lifecycle, Heartbeats, Quotas & Policy Eng
     expect(recovered).toContain(run.id);
 
     const recoveredRun = kernel.getRun(run.id);
-    expect(recoveredRun?.state).toBe('recovering');
+    expect(recoveredRun?.state).toBe('resuming');
   });
 
   it('enforces hard swarm quotas (max delegation depth = 3 and max concurrent runs = 8)', () => {

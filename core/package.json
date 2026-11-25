@@ -6,9 +6,12 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "tsc && node -e \"import('node:fs').then(fs => { fs.mkdirSync('dist/storage', {recursive:true}); fs.copyFileSync('src/storage/schema.sql', 'dist/storage/schema.sql'); })\"",
+    "build": "node scripts/sync_schema_sql.mjs && tsc && node -e \"import('node:fs').then(fs => { fs.mkdirSync('dist/storage', {recursive:true}); fs.copyFileSync('src/storage/schema.sql', 'dist/storage/schema.sql'); })\"",
     "dev": "tsc -w",
     "daemon": "node dist/start_daemon.js",
     "package:binary": "node scripts/package_binary.js",
@@ -17,7 +20,10 @@
     "test:e2e": "vitest run test/e2e_browser_app.test.ts test/e2e_18_layer_production_verification.test.ts test/e2e_production_harness.test.ts --fileParallelism=false --pool=threads"
   },
   "dependencies": {
+    "@jitl/quickjs-singlefile-cjs-release-sync": "^0.32.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "puppeteer-core": "^25.12.0",
+    "quickjs-emscripten-core": "^0.32.0",
     "uuid": "^11.1.0"
   },
   "devDependencies": {

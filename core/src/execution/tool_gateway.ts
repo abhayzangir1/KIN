@@ -21,16 +21,20 @@ import { PolicyEngine } from '../policy/policy_engine.js';
 import { SchedulerService } from '../automation/scheduler.js';
 import { ToolDefinitionSchema } from '../context/context_compiler.js';
 import { KinDatabase } from '../storage/db.js';
+import { isSensitivePattern as sharedIsSensitivePattern } from '../security/path_jail.js';
 import { ComputerSupervisor } from '../computer/computer_supervisor.js';
 import { SkillEngine } from '../skills/skill_engine.js';
 import { ToolEngine } from './tool_engine.js';
+import { LspManager } from './lsp_manager.js';
 import { McpClientManager } from './mcp_client.js';
 import { Sentinel } from '../security/sentinel.js';
+import { HookRegistry } from '../policy/hook_registry.js';
 import { SecretBroker } from '../security/secret_broker.js';
 import { ExecutionNodeRouter, ExecutionNodeInfo } from './execution_node.js';
 import { EventLedger } from '../security/event_ledger.js';
 import { OutputSpiller } from '../context/output_spiller.js';
 import { DynamicHiringService, HiringProposal } from '../kernel/dynamic_hiring.js';
+import { parseUnifiedDiff } from '../domain/diff_parser.js';
 
 export { DynamicHiringService, HiringProposal };
 
@@ -111,6 +115,7 @@ export interface ToolExecutionContext {
   expectedHash?: string;
   forceWrite?: boolean;
   approvalToken?: string;
+  stepKey?: string;
 }
 
 export interface ToolInvocationResult<T = unknown> {
@@ -500,6 +505,18 @@ export class ToolGateway {
         },
       },
       {
+        name: 'execute_code',
+        description: 'Run sandboxed JavaScript inside QuickJS-WASM with programmatic tool calling via await callTool(name, args).',
+        parameters: {
+          type: 'object',
+          properties: {
+            code: { type: 'string', description: 'JavaScript body or module.exports function to execute inside QuickJS-WASM' },
+            timeoutMs: { type: 'number', description: 'Timeout in milliseconds (default: 15000, max: 60000)' },
+          },
+          required: ['code'],
+        },
+      },
+      {
         name: 'schedule',
         description: 'Schedule a durable one-shot wakeup timer or recurring routine for non-blocking agent sleep.',
         parameters: {
@@ -536,178 +553,129 @@ export class ToolGateway {
         },
       },
       {
-        name: 'desktopScreenshot',
-        description: 'Capture screenshot of the desktop screen for visual computer-use inspection.',
+        name: 'computer',
+        description: 'Unified desktop GUI control tool: capture screenshots, move/click mouse, type text, send keys, or list/focus/close windows.',
         parameters: {
           type: 'object',
           properties: {
-            targetDisplay: { type: 'number', description: 'Display index (default: 0)' },
-          },
-        },
-      },
-      {
-        name: 'desktopMouseMove',
-        description: 'Move mouse cursor to absolute screen coordinates.',
-        parameters: {
-          type: 'object',
-          properties: {
-            x: { type: 'number', description: 'X pixel coordinate' },
-            y: { type: 'number', description: 'Y pixel coordinate' },
-          },
-          required: ['x', 'y'],
-        },
-      },
-      {
-        name: 'desktopMouseClick',
-        description: 'Click mouse button at specified screen coordinates.',
-        parameters: {
-          type: 'object',
-          properties: {
-            x: { type: 'number', description: 'X pixel coordinate' },
-            y: { type: 'number', description: 'Y pixel coordinate' },
-            button: { type: 'string', enum: ['left', 'right', 'middle'], description: 'Mouse button to click' },
-          },
-          required: ['x', 'y'],
-        },
-      },
-      {
-        name: 'desktopType',
-        description: 'Type text into active desktop window with keyboard simulation.',
-        parameters: {
-          type: 'object',
-          properties: {
-            text: { type: 'string', description: 'Text string to type' },
-          },
-          required: ['text'],
-        },
-      },
-      {
-        name: 'browserNavigate',
-        description: 'Navigate headless/interactive Chromium browser to URL.',
-        parameters: {
-          type: 'object',
-          properties: {
-            url: { type: 'string', description: 'Complete web URL to navigate to' },
-          },
-          required: ['url'],
-        },
-      },
-      {
-        name: 'browserClick',
-        description: 'Click an element matching CSS selector on current web page.',
-        parameters: {
-          type: 'object',
-          properties: {
-            selector: { type: 'string', description: 'CSS selector of the element' },
-          },
-          required: ['selector'],
-        },
-      },
-      {
-        name: 'browserInspect',
-        description: 'Inspect active browser page URL, title, and interactive DOM elements.',
-        parameters: {
-          type: 'object',
-          properties: {
-            detailed: { type: 'boolean', description: 'Whether to include full interactive element inventory' },
-          },
-        },
-      },
-      {
-        name: 'desktopListWindows',
-        description: 'List active desktop application windows with their titles and process IDs.',
-        parameters: {
-          type: 'object',
-          properties: {},
-        },
-      },
-      {
-        name: 'desktopFocusWindow',
-        description: 'Bring a specific desktop application window into focus by title or process ID.',
-        parameters: {
-          type: 'object',
-          properties: {
-            titleOrPid: { type: 'string', description: 'Window title substring or process ID' },
-          },
-          required: ['titleOrPid'],
-        },
-      },
-      {
-        name: 'desktopCloseWindow',
-        description: 'Close a desktop application window by title or process ID.',
-        parameters: {
-          type: 'object',
-          properties: {
-            titleOrPid: { type: 'string', description: 'Window title substring or process ID' },
-          },
-          required: ['titleOrPid'],
-        },
-      },
-      {
-        name: 'desktopSendKey',
-        description: 'Send special keyboard key press or shortcut combination to the active window.',
-        parameters: {
-          type: 'object',
-          properties: {
-            key: { type: 'string', description: 'Key name (e.g. Enter, Escape, Tab, Backspace)' },
-            modifiers: { type: 'array', items: { type: 'string' }, description: 'Modifier keys' },
-          },
-          required: ['key'],
-        },
-      },
-      {
-        name: 'browserType',
-        description: 'Type text into an input field matching CSS selector in active browser.',
-        parameters: {
-          type: 'object',
-          properties: {
-            selector: { type: 'string', description: 'CSS selector of the input element' },
+            action: {
+              type: 'string',
+              enum: ['screenshot', 'mouse_move', 'mouse_click', 'type', 'send_key', 'list_windows', 'focus_window', 'close_window'],
+              description: 'Desktop GUI action to perform',
+            },
+            x: { type: 'number', description: 'X coordinate for mouse_move/mouse_click' },
+            y: { type: 'number', description: 'Y coordinate for mouse_move/mouse_click' },
+            button: { type: 'string', enum: ['left', 'right', 'middle'], description: 'Mouse button' },
             text: { type: 'string', description: 'Text to type' },
-            clear: { type: 'boolean', description: 'Whether to clear input before typing' },
-          },
-          required: ['selector', 'text'],
-        },
-      },
-      {
-        name: 'browserScreenshot',
-        description: 'Capture screenshot of the currently active browser page.',
-        parameters: {
-          type: 'object',
-          properties: {},
-        },
-      },
-      {
-        name: 'browserEvaluate',
-        description: 'Evaluate JavaScript expression in active browser page context.',
-        parameters: {
-          type: 'object',
-          properties: {
-            script: { type: 'string', description: 'JavaScript code to execute in page context' },
-          },
-          required: ['script'],
-        },
-      },
-      {
-        name: 'browserStep',
-        description: 'Execute an atomic web automation step in browser session.',
-        parameters: {
-          type: 'object',
-          properties: {
-            action: { type: 'string', enum: ['navigate', 'click', 'type', 'screenshot', 'evaluate', 'extract'], description: 'Action type' },
-            url: { type: 'string', description: 'URL for navigate action' },
-            selector: { type: 'string', description: 'CSS selector for element interaction' },
-            text: { type: 'string', description: 'Text to type' },
-            script: { type: 'string', description: 'JavaScript to evaluate' },
+            key: { type: 'string', description: 'Key name for send_key' },
+            modifiers: { type: 'array', items: { type: 'string' }, description: 'Modifier keys for send_key' },
+            titleOrPid: { type: 'string', description: 'Window title substring or PID for focus_window/close_window' },
+            targetDisplay: { type: 'number', description: 'Display index for screenshot' },
           },
           required: ['action'],
         },
       },
       {
-        name: 'browserClose',
-        description: 'Close active browser session.',
+        name: 'browser',
+        description: 'Unified headless/interactive browser automation tool: navigate, click, type, inspect DOM, screenshot, evaluate JS, step, close, or status.',
         parameters: {
           type: 'object',
-          properties: {},
+          properties: {
+            action: {
+              type: 'string',
+              enum: ['navigate', 'click', 'type', 'inspect', 'screenshot', 'evaluate', 'step', 'close', 'status'],
+              description: 'Browser action to perform',
+            },
+            stepAction: {
+              type: 'string',
+              enum: ['navigate', 'click', 'type', 'screenshot', 'evaluate', 'extract'],
+              description: 'Sub-action when action="step"',
+            },
+            url: { type: 'string', description: 'Target URL' },
+            selector: { type: 'string', description: 'CSS selector' },
+            text: { type: 'string', description: 'Text to type' },
+            clear: { type: 'boolean', description: 'Clear input before typing' },
+            script: { type: 'string', description: 'JavaScript expression for evaluate' },
+          },
+          required: ['action'],
+        },
+      },
+      {
+        name: 'editFile',
+        description: 'Surgical file edit using exact search-and-replace (target + replacement) or a standard unified diff.',
+        parameters: {
+          type: 'object',
+          properties: {
+            filePath: { type: 'string', description: 'Relative path to file inside project workspace' },
+            target: { type: 'string', description: 'Exact existing block of text to replace' },
+            replacement: { type: 'string', description: 'Replacement text' },
+            unifiedDiff: { type: 'string', description: 'Optional unified diff string instead of target/replacement' },
+            expectedHash: { type: 'string', description: 'Optional SHA-256 OCC hash' },
+          },
+          required: ['filePath'],
+        },
+      },
+      {
+        name: 'grep',
+        description: 'Fast literal or regex text search across files in the project workspace.',
+        parameters: {
+          type: 'object',
+          properties: {
+            pattern: { type: 'string', description: 'Regex or literal pattern to search for' },
+            path: { type: 'string', description: 'Optional relative subdirectory or file (default: ".")' },
+            isRegex: { type: 'boolean', description: 'Treat pattern as regular expression (default: false)' },
+            maxResults: { type: 'number', description: 'Maximum matching lines to return (default: 50)' },
+          },
+          required: ['pattern'],
+        },
+      },
+      {
+        name: 'glob',
+        description: 'Fast file path pattern search inside the project workspace (e.g. "**/*.ts", "src/*.tsx").',
+        parameters: {
+          type: 'object',
+          properties: {
+            pattern: { type: 'string', description: 'Glob pattern to match workspace files' },
+            maxResults: { type: 'number', description: 'Maximum file paths to return (default: 100)' },
+          },
+          required: ['pattern'],
+        },
+      },
+      {
+        name: 'load_skill',
+        description: 'Progressively load a procedural skill (L0 catalog summary, L1 instructions, or L2 full scripts/handler).',
+        parameters: {
+          type: 'object',
+          properties: {
+            nameOrId: { type: 'string', description: 'Skill name or ID (omit when level="L0" to list catalog)' },
+            level: { type: 'string', enum: ['L0', 'L1', 'L2'], description: 'Detail level to load (default: L1)' },
+          },
+        },
+      },
+      {
+        name: 'run_workflow',
+        description: 'Execute a bounded multi-step tool workflow DAG inside this run with step_key idempotency.',
+        parameters: {
+          type: 'object',
+          properties: {
+            steps: {
+              type: 'array',
+              description: 'Ordered workflow steps: [{ id, toolName, params }]',
+              items: { type: 'object' },
+            },
+          },
+          required: ['steps'],
+        },
+      },
+      {
+        name: 'awaitBoardWakeup',
+        description: 'Park or check for a board/channel wakeup condition without busy-polling.',
+        parameters: {
+          type: 'object',
+          properties: {
+            channelId: { type: 'string', description: 'Channel ID to monitor for new messages' },
+            mentionsOnly: { type: 'boolean', description: 'Only wake on direct @mentions (default: true)' },
+          },
         },
       },
       {
@@ -761,6 +729,7 @@ export class ToolGateway {
             directive: { type: 'string', description: 'Actionable instructions or question for the peer agent' },
             channelId: { type: 'string', description: 'Optional target channel ID' },
             isPrivate: { type: 'boolean', description: 'True if delegating via private 1-on-1 direct message' },
+            isolated: { type: 'boolean', description: 'True to run as an isolated subagent without polluting the main channel' },
           },
           required: ['targetAgent', 'directive'],
         },
@@ -1107,6 +1076,40 @@ export class ToolGateway {
   }
 
   /**
+   * Returns a compact <= 22 base toolset for LLM context efficiency while keeping
+   * extended tools discoverable via search_tools and dynamic skill__/mcp__ tools active.
+   */
+  public getCompactToolSchemas(): ToolDefinitionSchema[] {
+    const CORE_TOOL_NAMES = new Set([
+      'readFile',
+      'writeFile',
+      'editFile',
+      'listDirectory',
+      'grep',
+      'glob',
+      'executeShell',
+      'computer',
+      'browser',
+      'fetchUrl',
+      'webSearch',
+      'sendExternalMessage',
+      'schedule',
+      'delegateToAgent',
+      'rememberProject',
+      'recallChannel',
+      'load_skill',
+      'read_spill',
+      'search_tools',
+      'mcp_call',
+      'run_workflow',
+      'awaitBoardWakeup',
+    ]);
+    return this.getToolSchemas().filter(
+      (s) => CORE_TOOL_NAMES.has(s.name) || s.name.startsWith('skill__') || s.name.startsWith('mcp__') || s.name.startsWith('custom__')
+    );
+  }
+
+  /**
    * Maps every tool to its discrete capability tag and recognized aliases.
    */
   public getRequiredCapability(toolName: string): { primary: string; aliases: string[] } {
@@ -1181,11 +1184,27 @@ export class ToolGateway {
       case 'workspace_tree':
       case 'workspaceTree':
       case 'tree':
-        return { primary: 'fs:read', aliases: ['fs:read', 'fs_read', 'read', 'fs', 'read_spill', 'readSpill', 'readFile', 'read_file', 'listDirectory', 'list_directory', 'workspace_tree', 'workspaceTree', 'tree'] };
+      case 'grep':
+      case 'glob':
+        return { primary: 'fs:read', aliases: ['fs:read', 'fs_read', 'read', 'fs', 'read_spill', 'readSpill', 'readFile', 'read_file', 'listDirectory', 'list_directory', 'workspace_tree', 'workspaceTree', 'tree', 'grep', 'glob'] };
 
       case 'writeFile':
       case 'write_file':
-        return { primary: 'fs:write', aliases: ['fs:write', 'fs_write', 'write', 'fs', 'writeFile', 'write_file'] };
+      case 'editFile':
+      case 'edit_file':
+        return { primary: 'fs:write', aliases: ['fs:write', 'fs_write', 'write', 'fs', 'writeFile', 'write_file', 'editFile', 'edit_file'] };
+
+      case 'load_skill':
+      case 'loadSkill':
+        return { primary: 'skills:manage', aliases: ['skills:manage', 'skills', 'skill', 'fs:read', '*'] };
+
+      case 'run_workflow':
+      case 'runWorkflow':
+        return { primary: 'agent:delegate', aliases: ['agent:delegate', 'agent:coordinate', 'delegate', '*'] };
+
+      case 'awaitBoardWakeup':
+      case 'await_board_wakeup':
+        return { primary: 'agent:coordinate', aliases: ['agent:coordinate', 'communication:channel', 'channel_post', '*'] };
 
       case 'executeShell':
       case 'shell':
@@ -1322,9 +1341,13 @@ export class ToolGateway {
         outputSnippet = result.error.slice(0, 1000);
       }
 
+      const idempotencyJson = (status === 'success' && context.stepKey)
+        ? JSON.stringify(SecretBroker.getInstance().sanitizePayload(result))
+        : null;
+
       this.db.execute(
-        `INSERT INTO action_records (id, run_id, agent_id, tool_name, params_json, output_snippet, status, duration_ms, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO action_records (id, run_id, agent_id, tool_name, params_json, output_snippet, status, duration_ms, step_key, idempotency_result_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
         context.runId || null,
         context.agentId || 'system',
@@ -1333,6 +1356,8 @@ export class ToolGateway {
         outputSnippet || null,
         status,
         durationMs,
+        context.stepKey || null,
+        idempotencyJson,
         Date.now()
       );
     } catch (err) {
@@ -1422,6 +1447,22 @@ export class ToolGateway {
       return res;
     }
 
+    // 0b. Step Journal Idempotency Check (replay previously succeeded step_key without re-running side effects)
+    if (context.stepKey && context.runId && this.db) {
+      const prior = this.db.queryOne<{ idempotency_result_json: string | null }>(
+        `SELECT idempotency_result_json FROM action_records WHERE run_id = ? AND step_key = ? AND status = 'success' LIMIT 1`,
+        context.runId,
+        context.stepKey
+      );
+      if (prior?.idempotency_result_json) {
+        try {
+          return JSON.parse(prior.idempotency_result_json) as ToolInvocationResult<T>;
+        } catch {
+          // Fall through if cached payload is unparseable
+        }
+      }
+    }
+
     // 1. Sentinel Authoritative Evaluation (fail-closed capabilities, destructive action detection, approval tokens, secret resolution)
     let effectiveCapabilities = context.allowedCapabilities;
     if (!effectiveCapabilities) {
@@ -1478,6 +1519,27 @@ export class ToolGateway {
 
     const effectiveParams = sentinelResult.sanitizedParams || params;
 
+    // 1b. Deterministic PreToolUse hooks on mutating/shell tools (or matching hooks)
+    const hookRegistry = HookRegistry.getInstance();
+    if (HookRegistry.isMutatingOrShellTool(toolName)) {
+      const preHook = await hookRegistry.runHooks('PreToolUse', {
+        repoRoot: context.worktreeRoot,
+        toolName,
+        params: effectiveParams,
+        runId: context.runId,
+        agentId: context.agentId,
+      });
+      if (!preHook.allowed) {
+        const res: ToolInvocationResult<T> = {
+          success: false,
+          riskLevel: risk,
+          error: preHook.reason || `Blocked by PreToolUse hook.`,
+        };
+        this.recordActionRecord(context, toolName, params, res, 'failure', Date.now() - startTime);
+        return res;
+      }
+    }
+
     // 2. Execution Node Routing with Honest Degradation Reporting
     const router = ExecutionNodeRouter.getInstance();
     const node = router.getNodeForTool(toolName, true);
@@ -1503,6 +1565,36 @@ export class ToolGateway {
         rawResult.output = sentinel.sanitizeObservation(rawResult.output) as unknown as T;
       } else if (rawResult.output && typeof rawResult.output === 'object') {
         rawResult.output = SecretBroker.getInstance().sanitizePayload(rawResult.output);
+      }
+
+      // 3b. Mark run tainted if tool ingested external web or MCP content
+      if (
+        rawResult.success &&
+        context.runId &&
+        (toolName.startsWith('mcp__') ||
+          toolName === 'fetchUrl' ||
+          toolName === 'fetch_url' ||
+          toolName === 'webSearch' ||
+          toolName === 'web_search' ||
+          toolName === 'browser' ||
+          toolName === 'browserNavigate' ||
+          toolName === 'browserInspect' ||
+          toolName === 'browserEvaluate' ||
+          toolName === 'browserStep')
+      ) {
+        sentinel.markRunTainted(context.runId, toolName);
+      }
+
+      // 3c. Deterministic PostToolUse hooks on mutating/shell tools
+      if (HookRegistry.isMutatingOrShellTool(toolName)) {
+        await hookRegistry.runHooks('PostToolUse', {
+          repoRoot: context.worktreeRoot,
+          toolName,
+          params: effectiveParams,
+          result: { success: rawResult.success, error: rawResult.error },
+          runId: context.runId,
+          agentId: context.agentId,
+        });
       }
 
       const durationMs = Date.now() - startTime;
@@ -1691,11 +1783,15 @@ export class ToolGateway {
 
         case 'search_tools':
         case 'searchTools': {
-          const q = (params.query || '').toLowerCase();
+          const rawQ = String(params.query || '').trim().toLowerCase();
+          const tokens = rawQ.split(/\s+/).filter(Boolean);
           const allTools = this.getToolSchemas();
-          const matched = allTools.filter(
-            (t) => t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q)
-          );
+          const matched = tokens.length === 0
+            ? allTools
+            : allTools.filter((t) => {
+                const hay = `${t.name} ${t.description}`.toLowerCase();
+                return tokens.every((tok) => hay.includes(tok));
+              });
           return {
             success: true,
             output: {
@@ -1942,7 +2038,16 @@ export class ToolGateway {
           const bytesWritten = typeof params.content === 'string'
             ? Buffer.byteLength(params.content, encoding)
             : Buffer.isBuffer(params.content) ? params.content.length : 0;
-          return { success: true, output: { bytesWritten } as T, riskLevel: risk };
+          const absWritten = this.resolveJailedPath(targetPath, context.worktreeRoot);
+          const lspCheck = await LspManager.getInstance().getDiagnosticsForFile(absWritten, context.worktreeRoot);
+          return {
+            success: true,
+            output: {
+              bytesWritten,
+              ...(lspCheck.diagnostics.length > 0 ? { diagnostics: lspCheck.diagnostics } : {}),
+            } as T,
+            riskLevel: risk,
+          };
         }
 
         case 'workspace_tree':
@@ -1990,6 +2095,34 @@ export class ToolGateway {
           } finally {
             if (releaseSlot) releaseSlot();
           }
+        }
+
+        case 'execute_code': {
+          const code = String(params.code || params.script || '');
+          if (!code.trim()) throw new Error("execute_code requires 'code' parameter");
+          const { runQuickJSWorker } = await import('./worker_quickjs.js');
+          const res = await runQuickJSWorker({
+            handlerCode: code,
+            params: params.params || {},
+            context: { agentId: context.agentId, projectId: context.projectId, channelId: context.channelId },
+            timeoutMs: typeof params.timeoutMs === 'number' ? params.timeoutMs : 15000,
+            maxMemoryMb: 64,
+            enableCallTool: true,
+            onToolCall: async (name, args) => {
+              if (name === 'execute_code') {
+                throw new Error('Recursive execute_code calls are not permitted.');
+              }
+              const nested = await this.executeTool(name, args, { ...context, stepKey: undefined });
+              if (!nested.success) {
+                throw new Error(nested.error || `Tool '${name}' failed`);
+              }
+              return nested.output;
+            },
+          });
+          if (!res.success) {
+            return { success: false, error: res.error || 'execute_code failed', riskLevel: risk };
+          }
+          return { success: true, output: { result: res.output, logs: res.logs || [] } as T, riskLevel: risk };
         }
 
         // Timed Autonomy & Self-Awakening Scheduler
@@ -2095,7 +2228,8 @@ export class ToolGateway {
               });
             }
             case 'left_click':
-            case 'click': {
+            case 'click':
+            case 'mouse_click': {
               return this.executeWithDesktopLock(context, async () => {
                 let x = params.x;
                 let y = params.y;
@@ -2149,21 +2283,54 @@ export class ToolGateway {
                 return { success: res.success, output: res as T, error: res.error, riskLevel: risk };
               });
             }
-            case 'key': {
+            case 'key':
+            case 'send_key': {
               return this.executeWithDesktopLock(context, async () => {
                 const res = await this.desktopController.sendKey(params.key, params.modifiers || [], context.abortSignal);
                 return { success: res.success, output: res as T, error: res.error, riskLevel: risk };
               });
             }
+            case 'list_windows': {
+              const windows = await this.desktopController.listWindows();
+              return { success: true, output: windows as T, riskLevel: risk };
+            }
+            case 'focus_window': {
+              const target = params.title ?? params.pid ?? params.windowTitle ?? '';
+              const res = await this.desktopController.focusWindow(target, context.abortSignal);
+              return { success: res.success, output: res as T, error: res.error, riskLevel: risk };
+            }
+            case 'close_window': {
+              const target = params.title ?? params.pid ?? params.windowTitle ?? '';
+              const res = await this.desktopController.closeWindow(target, context.abortSignal);
+              return { success: res.success, output: res as T, error: res.error, riskLevel: risk };
+            }
+            case 'inspect_ui': {
+              const res = await this.desktopController.inspectUiTree(params.maxNodes || 40, context.abortSignal);
+              return { success: res.success, output: res as T, error: res.error, riskLevel: risk };
+            }
+            case 'scroll': {
+              return this.executeWithDesktopLock(context, async () => {
+                const res = await this.desktopController.scroll(params.deltaY ?? 0, params.deltaX ?? 0, context.abortSignal);
+                return { success: res.success, output: res as T, error: res.error, riskLevel: risk };
+              });
+            }
+            case 'drag': {
+              return this.executeWithDesktopLock(context, async () => {
+                const res = await this.desktopController.drag(params.fromX, params.fromY, params.toX, params.toY, context.abortSignal);
+                return { success: res.success, output: res as T, error: res.error, riskLevel: risk };
+              });
+            }
             case 'cursor_position': {
+              const res = await this.desktopController.getCursorPosition(context.abortSignal);
               return {
-                success: true,
-                output: { message: 'Cursor position queried' } as T,
+                success: res.success,
+                output: (res.details || res) as T,
+                error: res.error,
                 riskLevel: risk,
               };
             }
-            default:
-              throw new Error(`Unsupported computer action: '${action}'. Expected: screenshot, mouse_move, left_click, right_click, double_click, type, key.`);
+        default:
+              throw new Error(`Unsupported computer action: '${action}'. Expected: screenshot, mouse_move, left_click, mouse_click, right_click, double_click, type, key, send_key, list_windows, focus_window, close_window, inspect_ui, scroll, drag, cursor_position.`);
           }
         }
 
@@ -2209,7 +2376,7 @@ export class ToolGateway {
                 return { success: res.success, output: res as T, error: res.error, riskLevel: risk };
               });
             }
-            default:
+        default:
               throw new Error(`Unsupported application action: '${action}'. Expected: list, launch, list_windows, focus, close.`);
           }
         }
@@ -2228,7 +2395,7 @@ export class ToolGateway {
           switch (action) {
             case 'navigate':
             case 'goto': {
-              const allowLocal = context.allowedCapabilities?.includes('browser:local_files') || params.allowLocalFileNavigation === true;
+              const allowLocal = Boolean(context.allowedCapabilities?.includes('browser:local_files'));
               const res = await bc.navigate(params.url, { allowLocalFileNavigation: allowLocal });
               return { success: true, output: res as T, riskLevel: risk };
             }
@@ -2255,8 +2422,15 @@ export class ToolGateway {
               return { success: true, output: res as T, riskLevel: risk };
             }
             case 'step': {
+              const inferredAction =
+                params.stepAction ||
+                (params.action && params.action !== 'step' ? params.action : undefined) ||
+                (params.url ? 'navigate' : params.script ? 'evaluate' : params.text ? 'type' : (params.selector || params.coordinates) ? 'click' : undefined);
+              if (!inferredAction) {
+                throw new Error("browser action='step' requires 'stepAction' (e.g. navigate, click, type, screenshot, evaluate, extract).");
+              }
               const stepAction: WebStepAction = {
-                action: params.stepAction || params.action,
+                action: inferredAction,
                 url: params.url,
                 selector: params.selector,
                 text: params.text,
@@ -2274,7 +2448,7 @@ export class ToolGateway {
               const status = bc.getStatus();
               return { success: true, output: status as T, riskLevel: risk };
             }
-            default:
+        default:
               throw new Error(`Unsupported browser action: '${action}'. Expected: navigate, click, type, inspect, screenshot, evaluate, step, close, status.`);
           }
         }
@@ -2350,7 +2524,7 @@ export class ToolGateway {
         // Persistent Controllable Browser Sessions
         case 'browserNavigate': {
           const bc = await this.getEffectiveBrowserController(context);
-          const allowLocal = context.allowedCapabilities?.includes('browser:local_files') || params.allowLocalFileNavigation === true;
+          const allowLocal = Boolean(context.allowedCapabilities?.includes('browser:local_files'));
           const res = await bc.navigate(params.url, { allowLocalFileNavigation: allowLocal });
           return { success: true, output: res as T, riskLevel: risk };
         }
@@ -2683,6 +2857,27 @@ export class ToolGateway {
               riskLevel: risk,
             };
           }
+          if (!allowPrivate) {
+            try {
+              const addresses = await dns.promises.lookup(hostname, { all: true });
+              for (const addr of addresses) {
+                if (ToolGateway.isMetadataService(addr.address) || ToolGateway.isSsrfTarget(addr.address)) {
+                  return {
+                    success: false,
+                    error: `SSRF_BLOCKED: Destination '${hostname}' resolves to private/metadata IP '${addr.address}'.`,
+                    riskLevel: risk,
+                  };
+                }
+              }
+            } catch (dnsErr: unknown) {
+              const msg = dnsErr instanceof Error ? dnsErr.message : String(dnsErr);
+              return {
+                success: false,
+                error: `SSRF_BLOCKED: DNS resolution failed for '${hostname}': ${msg}`,
+                riskLevel: risk,
+              };
+            }
+          }
 
           let payload: Record<string, any> = {};
           if (platform === 'discord' || rawUrl.includes('discord.com/api/webhooks')) {
@@ -2727,8 +2922,16 @@ export class ToolGateway {
               },
               body: JSON.stringify(payload),
               signal: controller.signal,
+              redirect: 'manual',
             });
             clearTimeout(timeout);
+            if ([301, 302, 303, 307, 308].includes(res.status)) {
+              return {
+                success: false,
+                error: `SSRF_BLOCKED: Outbound webhook redirect (${res.status}) is prohibited in sendExternalMessage.`,
+                riskLevel: risk,
+              };
+            }
             const status = res.status;
             const respText = await res.text().catch(() => '');
             return {
@@ -2761,11 +2964,13 @@ export class ToolGateway {
           const target = params.targetAgent || params.agentName || params.target || params.agent || params.coworker;
           const directive = params.directive || params.instructions || params.task || params.message || params.instruction;
           const isPrivate = Boolean(
-            params.private ||
-            params.directMessage ||
-            params.isPrivate ||
-            (params.channelId && String(params.channelId).startsWith('dm-')) ||
-            (context.channelId && String(context.channelId).startsWith('dm-') && !params.channelId)
+            !params.isolated && (
+              params.private ||
+              params.directMessage ||
+              params.isPrivate ||
+              (params.channelId && String(params.channelId).startsWith('dm-')) ||
+              (context.channelId && String(context.channelId).startsWith('dm-') && !params.channelId)
+            )
           );
           if (!target || !directive) {
             throw new Error("delegateToAgent requires 'targetAgent' (or 'agent') and 'directive' (or 'instruction') parameters");
@@ -2804,7 +3009,8 @@ export class ToolGateway {
               channelId,
               runId: context.runId,
               projectId: targetProjectId,
-            });
+              ...(params.isolated ? { isolated: true } : {}),
+            } as any);
             return {
               success: true,
               output: {
@@ -3071,6 +3277,13 @@ export class ToolGateway {
             if (params.key) {
               const mem = this.memoryRepo.getMemory('channel', targetChannelId, params.key);
               if (mem) memories = [mem];
+            } else if (params.query) {
+              memories = this.memoryRepo.hybridSearch({
+                query: String(params.query),
+                scope: 'channel',
+                scopeId: targetChannelId,
+                limit: typeof params.limit === 'number' ? params.limit : 10,
+              }).map((r) => r.memory);
             } else {
               memories = this.memoryRepo.listMemories('channel', targetChannelId, params.type);
             }
@@ -3515,6 +3728,366 @@ export class ToolGateway {
           };
         }
 
+        case 'editFile':
+        case 'edit_file': {
+          const relPath = params.filePath || params.path;
+          if (!relPath) throw new Error("editFile requires 'filePath' parameter");
+          const targetPath = this.resolveJailedPath(String(relPath), context.worktreeRoot);
+          if (!fs.existsSync(targetPath) || !fs.statSync(targetPath).isFile()) {
+            throw new Error(`Target file not found: ${relPath}`);
+          }
+          const original = fs.readFileSync(targetPath, 'utf-8');
+          const curHash = crypto.createHash('sha256').update(original).digest('hex');
+          const normRelForOcc = path.relative(context.worktreeRoot, targetPath).replace(/\\/g, '/');
+          const expectedHash = params.expectedHash || context.expectedHash;
+          if (expectedHash && curHash !== expectedHash) {
+            throw new StaleWriteConflictError(String(relPath), curHash, expectedHash);
+          }
+          if (!expectedHash && !context.forceWrite && this.db && context.projectId) {
+            const rev = this.db.queryOne<{ content_hash: string }>(
+              'SELECT content_hash FROM file_revisions WHERE project_id = ? AND file_path = ?',
+              context.projectId,
+              normRelForOcc
+            );
+            if (rev && rev.content_hash !== curHash) {
+              throw new StaleWriteConflictError(String(relPath), curHash, rev.content_hash);
+            }
+          }
+          let updated = original;
+          if (typeof params.target === 'string' && typeof params.replacement === 'string') {
+            let matchTarget = params.target;
+            let matchReplacement = params.replacement;
+            let idx = original.indexOf(matchTarget);
+            if (idx === -1 && original.includes('\r\n') && !matchTarget.includes('\r\n')) {
+              matchTarget = matchTarget.replace(/\n/g, '\r\n');
+              matchReplacement = matchReplacement.replace(/\r?\n/g, '\r\n');
+              idx = original.indexOf(matchTarget);
+            }
+            if (idx === -1) {
+              throw new Error(`editFile: target block not found in '${relPath}'.`);
+            }
+            if (original.indexOf(matchTarget, idx + matchTarget.length) !== -1) {
+              throw new Error(`editFile: target block appears multiple times in '${relPath}'. Provide more surrounding context.`);
+            }
+            updated = original.slice(0, idx) + matchReplacement + original.slice(idx + matchTarget.length);
+          } else if (typeof params.unifiedDiff === 'string') {
+            const parsed = parseUnifiedDiff(params.unifiedDiff);
+            if (parsed.hunks.length === 0) {
+              throw new Error('editFile: unifiedDiff contained no valid hunks.');
+            }
+            const eol = original.includes('\r\n') ? '\r\n' : '\n';
+            const fileLines = original.split(/\r?\n/);
+            // Apply hunks in reverse order to preserve line numbers, verifying context/deleted lines
+            const sortedHunks = [...parsed.hunks].sort((a, b) => b.oldStart - a.oldStart);
+            for (const hunk of sortedHunks) {
+              const startIdx = Math.max(0, hunk.oldStart - 1);
+              const expectedOld = hunk.lines.filter((l) => l.type === 'context' || l.type === 'delete').map((l) => l.text);
+              for (let k = 0; k < expectedOld.length; k++) {
+                if (fileLines[startIdx + k] !== expectedOld[k]) {
+                  throw new Error(`editFile: unifiedDiff hunk mismatch at line ${startIdx + k + 1} in '${relPath}'.`);
+                }
+              }
+              const newLines = hunk.lines.filter((l) => l.type === 'context' || l.type === 'add').map((l) => l.text);
+              fileLines.splice(startIdx, expectedOld.length, ...newLines);
+            }
+            updated = fileLines.join(eol);
+          } else {
+            throw new Error("editFile requires either ('target' and 'replacement') or 'unifiedDiff'.");
+          }
+          fs.writeFileSync(targetPath, updated, 'utf-8');
+          const newHash = crypto.createHash('sha256').update(updated).digest('hex');
+          if (this.db && context.projectId) {
+            try {
+              const nowTs = Date.now();
+              this.db.execute(
+                `INSERT INTO file_revisions (id, project_id, file_path, content_hash, mtime, last_modified_by, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)
+                 ON CONFLICT(project_id, file_path) DO UPDATE SET
+                   content_hash = excluded.content_hash,
+                   mtime = excluded.mtime,
+                   last_modified_by = excluded.last_modified_by,
+                   updated_at = excluded.updated_at`,
+                uuidv4(),
+                context.projectId,
+                normRelForOcc,
+                newHash,
+                nowTs,
+                context.agentId,
+                nowTs
+              );
+              this.db.execute(
+                `INSERT INTO artifacts (id, project_id, run_id, task_id, kind, uri, sha256, metadata_json, created_at)
+                 VALUES (?, ?, ?, NULL, 'file_edit', ?, ?, ?, ?)`,
+                `art-${uuidv4()}`,
+                context.projectId,
+                context.runId || null,
+                `file://${targetPath.replace(/\\/g, '/')}`,
+                newHash,
+                JSON.stringify({ filePath: normRelForOcc, bytesWritten: Buffer.byteLength(updated, 'utf-8') }),
+                nowTs
+              );
+            } catch {
+              // Skip revision insert if synthetic context.projectId has no projects row
+            }
+          }
+          const lspCheck = await LspManager.getInstance().getDiagnosticsForFile(targetPath, context.worktreeRoot);
+          return {
+            success: true,
+            output: {
+              filePath: String(relPath),
+              sha256: newHash,
+              bytesWritten: Buffer.byteLength(updated, 'utf-8'),
+              ...(lspCheck.diagnostics.length > 0 ? { diagnostics: lspCheck.diagnostics } : {}),
+            } as T,
+            riskLevel: risk,
+          };
+        }
+
+        case 'grep': {
+          const pattern = String(params.pattern || '');
+          if (!pattern) throw new Error("grep requires 'pattern' parameter");
+          if (pattern.length > 256) throw new Error('grep pattern exceeds 256 characters.');
+          const maxResults = Math.min(200, Math.max(1, Number(params.maxResults) || 50));
+          const searchRoot = this.resolveJailedPath(String(params.path || '.'), context.worktreeRoot);
+          let regex: RegExp;
+          if (params.isRegex) {
+            if (/(\([^)]*(?:[+*]|\{\d+,?\d*\})[^)]*\)(?:[+*]|\{\d+,?\d*\}))|(\([^)]*\|[^)]*\)(?:[+*]|\{\d+,?\d*\}))/.test(pattern)) {
+              throw new Error('grep: potentially catastrophic nested quantifier regex rejected.');
+            }
+            try {
+              regex = new RegExp(pattern, 'i');
+            } catch (rxErr: any) {
+              throw new Error(`grep: invalid regular expression: ${rxErr?.message || pattern}`);
+            }
+          } else {
+            regex = new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+          }
+          const matches: Array<{ file: string; line: number; text: string }> = [];
+          const visitedDirs = new Set<string>();
+          const canonicalRoot = fs.existsSync(context.worktreeRoot) ? fs.realpathSync(context.worktreeRoot) : path.resolve(context.worktreeRoot);
+          const walkGrep = (dirOrFile: string) => {
+            if (matches.length >= maxResults) return;
+            try {
+              const realTarget = fs.realpathSync(dirOrFile);
+              if (!this.isPathWithinRoot(realTarget, canonicalRoot)) return;
+              const st = fs.statSync(realTarget);
+              if (st.isFile()) {
+                if (st.size > 1024 * 1024) return;
+                const rawBuf = fs.readFileSync(realTarget);
+                if (rawBuf.subarray(0, 512).includes(0)) return;
+                const rel = path.relative(canonicalRoot, realTarget).replace(/\\/g, '/');
+                const lines = rawBuf.toString('utf-8').split(/\r?\n/);
+                for (let i = 0; i < lines.length && matches.length < maxResults; i++) {
+                  if (regex.test(lines[i])) {
+                    matches.push({ file: rel, line: i + 1, text: lines[i].slice(0, 240) });
+                  }
+                }
+                return;
+              }
+              if (st.isDirectory()) {
+                if (visitedDirs.has(realTarget)) return;
+                visitedDirs.add(realTarget);
+                for (const entry of fs.readdirSync(realTarget, { withFileTypes: true })) {
+                  if (entry.name === '.git' || entry.name === 'node_modules' || entry.name === 'dist') continue;
+                  walkGrep(path.join(dirOrFile, entry.name));
+                  if (matches.length >= maxResults) break;
+                }
+              }
+            } catch {
+              // Skip unreadable files or broken symlinks
+            }
+          };
+          walkGrep(searchRoot);
+          return { success: true, output: { pattern, count: matches.length, matches } as T, riskLevel: risk };
+        }
+
+        case 'glob': {
+          const pattern = String(params.pattern || '');
+          if (!pattern) throw new Error("glob requires 'pattern' parameter");
+          const maxResults = Math.min(300, Math.max(1, Number(params.maxResults) || 100));
+          const globRoot = params.path ? this.resolveJailedPath(String(params.path), context.worktreeRoot) : path.resolve(context.worktreeRoot);
+          const normPat = pattern.replace(/\\/g, '/');
+          const escaped = normPat
+            .replace(/[.+^${}()|[\]]/g, '\\$&')
+            .replace(/\*\*\//g, '::GLOBSTAR_SLASH::')
+            .replace(/\*\*/g, '::GLOBSTAR::')
+            .replace(/\*/g, '[^/]*')
+            .replace(/\?/g, '[^/]')
+            .replace(/::GLOBSTAR_SLASH::/g, '(?:.*/)?')
+            .replace(/::GLOBSTAR::/g, '.*');
+          const hasSlash = normPat.includes('/');
+          const globRegex = new RegExp(`^${escaped}$`, 'i');
+          const files: string[] = [];
+          const visitedDirs = new Set<string>();
+          const canonicalRoot = fs.existsSync(context.worktreeRoot) ? fs.realpathSync(context.worktreeRoot) : path.resolve(context.worktreeRoot);
+          const canonicalGlobRoot = fs.existsSync(globRoot) ? fs.realpathSync(globRoot) : globRoot;
+          const walkGlob = (dir: string) => {
+            if (files.length >= maxResults) return;
+            try {
+              const realDir = fs.realpathSync(dir);
+              if (!this.isPathWithinRoot(realDir, canonicalRoot) || visitedDirs.has(realDir)) return;
+              visitedDirs.add(realDir);
+              for (const entry of fs.readdirSync(realDir, { withFileTypes: true })) {
+                if (entry.name === '.git' || entry.name === 'node_modules') continue;
+                const full = path.join(realDir, entry.name);
+                const realFull = fs.realpathSync(full);
+                if (!this.isPathWithinRoot(realFull, canonicalRoot)) continue;
+                const st = fs.statSync(realFull);
+                if (st.isDirectory()) {
+                  walkGlob(realFull);
+                } else if (st.isFile()) {
+                  const rel = path.relative(canonicalGlobRoot, realFull).replace(/\\/g, '/');
+                  if (globRegex.test(rel) || (!hasSlash && globRegex.test(entry.name))) {
+                    files.push(path.relative(canonicalRoot, realFull).replace(/\\/g, '/'));
+                  }
+                }
+                if (files.length >= maxResults) break;
+              }
+            } catch {
+              // Skip unreadable directories or broken symlinks
+            }
+          };
+          walkGlob(canonicalGlobRoot);
+          return { success: true, output: { pattern, count: files.length, files } as T, riskLevel: risk };
+        }
+
+        case 'load_skill':
+        case 'loadSkill': {
+          const level = (params.level || 'L1') as 'L0' | 'L1' | 'L2';
+          if (!this.skillEngine) {
+            throw new Error('SkillEngine is not configured in ToolGateway.');
+          }
+          if (level === 'L0' && !params.nameOrId) {
+            const catalog = this.skillEngine.listSkills('active').map((s) => ({
+              id: s.id,
+              name: s.name,
+              version: s.version,
+              description: s.description,
+              skillType: s.skillType,
+            }));
+            return { success: true, output: { level: 'L0', skills: catalog } as T, riskLevel: risk };
+          }
+          if (!params.nameOrId) throw new Error("load_skill requires 'nameOrId' when level is L1 or L2.");
+          const needle = String(params.nameOrId).toLowerCase();
+          const skill = this.skillEngine.getSkill(String(params.nameOrId))
+            || this.skillEngine.listSkills().find((s) => s.name.toLowerCase() === needle);
+          if (!skill) throw new Error(`Skill '${params.nameOrId}' not found.`);
+          if (level === 'L0') {
+            return {
+              success: true,
+              output: { level: 'L0', id: skill.id, name: skill.name, description: skill.description } as T,
+              riskLevel: risk,
+            };
+          }
+          if (level === 'L1') {
+            return {
+              success: true,
+              output: {
+                level: 'L1',
+                id: skill.id,
+                name: skill.name,
+                description: skill.description,
+                instructions: skill.instructions,
+                requiredTools: skill.requiredTools,
+                parameters: skill.parameters,
+              } as T,
+              riskLevel: risk,
+            };
+          }
+          return {
+            success: true,
+            output: {
+              level: 'L2',
+              id: skill.id,
+              name: skill.name,
+              description: skill.description,
+              instructions: skill.instructions,
+              requiredTools: skill.requiredTools,
+              parameters: skill.parameters,
+              handlerCode: skill.handlerCode || null,
+            } as T,
+            riskLevel: risk,
+          };
+        }
+
+        case 'run_workflow':
+        case 'runWorkflow': {
+          const steps = Array.isArray(params.steps) ? params.steps : [];
+          if (steps.length === 0) throw new Error("run_workflow requires a non-empty 'steps' array.");
+          if (steps.length > 20) throw new Error('run_workflow supports at most 20 steps per invocation.');
+          const results: Array<{ id: string; toolName: string; success: boolean; output?: unknown; error?: string }> = [];
+          const outputsById = new Map<string, unknown>();
+          const interpolateParams = (val: unknown): unknown => {
+            if (typeof val === 'string') {
+              return val.replace(/\{\{steps\.([a-zA-Z0-9_-]+)\.output\}\}/g, (_, sid) => {
+                const prev = outputsById.get(sid);
+                return prev === undefined ? '' : (typeof prev === 'string' ? prev : JSON.stringify(prev));
+              });
+            }
+            if (Array.isArray(val)) return val.map(interpolateParams);
+            if (val && typeof val === 'object') {
+              const out: Record<string, unknown> = {};
+              for (const [k, v] of Object.entries(val)) out[k] = interpolateParams(v);
+              return out;
+            }
+            return val;
+          };
+          for (let i = 0; i < steps.length; i++) {
+            if (context.abortSignal?.aborted) {
+              return { success: false, output: { completedSteps: results, abortedAtStep: i } as T, error: 'Workflow aborted.', riskLevel: risk };
+            }
+            const st = steps[i] || {};
+            const stId = String(st.id || `step-${i + 1}`);
+            const stTool = String(st.toolName || st.tool || '');
+            if (!stTool || stTool === 'run_workflow' || stTool === 'runWorkflow') {
+              throw new Error(`Invalid workflow step '${stId}': toolName '${stTool}' is not permitted.`);
+            }
+            const stepCtx: ToolExecutionContext = {
+              ...context,
+              stepKey: context.stepKey ? `${context.stepKey}:${i}:${stId}` : `wf:${i}:${stId}`,
+            };
+            const resolvedParams = interpolateParams(st.params || {}) as Record<string, any>;
+            const stepRes = await this.executeTool(stTool, resolvedParams, stepCtx);
+            if (stepRes.requiresApproval) {
+              return {
+                success: false,
+                requiresApproval: true,
+                output: { completedSteps: results, pendingStepId: stId } as T,
+                error: stepRes.error || `Workflow step '${stId}' (${stTool}) requires operator approval.`,
+                riskLevel: stepRes.riskLevel || risk,
+              };
+            }
+            results.push({ id: stId, toolName: stTool, success: stepRes.success, output: stepRes.output, error: stepRes.error });
+            outputsById.set(stId, stepRes.output);
+            if (!stepRes.success) {
+              return { success: false, output: { completedSteps: results, failedStepId: stId } as T, error: stepRes.error, riskLevel: risk };
+            }
+          }
+          return { success: true, output: { completedSteps: results } as T, riskLevel: risk };
+        }
+
+        case 'awaitBoardWakeup':
+        case 'await_board_wakeup': {
+          const targetChan = String(params.channelId || context.channelId || 'chan-general');
+          const mentionsOnly = params.mentionsOnly !== false;
+          if (this.db) {
+            this.db.execute(
+              `INSERT INTO wakeup_outbox (id, target_type, target_id, payload_json, status, attempts, next_retry_at, created_at)
+               VALUES (?, 'board_wait', ?, ?, 'pending', 0, ?, ?)`,
+              `wkp-${uuidv4()}`,
+              context.agentId,
+              JSON.stringify({ runId: context.runId, channelId: targetChan, mentionsOnly }),
+              Date.now(),
+              Date.now()
+            );
+          }
+          return {
+            success: true,
+            output: { parked: true, channelId: targetChan, mentionsOnly, message: 'Agent registered board wakeup listener.' } as T,
+            riskLevel: risk,
+          };
+        }
+
         default:
           return {
             success: false,
@@ -3655,52 +4228,14 @@ export class ToolGateway {
       const parentRepo = posixRoot.split('/.kin/worktrees/')[0];
       const normTarget = this.normalizeFsPath(sanitizedTarget);
       if (this.isPathWithinRoot(normTarget, parentRepo)) {
-        const relFromParent = path.posix.relative(parentRepo, sanitizedTarget);
+        const relFromParent = path.posix.relative(parentRepo.toLowerCase(), normTarget.toLowerCase());
         sanitizedTarget = relFromParent || '.';
       }
     }
 
     const targetBase = path.basename(sanitizedTarget).toLowerCase();
     const lowerTarget = sanitizedTarget.toLowerCase();
-    const isSensitivePattern = (p: string, base: string) => {
-      return (
-        base === 'ipc_auth.token' ||
-        base === 'vault.key' ||
-        base === '.env' ||
-        base.startsWith('.env.') ||
-        base.endsWith('.env') ||
-        base === '.npmrc' ||
-        base === '.pypirc' ||
-        base === 'id_rsa' ||
-        base === 'id_ed25519' ||
-        base === 'id_ecdsa' ||
-        base === 'id_dsa' ||
-        base === 'kin_storage.sqlite' ||
-        base === 'kin_storage.sqlite-wal' ||
-        base === 'kin_storage.sqlite-shm' ||
-        base.endsWith('.sqlite') ||
-        base.endsWith('.sqlite3') ||
-        base.endsWith('.sqlite-wal') ||
-        base.endsWith('.sqlite-shm') ||
-        p.includes('/.git/config') ||
-        p === '.git/config' ||
-        p.includes('/.git/credentials') ||
-        p === '.git/credentials' ||
-        p.startsWith('.git/') ||
-        p === '.git' ||
-        p.includes('/.ssh/') ||
-        p.startsWith('.ssh/') ||
-        p.endsWith('/.ssh') ||
-        p === '.ssh' ||
-        p.includes('/.aws/') ||
-        p.startsWith('.aws/') ||
-        p.endsWith('/.aws') ||
-        p === '.aws' ||
-        ((p.startsWith('.kin/') || p.includes('/.kin/')) && !p.includes('/.kin/worktrees/'))
-      );
-    };
-
-    if (isSensitivePattern(lowerTarget, targetBase)) {
+    if (sharedIsSensitivePattern(lowerTarget, targetBase)) {
       throw new Error(`SECURITY JAIL VIOLATION: Access to sensitive credential, database, or repository configuration files is prohibited: '${targetPath}'`);
     }
 
@@ -3725,7 +4260,7 @@ export class ToolGateway {
 
       const canonicalBase = path.basename(canonicalTarget).toLowerCase();
       const lowerCanonical = canonicalTarget.toLowerCase().replace(/\\/g, '/');
-      if (isSensitivePattern(lowerCanonical, canonicalBase)) {
+      if (sharedIsSensitivePattern(lowerCanonical, canonicalBase)) {
         throw new Error(
           `SECURITY JAIL VIOLATION: Access to sensitive credential, database, or repository configuration files is prohibited: '${targetPath}'`
         );
@@ -3752,6 +4287,7 @@ export class ToolGateway {
           throw err;
         }
       }
+      return canonicalTarget;
     } else {
       // 3. Non-existent path verification: walk up directory hierarchy to ensure no parent is an escaped symlink or junction
       let checkDir = path.dirname(resolved);
@@ -3768,6 +4304,14 @@ export class ToolGateway {
             `SECURITY JAIL VIOLATION: Path '${targetPath}' escapes worktree root via symlink`
           );
         }
+        const relRemainder = path.relative(checkDir, resolved);
+        const finalResolved = path.resolve(canonicalParent, relRemainder);
+        if (sharedIsSensitivePattern(finalResolved.replace(/\\/g, '/'), path.basename(finalResolved))) {
+          throw new Error(
+            `SECURITY JAIL VIOLATION: Access to sensitive credential, database, or repository configuration files is prohibited: '${targetPath}'`
+          );
+        }
+        return finalResolved;
       }
     }
 
@@ -3809,7 +4353,7 @@ export class ToolGateway {
         try {
           const entryStat = fs.lstatSync(fullPath);
           if (entryStat.isDirectory()) {
-            if (!entryStat.isSymbolicLink()) {
+            if (!entryStat.isSymbolicLink() && entry.name !== 'node_modules' && entry.name !== '.git') {
               queue.push(fullPath);
             }
           } else if (entryStat.isFile()) {
@@ -3984,6 +4528,17 @@ export class ToolGateway {
           context.agentId || 'system',
           now
         );
+        this.db.execute(
+          `INSERT INTO artifacts (id, project_id, run_id, task_id, kind, uri, sha256, metadata_json, created_at)
+           VALUES (?, ?, ?, NULL, 'file_write', ?, ?, ?, ?)`,
+          `art-${uuidv4()}`,
+          context.projectId,
+          context.runId || null,
+          `file://${target.replace(/\\/g, '/')}`,
+          newHash,
+          JSON.stringify({ filePath, bytesWritten: buffer.length }),
+          now
+        );
       } catch (err) {
         console.warn(`[TOOL GATEWAY] Failed to update file_revisions for '${filePath}':`, err);
       }
@@ -4053,6 +4608,18 @@ export class ToolGateway {
         (error, stdout, stderr) => {
           if (hasAborted) return;
           if (error && error.killed) {
+            if (child.pid) {
+              if (isWin) {
+                exec(`taskkill /pid ${child.pid} /T /F`, () => {});
+              } else {
+                try {
+                  exec(`pkill -P ${child.pid}`, () => {});
+                } catch (err) {
+                  console.debug('[tool_gateway] Suppressed exception in catch block:', err);
+                }
+                child.kill('SIGKILL');
+              }
+            }
             return reject(new Error(`Shell execution timed out after ${timeoutMs}ms: ${command}`));
           }
 

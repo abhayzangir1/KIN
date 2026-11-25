@@ -42,7 +42,7 @@ If you encounter unexpected behavior:
 - **Force Cancelling a Run**: In the UI, navigate to the **Agent Inspector** and click **Stop Run**, or call the REST endpoint:
   ```bash
   curl -X POST -H "Authorization: Bearer $KIN_TOKEN" \
-    http://127.0.0.1:54321/api/runs/<run_id>/cancel
+    http://127.0.0.1:54321/api/runs/<run_id>/abort
   ```
 
 ---

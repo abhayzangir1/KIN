@@ -351,7 +351,7 @@ export class DesktopController {
     }
 
     try {
-      const isNum = typeof titleOrPid === 'number' || (/^\d+$/.test(String(titleOrPid).trim()) && !Number.isNaN(Number(titleOrPid)));
+      const isNum = (typeof titleOrPid === 'number' && Number.isInteger(titleOrPid) && titleOrPid > 0) || (/^\d+$/.test(String(titleOrPid).trim()));
       const num = Number(titleOrPid);
       const b64 = Buffer.from(String(titleOrPid), 'utf-8').toString('base64');
       const filter = isNum
@@ -458,7 +458,7 @@ public static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
     }
 
     try {
-      const isNum = typeof titleOrPid === 'number' || (/^\d+$/.test(String(titleOrPid).trim()) && !Number.isNaN(Number(titleOrPid)));
+      const isNum = (typeof titleOrPid === 'number' && Number.isInteger(titleOrPid) && titleOrPid > 0) || (/^\d+$/.test(String(titleOrPid).trim()));
       const num = Number(titleOrPid);
       const b64 = Buffer.from(String(titleOrPid), 'utf-8').toString('base64');
       const filter = isNum
@@ -762,10 +762,32 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
     }
 
     try {
+      const isMultiline = text.includes('\n') || text.includes('\r');
+      if (isMultiline) {
+        const rawB64 = Buffer.from(text, 'utf-8').toString('base64');
+        const psScript = `
+          $rawBytes = [System.Convert]::FromBase64String('${rawB64}')
+          $plainText = [System.Text.Encoding]::UTF8.GetString($rawBytes)
+          Set-Clipboard -Value $plainText
+          $ws = New-Object -ComObject WScript.Shell
+          $ws.SendKeys('^v')
+        `;
+        const res = await this.runPowerShell(psScript, abortSignal);
+        if (res.exitCode !== 0) {
+          return { success: false, action: 'typeText', error: res.stderr || 'PowerShell typeText clipboard paste failed' };
+        }
+        return { success: true, action: 'typeText', details: { charactersCount: text.length, method: 'clipboardPaste' } };
+      }
+
+      const hasNonAscii = /[^\x20-\x7E]/.test(text);
+      if (hasNonAscii) {
+        return await this.typeTextUnicode(text, abortSignal);
+      }
+
       // Escape special characters for SendKeys: { } [ ] + ^ % ~ ( ) in a single atomic pass
       const escaped = text
         .replace(/[{}]/g, (m) => `{${m}}`)
-        .replace(/[+^%~()]/g, (m) => `{${m}}`);
+        .replace(/[\[\]+^%~()]/g, (m) => `{${m}}`);
       const b64 = Buffer.from(escaped, 'utf-8').toString('base64');
 
       const psScript = `
@@ -985,7 +1007,7 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
       });
 
       try {
-        child.stdin.write(script, 'utf-8');
+      child.stdin.write(script, 'utf-8');
         child.stdin.end();
       } catch (writeErr: any) {
         clearTimeout(timer);
@@ -999,5 +1021,172 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
         });
       }
     });
+  }
+
+  /**
+   * DPI-aware Windows UI Automation tree inspection with Set-of-Mark bounding rects.
+   */
+  public async inspectUiTree(maxNodes: number = 40, abortSignal?: AbortSignal): Promise<{ success: boolean; elements: Array<{ somId: number; name: string; controlType: string; rect: { x: number; y: number; width: number; height: number } }>; error?: string }> {
+    if (!this.isWindows) {
+      return { success: false, elements: [], error: 'UIA tree inspection is only supported on Windows.' };
+    }
+    const limit = Math.min(Math.max(Number(maxNodes) || 40, 1), 100);
+    const psScript = `
+      Add-Type -AssemblyName UIAutomationClient
+      Add-Type @"
+        using System;
+        using System.Runtime.InteropServices;
+        public class KinDpi {
+          [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+        }
+"@
+      try { [KinDpi]::SetProcessDpiAwarenessContext([IntPtr](-4)) | Out-Null } catch ($dpiErr) { $null = $dpiErr }
+      $root = [System.Windows.Automation.AutomationElement]::RootElement
+      $cond = [System.Windows.Automation.Condition]::TrueCondition
+      $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+      $results = @()
+      $win = $walker.GetFirstChild($root)
+      while ($win -ne $null -and $results.Count -lt ${limit}) {
+        try {
+          $r = $win.Current.BoundingRectangle
+          if ($r.Width -gt 0 -and $r.Height -gt 0 -and -not [string]::IsNullOrWhiteSpace($win.Current.Name)) {
+            $results += [PSCustomObject]@{
+              somId = $results.Count + 1
+              name = $win.Current.Name.Substring(0, [Math]::Min(80, $win.Current.Name.Length))
+              controlType = $win.Current.ControlType.ProgrammaticName
+              rect = @{ x = [int]$r.X; y = [int]$r.Y; width = [int]$r.Width; height = [int]$r.Height }
+            }
+          }
+        } catch ($uiaErr) { $null = $uiaErr }
+        $win = $walker.GetNextSibling($win)
+      }
+      $results | ConvertTo-Json -Depth 4 -Compress
+    `;
+    const res = await this.runPowerShell(psScript, abortSignal);
+    if (res.exitCode !== 0) {
+      return { success: false, elements: [], error: res.stderr || 'UIA inspection failed' };
+    }
+    try {
+      const parsed = res.stdout.trim() ? JSON.parse(res.stdout.trim()) : [];
+      return { success: true, elements: Array.isArray(parsed) ? parsed : [parsed] };
+    } catch {
+      return { success: true, elements: [] };
+    }
+  }
+
+  /**
+   * Unicode-safe Windows SendInput KEYEVENTF_UNICODE typing with Per-Monitor v2 DPI awareness.
+   */
+  public async typeTextUnicode(text: string, abortSignal?: AbortSignal): Promise<InteractionResult> {
+    if (!this.isWindows) {
+      return { success: false, action: 'typeTextUnicode', error: 'Desktop GUI automation is only supported on Windows host environments.' };
+    }
+    const b64 = Buffer.from(text, 'utf-8').toString('base64');
+    const psScript = `
+      Add-Type @"
+        using System;
+        using System.Runtime.InteropServices;
+        public class KinInput {
+          [StructLayout(LayoutKind.Sequential)] public struct INPUT { public uint type; public KEYBDINPUT ki; }
+          [StructLayout(LayoutKind.Sequential)] public struct KEYBDINPUT { public ushort wVk; public ushort wScan; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
+          [DllImport("user32.dll", SetLastError=true)] public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+          [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+          public static void SendUnicode(string s) {
+            try { SetProcessDpiAwarenessContext((IntPtr)(-4)); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex.Message); }
+            foreach (char c in s) {
+              INPUT[] inp = new INPUT[2];
+              inp[0].type = 1; inp[0].ki.wScan = c; inp[0].ki.dwFlags = 0x0004;
+              inp[1].type = 1; inp[1].ki.wScan = c; inp[1].ki.dwFlags = 0x0004 | 0x0002;
+              SendInput(2, inp, Marshal.SizeOf(typeof(INPUT)));
+            }
+          }
+        }
+"@
+      $txt = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${b64}'))
+      [KinInput]::SendUnicode($txt)
+    `;
+    const res = await this.runPowerShell(psScript, abortSignal);
+    if (res.exitCode !== 0) {
+      return { success: false, action: 'typeTextUnicode', error: res.stderr || 'SendInput KEYEVENTF_UNICODE failed' };
+    }
+    return { success: true, action: 'typeTextUnicode', details: { charactersCount: text.length, method: 'SendInputUnicode' } };
+  }
+
+  public async scroll(deltaY: number, deltaX: number = 0, abortSignal?: AbortSignal): Promise<InteractionResult> {
+    if (!this.isWindows) {
+      return { success: false, action: 'scroll', error: 'Desktop GUI automation is only supported on Windows host environments.' };
+    }
+    if (!Number.isFinite(deltaY) || !Number.isFinite(deltaX)) {
+      return { success: false, action: 'scroll', error: 'Invalid scroll deltas: deltaX and deltaY must be finite numbers.' };
+    }
+    const dy = Math.round(deltaY);
+    const dx = Math.round(deltaX);
+    const psScript = `
+      Add-Type @"
+        using System;
+        using System.Runtime.InteropServices;
+        public class KinScroll {
+          [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, int dx, int dy, int dwData, IntPtr dwExtraInfo);
+        }
+"@
+      if (${dy} -ne 0) { [KinScroll]::mouse_event(0x0800, 0, 0, ${dy}, [IntPtr]::Zero) }
+      if (${dx} -ne 0) { [KinScroll]::mouse_event(0x1000, 0, 0, ${dx}, [IntPtr]::Zero) }
+    `;
+    const res = await this.runPowerShell(psScript, abortSignal);
+    return res.exitCode === 0
+      ? { success: true, action: 'scroll', details: { deltaX: dx, deltaY: dy } }
+      : { success: false, action: 'scroll', error: res.stderr || 'Scroll failed' };
+  }
+
+  public async drag(fromX: number, fromY: number, toX: number, toY: number, abortSignal?: AbortSignal): Promise<InteractionResult> {
+    if (!this.isWindows) {
+      return { success: false, action: 'drag', error: 'Desktop GUI automation is only supported on Windows host environments.' };
+    }
+    if (![fromX, fromY, toX, toY].every(Number.isFinite)) {
+      return { success: false, action: 'drag', error: 'Invalid drag coordinates: all coordinates must be finite numbers.' };
+    }
+    const psScript = `
+      Add-Type @"
+        using System;
+        using System.Runtime.InteropServices;
+        public class KinDrag {
+          [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+          [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+          [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, int dx, int dy, int dwData, IntPtr dwExtraInfo);
+        }
+"@
+      try { [KinDrag]::SetProcessDpiAwarenessContext([IntPtr](-4)) | Out-Null } catch ($dragErr) { $null = $dragErr }
+      [KinDrag]::SetCursorPos(${Math.round(fromX)}, ${Math.round(fromY)}) | Out-Null
+      [KinDrag]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
+      Start-Sleep -Milliseconds 60
+      [KinDrag]::SetCursorPos(${Math.round(toX)}, ${Math.round(toY)}) | Out-Null
+      Start-Sleep -Milliseconds 60
+      [KinDrag]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
+    `;
+    const res = await this.runPowerShell(psScript, abortSignal);
+    return res.exitCode === 0
+      ? { success: true, action: 'drag', details: { fromX, fromY, toX, toY } }
+      : { success: false, action: 'drag', error: res.stderr || 'Drag failed' };
+  }
+
+  public async getCursorPosition(abortSignal?: AbortSignal): Promise<InteractionResult> {
+    if (!this.isWindows) {
+      return { success: false, action: 'cursor_position', error: 'Cursor position query is only supported on Windows.' };
+    }
+    const psScript = `
+      Add-Type -AssemblyName System.Windows.Forms
+      $pt = [System.Windows.Forms.Cursor]::Position
+      @{ x = $pt.X; y = $pt.Y } | ConvertTo-Json -Compress
+    `;
+    const res = await this.runPowerShell(psScript, abortSignal);
+    if (res.exitCode !== 0) {
+      return { success: false, action: 'cursor_position', error: res.stderr || 'Failed to query cursor position' };
+    }
+    try {
+      const parsed = JSON.parse(res.stdout.trim());
+      return { success: true, action: 'cursor_position', details: { x: parsed.x, y: parsed.y } };
+    } catch {
+      return { success: false, action: 'cursor_position', error: 'Invalid cursor position output' };
+    }
   }
 }

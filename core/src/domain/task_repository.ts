@@ -258,6 +258,7 @@ export class TaskRepository {
            assigned_agent_id = ?,
            claimed_by_run_id = ?,
            lease_expires_at = ?,
+           fence_token = COALESCE(fence_token, 0) + 1,
            updated_at = ?
        WHERE id = ?
          AND (assigned_agent_id IS NULL OR assigned_agent_id = '' OR assigned_agent_id = ?)
@@ -281,22 +282,42 @@ export class TaskRepository {
   }
 
   /**
+   * Returns the current monotonic fencing token for a task.
+   */
+  public getFenceToken(taskId: string): number {
+    const row = this.db.queryOne<{ fence_token: number }>('SELECT fence_token FROM tasks WHERE id = ?', taskId);
+    return row?.fence_token ?? 0;
+  }
+
+  /**
    * Renews the active lease for a running task.
    */
-  public renewTaskLease(taskId: string, runId: string, extensionMs: number = 300000): boolean {
+  public renewTaskLease(taskId: string, runId: string, extensionMs: number = 300000, expectedFenceToken?: number): boolean {
     const now = Date.now();
     const leaseExpiresAt = now + extensionMs;
 
-    const result = this.db.execute(
-      `UPDATE tasks
-       SET lease_expires_at = ?,
-           updated_at = ?
-       WHERE id = ? AND claimed_by_run_id = ? AND status = 'running'`,
-      leaseExpiresAt,
-      now,
-      taskId,
-      runId
-    );
+    const result = expectedFenceToken !== undefined
+      ? this.db.execute(
+          `UPDATE tasks
+           SET lease_expires_at = ?,
+               updated_at = ?
+           WHERE id = ? AND claimed_by_run_id = ? AND status = 'running' AND fence_token = ?`,
+          leaseExpiresAt,
+          now,
+          taskId,
+          runId,
+          expectedFenceToken
+        )
+      : this.db.execute(
+          `UPDATE tasks
+           SET lease_expires_at = ?,
+               updated_at = ?
+           WHERE id = ? AND claimed_by_run_id = ? AND status = 'running'`,
+          leaseExpiresAt,
+          now,
+          taskId,
+          runId
+        );
 
     return Number(result.changes) > 0;
   }
@@ -438,7 +459,8 @@ export class TaskRepository {
   public completeTask(
     taskId: string,
     evidenceBundleId: string,
-    expectedRunId?: string
+    expectedRunId?: string,
+    expectedFenceToken?: number
   ): string[] {
     const evidenceRecord = this.db.queryOne<{
       id: string;
@@ -692,27 +714,30 @@ export class TaskRepository {
 
     let unblockedTasks: string[] = [];
     this.db.transactionSync(() => {
+      const fenceClause = expectedFenceToken !== undefined ? ' AND fence_token = ?' : '';
       const result = expectedRunId
         ? this.db.execute(
             `UPDATE tasks
-             SET status = 'completed', evidence_bundle_id = ?, claimed_by_run_id = NULL, lease_expires_at = NULL, updated_at = ?
-             WHERE id = ? AND (claimed_by_run_id = ? OR claimed_by_run_id IS NULL) AND status IN ('running', 'review')`,
+             SET status = 'completed', evidence_bundle_id = ?, claimed_by_run_id = NULL, lease_expires_at = NULL, fence_token = COALESCE(fence_token, 0) + 1, updated_at = ?
+             WHERE id = ? AND (claimed_by_run_id = ? OR claimed_by_run_id IS NULL) AND status IN ('running', 'review')${fenceClause}`,
             evidenceBundleId,
             Date.now(),
             taskId,
-            expectedRunId
+            expectedRunId,
+            ...(expectedFenceToken !== undefined ? [expectedFenceToken] : [])
           )
         : this.db.execute(
             `UPDATE tasks
-             SET status = 'completed', evidence_bundle_id = ?, claimed_by_run_id = NULL, lease_expires_at = NULL, updated_at = ?
-             WHERE id = ? AND status IN ('running', 'review')`,
+             SET status = 'completed', evidence_bundle_id = ?, claimed_by_run_id = NULL, lease_expires_at = NULL, fence_token = COALESCE(fence_token, 0) + 1, updated_at = ?
+             WHERE id = ? AND status IN ('running', 'review')${fenceClause}`,
             evidenceBundleId,
             Date.now(),
-            taskId
+            taskId,
+            ...(expectedFenceToken !== undefined ? [expectedFenceToken] : [])
           );
 
       if (Number(result.changes) === 0) {
-        throw new Error(`Failed to complete task '${taskId}': Task is not in running/review status or run claim mismatch (stale run).`);
+        throw new Error(`Failed to complete task '${taskId}': Task is not in running/review status or run claim mismatch (stale run). Fence check failed.`);
       }
 
       // Check if dependent tasks can now transition from 'backlog' to 'ready'
@@ -763,6 +788,26 @@ export class TaskRepository {
     return this.goalRepo.pruneDuplicateGoals(projectId);
   }
 
+  private batchGetTaskDependencies(taskIds: string[]): Map<string, string[]> {
+    const depsByTaskId = new Map<string, string[]>();
+    if (taskIds.length === 0) return depsByTaskId;
+    const CHUNK_SIZE = 500;
+    for (let i = 0; i < taskIds.length; i += CHUNK_SIZE) {
+      const chunk = taskIds.slice(i, i + CHUNK_SIZE);
+      const placeholders = chunk.map(() => '?').join(',');
+      const depRows = this.db.query<{ task_id: string; depends_on_task_id: string }>(
+        `SELECT task_id, depends_on_task_id FROM task_dependencies WHERE task_id IN (${placeholders})`,
+        ...chunk
+      );
+      for (const d of depRows) {
+        const arr = depsByTaskId.get(d.task_id) || [];
+        arr.push(d.depends_on_task_id);
+        depsByTaskId.set(d.task_id, arr);
+      }
+    }
+    return depsByTaskId;
+  }
+
   public listTasksByGoal(goalId: string): Task[] {
     const rows = this.db.query<{
       id: string;
@@ -780,6 +825,9 @@ export class TaskRepository {
       updated_at: number;
     }>('SELECT * FROM tasks WHERE goal_id = ? ORDER BY created_at ASC', goalId);
 
+    if (rows.length === 0) return [];
+    const depsMap = this.batchGetTaskDependencies(rows.map((r) => r.id));
+
     return rows.map((r) => ({
       id: r.id,
       goalId: r.goal_id,
@@ -792,7 +840,7 @@ export class TaskRepository {
       claimedByRunId: r.claimed_by_run_id ?? undefined,
       leaseExpiresAt: r.lease_expires_at ?? undefined,
       retryCount: r.retry_count ?? 0,
-      dependsOnTaskIds: this.getTaskDependencies(r.id),
+      dependsOnTaskIds: depsMap.get(r.id) || [],
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     }));
@@ -821,6 +869,9 @@ export class TaskRepository {
       projectId
     );
 
+    if (rows.length === 0) return [];
+    const depsMap = this.batchGetTaskDependencies(rows.map((r) => r.id));
+
     return rows.map((r) => ({
       id: r.id,
       goalId: r.goal_id,
@@ -833,7 +884,7 @@ export class TaskRepository {
       claimedByRunId: r.claimed_by_run_id ?? undefined,
       leaseExpiresAt: r.lease_expires_at ?? undefined,
       retryCount: r.retry_count ?? 0,
-      dependsOnTaskIds: this.getTaskDependencies(r.id),
+      dependsOnTaskIds: depsMap.get(r.id) || [],
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     }));

@@ -85,8 +85,9 @@ export class ContextCompactor {
       ...maskedRecentMessages,
     ];
 
-    // Rough token estimate reduction (~60-70% reduction)
-    const estimatedNewTokens = Math.round(input.currentTokens * 0.35);
+    // Measure actual post-compaction token estimate
+    const actualChars = compactedMessages.reduce((acc, m) => acc + (m.content?.length || 0), 0);
+    const estimatedNewTokens = Math.max(1, Math.ceil(actualChars / 4));
 
     return {
       didCompact: true,
@@ -97,17 +98,48 @@ export class ContextCompactor {
     };
   }
 
+  /**
+   * Tier-1 zero-LLM-cost microcompaction: strips verbose tool observations older than
+   * `preserveRecentTurns` (default 6) when context exceeds 55% of maxTokens.
+   */
+  public microcompact(messages: Message[], maxTokens: number, currentTokens: number, preserveRecentTurns: number = 6): { didMicrocompact: boolean; messages: Message[]; tokensAfter: number } {
+    if (currentTokens < maxTokens * 0.55 || messages.length <= preserveRecentTurns + 1) {
+      return { didMicrocompact: false, messages, tokensAfter: currentTokens };
+    }
+    const cutoffIdx = messages.length - preserveRecentTurns;
+    let changed = false;
+    const result = messages.map((msg, idx) => {
+      if (idx === 0 || idx >= cutoffIdx) return msg;
+      const masked = this.maskOlderObservations(msg);
+      if (masked.content !== msg.content) {
+        changed = true;
+        return masked;
+      }
+      if (msg.content.length > 1200 && msg.content.includes('<observation')) {
+        changed = true;
+        return {
+          ...msg,
+          content: `[Microcompacted earlier observation (${msg.content.length} chars) to preserve context budget]`,
+        };
+      }
+      return msg;
+    });
+    const tokensAfter = Math.max(1, Math.ceil(result.reduce((a, m) => a + (m.content?.length || 0), 0) / 4));
+    return { didMicrocompact: changed, messages: result, tokensAfter };
+  }
+
   public maskOlderObservations(message: Message): Message {
-    if (message.senderType !== 'system' && message.senderType !== 'agent') {
+    if (message.senderType !== 'system' && message.senderType !== 'agent' && message.senderType !== 'human') {
       return message;
     }
 
-    // Mask out inline logs that have spill references
+    // Mask out inline logs that have spill references (supports both [Command: ...] and [Tool Output])
     let updatedContent = message.content;
-    const spillRegex = /\[Command: ([^\]]+)\]\s+([\s\S]*?)\s+\[Full raw output \((\d+) bytes\) persisted at: (file:\/\/\/[^\]]+)\]/g;
+    const spillRegex = /\[(Command: ([^\]]+)|Tool Output)\]\s+([\s\S]*?)\s+\[Full raw output \((\d+) bytes\) persisted at: (file:\/\/\/[^\s.\]]+)[^\]]*\]/g;
 
-    updatedContent = updatedContent.replace(spillRegex, (_match, cmd, _preview, bytes, uri) => {
-      return `[Tool Observation: ${cmd} executed (${bytes} bytes). Stored on disk at: ${uri}]`;
+    updatedContent = updatedContent.replace(spillRegex, (_match, _header, cmd, _preview, bytes, uri) => {
+      const label = cmd || 'Tool Output';
+      return `[Tool Observation: ${label} executed (${bytes} bytes). Stored on disk at: ${uri}]`;
     });
 
     return {

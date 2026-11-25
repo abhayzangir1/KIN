@@ -3,14 +3,6 @@ import { TitleBar } from './components/layout/TitleBar.js';
 import { WorkbenchLayout } from './components/layout/WorkbenchLayout.js';
 import { HeaderBar } from './components/HeaderBar.js';
 import { AgentInspector } from './components/AgentInspector.js';
-import { NewProjectModal } from './components/NewProjectModal.js';
-import { CreateChannelModal } from './components/CreateChannelModal.js';
-import { AddAgentModal } from './components/AddAgentModal.js';
-import { CreateGoalModal } from './components/CreateGoalModal.js';
-import { CreateTaskModal } from './components/CreateTaskModal.js';
-import { ModelSelectorModal } from './components/ModelSelectorModal.js';
-import { AddProviderModal } from './components/AddProviderModal.js';
-import { ModelUnavailablePromptModal } from './components/ModelUnavailablePromptModal.js';
 import { ToastContainer } from './components/ToastContainer.js';
 import { ModelOnboardingBanner } from './components/ModelOnboardingBanner.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
@@ -19,6 +11,14 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { applyThemeToDom } from './utils/themeEngine.js';
 
 // Lazy-loaded heavy modals to eliminate background hook overhead and optimize initial bundle
+const NewProjectModal = React.lazy(() => import('./components/NewProjectModal.js').then(m => ({ default: m.NewProjectModal })));
+const CreateChannelModal = React.lazy(() => import('./components/CreateChannelModal.js').then(m => ({ default: m.CreateChannelModal })));
+const AddAgentModal = React.lazy(() => import('./components/AddAgentModal.js').then(m => ({ default: m.AddAgentModal })));
+const CreateGoalModal = React.lazy(() => import('./components/CreateGoalModal.js').then(m => ({ default: m.CreateGoalModal })));
+const CreateTaskModal = React.lazy(() => import('./components/CreateTaskModal.js').then(m => ({ default: m.CreateTaskModal })));
+const ModelSelectorModal = React.lazy(() => import('./components/ModelSelectorModal.js').then(m => ({ default: m.ModelSelectorModal })));
+const AddProviderModal = React.lazy(() => import('./components/AddProviderModal.js').then(m => ({ default: m.AddProviderModal })));
+const ModelUnavailablePromptModal = React.lazy(() => import('./components/ModelUnavailablePromptModal.js').then(m => ({ default: m.ModelUnavailablePromptModal })));
 const SettingsModal = React.lazy(() => import('./components/SettingsModal.js').then(m => ({ default: m.SettingsModal })));
 const SwarmMap = React.lazy(() => import('./components/SwarmMap.js').then(m => ({ default: m.SwarmMap })));
 const SkillsModal = React.lazy(() => import('./components/SkillsModal.js').then(m => ({ default: m.SkillsModal })));
@@ -29,36 +29,48 @@ const DecisionsModal = React.lazy(() => import('./components/DecisionsModal.js')
 const AgentSettingsModal = React.lazy(() => import('./components/AgentSettingsModal.js').then(m => ({ default: m.AgentSettingsModal })));
 const WorkforceManagerModal = React.lazy(() => import('./components/workforce/WorkforceManagerModal.js').then(m => ({ default: m.WorkforceManagerModal })));
 const FilePreviewModal = React.lazy(() => import('./components/files/FilePreviewModal.js').then(m => ({ default: m.FilePreviewModal })));
+const TokenPairingModal = React.lazy(() => import('./components/TokenPairingModal.js').then(m => ({ default: m.TokenPairingModal })));
+const OnboardingWizardModal = React.lazy(() => import('./components/OnboardingWizardModal.js').then(m => ({ default: m.OnboardingWizardModal })));
 
 export const App: React.FC = () => {
   useKeyboardShortcuts();
 
-  const {
-    fetchState,
-    initSSE,
-    closeSSE,
-    isInspectorOpen,
-    setInspectorOpen,
-    themeSettings,
-    isConnected,
-    projectAnalytics,
-    tasks,
-    mcpConnectors,
-    openSettingsModal,
-    isSettingsModalOpen,
-    isSwarmMapOpen,
-    isSkillsModalOpen,
-    isConnectorsModalOpen,
-    isAutomationsModalOpen,
-    isDesktopControlModalOpen,
-    isDecisionsModalOpen,
-    isAgentSettingsModalOpen,
-    isWorkforceModalOpen,
-    previewFile,
-    projects,
-    activeProjectId,
-    addToast,
-  } = useKinStore();
+  const fetchState = useKinStore((s) => s.fetchState);
+  const initSSE = useKinStore((s) => s.initSSE);
+  const closeSSE = useKinStore((s) => s.closeSSE);
+  const isInspectorOpen = useKinStore((s) => s.isInspectorOpen);
+  const setInspectorOpen = useKinStore((s) => s.setInspectorOpen);
+  const themeSettings = useKinStore((s) => s.themeSettings);
+  const isConnected = useKinStore((s) => s.isConnected);
+  const isFetchingState = useKinStore((s) => s.isFetchingState);
+  const isLoadingModels = useKinStore((s) => s.isLoadingModels);
+  const availableModels = useKinStore((s) => s.availableModels);
+  const ollamaStatus = useKinStore((s) => s.ollamaStatus);
+  const projectAnalytics = useKinStore((s) => s.projectAnalytics);
+  const tasks = useKinStore((s) => s.tasks);
+  const mcpConnectors = useKinStore((s) => s.mcpConnectors);
+  const openSettingsModal = useKinStore((s) => s.openSettingsModal);
+  const isSettingsModalOpen = useKinStore((s) => s.isSettingsModalOpen);
+  const isSwarmMapOpen = useKinStore((s) => s.isSwarmMapOpen);
+  const isSkillsModalOpen = useKinStore((s) => s.isSkillsModalOpen);
+  const isConnectorsModalOpen = useKinStore((s) => s.isConnectorsModalOpen);
+  const isAutomationsModalOpen = useKinStore((s) => s.isAutomationsModalOpen);
+  const isDesktopControlModalOpen = useKinStore((s) => s.isDesktopControlModalOpen);
+  const isDecisionsModalOpen = useKinStore((s) => s.isDecisionsModalOpen);
+  const isAgentSettingsModalOpen = useKinStore((s) => s.isAgentSettingsModalOpen);
+  const isWorkforceModalOpen = useKinStore((s) => s.isWorkforceModalOpen);
+  const isNewProjectModalOpen = useKinStore((s) => s.isNewProjectModalOpen);
+  const isCreateChannelModalOpen = useKinStore((s) => s.isCreateChannelModalOpen);
+  const isAddAgentModalOpen = useKinStore((s) => s.isAddAgentModalOpen);
+  const isNewGoalModalOpen = useKinStore((s) => s.isNewGoalModalOpen);
+  const isNewTaskModalOpen = useKinStore((s) => s.isNewTaskModalOpen);
+  const isModelSelectorOpen = useKinStore((s) => s.isModelSelectorOpen);
+  const isAddProviderModalOpen = useKinStore((s) => s.isAddProviderModalOpen);
+  const modelUnavailableNotice = useKinStore((s) => s.modelUnavailableNotice);
+  const previewFile = useKinStore((s) => s.previewFile);
+  const projects = useKinStore((s) => s.projects);
+  const activeProjectId = useKinStore((s) => s.activeProjectId);
+  const addToast = useKinStore((s) => s.addToast);
 
   const [windowWidth, setWindowWidth] = useState(
     typeof window !== 'undefined' ? window.innerWidth : 1280
@@ -75,6 +87,18 @@ export const App: React.FC = () => {
   useEffect(() => {
     applyThemeToDom(themeSettings);
   }, [themeSettings]);
+
+  // Auto-open Onboarding Wizard on first run only after initial state & models load
+  useEffect(() => {
+    if (!isConnected || isFetchingState || isLoadingModels) return;
+    const state = useKinStore.getState();
+    const hasModels = (availableModels?.length ?? 0) > 0 || Boolean(ollamaStatus?.online);
+    let dismissed = false;
+    try { dismissed = window.localStorage.getItem('kin_onboarding_dismissed') === '1'; } catch {}
+    if (!hasModels && !dismissed && !state.isOnboardingWizardOpen) {
+      state.setOnboardingWizardOpen(true);
+    }
+  }, [isConnected, isFetchingState, isLoadingModels, availableModels.length, ollamaStatus?.online]);
 
   // Synchronized startup execution: ensure fetchState and initSSE execute once when the daemon confirms readiness
   const isStartedRef = useRef(false);
@@ -189,9 +213,21 @@ export const App: React.FC = () => {
 
         {/* Modals & Overlays */}
         <ErrorBoundary name="Modal System">
-          <NewProjectModal />
-          <CreateChannelModal />
-          <AddAgentModal />
+          {isNewProjectModalOpen && (
+            <Suspense fallback={null}>
+              <NewProjectModal />
+            </Suspense>
+          )}
+          {isCreateChannelModalOpen && (
+            <Suspense fallback={null}>
+              <CreateChannelModal />
+            </Suspense>
+          )}
+          {isAddAgentModalOpen && (
+            <Suspense fallback={null}>
+              <AddAgentModal />
+            </Suspense>
+          )}
           {isSwarmMapOpen && (
             <Suspense fallback={null}>
               <SwarmMap />
@@ -227,11 +263,31 @@ export const App: React.FC = () => {
               <AutomationsModal />
             </Suspense>
           )}
-          <CreateGoalModal />
-          <CreateTaskModal />
-          <ModelSelectorModal />
-          <AddProviderModal />
-          <ModelUnavailablePromptModal />
+          {isNewGoalModalOpen && (
+            <Suspense fallback={null}>
+              <CreateGoalModal />
+            </Suspense>
+          )}
+          {isNewTaskModalOpen && (
+            <Suspense fallback={null}>
+              <CreateTaskModal />
+            </Suspense>
+          )}
+          {isModelSelectorOpen && (
+            <Suspense fallback={null}>
+              <ModelSelectorModal />
+            </Suspense>
+          )}
+          {isAddProviderModalOpen && (
+            <Suspense fallback={null}>
+              <AddProviderModal />
+            </Suspense>
+          )}
+          {modelUnavailableNotice && (
+            <Suspense fallback={null}>
+              <ModelUnavailablePromptModal />
+            </Suspense>
+          )}
           {isAgentSettingsModalOpen && (
             <Suspense fallback={null}>
               <AgentSettingsModal />
@@ -247,6 +303,10 @@ export const App: React.FC = () => {
               <FilePreviewModal />
             </Suspense>
           )}
+          <Suspense fallback={null}>
+            <TokenPairingModal />
+            <OnboardingWizardModal />
+          </Suspense>
           <ToastContainer />
         </ErrorBoundary>
 

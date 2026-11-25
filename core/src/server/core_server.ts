@@ -24,7 +24,7 @@ import { ActivationEngine } from '../communication/activation_engine.js';
 import { AgentKernel } from '../kernel/agent_kernel.js';
 import { EventLedger } from '../security/event_ledger.js';
 import { Sentinel } from '../security/sentinel.js';
-import { LoopBreaker } from '../communication/loop_breaker.js';
+import { LoopBreaker } from '../kernel/loop_breaker.js';
 import { ModelGateway, separateThinkingAndContent } from '../execution/model_gateway.js';
 import { ContextCompiler } from '../context/context_compiler.js';
 import { ContextCompactor } from '../context/context_compactor.js';
@@ -47,7 +47,7 @@ import { CredentialScanner } from '../security/credential_scanner.js';
 import { OAuthHandler } from '../api/oauth_handler.js';
 import { GoalRepository } from '../domain/goal_repository.js';
 import { WorktreeManager } from '../execution/worktree_manager.js';
-import { BenchmarkEvaluator } from '../evaluation/benchmark_evaluator.js';
+import { type EgressConsentSettings } from '../security/egress_policy.js';
 import { Router } from './router.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -141,6 +141,14 @@ export class CoreServer {
     recentTools: Array<{ toolName: string; params: any; output?: any; error?: string; timestamp: number; durationMs?: number }>;
     recentThoughts: Array<{ thought: string; timestamp: number }>;
   }> = new Map();
+  public sseEventSequence: number = 0;
+  public egressConsent: EgressConsentSettings = {
+    masterEgressEnabled: false,
+    allowPrompts: true,
+    allowSharedMemory: true,
+    allowPrivateNotes: false,
+    allowDirectMessages: false,
+  };
   public monorepoRoot: string[] = (path.basename(process.cwd()) === 'core' || path.basename(process.cwd()) === 'ui') && fs.existsSync(path.resolve(process.cwd(), '../package.json'))
     ? [path.resolve(process.cwd(), '..')]
     : [];
@@ -264,8 +272,21 @@ export class CoreServer {
     this.channelService = new ChannelService(this.db);
     this.activationEngine = new ActivationEngine();
     this.kernel = new AgentKernel(this.db);
+    // Load persistent enterprise cloud egress consent policy
+    try {
+      const egressRow = this.db.queryOne<any>(
+        "SELECT value_json FROM memories WHERE scope = 'global' AND scope_id = 'system' AND key = 'egress_consent'"
+      );
+      if (egressRow?.value_json) {
+        this.egressConsent = { ...this.egressConsent, ...JSON.parse(egressRow.value_json) };
+      }
+    } catch (e) {
+      console.debug('[core_server] Suppressed egress consent load error:', e);
+    }
+
     const lastResolvedCredIdByProvider = new Map<string, string>();
     this.modelGateway = new ModelGateway({
+      egressConsentResolver: () => this.egressConsent,
       apiKeyResolver: (provider: string, callerAgentId?: string) => {
         try {
           const rows = this.db.query<any>(
@@ -637,7 +658,7 @@ export class CoreServer {
         });
       }
     });
-    this.toolGateway.setDelegationCallback(async ({ fromAgentId, targetAgent, directive, channelId, runId, projectId }) => {
+    this.toolGateway.setDelegationCallback(async ({ fromAgentId, targetAgent, directive, channelId, runId, projectId, isolated }: any) => {
       const targetProjId = projectId || 'proj-kin';
       const cleanTarget = String(targetAgent).replace(/^@/, '');
       const target = this.agentRepo.getIdentityByProjectAndName(targetProjId, cleanTarget)
@@ -646,6 +667,30 @@ export class CoreServer {
         || this.agentRepo.getIdentity(String(targetAgent));
       if (!target) {
         throw new Error(`Target agent '${targetAgent}' not found for delegation`);
+      }
+      const fromAgent = this.agentRepo.getIdentity(fromAgentId);
+      const fromName = fromAgent?.displayName || fromAgentId;
+      if (isolated) {
+        const isoChannelId = `isolated-${runId || Date.now()}-${target.id}`;
+        const isoMsg = {
+          id: `iso-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          channelId: isoChannelId,
+          senderId: fromAgentId,
+          senderType: 'agent' as const,
+          content: `[ISOLATED SUBAGENT DIRECTIVE FROM ${fromName}]: ${directive}`,
+          mentions: [],
+          productivityScore: 1,
+          createdAt: Date.now(),
+        };
+        this.enqueueAgentExecution(target.id, () =>
+          this.executeAgentResponse(target, isoChannelId, isoMsg, 1, undefined, undefined, undefined, runId)
+        );
+        return {
+          delegated: true,
+          isolated: true,
+          runId: isoMsg.id,
+          message: `Isolated subagent directive dispatched to ${target.displayName}: "${directive}"`,
+        };
       }
       const targetChannelId = this.resolveDefaultChannelForProject(targetProjId, channelId);
       this.broadcastEvent('agent:delegation_started', {
@@ -656,8 +701,6 @@ export class CoreServer {
         channelId: targetChannelId,
         parentRunId: runId,
       });
-      const fromAgent = this.agentRepo.getIdentity(fromAgentId);
-      const fromName = fromAgent?.displayName || fromAgentId;
       if (targetChannelId.startsWith('dm-')) {
         this.broadcastEvent('operator:notification', {
           type: 'agent_dm',
@@ -752,7 +795,7 @@ export class CoreServer {
     try {
       this.db.execute(`
         UPDATE agent_runs 
-        SET state = 'cancelled', quota_resets_at = NULL 
+        SET state = 'resuming', quota_resets_at = NULL 
         WHERE state = 'quota_paused' AND (quota_resets_at IS NULL OR quota_resets_at <= ?)
       `, Date.now());
       this.runSupervisorSelfHealing(300000, true);
@@ -997,6 +1040,38 @@ export class CoreServer {
         console.warn('[KIN SUPERVISOR] Quota auto-resume check notice:', qErr);
       }
 
+      // Wakeup Outbox Sweeper: retry stale pending wakeup_outbox rows with exponential backoff
+      try {
+        const now = Date.now();
+        const dueWakeups = this.db.query<{ id: string; target_type: string; target_id: string; payload_json: string; attempts: number }>(
+          `SELECT id, target_type, target_id, payload_json, attempts FROM wakeup_outbox WHERE status = 'pending' AND next_retry_at <= ? LIMIT 50`,
+          now
+        );
+        for (const w of dueWakeups) {
+          if ((w.attempts || 0) >= 5) {
+            this.db.execute(`UPDATE wakeup_outbox SET status = 'failed' WHERE id = ?`, w.id);
+            this.db.execute(
+              `INSERT INTO exception_queue (id, project_id, run_id, task_id, category, severity, title, details_json, status, created_at)
+               VALUES (?, ?, NULL, NULL, 'wakeup_failed', 'MEDIUM', ?, ?, 'open', ?)`,
+              `exc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              this.activeProjectId || 'proj-kin',
+              `Wakeup outbox item '${w.id}' exceeded 5 retry attempts`,
+              JSON.stringify({ targetType: w.target_type, targetId: w.target_id, payload: w.payload_json }),
+              now
+            );
+          } else {
+            const backoffMs = Math.min(300000, 10000 * Math.pow(2, w.attempts || 0));
+            this.db.execute(
+              `UPDATE wakeup_outbox SET attempts = attempts + 1, next_retry_at = ? WHERE id = ?`,
+              now + backoffMs,
+              w.id
+            );
+          }
+        }
+      } catch (wkpErr) {
+        console.warn('[KIN SUPERVISOR] Wakeup outbox sweep notice:', wkpErr);
+      }
+
       return trulyStale;
     } catch (err) {
       console.error('[KIN SUPERVISOR] Error during runSupervisorSelfHealing:', err);
@@ -1062,12 +1137,18 @@ export class CoreServer {
       }
     }
 
+    // Reset per-session turn counter while preserving cumulative_turn across resumptions
+    try {
+      this.db.execute('UPDATE agent_runs SET session_turns = 0 WHERE id = ?', runId);
+    } catch {}
+
+    const summaryNotice = runRow.last_session_summary ? `\nPrior Session Summary: ${runRow.last_session_summary}` : '';
     const effectiveTrigger = triggerMsg || {
       id: `trigger-resume-${Date.now()}`,
       channelId: runRow.channel_id || 'chan-default',
       senderId: 'system',
       senderType: 'system',
-      content: `[System Recovery: Resuming interrupted run ${runId} at turn ${runRow.interrupted_turn || checkpointData?.turn || 1}]`,
+      content: `[System Recovery: Resuming interrupted run ${runId} at turn ${runRow.interrupted_turn || checkpointData?.turn || 1}]${summaryNotice}`,
       createdAt: Date.now(),
       taskId: runRow.task_id,
     };
@@ -1482,7 +1563,9 @@ export class CoreServer {
     } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
 
     const relative = path.relative(resolvedJail, resolvedTarget);
-    return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+    const isWithin = relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+    if (!isWithin) return false;
+    return true;
   }
 
   public assertPathWithinProject(jailRoot: string, targetPath: string): void {
@@ -2027,6 +2110,7 @@ export class CoreServer {
 
   public broadcastEvent(eventType: string, data: any): void {
     try {
+      this.sseEventSequence++;
       const sanitizedData = SecretBroker.getInstance().sanitizePayload(data);
       let jsonPayload: string;
       try {
@@ -2034,7 +2118,7 @@ export class CoreServer {
       } catch {
         jsonPayload = JSON.stringify({ eventType, error: 'Failed to serialize event payload' });
       }
-      const payload = `event: ${eventType}\ndata: ${jsonPayload}\n\n`;
+      const payload = `id: ${this.sseEventSequence}\nevent: ${eventType}\ndata: ${jsonPayload}\n\n`;
       for (const client of Array.from(this.sseClients)) {
         try {
           if (client.writableEnded || client.destroyed) {
@@ -2049,6 +2133,36 @@ export class CoreServer {
         } catch (err) {
           this.sseClients.delete(client);
         }
+      }
+
+      if (eventType === 'message:created' && data?.channelId && !this.db.closed) {
+        try {
+          const pendingWaits = this.db.query<{ id: string; target_id: string; payload_json: string }>(
+            `SELECT id, target_id, payload_json FROM wakeup_outbox WHERE target_type = 'board_wait' AND status = 'pending'`
+          );
+          for (const wait of pendingWaits) {
+            const p = JSON.parse(wait.payload_json || '{}');
+            if (p.channelId && p.channelId !== data.channelId) continue;
+            if (wait.target_id === data.senderId) continue;
+            const agent = this.agentRepo.getIdentity(wait.target_id);
+            if (!agent) continue;
+            const content = String(data.content || data.message?.content || '');
+            if (p.mentionsOnly !== false) {
+              const handle = agent.displayName.replace(/^@/, '').toLowerCase();
+              if (!content.toLowerCase().includes(`@${handle}`) && !content.toLowerCase().includes('@all')) continue;
+            }
+            this.db.execute(`UPDATE wakeup_outbox SET status = 'dispatched', attempts = attempts + 1 WHERE id = ?`, wait.id);
+            const wakeMsg = data.message || {
+              id: data.id || `wake-${Date.now()}`,
+              channelId: data.channelId,
+              senderId: data.senderId || 'system',
+              senderType: data.senderType || 'system',
+              content,
+              createdAt: data.createdAt || Date.now(),
+            };
+            this.enqueueAgentExecution(agent.id, () => this.executeAgentResponse(agent, data.channelId, wakeMsg, 1));
+          }
+        } catch {}
       }
     } catch (err) {
       console.debug('[core_server] Suppressed broadcastEvent error:', err);
@@ -2075,13 +2189,9 @@ export class CoreServer {
     if (!this.requireIpcAuth) return true;
     if (origin === 'null') {
       if (req) {
-        const remoteIp = req.socket?.remoteAddress;
-        const isLoopback = remoteIp === '127.0.0.1' || remoteIp === '::1' || remoteIp === '::ffff:127.0.0.1' || remoteIp === undefined;
-        if (isLoopback) return true;
-        if (this.hasValidIpcToken(req)) return true;
-        return false;
+        return this.hasValidIpcToken(req);
       }
-      return true;
+      return false;
     }
     try {
       const u = new URL(origin);
@@ -2374,9 +2484,6 @@ export class CoreServer {
 
   private tryServeStatic(req: http.IncomingMessage, res: http.ServerResponse, pathname: string): boolean {
     const uiDistDir = this.resolveUiDistDir();
-    if (!uiDistDir) {
-      return false;
-    }
 
     const mimeTypes: Record<string, string> = {
       '.html': 'text/html; charset=utf-8',
@@ -2402,13 +2509,52 @@ export class CoreServer {
       safeRelPath = 'index.html';
     }
 
+    if (!uiDistDir) {
+      // Fallback to embedded Node SEA assets when running as a standalone binary
+      try {
+        const reqFn = typeof require === 'function' ? require : undefined;
+        const sea = reqFn ? reqFn('node:sea') : null;
+        if (sea && typeof sea.isSea === 'function' && sea.isSea()) {
+          const tryAsset = (rel: string): { buf: Buffer; ext: string } | null => {
+            try {
+              const raw = sea.getAsset(`ui/dist/${rel}`);
+              return { buf: Buffer.from(raw), ext: path.extname(rel).toLowerCase() };
+            } catch {
+              return null;
+            }
+          };
+          const hit = tryAsset(safeRelPath) || (!path.extname(safeRelPath) ? tryAsset('index.html') : null);
+          if (hit) {
+            res.writeHead(200, {
+              'Content-Type': mimeTypes[hit.ext] || 'application/octet-stream',
+              'Content-Length': hit.buf.length,
+              'Cache-Control': hit.ext === '.html' ? 'no-cache' : 'public, max-age=3600',
+            });
+            res.end(hit.buf);
+            return true;
+          }
+        }
+      } catch {
+        // Not running in SEA or no embedded UI assets
+      }
+      return false;
+    }
+
     const targetPath = path.resolve(uiDistDir, safeRelPath);
 
-    // Canonical path traversal security check
-    const distPrefix = uiDistDir.endsWith(path.sep) ? uiDistDir : uiDistDir + path.sep;
-    if (targetPath !== uiDistDir && !targetPath.startsWith(distPrefix)) {
+    // Canonical path traversal security check (resolve symlinks inside uiDistDir)
+    const canonicalRoot = fs.existsSync(uiDistDir) ? fs.realpathSync(uiDistDir) : uiDistDir;
+    const distPrefix = canonicalRoot.endsWith(path.sep) ? canonicalRoot : canonicalRoot + path.sep;
+    if (targetPath !== uiDistDir && !targetPath.startsWith(uiDistDir.endsWith(path.sep) ? uiDistDir : uiDistDir + path.sep)) {
       this.sendJson(res, 403, { error: 'Forbidden: Path traversal outside static directory' }, req);
       return true;
+    }
+    if (fs.existsSync(targetPath)) {
+      const canonicalTarget = fs.realpathSync(targetPath);
+      if (canonicalTarget !== canonicalRoot && !canonicalTarget.startsWith(distPrefix)) {
+        this.sendJson(res, 403, { error: 'Forbidden: Symlink traversal outside static directory' }, req);
+        return true;
+      }
     }
 
     // Direct file match
@@ -3146,6 +3292,7 @@ export class CoreServer {
 
       // Claim atomic task lease if task is associated
       const activeTaskId = triggerMsg?.taskId || run?.taskId;
+      let activeFenceToken: number | undefined;
       if (activeTaskId) {
         try {
           const claimed = this.taskRepo.claimTaskWithLease(activeTaskId, agent.id, run.id, 300000);
@@ -3155,6 +3302,7 @@ export class CoreServer {
             this.activeAgentExecutions.delete(agent.id);
             return;
           }
+          activeFenceToken = this.taskRepo.getFenceToken(activeTaskId);
         } catch (leaseErr) {
           console.warn('[KIN LEASE WARNING]', leaseErr);
           this.kernel.transitionState(run.id, 'failed', `Error acquiring task lease: ${leaseErr}`);
@@ -3395,7 +3543,16 @@ export class CoreServer {
         },
         agentIdentity: agent,
         project: this.workspaceRepo.getProject(targetProjectId),
-        toolSchemas: this.toolGateway.getToolSchemas(),
+        toolSchemas: this.toolGateway.getCompactToolSchemas(),
+        hybridMemories: triggerMsg?.content
+          ? this.memoryRepo.hybridSearch({ query: triggerMsg.content, scope: 'project', scopeId: targetProjectId, limit: 6 }).map((r) => ({
+              scope: r.memory.scope,
+              key: r.memory.key,
+              type: r.memory.type,
+              value: r.memory.value,
+              score: r.score,
+            }))
+          : undefined,
         projectDecisions: this.taskRepo
           .listDecisionsByProject(targetProjectId)
           .filter((d) => d.status !== 'superseded' && d.status !== 'rejected')
@@ -3447,6 +3604,19 @@ export class CoreServer {
         if (run?.id) {
           try { this.kernel.transitionState(run.id, 'waiting_for_approval', 'Halted due to stagnant discussion'); } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
         }
+        try {
+          this.db.execute(
+            `INSERT INTO exception_queue (id, project_id, run_id, task_id, category, severity, title, details_json, status, created_at)
+             VALUES (?, ?, ?, ?, 'loop_stagnation', 'HIGH', ?, ?, 'open', ?)`,
+            `exc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            targetProjectId,
+            run?.id || null,
+            activeTaskId || null,
+            `Stagnation guard halted @${agent.displayName.replace(/^@/, '')} after ${loopCheck.stagnantTurns} turns`,
+            JSON.stringify({ channelId, isPingPong: loopCheck.isPingPong }),
+            Date.now()
+          );
+        } catch {}
         this.activeAgentExecutions.delete(agent.id);
         this.broadcastEvent('agent:state', { agentId: agent.id, channelId, status: 'idle' });
         return;
@@ -3650,7 +3820,7 @@ export class CoreServer {
         },
         onRenewLease: (tId: string) => {
           try {
-            return this.taskRepo.renewTaskLease(tId, run.id, 300000);
+            return this.taskRepo.renewTaskLease(tId, run.id, 300000, activeFenceToken);
           } catch {
             return false;
           }
@@ -4044,6 +4214,15 @@ export class CoreServer {
       // Record actual loopResult.actions in checkpoints table upon run completion
       if (run?.id && loopResult?.actions) {
         try {
+          if (!worktreeCommitSha && effectiveWorktreeRoot) {
+            const { WorktreeManager } = await import('../execution/worktree_manager.js');
+            if (effectiveWorktreeRoot.includes(`${path.sep}.kin${path.sep}worktrees`)) {
+              const wm = new WorktreeManager(repoRoot);
+              worktreeCommitSha = (await wm.captureTurnCommit(effectiveWorktreeRoot, `kin: turn checkpoint ${run.id}`)) || null;
+            } else {
+              worktreeCommitSha = (await WorktreeManager.getHeadSha(effectiveWorktreeRoot)) || null;
+            }
+          }
           const checkpointId = `chk-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
           this.db.execute(
             `INSERT INTO checkpoints (id, run_id, snapshot_json, worktree_commit_sha, created_at)
@@ -4249,9 +4428,16 @@ export class CoreServer {
               let contentUri: string | null = null;
               let evidenceType = expectedType || 'artifact_hash';
               let isVerified = 0;
+              let commandConfigured = false;
+              const lastActionFailed = Boolean(
+                loopResult.actions &&
+                loopResult.actions.length > 0 &&
+                loopResult.actions[loopResult.actions.length - 1].error
+              );
 
               // 1. If verificationSpec contains a verification command, execute it to prove acceptance
               if (currentTask.verificationSpec?.command) {
+                commandConfigured = true;
                 const verifyCmd = currentTask.verificationSpec.command;
                 try {
                   const assignedIdentity = currentTask.assignedAgentId ? this.agentRepo.getIdentity(currentTask.assignedAgentId) : undefined;
@@ -4329,8 +4515,9 @@ export class CoreServer {
                 }
               }
 
-              // 2. If not verified by command, verify commit SHA or generated artifact matching verificationSpec
-              if (isVerified === 0) {
+              // 2. If not verified by command (and no explicit verification command was configured and failed),
+              // verify commit SHA or generated artifact matching verificationSpec
+              if (isVerified === 0 && !commandConfigured) {
                 if (worktreeCommitSha && (!expectedType || expectedType === 'artifact_hash')) {
                   contentUri = `git://commit/${worktreeCommitSha}`;
                   evidenceType = 'artifact_hash';
@@ -4357,8 +4544,8 @@ export class CoreServer {
                   }
                 }
 
-                // 3. Analytical task evidence generation when task has no file mutations but finished successfully
-                if (isVerified === 0 && loopResult.finalContent && loopResult.finalContent.trim().length > 0) {
+                // 3. Analytical task evidence generation when task has no file mutations and last action did not fail
+                if (isVerified === 0 && !lastActionFailed && loopResult.finalContent && loopResult.finalContent.trim().length > 0) {
                   const analysisHash = crypto.createHash('sha256').update(loopResult.finalContent.trim()).digest('hex');
                   contentUri = `memo://analysis/run/${run.id}?sha256=${analysisHash}`;
                   evidenceType = expectedType || 'analysis_summary';
@@ -4399,11 +4586,27 @@ export class CoreServer {
                       verifiedBy: freshIdentity.id,
                     },
                   });
+                  try {
+                    const shaParam = contentUri.includes('?sha256=') ? contentUri.split('?sha256=')[1] : null;
+                    this.db.execute(
+                      `INSERT INTO artifacts (id, project_id, run_id, task_id, kind, uri, sha256, metadata_json, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                      `art-${evidenceId}`,
+                      targetProjectId,
+                      run.id,
+                      activeTaskId,
+                      evidenceType,
+                      contentUri,
+                      shaParam,
+                      JSON.stringify({ evidenceId }),
+                      Date.now()
+                    );
+                  } catch {}
                 } catch (evErr) {
                   console.warn('[KIN CORE] Evidence record creation notice:', evErr);
                 }
 
-                const promotedTaskIds = this.taskRepo.completeTask(activeTaskId, evidenceId, run.id) || [];
+                const promotedTaskIds = this.taskRepo.completeTask(activeTaskId, evidenceId, run.id, activeFenceToken) || [];
                 EventLedger.getInstance().record({
                     eventType: 'TASK_COMPLETED',
                     entityType: 'task',
@@ -4738,6 +4941,19 @@ export class CoreServer {
           console.error(`[KIN CORE] Failed to transition run ${run.id} to failed:`, tErr);
         }
       }
+      try {
+        this.db.execute(
+          `INSERT INTO exception_queue (id, project_id, run_id, task_id, category, severity, title, details_json, status, created_at)
+           VALUES (?, ?, ?, ?, 'run_failed', 'HIGH', ?, ?, 'open', ?)`,
+          `exc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          agent.projectId || this.activeProjectId || 'proj-kin',
+          run?.id || null,
+          triggerMsg?.taskId || run?.taskId || null,
+          `Agent run failed: ${(err?.message || 'Execution error').slice(0, 180)}`,
+          JSON.stringify({ agentId: agent.id, channelId, error: err?.message }),
+          Date.now()
+        );
+      } catch {}
       const activeTaskId = triggerMsg?.taskId || run?.taskId;
       if (activeTaskId) {
         try {

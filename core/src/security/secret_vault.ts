@@ -7,6 +7,25 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { getDataDirectory } from '../storage/data_directory.js';
+
+function restrictKeyFilePermissions(filePath: string): void {
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch {}
+  if (process.platform === 'win32') {
+    try {
+      const user = process.env.USERNAME || process.env.USER;
+      if (user) {
+        execFileSync('icacls', [filePath, '/inheritance:r', '/grant:r', `${user}:F`], {
+          stdio: 'ignore',
+          timeout: 3000,
+        });
+      }
+    } catch {}
+  }
+}
 
 export interface SecretVaultOptions {
   masterKey?: string | Buffer;
@@ -19,17 +38,26 @@ export class SecretVault {
   private legacyMasterKey?: Buffer;
   private keyFilePath: string;
   private keyRing: Buffer[] = [];
+  private passphraseRaw?: string;
 
   constructor(options?: SecretVaultOptions) {
     const cwd = process.cwd();
+    const dataDir = getDataDirectory();
+    const dataKeyPath = path.resolve(dataDir, 'vault.key');
     const homeDir = process.env.USERPROFILE || process.env.HOME || process.env.APPDATA || cwd;
     const homeKeyPath = path.resolve(homeDir, '.kin', 'vault.key');
     const localKeyPath = path.resolve(cwd, '.kin', 'vault.key');
 
     if (options?.keyFilePath) {
       this.keyFilePath = options.keyFilePath;
+    } else if (process.env.KIN_DATA_DIR && process.env.KIN_DATA_DIR.trim().length > 0) {
+      this.keyFilePath = dataKeyPath;
     } else if (fs.existsSync(homeKeyPath)) {
       this.keyFilePath = homeKeyPath;
+    } else if (process.env.USERPROFILE || process.env.HOME) {
+      this.keyFilePath = homeKeyPath;
+    } else if (fs.existsSync(dataKeyPath)) {
+      this.keyFilePath = dataKeyPath;
     } else if (fs.existsSync(localKeyPath)) {
       this.keyFilePath = localKeyPath;
     } else {
@@ -90,6 +118,7 @@ export class SecretVault {
     if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
       return Buffer.from(trimmed, 'hex');
     }
+    this.passphraseRaw = trimmed;
     this.legacyMasterKey = crypto.createHash('sha256').update(trimmed, 'utf-8').digest();
     return crypto.scryptSync(trimmed, 'kin-vault-salt-v1', 32, { N: 16384, r: 8, p: 1 });
   }
@@ -115,6 +144,7 @@ export class SecretVault {
       } catch {
         fs.writeFileSync(filePath, generated.toString('hex'));
       }
+      restrictKeyFilePermissions(filePath);
       return generated;
     } catch (err: any) {
       throw new Error(`Failed to persist or load vault key at '${filePath}': ${err?.message || String(err)}`);
@@ -132,6 +162,16 @@ export class SecretVault {
 
     if (this.isEncrypted(plaintext)) {
       return plaintext; // Already encrypted
+    }
+
+    if (this.passphraseRaw) {
+      const salt = crypto.randomBytes(16);
+      const derivedKey = crypto.scryptSync(this.passphraseRaw, salt, 32, { N: 16384, r: 8, p: 1 });
+      const iv = crypto.randomBytes(12);
+      const cipher = crypto.createCipheriv('aes-256-gcm', derivedKey, iv);
+      const encrypted = Buffer.concat([cipher.update(plaintext, 'utf-8'), cipher.final()]);
+      const authTag = cipher.getAuthTag();
+      return `vault:v2:${salt.toString('hex')}:${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
     }
 
     const iv = crypto.randomBytes(12);
@@ -161,6 +201,20 @@ export class SecretVault {
     }
 
     const parts = ciphertext.split(':');
+    if (parts[0] === 'vault' && parts[1] === 'v2' && parts.length === 6) {
+      const salt = Buffer.from(parts[2], 'hex');
+      const iv = Buffer.from(parts[3], 'hex');
+      const authTag = Buffer.from(parts[4], 'hex');
+      const encryptedText = Buffer.from(parts[5], 'hex');
+      if (!this.passphraseRaw) {
+        throw new Error('vault:v2 token requires a string passphrase master key');
+      }
+      const derivedKey = crypto.scryptSync(this.passphraseRaw, salt, 32, { N: 16384, r: 8, p: 1 });
+      const decipher = crypto.createDecipheriv('aes-256-gcm', derivedKey, iv);
+      decipher.setAuthTag(authTag);
+      return Buffer.concat([decipher.update(encryptedText), decipher.final()]).toString('utf-8');
+    }
+
     if (parts.length !== 5 || parts[0] !== 'vault' || parts[1] !== 'v1') {
       throw new Error('Invalid vault token format');
     }
@@ -204,7 +258,7 @@ export class SecretVault {
    * Checks whether a given string is a valid vault ciphertext token.
    */
   public isEncrypted(value: string): boolean {
-    return typeof value === 'string' && value.startsWith('vault:v1:');
+    return typeof value === 'string' && (value.startsWith('vault:v1:') || value.startsWith('vault:v2:'));
   }
 
   public stageNextKey(newKey?: Buffer): string {
@@ -218,6 +272,7 @@ export class SecretVault {
     } catch {
       fs.writeFileSync(nextKeyPath, hex);
     }
+    restrictKeyFilePermissions(nextKeyPath);
     this.keyRing.unshift(keyBuf);
     return hex;
   }
@@ -230,12 +285,14 @@ export class SecretVault {
       const newKey = Buffer.from(rawNext, 'hex');
       this.keyRing.unshift(this.masterKey);
       this.masterKey = newKey;
+      this.passphraseRaw = undefined;
       try {
         fs.renameSync(nextKeyPath, this.keyFilePath);
       } catch {
         fs.copyFileSync(nextKeyPath, this.keyFilePath);
         fs.unlinkSync(nextKeyPath);
       }
+      restrictKeyFilePermissions(this.keyFilePath);
       return true;
     }
     return false;

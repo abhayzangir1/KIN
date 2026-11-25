@@ -3,7 +3,7 @@ import { useKinStore, isDesktopApp } from '../../store/kinStore.js';
 import { Minus, Square, X } from 'lucide-react';
 
 export const TitleBar: React.FC = () => {
-  const { activeProject } = useKinStore();
+  const activeProject = useKinStore((s) => s.activeProject);
 
   const [isMaximized, setIsMaximized] = useState(false);
   const isDesktop = isDesktopApp();
@@ -40,10 +40,10 @@ export const TitleBar: React.FC = () => {
       }
     };
     checkMaximized();
-    const interval = setInterval(checkMaximized, 2000);
+    window.addEventListener('resize', checkMaximized);
     return () => {
       mounted = false;
-      clearInterval(interval);
+      window.removeEventListener('resize', checkMaximized);
     };
   }, [isDesktop]);
 

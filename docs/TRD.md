@@ -152,9 +152,7 @@ No optional framework becomes the authority for these product concerns.
 - Vite
 - Tailwind CSS
 - Zustand for client state
-- React Flow for graph projections
-- Monaco for code/diff surfaces
-- xterm-style terminal UI
+- Custom interactive Swarm Map, unified diff viewer, and markdown/code preview modals (`lucide-react`)
 
 ## Core
 
@@ -166,9 +164,8 @@ No optional framework becomes the authority for these product concerns.
 
 ## Persistence
 
-- SQLite in WAL mode
-- FTS5 for lexical retrieval
-- sqlite-vec or equivalent optional local vector layer
+- SQLite in WAL mode (`node:sqlite` `DatabaseSync`)
+- FTS5 (`memories_fts`, `messages_fts`) + Float32 BLOB cosine similarity fused via Reciprocal Rank Fusion (RRF)
 - local filesystem for artifacts, spill, project workspaces and caches
 
 ## Model layer

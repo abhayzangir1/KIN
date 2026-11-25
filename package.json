@@ -7,13 +7,16 @@
     "core",
     "ui"
   ],
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "scripts": {
     "build": "npm run build --workspaces",
     "build:binary": "node core/scripts/package_binary.js",
     "build:prod": "npm run build --workspaces && npm run build:binary",
     "start:prod": "node core/dist/start_daemon.js",
     "typecheck": "tsc --noEmit -p core/tsconfig.json && tsc --noEmit -p ui/tsconfig.json",
-    "test": "npm run test --workspace=core",
+    "test": "npm run test --workspace=core && npm run test --workspace=ui",
     "test:foundation": "npm run test:foundation --workspace=core",
     "test:e2e": "npm run test:e2e --workspace=core",
     "core:dev": "npm run dev --workspace=core",

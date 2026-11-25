@@ -87,6 +87,20 @@ process.on('unhandledRejection', (reason) => {
 
 server.start().then((actualPort) => {
   console.log(`[KIN CORE] Workforce engine running on http://127.0.0.1:${actualPort}`);
+  const resolvedDataDir = getDataDirectory();
+  const tokenCandidates = [
+    path.join(resolvedDataDir, 'ipc_auth.token'),
+    path.join(resolvedDataDir, '.kin', 'ipc_auth.token'),
+  ];
+  for (const tp of tokenCandidates) {
+    if (fs.existsSync(tp)) {
+      const tok = fs.readFileSync(tp, 'utf8').trim();
+      if (tok) {
+        console.log(`[KIN CORE] Browser UI (authenticated): http://127.0.0.1:${actualPort}/?token=${tok}`);
+        break;
+      }
+    }
+  }
   console.log(`[KIN CORE] Database: ${dbPath}`);
 }).catch((err) => {
   console.error('[KIN CORE FATAL] Failed to start Core Server:', err);
@@ -104,4 +118,91 @@ process.on('SIGTERM', async () => {
   await server.stop();
   process.exit(0);
 });
+
+// ============================================================================
+// PARENT PROCESS WATCHDOG
+// Supervises the parent process (host application, Tauri shell, or terminal).
+// On Unix/macOS, if the parent terminates abnormally (e.g. SIGKILL), the child
+// is reparented to init/launchd (PID 1).
+// Cross-platform signal 0 probe verifies parent process liveness.
+// If the parent process dies, shuts down CoreServer cleanly and exits.
+// ============================================================================
+function setupParentProcessWatchdog(): void {
+  if (process.env.KIN_WATCH_PARENT === 'false' || process.env.KIN_NO_PARENT_WATCHDOG === '1') {
+    return;
+  }
+
+  const initialPpid = process.ppid;
+  if (!initialPpid || initialPpid <= 1) {
+    return;
+  }
+
+  let isShuttingDown = false;
+  const triggerGracefulShutdown = async (reason: string) => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    console.warn(
+      `[KIN CORE WATCHDOG] Host parent process (PID ${initialPpid}) termination detected (${reason}). Initiating graceful daemon shutdown...`
+    );
+    try {
+      await server.stop();
+    } catch (stopErr) {
+      console.error('[KIN CORE WATCHDOG] Error stopping server during parent termination:', stopErr);
+    }
+    process.exit(0);
+  };
+
+  // Immediate detection: If stdin is a pipe connected to the host parent,
+  // stream closure immediately signals parent process termination with 0ms latency.
+  if (!process.stdin.isTTY && typeof process.stdin.on === 'function') {
+    try {
+      process.stdin.resume();
+      process.stdin.on('end', () => {
+        void triggerGracefulShutdown('stdin stream closed');
+      });
+      process.stdin.on('close', () => {
+        void triggerGracefulShutdown('stdin handle closed');
+      });
+    } catch {}
+  }
+
+  const intervalMs = parseInt(process.env.KIN_WATCHDOG_INTERVAL_MS || '2500', 10);
+
+  const watchdog = setInterval(async () => {
+    if (isShuttingDown) {
+      clearInterval(watchdog);
+      return;
+    }
+
+    let parentTerminated = false;
+
+    // Check 1: Unix reparenting detection (reparented to PID 1 or changed PPID)
+    if (process.platform !== 'win32') {
+      if (process.ppid !== initialPpid || process.ppid === 1) {
+        parentTerminated = true;
+      }
+    }
+
+    // Check 2: Cross-platform process liveness probe using kill(pid, 0)
+    if (!parentTerminated) {
+      try {
+        process.kill(initialPpid, 0);
+      } catch (err: any) {
+        if (err?.code === 'ESRCH') {
+          parentTerminated = true;
+        }
+      }
+    }
+
+    if (parentTerminated) {
+      clearInterval(watchdog);
+      await triggerGracefulShutdown('process probe ESRCH');
+    }
+  }, intervalMs);
+
+  watchdog.unref();
+}
+
+setupParentProcessWatchdog();
+
 

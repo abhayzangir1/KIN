@@ -36,7 +36,7 @@ if (platform === 'win32') {
 } else if (platform === 'darwin') {
   targetTriple = arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
 } else if (platform === 'linux') {
-  targetTriple = arch === 'x64' ? 'x86_64-unknown-linux-gnu' : `${arch}-unknown-linux-gnu`;
+  targetTriple = arch === 'x64' ? 'x86_64-unknown-linux-gnu' : (arch === 'arm64' ? 'aarch64-unknown-linux-gnu' : `${arch}-unknown-linux-gnu`);
 } else {
   targetTriple = `${arch}-unknown-${platform}`;
 }
@@ -50,27 +50,20 @@ try {
   }
 } catch {}
 
-const binaryNames = new Set([
-  `kin-core${binaryExt}`,
+const nativeTriple = rustcHost || targetTriple;
+const tauriBinaryNames = new Set([
+  `kin-core-${nativeTriple}${binaryExt}`,
   `kin-core-${targetTriple}${binaryExt}`,
 ]);
+const coreBinaryNames = new Set([
+  `kin-core${binaryExt}`,
+  `kin-core-${nativeTriple}${binaryExt}`,
+]);
 
-if (rustcHost) {
-  binaryNames.add(`kin-core-${rustcHost}${binaryExt}`);
-}
-
-if (platform === 'win32') {
-  binaryNames.add('kin-core-x86_64-pc-windows-msvc.exe');
-  binaryNames.add('kin-core-x86_64-pc-windows-gnu.exe');
-} else if (platform === 'darwin') {
-  binaryNames.add('kin-core-x86_64-apple-darwin');
-  binaryNames.add('kin-core-aarch64-apple-darwin');
-} else if (platform === 'linux') {
-  binaryNames.add('kin-core-x86_64-unknown-linux-gnu');
-  binaryNames.add('kin-core-aarch64-unknown-linux-gnu');
-}
-
-console.log(`[KIN PACKAGE] Target binary variants:`, Array.from(binaryNames));
+console.log(`[KIN PACKAGE] Target binary variants:`, {
+  tauri: Array.from(tauriBinaryNames),
+  core: Array.from(coreBinaryNames),
+});
 
 // 4. Bundle into single CommonJS file for Node SEA
 const bundledDaemonPath = path.resolve(coreDir, 'dist', 'bundle_daemon.cjs');
@@ -81,17 +74,49 @@ try {
     stdio: 'inherit'
   });
 } catch (bundleErr) {
-  console.warn('[KIN PACKAGE] esbuild bundle notice:', bundleErr.message);
+  console.error('[KIN PACKAGE] esbuild bundle failed:', bundleErr.message);
+  throw bundleErr;
+}
+
+const workerQuickJsSrc = path.resolve(coreDir, 'src', 'execution', 'worker_quickjs.ts');
+const workerQuickJsBundle = path.resolve(coreDir, 'dist', 'worker_quickjs.cjs');
+if (fs.existsSync(workerQuickJsSrc)) {
+  console.log('[KIN PACKAGE] Pre-bundling QuickJS worker (worker_quickjs.cjs)...');
+  execSync(
+    `npx esbuild "${workerQuickJsSrc}" --bundle --platform=node --target=node20 --format=cjs --outfile="${workerQuickJsBundle}"`,
+    { cwd: coreDir, stdio: 'inherit' }
+  );
 }
 
 const seaConfigPath = path.resolve(coreDir, 'sea-config.json');
 const seaBlobPath = path.resolve(coreDir, 'sea-prep.blob');
+const seaAssets = {};
+if (fs.existsSync(workerQuickJsBundle)) {
+  seaAssets['worker_quickjs.cjs'] = path.relative(coreDir, workerQuickJsBundle).replace(/\\/g, '/');
+}
+const includeUiAssets = !process.argv.includes('--no-ui') && process.env.KIN_SEA_NO_UI !== '1';
+const uiDistDir = path.resolve(coreDir, '..', 'ui', 'dist');
+if (includeUiAssets && fs.existsSync(path.join(uiDistDir, 'index.html'))) {
+  const walkUi = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walkUi(full);
+      } else if (entry.isFile()) {
+        const rel = path.relative(uiDistDir, full).replace(/\\/g, '/');
+        seaAssets[`ui/dist/${rel}`] = path.relative(coreDir, full).replace(/\\/g, '/');
+      }
+    }
+  };
+  walkUi(uiDistDir);
+}
 
 const seaConfig = {
   main: path.relative(coreDir, fs.existsSync(bundledDaemonPath) ? bundledDaemonPath : startDaemonPath).replace(/\\/g, '/'),
   output: path.relative(coreDir, seaBlobPath).replace(/\\/g, '/'),
   disableExperimentalSEAWarning: true,
-  useCodeCache: false
+  useCodeCache: false,
+  ...(Object.keys(seaAssets).length > 0 ? { assets: seaAssets } : {}),
 };
 
 fs.writeFileSync(seaConfigPath, JSON.stringify(seaConfig, null, 2), 'utf-8');
@@ -165,8 +190,10 @@ try {
   }
 
   const destinations = [];
-  for (const name of binaryNames) {
+  for (const name of tauriBinaryNames) {
     destinations.push(path.resolve(tauriBinariesDir, name));
+  }
+  for (const name of coreBinaryNames) {
     destinations.push(path.resolve(coreBinariesDir, name));
   }
 

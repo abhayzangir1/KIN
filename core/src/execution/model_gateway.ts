@@ -9,13 +9,16 @@ import { SecretBroker } from '../security/secret_broker.js';
 import { ModelDiscoveryService, type DiscoveredModel, type ProviderReadiness } from './model_discovery.js';
 import { QuotaGuard } from './quota_guard.js';
 import { StreamingInferenceClient } from './streaming_client.js';
+import { canEgressData, type EgressConsentSettings } from '../security/egress_policy.js';
 
 export { ModelDiscoveryService, QuotaGuard, StreamingInferenceClient };
-export type { DiscoveredModel, ProviderReadiness };
+export type { DiscoveredModel, ProviderReadiness, EgressConsentSettings };
 
 export interface ModelMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
+  reasoning_content?: string;
+  images?: Array<{ mimeType: string; base64: string }>;
 }
 
 export interface ModelInvocationParams {
@@ -108,30 +111,6 @@ export function separateThinkingAndContent(
     cleanContent: content.trim(),
     thinking: thinking.trim() || undefined,
   };
-}
-
-async function readChunkWithTimeout(reader: any, timeoutMs = 30000): Promise<{ done: boolean; value?: any }> {
-  let timer: NodeJS.Timeout | undefined;
-  const timeoutPromise = new Promise<{ done: boolean; value?: any }>((_, reject) => {
-    timer = setTimeout(() => {
-      try {
-        if (reader && typeof reader.cancel === 'function') {
-          reader.cancel().catch?.(() => {});
-        }
-      } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
-      reject(new Error(`Model stream stalled: no chunk received within ${timeoutMs}ms idle timeout.`));
-    }, timeoutMs);
-  });
-  try {
-    const readPromise = reader.read();
-    readPromise.catch?.(() => {});
-    return await Promise.race([
-      readPromise,
-      timeoutPromise,
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
 }
 
 export interface ModelInvocationResult {
@@ -285,6 +264,7 @@ export const FALLBACK_PROVIDER_CATALOGS: Record<string, DiscoveredModel[]> = {
 export interface ModelGatewayOptions {
   apiKeyResolver?: (provider: string, callerAgentId?: string) => string | undefined;
   allKeysResolver?: (provider: string, callerAgentId?: string) => ManagedKeyInfo[];
+  egressConsentResolver?: () => EgressConsentSettings | undefined;
   onUsage?: (provider: string, tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }) => void;
   openrouterApiKey?: string;
   openaiApiKey?: string;
@@ -309,6 +289,7 @@ export class ModelGateway {
   private nvidiaApiKey?: string;
   private apiKeyResolver?: (provider: string, callerAgentId?: string) => string | undefined;
   private allKeysResolver?: (provider: string, callerAgentId?: string) => ManagedKeyInfo[];
+  private egressConsentResolver?: () => EgressConsentSettings | undefined;
   private onUsage?: (provider: string, tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }) => void;
   private customEndpoints: Map<string, { baseUrl: string; apiKey?: string }> = new Map();
   private validatedProviders: Map<string, boolean> = new Map();
@@ -319,7 +300,7 @@ export class ModelGateway {
   private static readonly READINESS_CACHE_TTL_MS = 60000;
 
   constructor(options?: ModelGatewayOptions) {
-    this.ollamaHost = options?.ollamaHost || process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
+    this.ollamaHost = options?.ollamaHost || process.env.OLLAMA_HOST || process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
     this.openrouterApiKey = options?.openrouterApiKey || process.env.OPENROUTER_API_KEY;
     this.openaiApiKey = options?.openaiApiKey || process.env.OPENAI_API_KEY;
     this.anthropicApiKey = options?.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
@@ -330,6 +311,7 @@ export class ModelGateway {
     this.nvidiaApiKey = options?.nvidiaApiKey || process.env.NVIDIA_API_KEY || process.env.NVIDIA_NIM_API_KEY;
     this.apiKeyResolver = options?.apiKeyResolver;
     this.allKeysResolver = options?.allKeysResolver;
+    this.egressConsentResolver = options?.egressConsentResolver;
     this.onUsage = options?.onUsage;
   }
 
@@ -374,6 +356,10 @@ export class ModelGateway {
 
   public setOnUsage(handler: (provider: string, tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }) => void) {
     this.onUsage = handler;
+  }
+
+  public setEgressConsentResolver(resolver: () => EgressConsentSettings | undefined): void {
+    this.egressConsentResolver = resolver;
   }
 
   public resolveApiKey(provider: string, callerAgentId?: string): string | undefined {
@@ -929,9 +915,8 @@ export class ModelGateway {
       const isFree = cleanId.endsWith(':free') || m.pricing?.prompt === 0 || m.is_free === true;
       const contextWindow = m.context_window || m.inputTokenLimit || (cleanId.includes('o1') || cleanId.includes('o3') ? 200000 : 128000);
       const maxOutputTokens = m.max_output_tokens || m.outputTokenLimit || 8192;
-      const idLower = cleanId.toLowerCase();
-      const supportsVision = cleanId.includes('4o') || idLower.includes('vision') || idLower.includes('vl') || idLower.includes('neva') || idLower.includes('vlm') || cleanId.includes('gemini');
-      const supportsReasoning = cleanId.includes('r1') || cleanId.includes('reasoner') || cleanId.includes('o1') || cleanId.includes('o3') || idLower.includes('nemotron') || idLower.includes('thinking') || idLower.includes('qwq');
+      const caps = ModelDiscoveryService.mapModelCapabilities(cleanId, m);
+      const pricing = ModelDiscoveryService.parsePricing(m.pricing);
 
       return {
         id: cleanId,
@@ -939,10 +924,11 @@ export class ModelGateway {
         provider: norm,
         contextWindow,
         maxOutputTokens,
-        supportsTools: true,
-        supportsVision,
-        supportsReasoning,
+        supportsTools: caps.supportsTools ?? true,
+        supportsVision: caps.supportsVision ?? false,
+        supportsReasoning: caps.supportsReasoning ?? false,
         isFree,
+        pricing,
         description: m.description,
         configured: true,
         validated: true,
@@ -985,13 +971,38 @@ export class ModelGateway {
       if (provider === 'ollama') {
         return await this.invokeOllama(modelName, params, startTime);
       }
+
+      // Check Cloud Egress Consent Policy for all external non-local providers
+      const custom = this.customEndpoints.get(provider) || this.customEndpoints.get(params.modelId);
+      let isLocalCustom = false;
+      if (custom?.baseUrl) {
+        try {
+          const parsedHost = new URL(custom.baseUrl).hostname.toLowerCase();
+          isLocalCustom = parsedHost === '127.0.0.1' || parsedHost === 'localhost' || parsedHost === '::1' || parsedHost === '[::1]';
+        } catch {
+          isLocalCustom = false;
+        }
+      }
+      if (!isLocalCustom && this.egressConsentResolver) {
+        const consent = this.egressConsentResolver();
+        if (consent && !canEgressData('prompt', consent)) {
+          return {
+            content: 'CLOUD EGRESS BLOCKED: Outbound cloud transmission denied by enterprise egress consent policy.',
+            modelId: params.modelId,
+            provider,
+            tokensUsed: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+            durationMs: Date.now() - startTime,
+            isError: true,
+          };
+        }
+      }
+
       if (provider === 'anthropic') {
         return await this.invokeAnthropic(modelName, params, startTime);
       }
 
       // Determine target URL and API key for universal OpenAI-compatible pipeline
       let targetUrl: string;
-      const custom = this.customEndpoints.get(provider) || this.customEndpoints.get(params.modelId);
       const apiKey = custom?.apiKey || this.resolveApiKey(provider, params.callerAgentId);
 
       if (custom?.baseUrl) {
@@ -1116,9 +1127,14 @@ export class ModelGateway {
       : 180000;
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
     const combinedSignal = params.signal ? (AbortSignal as any).any([timeoutSignal, params.signal]) : timeoutSignal;
+    const ollamaMessages = params.messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+      ...(m.images && m.images.length > 0 ? { images: m.images.map((img) => img.base64) } : {}),
+    }));
     const requestBody: Record<string, any> = {
       model: modelName,
-      messages: params.messages,
+      messages: ollamaMessages,
       stream: true,
       options: {
         temperature: params.temperature ?? 0.2,
@@ -1126,9 +1142,7 @@ export class ModelGateway {
         num_ctx: process.env.KIN_OLLAMA_NUM_CTX ? parseInt(process.env.KIN_OLLAMA_NUM_CTX, 10) : 8192,
       },
     };
-    const sysPrompt = params.messages?.find((m) => m.role === 'system')?.content || '';
-    const promptHasTools = sysPrompt.includes('AVAILABLE TOOLS') || sysPrompt.includes('TOOL INSTRUCTIONS:');
-    if (params.tools && params.tools.length > 0 && !promptHasTools) {
+    if (params.tools && params.tools.length > 0) {
       requestBody.tools = params.tools;
     }
 
@@ -1176,7 +1190,7 @@ export class ModelGateway {
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
       while (true) {
-        const { done, value } = await readChunkWithTimeout(reader, 30000);
+        const { done, value } = await StreamingInferenceClient.readChunkWithTimeout(reader, 30000);
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
@@ -1318,7 +1332,8 @@ export class ModelGateway {
     startTime: number,
     provider: string,
     retryCount: number = 0,
-    attemptedKeys: Set<string> = new Set(apiKey ? [apiKey] : [])
+    attemptedKeys: Set<string> = new Set(apiKey ? [apiKey] : []),
+    attemptedModels: Set<string> = new Set([modelName])
   ): Promise<ModelInvocationResult> {
     const isCustomEndpoint = provider === 'custom' || this.customEndpoints.has(provider);
     if (!apiKey && !isCustomEndpoint && provider !== 'lmstudio' && provider !== 'vllm' && provider !== 'openai_compatible') {
@@ -1340,13 +1355,43 @@ export class ModelGateway {
       reqHeaders['X-Title'] = 'KIN Workforce Platform';
     }
 
+    // DeepSeek V3.2 / R1: retain reasoning_content on assistant turns within the current user turn, strip from prior completed turns
+    let lastRealUserIdx = -1;
+    for (let i = params.messages.length - 1; i >= 0; i--) {
+      const m = params.messages[i];
+      if (
+        m.role === 'user' &&
+        !m.content.startsWith('<observation') &&
+        !m.content.startsWith('⚠️ [PRIORITY MID-EXECUTION STEERING')
+      ) {
+        lastRealUserIdx = i;
+        break;
+      }
+    }
+    const preparedMessages = params.messages.map((m, idx) => {
+      const out: Record<string, any> = { role: m.role, content: m.content };
+      if (m.images && m.images.length > 0 && m.role === 'user') {
+        out.content = [
+          { type: 'text', text: m.content },
+          ...m.images.map((img) => ({ type: 'image_url', image_url: { url: `data:${img.mimeType};base64,${img.base64}` } })),
+        ];
+      }
+      if (m.role === 'assistant' && m.reasoning_content && idx > lastRealUserIdx) {
+        out.reasoning_content = m.reasoning_content;
+      }
+      return out;
+    });
+
     const reqBody: Record<string, any> = {
       model: modelName,
-      messages: params.messages,
+      messages: preparedMessages,
       temperature: params.temperature ?? 0.2,
       max_tokens: params.maxTokens ?? 2048,
       stream,
     };
+    if (stream && provider !== 'nvidia') {
+      reqBody.stream_options = { include_usage: true };
+    }
     if (params.tools && params.tools.length > 0) {
       reqBody.tools = params.tools;
     }
@@ -1387,8 +1432,9 @@ export class ModelGateway {
           'google/gemini-2.0-flash-exp:free',
           'qwen/qwen-2.5-coder-32b-instruct:free',
         ];
-        const nextFallback = freeFallbacks.find((m) => m !== modelName);
+        const nextFallback = freeFallbacks.find((m) => !attemptedModels.has(m));
         if (nextFallback) {
+          attemptedModels.add(nextFallback);
           console.warn(`[KIN MODEL GATEWAY] 429 rate limit on "${modelName}". Failing over to resilient free tier model "${nextFallback}".`);
           const fallbackRes = await this.invokeOpenAiCompatible(
             url,
@@ -1398,7 +1444,8 @@ export class ModelGateway {
             startTime,
             provider,
             0,
-            attemptedKeys
+            attemptedKeys,
+            attemptedModels
           );
           return {
             ...fallbackRes,
@@ -1408,13 +1455,26 @@ export class ModelGateway {
         }
       }
 
-      // 3. Exponential backoff retry with jitter
+      // 3. Exponential backoff retry with jitter (cancellable via AbortSignal)
       if (retryCount < 2) {
         const retryAfterHeader = res.headers.get('retry-after');
         const retryAfterSec = QuotaGuard.parseRetryAfter(retryAfterHeader);
         const backoffMs = QuotaGuard.computeExponentialJitterBackoff(retryCount, retryAfterSec, 1500, 60000);
-        await new Promise((resolve) => setTimeout(resolve, backoffMs));
-        return this.invokeOpenAiCompatible(url, apiKey, modelName, params, startTime, provider, retryCount + 1, attemptedKeys);
+        await new Promise<void>((resolve, reject) => {
+          if (params.signal?.aborted) {
+            return reject(params.signal.reason || new DOMException('Aborted', 'AbortError'));
+          }
+          const onAbort = () => {
+            clearTimeout(timer);
+            reject(params.signal?.reason || new DOMException('Aborted', 'AbortError'));
+          };
+          const timer = setTimeout(() => {
+            params.signal?.removeEventListener('abort', onAbort);
+            resolve();
+          }, backoffMs);
+          params.signal?.addEventListener('abort', onAbort, { once: true });
+        });
+        return this.invokeOpenAiCompatible(url, apiKey, modelName, params, startTime, provider, retryCount + 1, attemptedKeys, attemptedModels);
       }
       const rawErrText = await res.text().catch(() => res.statusText);
       const errText = SecretBroker.getInstance().redactSecrets(rawErrText);
@@ -1440,7 +1500,7 @@ export class ModelGateway {
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
       while (true) {
-        const { done, value } = await readChunkWithTimeout(reader, 30000);
+        const { done, value } = await StreamingInferenceClient.readChunkWithTimeout(reader, 30000);
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
@@ -1504,7 +1564,14 @@ export class ModelGateway {
                 if (params.onToken) params.onToken(delta.content);
               }
               if (delta?.reasoning || delta?.reasoning_content) {
-                fullThinking += (delta.reasoning || delta.reasoning_content);
+                const thinkChunk = delta.reasoning || delta.reasoning_content;
+                fullThinking += thinkChunk;
+                if (params.onThinkingToken) params.onThinkingToken(thinkChunk);
+              }
+              if (parsed.usage) {
+                promptTokens = parsed.usage.prompt_tokens || promptTokens;
+                completionTokens = parsed.usage.completion_tokens || completionTokens;
+                totalTokens = parsed.usage.total_tokens || totalTokens;
               }
               const toolCallsDelta = delta?.tool_calls;
               if (Array.isArray(toolCallsDelta)) {
@@ -1629,13 +1696,31 @@ export class ModelGateway {
       .filter(Boolean);
     const systemMsg = systemMsgs.join('\n\n');
 
-    const coalescedMsgs: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+    const coalescedMsgs: Array<{ role: 'user' | 'assistant'; content: any }> = [];
     for (const msg of params.messages.filter((m) => m.role !== 'system')) {
       const role = (msg.role === 'assistant' ? 'assistant' : 'user') as 'user' | 'assistant';
+      const hasImages = role === 'user' && msg.images && msg.images.length > 0;
+      const blocks = hasImages
+        ? [
+            { type: 'text', text: msg.content || '' },
+            ...msg.images!.map((img) => ({
+              type: 'image',
+              source: { type: 'base64', media_type: img.mimeType || 'image/png', data: img.base64 },
+            })),
+          ]
+        : null;
       if (coalescedMsgs.length > 0 && coalescedMsgs[coalescedMsgs.length - 1].role === role) {
-        coalescedMsgs[coalescedMsgs.length - 1].content += '\n\n' + (msg.content || '');
+        const prev = coalescedMsgs[coalescedMsgs.length - 1];
+        if (Array.isArray(prev.content)) {
+          if (blocks) prev.content.push(...blocks);
+          else prev.content.push({ type: 'text', text: msg.content || '' });
+        } else if (blocks) {
+          prev.content = [{ type: 'text', text: String(prev.content || '') }, ...blocks];
+        } else {
+          prev.content += '\n\n' + (msg.content || '');
+        }
       } else {
-        coalescedMsgs.push({ role, content: msg.content || '' });
+        coalescedMsgs.push({ role, content: blocks ?? (msg.content || '') });
       }
     }
 
@@ -1648,12 +1733,21 @@ export class ModelGateway {
     const effectiveSignal = resolveEffectiveSignal(params.signal);
     const reqBody: Record<string, any> = {
       model: modelName,
-      system: systemMsg,
+      system: systemMsg.length >= 1024
+        ? [{ type: 'text', text: systemMsg, cache_control: { type: 'ephemeral' } }]
+        : systemMsg,
       messages: coalescedMsgs,
       max_tokens: params.maxTokens ?? 2048,
       temperature: params.temperature ?? 0.2,
       stream,
     };
+    if (params.tools && params.tools.length > 0) {
+      reqBody.tools = params.tools.map((t) => ({
+        name: t.function.name,
+        description: t.function.description,
+        input_schema: t.function.parameters || { type: 'object', properties: {} },
+      }));
+    }
 
     const res = await fetch(url, {
       method: 'POST',
@@ -1685,7 +1779,20 @@ export class ModelGateway {
         const retryAfterHeader = res.headers.get('retry-after');
         const retryAfterSec = QuotaGuard.parseRetryAfter(retryAfterHeader);
         const backoffMs = QuotaGuard.computeExponentialJitterBackoff(retryCount, retryAfterSec, 1500, 60000);
-        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        await new Promise<void>((resolve, reject) => {
+          if (params.signal?.aborted) {
+            return reject(params.signal.reason || new DOMException('Aborted', 'AbortError'));
+          }
+          const onAbort = () => {
+            clearTimeout(timer);
+            reject(params.signal?.reason || new DOMException('Aborted', 'AbortError'));
+          };
+          const timer = setTimeout(() => {
+            params.signal?.removeEventListener('abort', onAbort);
+            resolve();
+          }, backoffMs);
+          params.signal?.addEventListener('abort', onAbort, { once: true });
+        });
         return this.invokeAnthropic(modelName, params, startTime, retryCount + 1, apiKey, url, attemptedKeys);
       }
       const rawErrText = await res.text().catch(() => res.statusText);
@@ -1711,7 +1818,7 @@ export class ModelGateway {
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
       while (true) {
-        const { done, value } = await readChunkWithTimeout(reader, 30000);
+        const { done, value } = await StreamingInferenceClient.readChunkWithTimeout(reader, 30000);
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
@@ -1785,6 +1892,12 @@ export class ModelGateway {
                 const tc = streamToolCalls.get(idx);
                 if (tc) tc.arguments += parsed.delta.partial_json;
               }
+            }
+            if (parsed.type === 'message_start' && parsed.message?.usage?.input_tokens) {
+              promptTokens = parsed.message.usage.input_tokens;
+            }
+            if (parsed.type === 'message_delta' && parsed.usage?.output_tokens) {
+              completionTokens = parsed.usage.output_tokens;
             }
           } catch (err) { console.debug("[model_gateway] Suppressed exception in trailing buffer flush:", err); }
         }

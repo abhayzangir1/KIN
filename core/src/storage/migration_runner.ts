@@ -45,6 +45,9 @@ const REQUIRED_TABLES = [
   'managed_credentials',
   'custom_tools',
   'harness_improvements',
+  'wakeup_outbox',
+  'exception_queue',
+  'artifacts',
 ];
 
 export class MigrationRunner {
@@ -71,19 +74,13 @@ export class MigrationRunner {
 
     }
 
+    // Load only trusted application-local schema files (never untrusted CWD/schema.sql)
     const candidatePaths = [
       path.join(currentDir, 'schema.sql'),
       path.join(currentDir, 'storage', 'schema.sql'),
       path.resolve(currentDir, '../../src/storage/schema.sql'),
       path.resolve(currentDir, '../src/storage/schema.sql'),
       path.resolve(currentDir, '../../storage/schema.sql'),
-      path.resolve(process.cwd(), 'schema.sql'),
-      path.resolve(process.cwd(), 'src/storage/schema.sql'),
-      path.resolve(process.cwd(), 'core/src/storage/schema.sql'),
-      path.resolve(process.cwd(), 'dist/storage/schema.sql'),
-      path.resolve(process.cwd(), 'core/dist/storage/schema.sql'),
-      path.resolve(path.dirname(process.execPath), 'schema.sql'),
-      path.resolve(path.dirname(process.execPath), 'storage/schema.sql'),
     ];
 
     let schemaSql = '';
@@ -247,6 +244,7 @@ export class MigrationRunner {
           const hasTriggerMsgId = runCols.includes('trigger_message_id');
           const hasQuotaResetsAt = runCols.includes('quota_resets_at');
           const hasInterruptedTurn = runCols.includes('interrupted_turn');
+          const hasPriority = runCols.includes('priority');
           this.db.exec(`
             CREATE TABLE agent_runs_dg_tmp (
               id TEXT PRIMARY KEY,
@@ -264,11 +262,12 @@ export class MigrationRunner {
               quota_resets_at INTEGER,
               interrupted_turn INTEGER DEFAULT 0,
               model_id TEXT,
+              priority INTEGER DEFAULT 50,
               created_at INTEGER NOT NULL,
               completed_at INTEGER
             );
-            INSERT INTO agent_runs_dg_tmp (id, agent_id, project_id, parent_run_id, task_id, channel_id, trigger_message_id, state, worktree_path, heartbeat_at, allocated_tokens, used_tokens, quota_resets_at, interrupted_turn, model_id, created_at, completed_at)
-            SELECT id, agent_id, project_id, parent_run_id, task_id, ${hasChannelId ? 'channel_id' : 'NULL'}, ${hasTriggerMsgId ? 'trigger_message_id' : 'NULL'}, state, worktree_path, heartbeat_at, allocated_tokens, used_tokens, ${hasQuotaResetsAt ? 'quota_resets_at' : 'NULL'}, ${hasInterruptedTurn ? 'interrupted_turn' : '0'}, ${hasModelId ? 'model_id' : 'NULL'}, created_at, completed_at
+            INSERT INTO agent_runs_dg_tmp (id, agent_id, project_id, parent_run_id, task_id, channel_id, trigger_message_id, state, worktree_path, heartbeat_at, allocated_tokens, used_tokens, quota_resets_at, interrupted_turn, model_id, priority, created_at, completed_at)
+            SELECT id, agent_id, project_id, parent_run_id, task_id, ${hasChannelId ? 'channel_id' : 'NULL'}, ${hasTriggerMsgId ? 'trigger_message_id' : 'NULL'}, state, worktree_path, heartbeat_at, allocated_tokens, used_tokens, ${hasQuotaResetsAt ? 'quota_resets_at' : 'NULL'}, ${hasInterruptedTurn ? 'interrupted_turn' : '0'}, ${hasModelId ? 'model_id' : 'NULL'}, ${hasPriority ? 'COALESCE(priority, 50)' : '50'}, created_at, completed_at
             FROM agent_runs;
             DROP TABLE agent_runs;
             ALTER TABLE agent_runs_dg_tmp RENAME TO agent_runs;
@@ -524,7 +523,55 @@ export class MigrationRunner {
         }
       }
 
+      // Pre-schema v1 -> v2 column upgrades on existing tables so new indexes/triggers succeed
+      const ensureColumns = (table: string, cols: Array<[string, string]>) => {
+        const existing = this.db.query<{ name: string }>(`PRAGMA table_info(${table});`).map((c) => c.name);
+        if (existing.length === 0) return;
+        for (const [col, def] of cols) {
+          if (!existing.includes(col)) {
+            this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def};`);
+          }
+        }
+      };
+      ensureColumns('memories', [
+        ['valid_from', 'INTEGER'],
+        ['valid_to', 'INTEGER'],
+        ['invalidated_at', 'INTEGER'],
+        ['embedding', 'BLOB'],
+        ['importance', 'REAL DEFAULT 0.5'],
+      ]);
+      ensureColumns('action_records', [
+        ['step_key', 'TEXT'],
+        ['idempotency_result_json', 'TEXT'],
+      ]);
+      ensureColumns('tasks', [['fence_token', 'INTEGER NOT NULL DEFAULT 0']]);
+      ensureColumns('agent_runs', [
+        ['session_turns', 'INTEGER NOT NULL DEFAULT 0'],
+        ['cumulative_turn', 'INTEGER NOT NULL DEFAULT 0'],
+        ['last_session_summary', 'TEXT'],
+      ]);
+      ensureColumns('schedules', [
+        ['name', 'TEXT'],
+        ['exact_timing', 'BOOLEAN NOT NULL DEFAULT 0'],
+        ['jitter_seconds', 'INTEGER DEFAULT 0'],
+      ]);
+
+      // Ensure updated FTS5 triggers on v1 -> v2 upgrades and idempotent missing-row backfill
+      this.db.exec(`
+        DROP TRIGGER IF EXISTS trg_memories_fts_insert;
+        DROP TRIGGER IF EXISTS trg_memories_fts_update;
+        DROP TRIGGER IF EXISTS trg_messages_fts_update;
+      `);
       this.db.exec(schemaSql);
+
+      // Idempotent backfill of any missing active memories or messages in FTS5
+      this.db.exec(`INSERT INTO memories_fts (memory_id, scope, scope_id, key, content)
+        SELECT id, scope, scope_id, key, value_json FROM memories
+        WHERE invalidated_at IS NULL AND id NOT IN (SELECT memory_id FROM memories_fts);`);
+      this.db.exec(`INSERT INTO messages_fts (message_id, channel_id, sender_id, content)
+        SELECT id, channel_id, sender_id, content FROM messages
+        WHERE id NOT IN (SELECT message_id FROM messages_fts);`);
+      this.db.exec('PRAGMA user_version = 2;');
 
       // Verify and ensure column and index presence post-schema
       const postCols = this.db.query<{ name: string }>("PRAGMA table_info(agent_identities);").map((c) => c.name);
@@ -567,6 +614,11 @@ export class MigrationRunner {
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_goals_channel ON goals(origin_channel_id);");
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_channels_project_name ON channels(project_id, name);");
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_decisions_decided_by ON decisions(decided_by_id);");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_agent_identities_parent ON agent_identities(parent_agent_id);");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_skills_name ON skills(name);");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_skill_experiences_outcome ON skill_experiences(outcome);");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_checkpoints_run_id_created ON checkpoints(run_id, created_at DESC);");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_approvals_run_id ON approvals(run_id);");
 
       // Custom Tools & Harness Improvements table creation for existing databases
       this.db.exec(`
@@ -649,9 +701,9 @@ export class MigrationRunner {
       throw new Error(`SQLite integrity check failed with status: ${integrityStatus}`);
     }
 
-    // Verify all 29 required tables exist
+    // Verify all 34 base tables exist (excluding SQLite internal & FTS5 shadow tables)
     const existingTables = this.db.query<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%';"
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%_fts%';"
     ).map((row) => row.name);
 
     for (const requiredTable of REQUIRED_TABLES) {

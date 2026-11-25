@@ -6,6 +6,7 @@
 // ============================================================================
 
 import { freemem } from 'node:os';
+import { HardwareProfiler } from '../evaluation/hardware_profiler.js';
 
 export interface WakeupEvent {
   id: string;
@@ -36,6 +37,8 @@ export class WakeupQueue {
     firstEnqueuedAt: number;
   }> = new Map();
   private handler?: WakeupHandler;
+  private inFlightByKey: Map<string, Promise<void>> = new Map();
+  private minFreeMemMb: number = 300;
 
   // Telemetry metrics
   private totalEnqueued: number = 0;
@@ -45,6 +48,13 @@ export class WakeupQueue {
   constructor(debounceWindowMs: number = 1000, handler?: WakeupHandler) {
     this.debounceWindowMs = debounceWindowMs;
     this.handler = handler;
+    try {
+      const profiler = new HardwareProfiler();
+      const tier = profiler.classifyTier(profiler.detectHostHardware());
+      this.minFreeMemMb = tier === 'baseline_laptop' ? 200 : 300;
+    } catch {
+      this.minFreeMemMb = 300;
+    }
   }
 
   public setHandler(handler: WakeupHandler): void {
@@ -59,13 +69,15 @@ export class WakeupQueue {
     const key = `${event.agentId}:${event.channelId}:${event.source}`;
     const now = Date.now();
 
-    // Check system memory governor: if free memory is under 300MB, log telemetry
+    // Check system memory governor: defer wakeup if free memory is critically low
     const freeMemMb = freemem() / (1024 * 1024);
-    if (freeMemMb < 300) {
-      console.warn(`[WakeupQueue] Low system memory detected (${Math.round(freeMemMb)}MB free). Coalescing window enforced.`);
+    const isLowMemory = freeMemMb < this.minFreeMemMb;
+    if (isLowMemory) {
+      console.warn(`[WakeupQueue] Low system memory detected (${Math.round(freeMemMb)}MB free < ${this.minFreeMemMb}MB). Deferring dispatch.`);
     }
 
-    const maxWaitMs = 5000;
+    const effectiveDebounceMs = isLowMemory ? Math.max(this.debounceWindowMs, 3000) : this.debounceWindowMs;
+    const maxWaitMs = isLowMemory ? 8000 : 5000;
     const existing = this.pendingEntries.get(key);
 
     if (existing) {
@@ -76,9 +88,9 @@ export class WakeupQueue {
 
       // If maxWait ceiling reached from firstEnqueuedAt, do not postpone timer
       const elapsed = now - existing.firstEnqueuedAt;
-      if (elapsed + this.debounceWindowMs > maxWaitMs) {
+      if (elapsed + effectiveDebounceMs > maxWaitMs) {
         return {
-          action: 'coalesced',
+          action: isLowMemory ? 'deferred_memory' : 'coalesced',
           targetKey: key,
           coalescedCount: existing.coalescedCount,
           scheduledDispatchAt: existing.scheduledAt,
@@ -86,20 +98,20 @@ export class WakeupQueue {
       }
 
       clearTimeout(existing.timer);
-      const scheduledAt = now + this.debounceWindowMs;
+      const scheduledAt = now + effectiveDebounceMs;
       existing.scheduledAt = scheduledAt;
 
       existing.timer = setTimeout(() => {
         this.dispatch(key).catch((err) => {
           console.error(`[WakeupQueue] Error dispatching wakeup for key '${key}':`, err);
         });
-      }, this.debounceWindowMs);
+      }, effectiveDebounceMs);
       if (typeof (existing.timer as any).unref === 'function') {
         (existing.timer as any).unref();
       }
 
       return {
-        action: 'coalesced',
+        action: isLowMemory ? 'deferred_memory' : 'coalesced',
         targetKey: key,
         coalescedCount: existing.coalescedCount,
         scheduledDispatchAt: scheduledAt,
@@ -107,12 +119,12 @@ export class WakeupQueue {
     }
 
     // New wakeup entry
-    const scheduledAt = now + this.debounceWindowMs;
+    const scheduledAt = now + effectiveDebounceMs;
     const timer = setTimeout(() => {
       this.dispatch(key).catch((err) => {
         console.error(`[WakeupQueue] Error dispatching wakeup for key '${key}':`, err);
       });
-    }, this.debounceWindowMs);
+    }, effectiveDebounceMs);
     if (typeof (timer as any).unref === 'function') {
       (timer as any).unref();
     }
@@ -126,7 +138,7 @@ export class WakeupQueue {
     });
 
     return {
-      action: 'scheduled',
+      action: isLowMemory ? 'deferred_memory' : 'scheduled',
       targetKey: key,
       coalescedCount: 1,
       scheduledDispatchAt: scheduledAt,
@@ -143,13 +155,23 @@ export class WakeupQueue {
     this.pendingEntries.delete(key);
     this.totalProcessed++;
 
-    if (this.handler) {
+    if (!this.handler) return;
+
+    const prior = this.inFlightByKey.get(key) || Promise.resolve();
+    const runNext = prior.then(async () => {
       try {
-        await this.handler(entry.event, entry.coalescedCount);
+        await this.handler!(entry.event, entry.coalescedCount);
       } catch (err) {
         console.error(`[WakeupQueue] Error dispatching wakeup for key '${key}':`, err);
       }
-    }
+    });
+    const tracked = runNext.finally(() => {
+      if (this.inFlightByKey.get(key) === tracked) {
+        this.inFlightByKey.delete(key);
+      }
+    });
+    this.inFlightByKey.set(key, tracked);
+    await tracked;
   }
 
   /**
@@ -203,13 +225,15 @@ export class WakeupQueue {
    */
   public async flushAll(): Promise<void> {
     const keys = Array.from(this.pendingEntries.keys());
+    const dispatches: Promise<void>[] = [];
     for (const key of keys) {
       const entry = this.pendingEntries.get(key);
       if (entry) {
         clearTimeout(entry.timer);
-        await this.dispatch(key);
+        dispatches.push(this.dispatch(key));
       }
     }
+    await Promise.all(dispatches);
   }
 
   /**

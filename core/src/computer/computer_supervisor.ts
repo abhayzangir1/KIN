@@ -366,6 +366,9 @@ export class ComputerSupervisor {
         const s = await this.getAgentBrowserSession(agentId, options);
         return { page: s.page, browser: this.masterBrowser || undefined };
       },
+      onClose: async () => {
+        await this.closeAgentSession(agentId);
+      },
     });
 
     this.agentControllers.set(agentId, ctrl);

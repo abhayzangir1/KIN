@@ -10,7 +10,7 @@ import type { MemoryRepository } from '../../domain/memory_repository.js';
 import type { ChannelService } from '../../communication/channel_service.js';
 import type { ActivationEngine } from '../../communication/activation_engine.js';
 import type { AgentKernel } from '../../kernel/agent_kernel.js';
-import type { LoopBreaker } from '../../communication/loop_breaker.js';
+import type { LoopBreaker } from '../../kernel/loop_breaker.js';
 import type { ModelGateway } from '../../execution/model_gateway.js';
 import type { ContextCompiler } from '../../context/context_compiler.js';
 import type { ToolGateway } from '../../execution/tool_gateway.js';

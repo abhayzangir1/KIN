@@ -80,7 +80,23 @@ export class PolicyEngine {
       }
     }
 
-    // 2. Pre-Authorized Subagent Whitelist Check
+    // 2. Hard Zero-Trust Gate: CRITICAL risk & ALWAYS_ASK mode cannot be bypassed by subagent whitelists
+    if (request.riskLevel === 'CRITICAL') {
+      return {
+        allowed: true,
+        requiresInteractiveApproval: true,
+        reason: `Zero-trust boundary: CRITICAL operation '${request.toolName}' always requires explicit interactive human approval.`,
+      };
+    }
+    if (request.autonomyMode === 'ALWAYS_ASK' && request.riskLevel !== 'LOW') {
+      return {
+        allowed: true,
+        requiresInteractiveApproval: true,
+        reason: `Consequential action requires user approval under ALWAYS_ASK mode.`,
+      };
+    }
+
+    // 3. Pre-Authorized Subagent Whitelist Check
     // If the parent's approved implementation plan explicitly pre-whitelisted this command or path,
     // execute without an interactive interruption
     if (request.parentRunId && request.subagentApprovedWhitelist && request.commandOrPath) {
@@ -125,15 +141,6 @@ export class PolicyEngine {
     // 3. Autonomy Mode Evaluation
     switch (request.autonomyMode) {
       case 'FULL_ACCESS':
-        // Zero-trust boundary: CRITICAL risk actions (financial payments, destructive commands)
-        // require explicit interactive human approval even under FULL_ACCESS mode
-        if (request.riskLevel === 'CRITICAL') {
-          return {
-            allowed: true,
-            requiresInteractiveApproval: true,
-            reason: `Zero-trust boundary: CRITICAL operation (${request.toolName}) requires interactive human approval even under FULL_ACCESS mode.`,
-          };
-        }
         return {
           allowed: true,
           requiresInteractiveApproval: false,
@@ -141,25 +148,17 @@ export class PolicyEngine {
         };
 
       case 'ALWAYS_ASK':
-        // Prompt for any state mutation (MEDIUM, HIGH, CRITICAL)
-        if (request.riskLevel === 'LOW') {
-          return {
-            allowed: true,
-            requiresInteractiveApproval: false,
-            reason: `Read-only action auto-approved.`,
-          };
-        }
         return {
           allowed: true,
-          requiresInteractiveApproval: true,
-          reason: `Consequential action requires user approval under ALWAYS_ASK mode.`,
+          requiresInteractiveApproval: false,
+          reason: `Read-only action auto-approved.`,
         };
 
       case 'AUTO':
       default:
         // AUTO mode: Auto-approves safe/reversible actions in the worktree jail (LOW and MEDIUM).
-        // Any HIGH/CRITICAL action (rm -rf, package install, dropping tables, network calls) MUST escalate.
-        if (request.riskLevel === 'HIGH' || request.riskLevel === 'CRITICAL') {
+        // Any HIGH/CRITICAL action MUST escalate.
+        if (request.riskLevel === 'HIGH') {
           return {
             allowed: true,
             requiresInteractiveApproval: true,

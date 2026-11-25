@@ -10,7 +10,6 @@ import {
   RUN_STATE_TRANSITIONS,
 } from '../src/kernel/state_machine.js';
 import { ActivationEngine, GreetingClassifier } from '../src/communication/activation_engine.js';
-import { IntentRouter } from '../src/communication/intent_router.js';
 import { ChannelService } from '../src/communication/channel_service.js';
 import { DynamicHiringService, HiringProposal } from '../src/kernel/dynamic_hiring.js';
 import { LoopBreaker, calculateMessageHash } from '../src/kernel/loop_breaker.js';

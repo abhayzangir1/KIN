@@ -558,7 +558,8 @@ describe('Milestone 1 Core & Security Remediation Suite', () => {
       expect(integrity.valid).toBe(true);
       expect(integrity.verifiedCount).toBe(1);
 
-      // Tampering with payload fails chain integrity
+      // Tampering with payload fails chain integrity (simulates offline SQLite file tampering)
+      db.execute('DROP TRIGGER IF EXISTS trg_event_journal_prevent_update');
       db.execute("UPDATE event_journal SET payload_json = '{\"title\":\"HACKED\"}' WHERE id = ?", eventId);
       const tamperedIntegrity = ledger.verifyChainIntegrity();
       expect(tamperedIntegrity.valid).toBe(false);
@@ -636,7 +637,8 @@ describe('Milestone 1 Core & Security Remediation Suite', () => {
       const rawData = `${row.prev_hash}:${row.event_type}:${row.entity_type}:${row.entity_id}:${row.run_id || ''}:${forgedPayload}:${row.created_at}`;
       const unkeyedSha256 = crypto.createHash('sha256').update(rawData).digest('hex');
 
-      // Write tampered payload and unkeyed sha256
+      // Write tampered payload and unkeyed sha256 (simulates offline SQLite file tampering)
+      db.execute('DROP TRIGGER IF EXISTS trg_event_journal_prevent_update');
       db.execute(
         'UPDATE event_journal SET payload_json = ?, record_hash = ? WHERE id = ?',
         forgedPayload,

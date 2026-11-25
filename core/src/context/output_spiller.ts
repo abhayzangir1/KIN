@@ -8,6 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { homedir } from 'node:os';
+import { getDataDirectory } from '../storage/data_directory.js';
 
 export interface SpillResult {
   isSpilled: boolean;
@@ -22,16 +23,13 @@ export class OutputSpiller {
   private readonly thresholdBytes: number;
 
   constructor(options: { spillDir?: string; thresholdBytes?: number } = {}) {
-    const defaultHome = process.env.KIN_HOME || path.join(homedir(), '.kin');
+    const defaultHome = process.env.KIN_HOME || getDataDirectory() || path.join(homedir(), '.kin');
     this.spillDir = options.spillDir || path.join(defaultHome, 'spill');
     this.thresholdBytes = options.thresholdBytes ?? 2048; // 2KB default
 
     if (!fs.existsSync(this.spillDir)) {
       fs.mkdirSync(this.spillDir, { recursive: true });
     }
-    try {
-      this.cleanStaleSpills();
-    } catch (err) { console.debug("[output_spiller] Suppressed exception in catch block:", err); }
   }
 
   /**
@@ -84,16 +82,21 @@ export class OutputSpiller {
       fs.writeFileSync(filePath, buffer);
     }
 
-    // Create a bounded preview (first 10 lines + last 5 lines)
+    // Create a bounded preview (first 10 lines + last 5 lines, capped at <= 1500 chars total)
+    const MAX_PREVIEW_CHARS = 1500;
     const lines = output.split(/\r?\n/);
     const totalLines = lines.length;
     let previewExcerpt: string;
 
-    if (totalLines <= 15) {
+    if (totalLines <= 15 && output.length <= MAX_PREVIEW_CHARS) {
       previewExcerpt = output;
+    } else if (totalLines <= 15) {
+      const headChunk = output.slice(0, 900);
+      const tailChunk = output.slice(-400);
+      previewExcerpt = `${headChunk}\n... [${byteLength} bytes spilled to disk] ...\n${tailChunk}`;
     } else {
-      const head = lines.slice(0, 10).join('\n');
-      const tail = lines.slice(-5).join('\n');
+      const head = lines.slice(0, 10).join('\n').slice(0, 900);
+      const tail = lines.slice(-5).join('\n').slice(-400);
       const omitted = totalLines - 15;
       previewExcerpt = `${head}\n... [${omitted} lines (${byteLength} bytes) spilled to disk] ...\n${tail}`;
     }

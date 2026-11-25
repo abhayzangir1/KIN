@@ -61,9 +61,9 @@ By default, KIN's **Sentinel** security gateway intercepts high-risk commands (s
 ### Storage & Backups
 
 #### Where is my data stored?
-All data is stored locally in the KIN repository directory in:
+By default, all data is stored in the KIN platform app-data directory (`getDataDirectory()`, e.g., `%APPDATA%\kin\kin_storage.sqlite` on Windows or `~/.local/share/kin/kin_storage.sqlite` on Linux, configurable via `KIN_DB_PATH`):
 - `kin_storage.sqlite` (and `-wal` / `-shm` sidecars)
-- Local Git worktrees and project files
+- Local Git worktrees (`.kin/worktrees/` inside project roots)
 
 #### How do I back up my KIN workspace?
 Stop the KIN Core Daemon and make a copy of `kin_storage.sqlite` along with its WAL files (`kin_storage.sqlite-wal` and `kin_storage.sqlite-shm`). Alternatively, use SQLite's native backup CLI command:

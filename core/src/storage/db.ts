@@ -25,6 +25,26 @@ export class KinDatabase {
   private writeLock: Promise<void> = Promise.resolve();
   private txContext = new AsyncLocalStorage<TransactionContext>();
   private syncTxDepth: number = 0;
+  private activeAsyncTxDepth: number = 0;
+  private statementCache = new Map<string, StatementSync>();
+  private static readonly MAX_STATEMENT_CACHE = 120;
+
+  private getStatement(sql: string): StatementSync {
+    let stmt = this.statementCache.get(sql);
+    if (stmt) {
+      // Refresh LRU position on hit (StatementSync has no .finalize() in node:sqlite)
+      this.statementCache.delete(sql);
+      this.statementCache.set(sql, stmt);
+    } else {
+      stmt = this.db.prepare(sql);
+      if (this.statementCache.size >= KinDatabase.MAX_STATEMENT_CACHE) {
+        const oldestKey = this.statementCache.keys().next().value;
+        if (oldestKey) this.statementCache.delete(oldestKey);
+      }
+      this.statementCache.set(sql, stmt);
+    }
+    return stmt;
+  }
 
   constructor(config: DatabaseConfig | string = {}) {
     const rawPath = typeof config === 'string' ? config : (config.dbPath || ':memory:');
@@ -34,6 +54,34 @@ export class KinDatabase {
       const dir = path.dirname(rawPath);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
+      }
+      const pendingRestore = `${rawPath}.pending_restore`;
+      if (fs.existsSync(pendingRestore)) {
+        const movedBackups: string[] = [];
+        try {
+          for (const suffix of ['', '-wal', '-shm']) {
+            const src = `${rawPath}${suffix}`;
+            const bak = `${src}.bak`;
+            if (fs.existsSync(src)) {
+              fs.renameSync(src, bak);
+              movedBackups.push(suffix);
+            }
+          }
+          fs.renameSync(pendingRestore, rawPath);
+          for (const suffix of movedBackups) {
+            try { fs.unlinkSync(`${rawPath}${suffix}.bak`); } catch {}
+          }
+        } catch (restoreErr) {
+          // Rollback any moved .bak files so user data is never lost
+          for (const suffix of movedBackups) {
+            const src = `${rawPath}${suffix}`;
+            const bak = `${src}.bak`;
+            if (fs.existsSync(bak) && !fs.existsSync(src)) {
+              try { fs.renameSync(bak, src); } catch {}
+            }
+          }
+          console.error('[KIN DB] Failed to apply staged pending_restore (rolled back safely):', restoreErr);
+        }
       }
     }
 
@@ -119,7 +167,7 @@ export class KinDatabase {
     const maxRetries = 3;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const stmt = this.db.prepare(sql);
+        const stmt = this.getStatement(sql);
         const results = stmt.all(...params);
         return results as unknown as T[];
       } catch (err: unknown) {
@@ -137,7 +185,7 @@ export class KinDatabase {
     const maxRetries = 3;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const stmt = this.db.prepare(sql);
+        const stmt = this.getStatement(sql);
         const result = stmt.get(...params);
         return result as unknown as T | undefined;
       } catch (err: unknown) {
@@ -152,10 +200,11 @@ export class KinDatabase {
 
   public execute(sql: string, ...params: (string | number | bigint | Buffer | null)[]): RunResult {
     if (this.isClosed) throw new Error('Database connection is closed.');
+
     const maxRetries = 3;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const stmt = this.db.prepare(sql);
+        const stmt = this.getStatement(sql);
         return stmt.run(...params);
       } catch (err: unknown) {
         if (this.isBusyError(err) && attempt < maxRetries) {
@@ -176,11 +225,12 @@ export class KinDatabase {
     ...params: (string | number | bigint | Buffer | null)[]
   ): Promise<RunResult> {
     if (this.isClosed) throw new Error('Database connection is closed.');
+
     const maxRetries = 10;
     let delay = 10;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const stmt = this.db.prepare(sql);
+        const stmt = this.getStatement(sql);
         return stmt.run(...params);
       } catch (err: unknown) {
         if (this.isBusyError(err) && attempt < maxRetries) {
@@ -193,6 +243,29 @@ export class KinDatabase {
       }
     }
     throw new Error('Database executeAsync failed after busy retries.');
+  }
+
+  /**
+   * Prunes older checkpoints for a given run, retaining only the latest `retentionLimit` checkpoints.
+   * Prevents unbounded SQLite database growth during long-running agent executions.
+   */
+  public pruneCheckpoints(runId: string, retentionLimit: number = 5): number {
+    if (this.isClosed) throw new Error('Database connection is closed.');
+    if (!runId || retentionLimit <= 0) return 0;
+    const result = this.execute(
+      `DELETE FROM checkpoints
+       WHERE run_id = ?
+         AND id NOT IN (
+           SELECT id FROM checkpoints
+           WHERE run_id = ?
+           ORDER BY created_at DESC, rowid DESC
+           LIMIT ?
+         )`,
+      runId,
+      runId,
+      retentionLimit
+    );
+    return Number(result.changes || 0);
   }
 
   /**
@@ -251,6 +324,7 @@ export class KinDatabase {
     };
 
     return this.txContext.run(context, async () => {
+      this.activeAsyncTxDepth++;
       try {
         let delay = 10;
         for (let attempt = 1; attempt <= 10; attempt++) {
@@ -275,6 +349,7 @@ export class KinDatabase {
         } catch (err) { console.debug("[db] Suppressed exception in catch block:", err); }
         throw error;
       } finally {
+        this.activeAsyncTxDepth--;
         releaseLock();
       }
     });
@@ -310,6 +385,10 @@ export class KinDatabase {
           this.syncTxDepth--;
         }
       }
+    }
+
+    if (this.activeAsyncTxDepth > 0 && !currentTx) {
+      throw new Error('SyncTransactionConflictError: Cannot start transactionSync while an unrelated transactionAsync is in progress.');
     }
 
     const txId = `tx_sync_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -351,6 +430,7 @@ export class KinDatabase {
   public close(): void {
     if (!this.isClosed) {
       this.isClosed = true;
+      this.statementCache.clear();
       try {
         if (this.dbPath !== ':memory:') {
           this.db.exec('PRAGMA wal_checkpoint(TRUNCATE);');

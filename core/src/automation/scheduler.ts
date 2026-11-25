@@ -9,6 +9,7 @@ import { Schedule, ScheduleType, ScheduleStatus, ScheduleAttempt } from '../doma
 import { validateCronExpression, getNextCronOccurrence } from './cron_calendar.js';
 import { v4 as uuidv4 } from 'uuid';
 import { SecretBroker } from '../security/secret_broker.js';
+import { EventLedger } from '../security/event_ledger.js';
 
 export interface CreateOneShotParams {
   projectId: string;
@@ -164,15 +165,18 @@ export class SchedulerService {
     };
 
     this.db.execute(
-      `INSERT INTO schedules (id, project_id, channel_id, target_agent_id, type, prompt, duration_seconds, cron_expression, timer_condition, max_iterations, current_iterations, status, next_run_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 'never', ?, 0, 'active', ?, ?, ?)`,
+      `INSERT INTO schedules (id, project_id, channel_id, target_agent_id, type, name, prompt, duration_seconds, cron_expression, timer_condition, exact_timing, jitter_seconds, max_iterations, current_iterations, status, next_run_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, 'never', ?, ?, ?, 0, 'active', ?, ?, ?)`,
       schedule.id,
       schedule.projectId,
       schedule.channelId,
       schedule.targetAgentId ?? null,
       schedule.type,
+      params.name ?? null,
       schedule.prompt,
       schedule.cronExpression ?? null,
+      params.exactTiming ? 1 : 0,
+      params.jitterSeconds ?? 0,
       schedule.maxIterations ?? null,
       schedule.nextRunAt,
       schedule.createdAt,
@@ -559,17 +563,16 @@ export class SchedulerService {
     executedAt: number
   ): void {
     try {
-      const sanitizedError = errorMessage ? SecretBroker.getInstance(this.db).redactSecrets(errorMessage) : undefined;
-      const rawPayload = { attemptNumber, status, errorMessage: sanitizedError };
-      const sanitizedPayload = SecretBroker.getInstance(this.db).sanitizePayload(rawPayload);
-      const payload = JSON.stringify(sanitizedPayload);
-      this.db.execute(
-        `INSERT INTO event_journal (event_type, entity_type, entity_id, run_id, payload_json, created_at)
-         VALUES ('schedule_attempt', 'schedule', ?, NULL, ?, ?)`,
-        scheduleId,
-        payload,
-        executedAt
-      );
+      const broker = SecretBroker.getInstance(this.db);
+      const sanitizedError = errorMessage ? broker.redactSecrets(errorMessage) : undefined;
+      const sanitizedPayload = broker.sanitizePayload({ attemptNumber, status, errorMessage: sanitizedError, executedAt });
+      EventLedger.initialize(this.db);
+      EventLedger.getInstance().record({
+        eventType: 'schedule_attempt',
+        entityType: 'schedule',
+        entityId: scheduleId,
+        payload: sanitizedPayload,
+      });
     } catch (err) {
       console.warn('[KIN SCHEDULER] Failed to record schedule attempt:', err);
     }

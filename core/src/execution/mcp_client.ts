@@ -9,6 +9,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { pathToFileURL } from 'node:url';
+import { Client as McpSdkClient } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { SecretBroker } from '../security/secret_broker.js';
+import { WorkspaceTrustManager } from '../policy/workspace_trust.js';
 
 const INITIAL_SYSTEM_HOMEDIR = path.resolve(os.homedir());
 
@@ -17,9 +21,11 @@ export interface McpServerConfig {
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  headers?: Record<string, string>;
   url?: string;
   transport?: 'stdio' | 'http';
   disabled?: boolean;
+  allowSampling?: boolean;
 }
 
 export interface McpConnectorItem {
@@ -129,7 +135,14 @@ export class McpClientManager {
       safeEnv['SYSTEMROOT'] = sysRoot;
       safeEnv['windir'] = process.env.windir || sysRoot;
     }
-    const cleanEnv: Record<string, string> = { ...safeEnv, ...(configEnv || {}) };
+    const resolvedConfigEnv: Record<string, string> = {};
+    if (configEnv) {
+      const resolved = SecretBroker.getInstance().resolvePlaceholders(configEnv, 'mcp');
+      for (const [k, v] of Object.entries(resolved)) {
+        if (typeof v === 'string') resolvedConfigEnv[k] = v;
+      }
+    }
+    const cleanEnv: Record<string, string> = { ...safeEnv, ...resolvedConfigEnv };
     const dangerousEnvKeys = new Set([
       'node_options', 'pythonpath', 'pythonhome', 'ld_preload', 'ld_library_path',
       'dyld_insert_libraries', 'dyld_library_path', 'bash_env', 'env', 'prompt_command',
@@ -317,6 +330,16 @@ export class McpClientManager {
     for (const configPath of candidatePaths) {
       if (!fs.existsSync(configPath)) continue;
 
+      // Quarantine project-level MCP configs unless workspace is trusted via SHA-256 Workspace Trust
+      const isProjectConfig =
+        configPath === path.resolve(path.join(root, 'mcp.json')) ||
+        configPath === path.resolve(path.join(root, '.kin', 'mcp_servers.json')) ||
+        configPath === path.resolve(path.join(root, '.kin', 'mcp.json'));
+      if (isProjectConfig && !WorkspaceTrustManager.getInstance().isTrusted(root)) {
+        console.warn(`[KIN MCP] Quarantined untrusted workspace MCP config '${configPath}'. Approve Workspace Trust first.`);
+        continue;
+      }
+
       try {
         const raw = fs.readFileSync(configPath, 'utf-8');
         const parsed = JSON.parse(raw);
@@ -336,6 +359,8 @@ export class McpClientManager {
                 transport: s.transport || (s.url ? 'http' : 'stdio'),
                 args: s.args || [],
                 env: s.env || {},
+                ...(s.headers && typeof s.headers === 'object' ? { headers: s.headers } : {}),
+                ...(s.allowSampling === true ? { allowSampling: true } : {}),
               });
             }
           }
@@ -354,6 +379,8 @@ export class McpClientManager {
                 transport: serverConfig.transport || (serverConfig.url ? 'http' : 'stdio'),
                 args: serverConfig.args || [],
                 env: serverConfig.env || {},
+                ...(serverConfig.headers && typeof serverConfig.headers === 'object' ? { headers: serverConfig.headers } : {}),
+                ...(serverConfig.allowSampling === true ? { allowSampling: true } : {}),
               });
             }
           }
@@ -376,15 +403,23 @@ export class McpClientManager {
       return [];
     }
 
+    const entries = Array.from(serverMap.values());
     const allTools: McpToolDefinition[] = [];
-    for (const s of serverMap.values()) {
-      try {
-        const tools = await this.startServer(s, root);
-        allTools.push(...tools);
-      } catch (err) {
-        console.error(`[KIN MCP] Failed to start server ${s.name}:`, err);
+    const concurrency = 4;
+    let cursor = 0;
+    const workers = Array.from({ length: Math.min(concurrency, entries.length) }, async () => {
+      while (cursor < entries.length) {
+        const idx = cursor++;
+        const s = entries[idx];
+        try {
+          const tools = await this.startServer(s, root);
+          allTools.push(...tools);
+        } catch (err) {
+          console.error(`[KIN MCP] Failed to start server ${s.name}:`, err);
+        }
       }
-    }
+    });
+    await Promise.allSettled(workers);
     return allTools;
   }
 
@@ -437,6 +472,41 @@ export class McpClientManager {
     return tools;
   }
 
+  private getResolvedHttpHeaders(serverName: string): Record<string, string> {
+    const conf = this.serverConfigsByName.get(serverName);
+    if (!conf?.headers) return {};
+    const resolved = SecretBroker.getInstance().resolvePlaceholders(conf.headers, `mcp:${serverName}`);
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(resolved)) {
+      if (typeof v === 'string') out[k] = v;
+    }
+    return out;
+  }
+
+  private sendJsonRpcError(serverName: string, id: string | number, code: number, message: string): void {
+    const found = this.getServerEntry(serverName);
+    if (!found) return;
+    const { entry, actualName } = found;
+    const payload = JSON.stringify({ jsonrpc: '2.0', id, error: { code, message } });
+    if (entry.transport === 'http' && (entry.postUrl || entry.url)) {
+      fetch(entry.postUrl || entry.url!, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...this.getResolvedHttpHeaders(actualName) },
+        body: payload,
+      }).catch((err) => {
+        console.warn(`[KIN MCP] Failed to send JSON-RPC error to '${actualName}':`, err);
+      });
+      return;
+    }
+    if (entry.process?.stdin) {
+      try {
+        entry.process.stdin.write(payload + '\n');
+      } catch (err) {
+        console.warn(`[KIN MCP] Failed to send JSON-RPC error to '${actualName}':`, err);
+      }
+    }
+  }
+
   private sendJsonRpcResponse(serverName: string, id: string | number, result: any): void {
     const found = this.getServerEntry(serverName);
     if (!found) return;
@@ -461,10 +531,60 @@ export class McpClientManager {
     }
   }
 
+  private pendingElicitations: Map<string, {
+    id: string;
+    serverName: string;
+    params: any;
+    resolve: (result: any) => void;
+  }> = new Map();
+  private serverConfigsByName: Map<string, McpServerConfig> = new Map();
+  private samplingHandler?: (req: { serverName: string; messages: any[]; maxTokens: number }) => Promise<any>;
+
+  public setSamplingHandler(handler: (req: { serverName: string; messages: any[]; maxTokens: number }) => Promise<any>): void {
+    this.samplingHandler = handler;
+  }
+
+  public listPendingElicitations(): Array<{ id: string; serverName: string; params: any }> {
+    return Array.from(this.pendingElicitations.values()).map(({ id, serverName, params }) => ({ id, serverName, params }));
+  }
+
+  public resolveElicitation(id: string, response: { action: 'accept' | 'decline' | 'cancel'; content?: Record<string, any> }): boolean {
+    const entry = this.pendingElicitations.get(id);
+    if (!entry) return false;
+    this.pendingElicitations.delete(id);
+    entry.resolve(response);
+    return true;
+  }
+
+  public async listResources(serverName: string): Promise<Array<{ uri: string; name?: string; mimeType?: string }>> {
+    const res = await this.sendRequest(serverName, 'resources/list', {}, 15000);
+    return Array.isArray(res?.resources) ? res.resources : [];
+  }
+
+  public async readResource(serverName: string, uri: string): Promise<{ contents: Array<{ uri: string; mimeType?: string; text?: string; blob?: string }> }> {
+    const res = await this.sendRequest(serverName, 'resources/read', { uri }, 15000);
+    return { contents: Array.isArray(res?.contents) ? res.contents : [] };
+  }
+
+  public async connectStreamableHttpSdk(serverName: string, url: string, headers?: Record<string, string>): Promise<McpSdkClient> {
+    const resolvedHeaders = headers
+      ? SecretBroker.getInstance().resolvePlaceholders(headers, `mcp:${serverName}`)
+      : undefined;
+    const transport = new StreamableHTTPClientTransport(new URL(url), {
+      requestInit: resolvedHeaders ? { headers: resolvedHeaders } : undefined,
+    });
+    const client = new McpSdkClient(
+      { name: 'kin-core', version: '1.0.0' },
+      { capabilities: { roots: { listChanged: false } } }
+    );
+    await client.connect(transport);
+    return client;
+  }
+
   private handleIncomingJsonRpcMessage(serverName: string, rawJson: string): void {
     try {
       const json = JSON.parse(rawJson);
-      // 1. Server-initiated request (ping, roots/list)
+      // 1. Server-initiated request (ping, roots/list, elicitation/create, sampling/createMessage)
       if (json.method) {
         if (json.method === 'ping' && json.id !== undefined && json.id !== null) {
           this.sendJsonRpcResponse(serverName, json.id, {});
@@ -473,6 +593,41 @@ export class McpClientManager {
           this.sendJsonRpcResponse(serverName, json.id, {
             roots: [{ uri: rootUri, name: path.basename(this.projectRoot) }],
           });
+        } else if (json.method === 'elicitation/create' && json.id !== undefined && json.id !== null) {
+          const elicitId = `elicit-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          const timeout = setTimeout(() => {
+            if (this.pendingElicitations.has(elicitId)) {
+              this.pendingElicitations.delete(elicitId);
+              this.sendJsonRpcResponse(serverName, json.id, { action: 'decline' });
+            }
+          }, 120000);
+          if (typeof timeout.unref === 'function') timeout.unref();
+          this.pendingElicitations.set(elicitId, {
+            id: elicitId,
+            serverName,
+            params: json.params || {},
+            resolve: (result) => {
+              clearTimeout(timeout);
+              this.sendJsonRpcResponse(serverName, json.id, result);
+            },
+          });
+        } else if (json.method === 'sampling/createMessage' && json.id !== undefined && json.id !== null) {
+          const srvConf = this.serverConfigsByName.get(serverName);
+          if (!srvConf?.allowSampling) {
+            this.sendJsonRpcError(serverName, json.id, -32601, `sampling/createMessage is disabled by default for MCP server '${serverName}'`);
+            return;
+          }
+          if (!this.samplingHandler) {
+            this.sendJsonRpcError(serverName, json.id, -32601, `No sampling handler registered for MCP server '${serverName}'`);
+            return;
+          }
+          // Strip systemPrompt, memories, and tools; cap maxTokens <= 1024
+          const rawParams = json.params || {};
+          const safeMessages = Array.isArray(rawParams.messages) ? rawParams.messages.slice(-10) : [];
+          const cappedMaxTokens = Math.min(Math.max(Number(rawParams.maxTokens) || 512, 1), 1024);
+          this.samplingHandler({ serverName, messages: safeMessages, maxTokens: cappedMaxTokens })
+            .then((res) => this.sendJsonRpcResponse(serverName, json.id, res))
+            .catch((err) => this.sendJsonRpcError(serverName, json.id, -32000, err?.message || 'Sampling handler rejected'));
         }
       }
 
@@ -616,6 +771,8 @@ export class McpClientManager {
       return existing.tools;
     }
 
+    this.serverConfigsByName.set(config.name, config);
+
     const handshakePromise = config.url
       ? this.performStartHttpServer(config)
       : this.performStartServer(config, customRoot);
@@ -641,10 +798,14 @@ export class McpClientManager {
     await this.connectSseIfSupported(config.name, serverUrl);
 
     try {
-      // 1. Initialize
+      // 1. Initialize (MCP 2026-07-28)
       await this.sendRequest(config.name, 'initialize', {
-        protocolVersion: '2024-11-05',
-        capabilities: {},
+        protocolVersion: '2026-07-28',
+        capabilities: {
+          roots: { listChanged: false },
+          elicitation: { form: {}, url: {} },
+          ...(config.allowSampling ? { sampling: {} } : {}),
+        },
         clientInfo: { name: 'kin-core', version: '1.0.0' },
       }, 30000);
 
@@ -762,15 +923,17 @@ export class McpClientManager {
     );
 
     const isNodeExe = path.basename(process.execPath).toLowerCase().startsWith('node');
-    const spawnCmd = (isWindows && cmdLower === 'node') ? (isNodeExe ? process.execPath : 'node') : resolvedCommand;
-    const safeArgs = (isWindows && isShellNeeded)
-      ? resolvedArgs.map((arg) => (/[ &|<>^%"]/.test(arg) ? `"${arg.replace(/"/g, '""')}"` : arg))
+    const baseSpawnCmd = (isWindows && cmdLower === 'node') ? (isNodeExe ? process.execPath : 'node') : resolvedCommand;
+    const spawnCmd = (isWindows && isShellNeeded) ? (process.env.ComSpec || 'cmd.exe') : baseSpawnCmd;
+    const finalArgs = (isWindows && isShellNeeded)
+      ? ['/d', '/s', '/c', baseSpawnCmd, ...resolvedArgs]
       : resolvedArgs;
-    const proc = spawn(spawnCmd, safeArgs, {
+    const proc = spawn(spawnCmd, finalArgs, {
       cwd: targetRoot,
       env: cleanEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
-      shell: isShellNeeded,
+      shell: false,
+      windowsHide: true,
       detached: !isWindows,
     });
 
@@ -786,11 +949,9 @@ export class McpClientManager {
         try {
           const json = JSON.parse(trimmed);
 
-          // Server-to-client JSON-RPC requests (ping, roots/list)
+          // Server-to-client JSON-RPC requests (ping, roots/list, elicitation/create, sampling/createMessage)
           if (json.method) {
-            if (json.method === 'ping' && json.id !== undefined && json.id !== null) {
-              proc.stdin?.write(JSON.stringify({ jsonrpc: '2.0', id: json.id, result: {} }) + '\n');
-            } else if (json.method === 'roots/list' && json.id !== undefined && json.id !== null) {
+            if (json.method === 'roots/list' && json.id !== undefined && json.id !== null) {
               const rootUri = pathToFileURL(targetRoot).toString();
               proc.stdin?.write(JSON.stringify({
                 jsonrpc: '2.0',
@@ -799,6 +960,8 @@ export class McpClientManager {
                   roots: [{ uri: rootUri, name: path.basename(targetRoot) }],
                 },
               }) + '\n');
+            } else {
+              this.handleIncomingJsonRpcMessage(config.name, trimmed);
             }
           }
 

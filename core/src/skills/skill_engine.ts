@@ -12,6 +12,7 @@ import { Worker } from 'node:worker_threads';
 import { createRequire } from 'node:module';
 import { KinDatabase, safeJsonParseArray } from '../storage/db.js';
 import { MigrationRunner } from '../storage/migration_runner.js';
+import { WorkspaceTrustManager } from '../policy/workspace_trust.js';
 import { v4 as uuidv4 } from 'uuid';
 
 function getRuntimeRequire(): NodeRequire {
@@ -516,36 +517,9 @@ export class SkillEngine {
       };
     }
 
-    const abortController = new AbortController();
     const timeoutMs = typeof (params as any)?._timeoutMs === 'number' && (params as any)._timeoutMs > 0
       ? Math.min((params as any)._timeoutMs, 30000)
       : 15000;
-    let timer: NodeJS.Timeout | null = null;
-    let activeWorker: Worker | null = null;
-
-    const terminateAsyncWorkers = () => {
-      if (activeWorker) {
-        try { activeWorker.terminate(); } catch (err) { console.debug("[skill_engine] Suppressed exception in catch block:", err); }
-        activeWorker = null;
-      }
-      const terminateTarget = (target: any) => {
-        if (!target) return;
-        if (typeof target.terminate === 'function') {
-          try { target.terminate(); } catch (err) { console.debug("[skill_engine] Suppressed exception in catch block:", err); }
-        }
-        if (typeof target.kill === 'function') {
-          try { target.kill('SIGKILL'); } catch (err) { console.debug("[skill_engine] Suppressed exception in catch block:", err); }
-        }
-        if (target.worker && typeof target.worker.terminate === 'function') {
-          try { target.worker.terminate(); } catch (err) { console.debug("[skill_engine] Suppressed exception in catch block:", err); }
-        }
-        if (target.childProcess && typeof target.childProcess.kill === 'function') {
-          try { target.childProcess.kill('SIGKILL'); } catch (err) { console.debug("[skill_engine] Suppressed exception in catch block:", err); }
-        }
-      };
-      terminateTarget(executionContext);
-      terminateTarget(params);
-    };
 
     const sanitizeForWorker = (val: any): any => SkillEngine.sanitizeForWorker(val);
 
@@ -567,251 +541,39 @@ export class SkillEngine {
 
     const compiledHandler = transpileSkillCode(skill.handlerCode || '');
 
-    const wrappedCode = `
-      (async () => {
-        ${compiledHandler}
-        if (typeof module !== 'undefined' && typeof module.exports === 'function') {
-          return await module.exports(params, executionContext);
-        }
-        if (typeof module !== 'undefined' && typeof module.exports?.default === 'function') {
-          return await module.exports.default(params, executionContext);
-        }
-        if (typeof exports !== 'undefined' && typeof exports.default === 'function') {
-          return await exports.default(params, executionContext);
-        }
-        if (typeof module !== 'undefined' && typeof module.exports?.run === 'function') {
-          return await module.exports.run(params, executionContext);
-        }
-        if (typeof exports !== 'undefined' && typeof exports.run === 'function') {
-          return await exports.run(params, executionContext);
-        }
-        if (typeof run === 'function') {
-          return await run(params, executionContext);
-        }
-        if (typeof handler === 'function') {
-          return await handler(params, executionContext);
-        }
-        if (typeof execute === 'function') {
-          return await execute(params, executionContext);
-        }
-        if (typeof exports !== 'undefined' && typeof exports.execute === 'function') {
-          return await exports.execute(params, executionContext);
-        }
-        if (typeof main === 'function') {
-          return await main(params, executionContext);
-        }
-        if (typeof module !== 'undefined' && typeof module.exports?.main === 'function') {
-          return await module.exports.main(params, executionContext);
-        }
-        if (typeof exports !== 'undefined' && typeof exports.main === 'function') {
-          return await exports.main(params, executionContext);
-        }
-        return typeof result !== 'undefined' ? result : (typeof module !== 'undefined' && module.exports && Object.keys(module.exports).length > 0 ? module.exports : { executed: true });
-      })()
-    `;
-
-    const workerScript = `
-      import { parentPort, workerData } from 'node:worker_threads';
-      import vm from 'node:vm';
-
-      const sanitizeObjectForSandbox = (val, seen = new WeakSet()) => {
-        if (val === null || val === undefined) return val;
-        if (typeof val === 'function') return undefined;
-        if (typeof val !== 'object') return val;
-        if (seen.has(val)) return val;
-        seen.add(val);
-
-        if (Array.isArray(val)) {
-          const arr = val.map((item) => sanitizeObjectForSandbox(item, seen));
-          Object.setPrototypeOf(arr, null);
-          Object.defineProperty(arr, 'constructor', { value: undefined, writable: false, configurable: false });
-          return arr;
-        }
-
-        const clean = Object.create(null);
-        for (const [k, v] of Object.entries(val)) {
-          clean[k] = sanitizeObjectForSandbox(v, seen);
-        }
-        Object.defineProperty(clean, 'constructor', { value: undefined, writable: false, configurable: false });
-        return clean;
-      };
-
-      (async () => {
-        try {
-          const { wrappedCode, cleanParams, cleanContext } = workerData;
-          const sanitizedParams = sanitizeObjectForSandbox(cleanParams);
-          const sanitizedContext = sanitizeObjectForSandbox(cleanContext);
-
-          // Strip dangerous host hooks in worker realm
-          try {
-            delete global.process.mainModule;
-            delete global.require;
-          } catch (delErr) {
-            console.debug('[skill_engine] Suppressed exception stripping dangerous host hooks:', delErr);
-          }
-
-          const sandbox = Object.create(null);
-
-          let nextTimerId = 1;
-          const activeTimers = new Map();
-
-          const safeSetTimeout = function (fn, ms, ...args) {
-            const id = nextTimerId++;
-            const t = setTimeout(() => {
-              activeTimers.delete(id);
-              if (typeof fn === 'function') fn(...args);
-            }, ms);
-            activeTimers.set(id, t);
-            return id;
-          };
-          Object.setPrototypeOf(safeSetTimeout, null);
-          Object.defineProperty(safeSetTimeout, 'constructor', { value: undefined, writable: false, configurable: false });
-
-          const safeClearTimeout = function (id) {
-            const t = activeTimers.get(id);
-            if (t) {
-              clearTimeout(t);
-              activeTimers.delete(id);
-            }
-          };
-          Object.setPrototypeOf(safeClearTimeout, null);
-          Object.defineProperty(safeClearTimeout, 'constructor', { value: undefined, writable: false, configurable: false });
-
-          sandbox.setTimeout = safeSetTimeout;
-          sandbox.clearTimeout = safeClearTimeout;
-          sandbox.params = sanitizedParams;
-          sandbox.input = sanitizedParams;
-          sandbox.context = sanitizedContext;
-          sandbox.executionContext = sanitizedContext;
-          sandbox.module = Object.create(null);
-          sandbox.module.exports = Object.create(null);
-          sandbox.exports = Object.create(null);
-          sandbox.result = undefined;
-          Object.defineProperty(sandbox, 'constructor', { value: undefined, writable: false, configurable: false });
-
-          // Disable string/wasm code generation at V8 context level
-          const context = vm.createContext(sandbox, {
-            codeGeneration: { strings: false, wasm: false },
-          });
-
-          // Install pure in-context primitives and freeze all prototypes
-          try {
-            vm.runInContext(
-              'Object.freeze(Object.prototype);' +
-              'Object.freeze(Function.prototype);' +
-              'const AsyncFunction = (async function () {}).constructor;' +
-              'if (AsyncFunction) Object.freeze(AsyncFunction.prototype);' +
-              'const GeneratorFunction = (function* () {}).constructor;' +
-              'if (GeneratorFunction) Object.freeze(GeneratorFunction.prototype);' +
-              'Object.freeze(Array.prototype);' +
-              'Object.freeze(Promise.prototype);' +
-              'Object.freeze(Error.prototype);' +
-              'Object.freeze(String.prototype);' +
-              'Object.freeze(Number.prototype);' +
-              'Object.freeze(Boolean.prototype);' +
-              'const InContextBuffer = {' +
-              '  from: (data) => (typeof data === "string" ? new TextEncoder().encode(data) : new Uint8Array(data)),' +
-              '  alloc: (size) => new Uint8Array(size),' +
-              '  isBuffer: (obj) => obj instanceof Uint8Array,' +
-              '  byteLength: (str) => (typeof str === "string" ? new TextEncoder().encode(str).length : (str?.length || 0)),' +
-              '  concat: (list) => {' +
-              '    let total = list.reduce((acc, curr) => acc + curr.length, 0);' +
-              '    let res = new Uint8Array(total);' +
-              '    let off = 0;' +
-              '    for (const item of list) {' +
-              '      res.set(item, off);' +
-              '      off += item.length;' +
-              '    }' +
-              '    return res;' +
-              '  }' +
-              '};' +
-              'Object.freeze(InContextBuffer);' +
-              'globalThis.Buffer = InContextBuffer;' +
-              'globalThis.console = Object.freeze({ log: () => {}, warn: () => {}, error: () => {} });',
-              context
-            );
-          } catch (initErr) {
-            throw new Error('CRITICAL_SANDBOX_FAILURE: Unable to initialize secure VM realm: ' + (initErr && initErr.message ? initErr.message : String(initErr)));
-          }
-
-          const script = new vm.Script(wrappedCode);
-          const output = await script.runInContext(context);
-          parentPort.postMessage({ success: true, output });
-        } catch (err) {
-          parentPort.postMessage({ success: false, error: err?.message || String(err) });
-        }
-      })();
-    `;
-
     try {
       const safeParams = sanitizeForWorker(params);
       const safeContext = sanitizeForWorker(executionContext);
-
-      activeWorker = new Worker(workerScript, {
-        eval: true,
-        workerData: {
-          wrappedCode,
-          cleanParams: safeParams,
-          cleanContext: safeContext,
-        },
+      const { runQuickJSWorker } = await import('../execution/worker_quickjs.js');
+      const res = await runQuickJSWorker({
+        handlerCode: `${compiledHandler}\n;`,
+        params: safeParams,
+        context: safeContext,
+        timeoutMs,
+        maxMemoryMb: 64,
       });
 
-      const workerPromise = new Promise<any>((resolve, reject) => {
-        activeWorker!.on('message', (msg) => {
-          if (msg.success) {
-            resolve(msg.output);
-          } else {
-            reject(new Error(msg.error || 'Skill execution failed'));
-          }
-        });
-        activeWorker!.on('error', (err) => reject(err));
-        activeWorker!.on('exit', (code) => {
-          if (code !== 0) {
-            reject(new Error(`Worker stopped with exit code ${code}`));
-          }
-        });
-      });
-
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
-          const timeoutErr = new Error(`Skill execution timed out after ${timeoutMs}ms`);
-          abortController.abort(timeoutErr);
-          terminateAsyncWorkers();
-          reject(timeoutErr);
-        }, timeoutMs);
-        if (timer && typeof (timer as any).unref === 'function') {
-          (timer as any).unref();
-        }
-      });
-
-      const output = await Promise.race([
-        workerPromise,
-        timeoutPromise,
-      ]).finally(() => {
-        if (timer) clearTimeout(timer);
-        if (activeWorker) {
-          try { activeWorker.terminate(); } catch (err) { console.debug("[skill_engine] Suppressed exception in catch block:", err); }
-          activeWorker = null;
-        }
-      });
+      if (!res.success) {
+        try {
+          (executionContext as any)?.worker?.terminate?.();
+          (executionContext as any)?.terminate?.();
+          (params as any)?.worker?.terminate?.();
+        } catch {}
+        return {
+          success: false,
+          error: `Skill '${skill.name}' execution failed: ${res.error || 'Skill execution failed'}`,
+        };
+      }
 
       return {
         success: true,
-        output,
+        output: res.output !== undefined ? res.output : { executed: true },
       };
     } catch (err: any) {
-      abortController.abort(err);
-      terminateAsyncWorkers();
       return {
         success: false,
         error: `Skill '${skill.name}' execution failed: ${err?.message || String(err)}`,
       };
-    } finally {
-      if (timer) clearTimeout(timer);
-      if (activeWorker) {
-        try { activeWorker.terminate(); } catch (err) { console.debug("[skill_engine] Suppressed exception in catch block:", err); }
-        activeWorker = null;
-      }
     }
   }
 
@@ -1751,12 +1513,38 @@ export class SkillEngine {
       return { loadedCount: 0, skills: [] };
     }
 
+    // Check Workspace Trust if scanning a repository-local .kin/skills directory
+    const kinSkillsMarker = `${path.sep}.kin${path.sep}skills`;
+    const markerIdx = targetDir.toLowerCase().indexOf(kinSkillsMarker.toLowerCase());
+    const repoRootForSkills = markerIdx >= 0 ? targetDir.slice(0, markerIdx) : undefined;
+    const repoSkillsTrusted = repoRootForSkills
+      ? WorkspaceTrustManager.getInstance().isTrusted(repoRootForSkills)
+      : true;
+
+    const sanitizeUntrustedJson = (raw: string): string => {
+      if (repoSkillsTrusted) return raw;
+      const stripObj = (o: any): any => {
+        if (!o || typeof o !== 'object') return o;
+        const copy: any = { ...o, handlerCode: undefined, enabled: false };
+        if (copy.skill && typeof copy.skill === 'object') {
+          copy.skill = { ...copy.skill, handlerCode: undefined, enabled: false };
+        }
+        return copy;
+      };
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return JSON.stringify(parsed.map(stripObj));
+      if (parsed && typeof parsed === 'object' && Array.isArray(parsed.skills)) {
+        return JSON.stringify({ ...parsed, skills: parsed.skills.map(stripObj) });
+      }
+      return JSON.stringify(stripObj(parsed));
+    };
+
     try {
       const stat = fs.statSync(targetDir);
       if (stat.isFile()) {
         if (targetDir.endsWith('.json')) {
           const raw = fs.readFileSync(targetDir, 'utf-8');
-          const res = this.importSkillBundle(raw);
+          const res = this.importSkillBundle(sanitizeUntrustedJson(raw));
           return { loadedCount: res.imported, skills: res.skills };
         } else if (targetDir.endsWith('.md')) {
           const rawMd = fs.readFileSync(targetDir, 'utf-8');
@@ -1783,10 +1571,10 @@ export class SkillEngine {
             version: frontmatter.version ? String(frontmatter.version) : '1.0.0',
             description: frontmatter.description || '',
             instructions: body || frontmatter.instructions || frontmatter.description || '',
-            handlerCode,
+            handlerCode: repoSkillsTrusted ? handlerCode : undefined,
             parameters: frontmatter.parameters,
-            skillType: frontmatter.skill_type || frontmatter.skillType || (handlerCode ? 'tool_extension' : 'prompt_instruction'),
-            enabled: frontmatter.enabled !== false,
+            skillType: frontmatter.skill_type || frontmatter.skillType || (handlerCode && repoSkillsTrusted ? 'tool_extension' : 'prompt_instruction'),
+            enabled: repoSkillsTrusted ? frontmatter.enabled !== false : false,
             requiredTools,
             triggerPatterns,
           });
@@ -1828,10 +1616,10 @@ export class SkillEngine {
             version: frontmatter.version ? String(frontmatter.version) : '1.0.0',
             description: frontmatter.description || '',
             instructions: body || frontmatter.instructions || frontmatter.description || '',
-            handlerCode,
+            handlerCode: repoSkillsTrusted ? handlerCode : undefined,
             parameters: frontmatter.parameters,
-            skillType: frontmatter.skill_type || frontmatter.skillType || (handlerCode ? 'tool_extension' : 'prompt_instruction'),
-            enabled: frontmatter.enabled !== false,
+            skillType: frontmatter.skill_type || frontmatter.skillType || (handlerCode && repoSkillsTrusted ? 'tool_extension' : 'prompt_instruction'),
+            enabled: repoSkillsTrusted ? frontmatter.enabled !== false : false,
             requiredTools,
             triggerPatterns,
           });
@@ -1842,7 +1630,7 @@ export class SkillEngine {
       } else if (directSkillJson) {
         try {
           const raw = fs.readFileSync(directSkillJson, 'utf-8');
-          const skill = this.importSkill(raw);
+          const skill = this.importSkill(sanitizeUntrustedJson(raw));
           return { loadedCount: 1, skills: [skill] };
         } catch (err: any) {
           console.warn(`[SkillEngine] Failed to parse ${directSkillJson}:`, err.message);
@@ -1886,10 +1674,10 @@ export class SkillEngine {
                 version: frontmatter.version ? String(frontmatter.version) : '1.0.0',
                 description: frontmatter.description || '',
                 instructions: body || frontmatter.instructions || frontmatter.description || '',
-                handlerCode,
+                handlerCode: repoSkillsTrusted ? handlerCode : undefined,
                 parameters: frontmatter.parameters,
-                skillType: frontmatter.skill_type || frontmatter.skillType || (handlerCode ? 'tool_extension' : 'prompt_instruction'),
-                enabled: frontmatter.enabled !== false,
+                skillType: frontmatter.skill_type || frontmatter.skillType || (handlerCode && repoSkillsTrusted ? 'tool_extension' : 'prompt_instruction'),
+                enabled: repoSkillsTrusted ? frontmatter.enabled !== false : false,
                 requiredTools,
                 triggerPatterns,
               });
@@ -1900,7 +1688,7 @@ export class SkillEngine {
           } else if (fs.existsSync(skillJson)) {
             try {
               const raw = fs.readFileSync(skillJson, 'utf-8');
-              const skill = this.importSkill(raw);
+              const skill = this.importSkill(sanitizeUntrustedJson(raw));
               loaded.push(skill);
             } catch (err: any) {
               console.warn(`[SkillEngine] Failed to parse ${skillJson}:`, err.message);
@@ -1913,7 +1701,7 @@ export class SkillEngine {
             }
             try {
               const raw = fs.readFileSync(fullPath, 'utf-8');
-              const res = this.importSkillBundle(raw);
+              const res = this.importSkillBundle(sanitizeUntrustedJson(raw));
               loaded.push(...res.skills);
             } catch (err) { console.debug("[skill_engine] Suppressed exception in catch block:", err); }
           } else if (entry.name.endsWith('.md') && entry.name.toLowerCase() !== 'readme.md') {
@@ -1941,10 +1729,10 @@ export class SkillEngine {
                 version: frontmatter.version ? String(frontmatter.version) : '1.0.0',
                 description: frontmatter.description || '',
                 instructions: body || frontmatter.instructions || frontmatter.description || '',
-                handlerCode,
+                handlerCode: repoSkillsTrusted ? handlerCode : undefined,
                 parameters: frontmatter.parameters,
-                skillType: frontmatter.skill_type || frontmatter.skillType || (handlerCode ? 'tool_extension' : 'prompt_instruction'),
-                enabled: frontmatter.enabled !== false,
+                skillType: frontmatter.skill_type || frontmatter.skillType || (handlerCode && repoSkillsTrusted ? 'tool_extension' : 'prompt_instruction'),
+                enabled: repoSkillsTrusted ? frontmatter.enabled !== false : false,
                 requiredTools,
                 triggerPatterns,
               });

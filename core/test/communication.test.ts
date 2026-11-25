@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { KinDatabase } from '../src/storage/db.js';
 import { MigrationRunner } from '../src/storage/migration_runner.js';
 import { ChannelService } from '../src/communication/channel_service.js';
-import { LoopBreaker } from '../src/communication/loop_breaker.js';
+import { LoopBreaker } from '../src/kernel/loop_breaker.js';
 import { ActivationEngine } from '../src/communication/activation_engine.js';
 import { AgentIdentity, Message } from '../src/domain/types.js';
 import * as fs from 'node:fs';

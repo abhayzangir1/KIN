@@ -59,8 +59,11 @@ export class QuotaGuard {
       lower.includes('quota') ||
       lower.includes('resource_exhausted') ||
       lower.includes('tokens per minute') ||
-      lower.includes('tpm') ||
-      lower.includes('rpm') ||
+      lower.includes('too many requests') ||
+      lower.includes('capacity exceeded') ||
+      lower.includes('overloaded') ||
+      /\btpm\b/.test(lower) ||
+      /\brpm\b/.test(lower) ||
       lower.includes('insufficient_quota')
     );
   }

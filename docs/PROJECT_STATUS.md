@@ -7,7 +7,7 @@
 
 ## 🏗️ Architecture & Component Inventory
 
-KIN is organized into three production workspaces backed by 31 authoritative SQLite tables:
+KIN is organized into three production workspaces backed by 36 authoritative SQLite tables (34 base tables + 2 FTS5 virtual tables):
 
 - `core/`: TypeScript daemon on Node.js 22, SQLite WAL engine (31 tables), multi-agent loop runner, multi-provider model gateway (Ollama, NVIDIA NIM, OpenRouter, OpenAI, Anthropic, Gemini, Groq), tool gateway, dedicated `ToolEngine` worker sandbox, `SkillEngine` procedural VM sandbox, scheduler, and integration clients.
 - `ui/`: React 18, Tailwind CSS, and Zustand desktop interface with embedded static asset serving, offline resilience banners, WCAG AAA semantic tokens, and dynamic custom tool management.
@@ -23,7 +23,7 @@ KIN is organized into three production workspaces backed by 31 authoritative SQL
 - **Project Orchestrators (`@Boss`)**: Authoritative lead agent automatically seeded per project for intake and task decomposition.
 - **Departmental Channels & Peer DMs**: Multi-channel workforce enrollment (`assignCoworker`), department convening (`callMeeting`), cross-channel broadcasting (`channel_post`), and private peer-to-peer direct messages (`dm-${agentA}-${agentB}`) with participant-only context isolation.
 - **7-Tier Scoped Memory**: Global, Workspace, Project, Team, Channel, Agent-Private, and Task memory scopes with OCC versioning and historical version archiving.
-- **Dedicated Machine-Executable ToolEngine**: Clean separation between procedural natural language skills (`SkillEngine`) and machine-executable dynamic tools (`ToolEngine` in `core/src/execution/tool_engine.ts`). Dynamic tools execute inside Node.js `worker_threads` restricted to 128MB RAM, configurable execution timeouts (`executionContext.timeoutMs`), and canonical path confinement.
+- **Dedicated Machine-Executable ToolEngine**: Clean separation between procedural natural language skills (`SkillEngine`) and machine-executable dynamic tools (`ToolEngine` in `core/src/execution/tool_engine.ts`). Both execute untrusted JavaScript inside QuickJS-WASM (`core/src/execution/worker_quickjs.ts`) with bounded memory, interrupt timeouts, frozen prototypes, and canonical path confinement.
 - **Tokenized Jaccard Duplicate Interception**: Tool creation evaluates token similarity against existing tools. If similarity is $\ge 75\%$, a duplicate advisory is returned. Models can supply `forceCreation: true` to bypass directly to operator approval and prevent infinite debating loops.
 - **Non-Blocking Approval Resolution**: In `AUTO` or supervised mode, unapproved tools generate approval cards. If denied by the operator, the agent receives an informative denial observation without crashing or halting the run. On approval, the tool activates swarm-wide and is injected into ContextCompiler Block 3 across all project agents.
 - **Harness² Recursive Upgrades & Worktree Probing**: Grounded in Google Research Harness², cross-task adaptations and domain fixes are cataloged in `harness_improvements` (`recordImprovement`, `findImprovements`), and prospective tooling patches can be safely verified inside isolated Git worktrees via `WorktreeManager.probeWorktree<T>()`.

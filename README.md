@@ -14,7 +14,7 @@ Local-first execution • Hybrid model routing (Local Ollama, NVIDIA NIM & BYOK 
 [![Download macOS](https://img.shields.io/badge/macOS-.dmg-lightgrey?logo=apple&logoColor=white)](https://github.com/abhayzangir1/KIN/releases/latest)
 [![Download Linux](https://img.shields.io/badge/Linux-.AppImage%20%7C%20.deb-orange?logo=linux&logoColor=white)](https://github.com/abhayzangir1/KIN/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Node Version](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-339933?logo=node.js)](https://nodejs.org/)
+[![Node Version](https://img.shields.io/badge/Node.js-%3E%3D22.5.0-339933?logo=node.js)](https://nodejs.org/)
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org/)
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri)](https://tauri.app/)
 [![SQLite](https://img.shields.io/badge/SQLite-WAL%20Mode-003B57?logo=sqlite)](https://sqlite.org/)
@@ -60,7 +60,7 @@ KIN implements a comprehensive 18-layer agent harness designed for mission-criti
 | **L1 (Domain Repositories)** | Domain Repositories | Workspace, Agent, Task, Goal, and Memory repositories with resilient fallback parsing (`core/src/domain/`). |
 | **L2 (Governance & Policy)** | Policy Engine & Autonomy | Autonomy modes (`AUTO`, `ALWAYS_ASK`, `FULL_ACCESS`), capability attenuation, financial safety gates, and action risk tiers (`core/src/policy/`). |
 | **L3 (Security & Perimeter)** | Sentinel & EventLedger | Sentinel fail-closed barrier, single-use approval tokens, AES-256-GCM vault, secret broker redaction, and transactional HMAC/SHA-256 event ledger (`core/src/security/`). |
-| **L4 (Execution & Tool Gateway)** | ToolGateway & ToolEngine | Dynamic tool registration, schema introspection, dedicated `ToolEngine` Node.js `worker_threads` sandboxing (128MB RAM limit, configurable timeouts), tokenized Jaccard similarity checks, operator pre-approval non-blocking gating, dynamic `custom__*` injection, and filesystem jail confinement (`core/src/execution/tool_gateway.ts`, `core/src/execution/tool_engine.ts`). |
+| **L4 (Execution & Tool Gateway)** | ToolGateway & ToolEngine | Dynamic tool registration, schema introspection, QuickJS-WASM sandboxing (`worker_quickjs.ts`), `execute_code` programmatic tool calling, Workspace Trust SHA-256 quarantine, hardware-gated `LspManager`, `HookRegistry`, tokenized Jaccard similarity checks, operator pre-approval non-blocking gating, dynamic `custom__*` injection, and canonical filesystem jail confinement (`core/src/execution/tool_gateway.ts`, `core/src/execution/tool_engine.ts`). |
 | **L5 (Worktree & Git Isolation)** | WorktreeManager | Isolated Git worktrees, branch lifecycle, diff calculation, merge mutex, canonical path containment (`fs.realpathSync`), and `probeWorktree<T>()` candidate patch testing (`core/src/execution/worktree_manager.ts`). |
 | **L6 (Model Gateway & Routing)** | ModelGateway | Multi-provider LLM gateway (Ollama, NVIDIA NIM, OpenRouter, OpenAI, Anthropic, Gemini, DeepSeek, Groq), token quota budgeting, key rotation, and upstream error secret redaction (`core/src/execution/model_gateway.ts`). |
 | **L7 (Context Compilation)** | ContextCompiler | Sliding token budgets, 5-block prompt compilation, quote-reply thread trees, output spiller, and compaction engine (`core/src/context/`). |
@@ -146,7 +146,7 @@ State and context are strictly layered across seven privacy boundaries with Opti
 7. **Task Memory**: Transient task-level evidence and scratchpads.
 
 ### 🛠️ Ephemeral Skills & Disposable Dynamic Tools Lifecycle
-- **Clean-Break Execution Architecture**: KIN strictly separates natural language procedural instructions (`SkillEngine` - YAML frontmatter, markdown procedures, VM sandbox) from machine-executable programmatic tools (`ToolEngine` - Node.js `worker_threads`).
+- **Clean-Break Execution Architecture**: KIN strictly separates natural language procedural instructions (`SkillEngine` — YAML frontmatter, markdown procedures, QuickJS-WASM sandbox) from machine-executable programmatic tools (`ToolEngine` — QuickJS-WASM + jailed `fs` inside `worker_threads` when compiled).
 - **Autonomous Tool Creation & Sandboxed Execution**: Agents can synthesize custom dynamic tools at runtime via `create_tool` (`core/src/execution/tool_engine.ts`). Tools execute inside isolated Node.js worker threads restricted to 128MB RAM, configurable execution timeouts (`executionContext.timeoutMs`), canonical path confinement, and frozen global prototypes.
 - **Tokenized Duplicate Interception**: Tool synthesis checks incoming specifications against existing tools using tokenized Jaccard similarity. Tools with $\ge 75\%$ similarity return an advisory duplicate warning with instructions to invoke the existing tool. To prevent infinite model debating loops, agents can pass `forceCreation: true` to bypass the similarity advisory directly to operator approval.
 - **Non-Blocking Pre-Approval & Graceful Fallback**: In `AUTO` or supervised modes, dynamic tool creation creates a pending approval record. If an operator denies creation, the agent receives a descriptive denial observation without crashing or halting the active ReAct loop. On approval, the tool activates swarm-wide and is injected into ContextCompiler Block 3 across all agents in the project.
@@ -253,7 +253,7 @@ Clone and run KIN directly from source code:
    # Typecheck monorepo across all workspaces
    npm run typecheck
 
-   # Run core backend Vitest suite (84 suites, 1,224 tests)
+   # Run core backend Vitest suite (90 files, 1,257 tests) and UI suite (1 file, 3 tests)
    npm test --workspace=core
 
    # Run Tauri process supervisor tests (14 tests)
@@ -284,7 +284,7 @@ Comprehensive guides, technical references, and tutorials are available in the [
 
 - **[Architecture Guide](docs/ARCHITECTURE.md)**: Deep dive into the 3-tier desktop architecture, process supervision, loopback IPC, and SQLite schema.
 - **[REST & IPC API Reference](docs/API.md)**: Full endpoint specification covering Channels, Messages, Agents, Models, Desktop, Browser, and Automations.
-- **[Product Requirements Document (PRD)](docs/PRD.md)**: Product vision, user personas, UX architecture, and functional requirements.
+- **[Product Requirements Document (PRD)](PRD.md)**: Product vision, user personas, UX architecture, and functional requirements.
 - **[Technical Requirements Document (TRD)](docs/TRD.md)**: Non-functional requirements, security model, and performance boundaries.
 - **[Project Status & Verification Audit](docs/PROJECT_STATUS.md)**: Live verification status of all 1,238 tests, audit remediations, and roadmap.
 - **[Tutorials & Guides](docs/TUTORIALS.md)**:

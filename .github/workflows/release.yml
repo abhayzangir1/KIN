@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag name (e.g. v0.1.5)'
+        required: true
+        type: string
 
 concurrency:
   group: release-${{ github.ref }}
@@ -21,6 +26,9 @@ jobs:
       fail-fast: false
       matrix:
         platform: [windows-latest, macos-latest, ubuntu-latest]
+        include:
+          - platform: ubuntu-24.04-arm
+            tauri_args: ''
 
     steps:
       - name: Checkout repository
@@ -81,15 +89,17 @@ jobs:
             exit 1
           fi
           chmod +x "$BINARY_PATH" || true
-          echo "Launching packaged daemon: $BINARY_PATH"
-          $BINARY_PATH &
+          echo "Launching packaged daemon in isolated temp dir: $BINARY_PATH"
+          TEST_DATA_DIR="$(mktemp -d)"
+          KIN_DB_PATH=":memory:" KIN_DATA_DIR="$TEST_DATA_DIR" KIN_PORT=54399 "$BINARY_PATH" &
           DAEMON_PID=$!
 
           echo "Querying daemon health endpoint..."
-          curl -sS --fail --retry 30 --retry-delay 1 --retry-connrefused --retry-max-time 60 http://127.0.0.1:54321/api/health
+          curl -sS --fail --retry 30 --retry-delay 1 --retry-connrefused --retry-max-time 60 http://127.0.0.1:54399/api/health
 
           echo "Stopping test daemon..."
           kill -9 $DAEMON_PID 2>/dev/null || true
+          rm -rf "$TEST_DATA_DIR" 2>/dev/null || true
           pkill -9 -f kin-core 2>/dev/null || true
           taskkill //F //IM kin-core.exe 2>/dev/null || true
 
@@ -97,9 +107,13 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'KIN ${{ github.ref_name }}'
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: 'KIN ${{ github.event.inputs.tag || github.ref_name }}'
+          includeUpdaterJson: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+          args: ${{ matrix.tauri_args }}
           releaseBody: |
             ## KIN — Local-First Autonomous AI Workforce Platform (${{ github.ref_name }})
             
@@ -131,7 +145,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir release-assets
-          gh release download ${{ github.ref_name }} --dir release-assets
+          gh release download ${{ github.event.inputs.tag || github.ref_name }} --dir release-assets
 
       - name: Compute SHA-256 checksums
         run: |
@@ -144,7 +158,15 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Upload SHA256SUMS.txt to Release
+        if: github.event_name != 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload ${{ github.ref_name }} SHA256SUMS.txt --clobber
+
+      - name: Upload SHA256SUMS.txt to Manual Release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ github.event.inputs.tag || github.ref_name }} SHA256SUMS.txt --clobber

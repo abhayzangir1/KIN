@@ -17,7 +17,12 @@ if "%1"=="-d" set "DEV_MODE=1"
 where node >nul 2>nul
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] Node.js is not installed or not in PATH.
-    echo Please install Node.js v20+ from https://nodejs.org/
+    echo Please install Node.js v22.5.0+ from https://nodejs.org/
+    pause
+    exit /b 1
+)
+node -e "const [maj,min]=process.versions.node.split('.').map(Number); if(maj<22||(maj===22&&min<5)){console.error('[ERROR] Node.js >= 22.5.0 is required for node:sqlite. Found '+process.version); process.exit(1);}"
+if %ERRORLEVEL% neq 0 (
     pause
     exit /b 1
 )
@@ -102,19 +107,13 @@ if "%DEV_MODE%"=="1" (
     echo [*] Application Server: http://127.0.0.1:54321
     echo.
 
-    start "KIN Core Daemon" /B node core\dist\start_daemon.js
-
-    timeout /t 2 /nobreak >nul
-    set "IPC_TOKEN="
-    if defined KIN_DATA_DIR if exist "%KIN_DATA_DIR%\ipc_auth.token" set /p IPC_TOKEN=<"%KIN_DATA_DIR%\ipc_auth.token"
-    if not defined IPC_TOKEN if defined APPDATA if exist "%APPDATA%\kin\ipc_auth.token" set /p IPC_TOKEN=<"%APPDATA%\kin\ipc_auth.token"
-    if not defined IPC_TOKEN if defined APPDATA if exist "%APPDATA%\kin\.kin\ipc_auth.token" set /p IPC_TOKEN=<"%APPDATA%\kin\.kin\ipc_auth.token"
-    if not defined IPC_TOKEN if exist ".kin\ipc_auth.token" set /p IPC_TOKEN=<".kin\ipc_auth.token"
-    if defined IPC_TOKEN (
-        start http://127.0.0.1:54321/?token=%IPC_TOKEN%
-    ) else (
-        start http://127.0.0.1:54321
-    )
+    echo =====================================================================
+    echo  KIN is running! Press Ctrl+C in this terminal to shut down cleanly.
+    echo =====================================================================
+    echo.
+    start "" /B cmd /c "timeout /t 2 /nobreak >nul & set \"IPC_TOKEN=\" & (if defined KIN_DATA_DIR if exist \"%KIN_DATA_DIR%\ipc_auth.token\" set /p IPC_TOKEN=<\"%KIN_DATA_DIR%\ipc_auth.token\") & (if not defined IPC_TOKEN if defined APPDATA if exist \"%APPDATA%\kin\ipc_auth.token\" set /p IPC_TOKEN=<\"%APPDATA%\kin\ipc_auth.token\") & (if not defined IPC_TOKEN if exist \".kin\ipc_auth.token\" set /p IPC_TOKEN=<\".kin\ipc_auth.token\") & if defined IPC_TOKEN (start http://127.0.0.1:54321/?token=!IPC_TOKEN!) else (start http://127.0.0.1:54321)"
+    node core\dist\start_daemon.js
+    exit /b %ERRORLEVEL%
 )
 
 echo =====================================================================

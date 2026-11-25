@@ -412,244 +412,23 @@ export class ToolEngine {
     const cleanParams = sanitizePayload(params);
     const cleanContext = sanitizePayload(executionContext);
     const worktreeRoot = executionContext.worktreeRoot || process.cwd();
-
-    const workerScript = `
-      const { parentPort, workerData } = require('node:worker_threads');
-      const vm = require('node:vm');
-      const path = require('node:path');
-      const fs = require('node:fs');
-
-      (async () => {
-        try {
-          const { handlerCode, cleanParams, cleanContext, worktreeRoot } = workerData;
-
-          // Sensitive file patterns rejection
-          function isSensitivePattern(p, base) {
-            return (
-              base === 'ipc_auth.token' ||
-              base === 'vault.key' ||
-              base === '.env' ||
-              base.startsWith('.env.') ||
-              base.endsWith('.env') ||
-              base === '.npmrc' ||
-              base === '.pypirc' ||
-              base === 'id_rsa' ||
-              base === 'id_ed25519' ||
-              base === 'id_ecdsa' ||
-              base === 'id_dsa' ||
-              base.startsWith('kin_storage.sqlite') ||
-              base.endsWith('.sqlite') ||
-              base.endsWith('.sqlite3') ||
-              base.endsWith('.sqlite-wal') ||
-              base.endsWith('.sqlite-shm') ||
-              p.includes('/.git/config') ||
-              p === '.git/config' ||
-              p.includes('/.ssh/') ||
-              p.startsWith('.ssh/') ||
-              p.includes('/.aws/') ||
-              p.startsWith('.aws/') ||
-              ((p.startsWith('.kin/') || p.includes('/.kin/')) && !p.includes('/.kin/worktrees/'))
-            );
-          }
-
-          // Canonical jail helper inside worker with symlink defense & sensitive pattern check
-          function validateJailedPath(targetPath, baseDir) {
-            let canonicalBase;
-            try {
-              canonicalBase = fs.existsSync(baseDir) ? fs.realpathSync(baseDir) : path.resolve(baseDir);
-            } catch {
-              canonicalBase = path.resolve(baseDir);
-            }
-
-            const resolved = path.resolve(canonicalBase, targetPath);
-
-            // 1. Initial relative containment check
-            const rel = path.relative(canonicalBase, resolved);
-            if (rel.startsWith('..') || path.isAbsolute(rel)) {
-              throw new Error("Path jail traversal blocked: " + targetPath);
-            }
-
-            // 2. Sensitive pattern check on unresolved target
-            const normalizedP = rel.split('\\\\').join('/').toLowerCase();
-            const base = path.basename(resolved).toLowerCase();
-            if (isSensitivePattern(normalizedP, base)) {
-              throw new Error("Path jail access to sensitive file blocked: " + targetPath);
-            }
-
-            // 3. Canonical path check (resolves symlinks)
-            if (fs.existsSync(resolved)) {
-              const realTarget = fs.realpathSync(resolved);
-              const realRel = path.relative(canonicalBase, realTarget);
-              if (realRel.startsWith('..') || path.isAbsolute(realRel)) {
-                throw new Error("Path jail symlink traversal blocked: " + targetPath);
-              }
-              const realNormalized = realRel.split('\\\\').join('/').toLowerCase();
-              const realBase = path.basename(realTarget).toLowerCase();
-              if (isSensitivePattern(realNormalized, realBase)) {
-                throw new Error("Path jail access to sensitive file blocked: " + targetPath);
-              }
-              return realTarget;
-            } else {
-              // Non-existent target: verify closest existing ancestor is contained within jail
-              let current = path.dirname(resolved);
-              while (current && !fs.existsSync(current) && current !== canonicalBase && current !== path.dirname(current)) {
-                current = path.dirname(current);
-              }
-              if (fs.existsSync(current)) {
-                const realAncestor = fs.realpathSync(current);
-                const realAncestorRel = path.relative(canonicalBase, realAncestor);
-                if (realAncestorRel.startsWith('..') || path.isAbsolute(realAncestorRel)) {
-                  throw new Error("Path jail ancestor symlink traversal blocked: " + targetPath);
-                }
-              }
-              return resolved;
-            }
-          }
-
-          // Safe restricted FS module
-          const jailedFs = {
-            readFileSync: (p, enc) => {
-              const validPath = validateJailedPath(p, worktreeRoot);
-              return fs.readFileSync(validPath, enc || 'utf-8');
-            },
-            writeFileSync: (p, data) => {
-              const validPath = validateJailedPath(p, worktreeRoot);
-              return fs.writeFileSync(validPath, data, 'utf-8');
-            },
-            existsSync: (p) => {
-              try {
-                const validPath = validateJailedPath(p, worktreeRoot);
-                return fs.existsSync(validPath);
-              } catch {
-                return false;
-              }
-            }
-          };
-
-          // Build sandboxed context with restricted globals (no host Buffer or host constructors)
-          const context = vm.createContext({
-            params: Object.freeze(JSON.parse(JSON.stringify(cleanParams))),
-            context: Object.freeze(JSON.parse(JSON.stringify(cleanContext))),
-            fs: jailedFs,
-            path: {
-              join: path.join,
-              resolve: (...args) => path.resolve(worktreeRoot, ...args),
-              basename: path.basename,
-              dirname: path.dirname,
-              extname: path.extname
-            },
-            console: {
-              log: () => {},
-              warn: () => {},
-              error: () => {}
-            },
-            JSON,
-            Math,
-            Date,
-            setTimeout: (fn, ms) => setTimeout(fn, Math.min(ms || 0, 5000)),
-            clearTimeout,
-            exports: {},
-            module: { exports: {} }
-          });
-
-          // Prevent prototype pollution or constructor escapes inside guest context
-          vm.runInContext(
-            "globalThis.Buffer = Object.freeze({" +
-            "  from: function(input) {" +
-            "    if (typeof input === 'string') {" +
-            "      var arr = new Uint8Array(input.length);" +
-            "      for (var i = 0; i < input.length; i++) arr[i] = input.charCodeAt(i) & 0xff;" +
-            "      return arr;" +
-            "    }" +
-            "    if (Array.isArray(input) || (input && input.constructor && input.constructor.name === 'Uint8Array')) {" +
-            "      return new Uint8Array(input);" +
-            "    }" +
-            "    return new Uint8Array(0);" +
-            "  }," +
-            "  alloc: function(size) { return new Uint8Array(typeof size === 'number' ? size : 0); }," +
-            "  isBuffer: function(obj) { return !!(obj && obj.constructor && obj.constructor.name === 'Uint8Array'); }," +
-            "  concat: function(list) {" +
-            "    if (!Array.isArray(list)) return new Uint8Array(0);" +
-            "    var total = list.reduce(function(acc, c) { return acc + (c ? (c.length || 0) : 0); }, 0);" +
-            "    var out = new Uint8Array(total);" +
-            "    var offset = 0;" +
-            "    for (var i = 0; i < list.length; i++) {" +
-            "      var item = list[i];" +
-            "      if (item && item.length) { out.set(item, offset); offset += item.length; }" +
-            "    }" +
-            "    return out;" +
-            "  }" +
-            "});" +
-            "Object.freeze(Object.prototype);" +
-            "Object.freeze(Object);" +
-            "Object.freeze(Array);",
-            context
-          );
-
-          const wrapped = "(async () => {\\n" +
-            "  const module = { exports: {} };\\n" +
-            "  const exports = module.exports;\\n" +
-            "  " + handlerCode + "\\n" +
-            "  const runFn = typeof module.exports === 'function' ? module.exports : (module.exports.run || module.exports.default || exports.run || exports.default);\\n" +
-            "  if (typeof runFn === 'function') { return await runFn(params, context); }\\n" +
-            "  return module.exports;\\n" +
-            "})();";
-
-          const script = new vm.Script(wrapped, { timeout: 14000 });
-          const output = await script.runInContext(context);
-          parentPort.postMessage({ success: true, output });
-        } catch (err) {
-          parentPort.postMessage({ success: false, error: err?.message || String(err) });
-        }
-      })();
-    `;
+    const timeoutMs = typeof executionContext.timeoutMs === 'number' && executionContext.timeoutMs > 0
+      ? executionContext.timeoutMs
+      : this.defaultTimeoutMs;
 
     try {
-      activeWorker = new Worker(workerScript, {
-        eval: true,
-        workerData: {
-          handlerCode: tool.handlerCode,
-          cleanParams,
-          cleanContext,
-          worktreeRoot,
-        },
-        resourceLimits: {
-          maxOldGenerationSizeMb: this.maxMemoryMb,
-        },
-      });
-
-      const workerPromise = new Promise<{ success: boolean; output?: any; error?: string }>((resolve, reject) => {
-        activeWorker!.on('message', (msg) => resolve(msg));
-        activeWorker!.on('error', (err) => reject(err));
-        activeWorker!.on('exit', (code) => {
-          if (code !== 0) {
-            reject(new Error(`Worker process stopped unexpectedly with exit code ${code}`));
-          }
-        });
-      });
-
-      const timeoutMs = typeof executionContext.timeoutMs === 'number' && executionContext.timeoutMs > 0
-        ? executionContext.timeoutMs
-        : this.defaultTimeoutMs;
-
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
-          reject(new Error(`Custom tool execution timed out after ${timeoutMs}ms`));
-        }, timeoutMs);
-      });
-
-      const res = await Promise.race([workerPromise, timeoutPromise]).finally(() => {
-        if (timer) clearTimeout(timer);
-        if (activeWorker) {
-          try {
-            activeWorker.terminate();
-          } catch (err) { console.debug("[tool_engine] Suppressed exception in catch block:", err); }
-          activeWorker = null;
-        }
+      const { runQuickJSWorker } = await import('./worker_quickjs.js');
+      const res = await runQuickJSWorker({
+        handlerCode: tool.handlerCode,
+        params: cleanParams,
+        context: cleanContext,
+        timeoutMs,
+        maxMemoryMb: this.maxMemoryMb,
+        worktreeRoot,
+        enableJailedFs: true,
       });
 
       const execTime = Date.now() - startTime;
-
       if (res.success) {
         this.incrementMetrics(tool.id, true);
         return { success: true, output: res.output, executionTimeMs: execTime };
@@ -658,13 +437,6 @@ export class ToolEngine {
         return { success: false, error: res.error, executionTimeMs: execTime };
       }
     } catch (err: any) {
-      if (timer) clearTimeout(timer);
-      if (activeWorker) {
-        try {
-          activeWorker.terminate();
-        } catch (err) { console.debug("[tool_engine] Suppressed exception in catch block:", err); }
-        activeWorker = null;
-      }
       this.incrementMetrics(tool.id, false);
       return {
         success: false,

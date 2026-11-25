@@ -6,7 +6,7 @@ KIN includes a native background automation scheduler that runs independently of
 
 ## How KIN Scheduling Works
 
-Unlike cloud SaaS platforms that require webhooks or external cron daemons, KIN's scheduler runs as an internal service (`core/src/automation/scheduler_service.ts`) backed by SQLite:
+Unlike cloud SaaS platforms that require webhooks or external cron daemons, KIN's scheduler runs as an internal service (`core/src/automation/scheduler.ts`) backed by SQLite:
 - **Durable Persistence**: All schedules are written to the `schedules` and `schedule_attempts` tables in WAL mode.
 - **Precision Calendar**: Uses a robust five-field cron parser (`core/src/automation/cron_calendar.ts`) to compute exact future timestamps.
 - **Daemon Resilience**: If the daemon or computer restarts, KIN recovers missed or pending schedules upon startup and executes overdue triggers according to configurable catch-up policies.

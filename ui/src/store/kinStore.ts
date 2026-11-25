@@ -263,7 +263,8 @@ if (typeof window !== 'undefined' && typeof window.fetch === 'function' && nativ
       url.startsWith('http://localhost:') ||
       (typeof window !== 'undefined' && window.location && url.startsWith(window.location.origin + '/api/'));
 
-    const headers = new Headers(init?.headers || (typeof input === 'object' && 'headers' in input ? (input as Request).headers : {}));
+    const reqObj = typeof input === 'object' && !(input instanceof URL) ? (input as Request) : null;
+    const headers = new Headers(init?.headers || (reqObj ? reqObj.headers : {}));
     if (isLocalApi && !headers.has('Authorization')) {
       const token = await getIpcToken();
       if (token) {
@@ -272,11 +273,35 @@ if (typeof window !== 'undefined' && typeof window.fetch === 'function' && nativ
       }
     }
 
+    let response: Response;
     if (typeof input === 'string' || input instanceof URL) {
-      return nativeFetch(url, { ...init, headers });
+      response = await nativeFetch(url, { ...init, headers });
     } else {
-      return nativeFetch(new Request(url, { ...init, headers }));
+      const reqBody = init?.body !== undefined ? init.body : (reqObj && reqObj.method !== 'GET' && reqObj.method !== 'HEAD' ? reqObj.body : undefined);
+      const cloned = new Request(url, {
+        method: init?.method ?? reqObj?.method ?? 'GET',
+        headers,
+        body: reqBody,
+        ...(reqBody ? { duplex: 'half' } : {}),
+        mode: init?.mode ?? reqObj?.mode,
+        credentials: init?.credentials ?? reqObj?.credentials,
+        cache: init?.cache ?? reqObj?.cache,
+        redirect: init?.redirect ?? reqObj?.redirect,
+        referrer: init?.referrer ?? reqObj?.referrer,
+        signal: init?.signal ?? reqObj?.signal,
+      } as RequestInit);
+      response = await nativeFetch(cloned);
     }
+
+    if (isLocalApi && response.status === 401 && typeof window !== 'undefined') {
+      try {
+        const store = useKinStore.getState?.();
+        if (store && !store.isPairingModalOpen) {
+          store.setPairingModalOpen(true, 'Authentication token missing or rejected (401).');
+        }
+      } catch {}
+    }
+    return response;
   };
 }
 
@@ -322,7 +347,7 @@ export interface AgentDisplay {
   fallbackModelId?: string;
   systemPrompt?: string;
   capabilities?: string[];
-  status: 'idle' | 'working' | 'thinking' | 'waiting' | 'needs_approval' | 'recovering';
+  status: 'idle' | 'working' | 'thinking' | 'waiting' | 'needs_approval' | 'recovering' | 'resuming';
   isOrchestrator: boolean;
   projectId?: string;
   assignedChannels?: string[];
@@ -392,7 +417,7 @@ export interface AgentExecutionDetails {
   displayName: string;
   role: string;
   activeModelId: string;
-  status: 'idle' | 'working' | 'thinking' | 'recovering';
+  status: 'idle' | 'working' | 'thinking' | 'recovering' | 'resuming';
   totalDurationMs: number;
   durationFormatted: string;
   exploredFiles?: string[];
@@ -1134,6 +1159,12 @@ interface KinState {
   setActiveSettingsTab: (tab: SettingsTab) => void;
   openSettingsModal: (tab?: SettingsTab) => void;
   setSettingsModalOpen: (open: boolean, tab?: SettingsTab) => void;
+  isPairingModalOpen: boolean;
+  pairingError: string | null;
+  setPairingModalOpen: (open: boolean, error?: string | null) => void;
+  submitPairingToken: (token: string) => Promise<void>;
+  isOnboardingWizardOpen: boolean;
+  setOnboardingWizardOpen: (open: boolean) => void;
 
   // Agent Settings Modal State
   isAgentSettingsModalOpen: boolean;
@@ -1149,7 +1180,7 @@ interface KinState {
   // Non-Blocking Confirmation Dialog State
   confirmDialog: ConfirmDialogState | null;
   openConfirmDialog: (params: Omit<ConfirmDialogState, 'isOpen'>) => void;
-  closeConfirmDialog: () => void;
+  closeConfirmDialog: (skipCancel?: boolean) => void;
 
   // Model Selector & Provider Manager State
   isModelSelectorOpen: boolean;
@@ -1221,7 +1252,7 @@ interface KinState {
 
   // Actions
   fetchQueuedMessages: (channelId?: string) => Promise<void>;
-  queueMessage: (channelId: string, content: string) => void;
+  queueMessage: (channelId: string, content: string, metadata?: Record<string, any>) => void;
   dequeueMessage: (id: string, channelId?: string) => void | Promise<void>;
   promoteQueuedToSteer: (id: string) => Promise<void>;
   setSwarmMapOpen: (open: boolean) => void;
@@ -1375,6 +1406,8 @@ let sseReconnectTimer: any = null;
 let sseReconnectAttempts = 0;
 let fetchStateRetryTimer: any = null;
 let fetchStatePromise: Promise<void> | null = null;
+let fetchStateSeq = 0;
+let fetchStateActiveProject: string | undefined = undefined;
 
 export const useKinStore = create<KinState>((set, get) => ({
   isFetchingState: false,
@@ -1469,6 +1502,29 @@ export const useKinStore = create<KinState>((set, get) => ({
       isSettingsModalOpen: open,
       ...(tab ? { activeSettingsTab: tab } : {}),
     }),
+  isPairingModalOpen: false,
+  pairingError: null,
+  setPairingModalOpen: (open: boolean, error: string | null = null) =>
+    set({ isPairingModalOpen: open, pairingError: error }),
+  submitPairingToken: async (token: string) => {
+    const clean = token.trim();
+    cachedIpcToken = clean;
+    try {
+      window.localStorage.setItem('kin_ipc_token', clean);
+      window.sessionStorage.setItem('kin_ipc_token', clean);
+    } catch {}
+    const res = await fetch('/api/system/health');
+    if (res.ok) {
+      set({ isPairingModalOpen: false, pairingError: null, isConnected: true });
+      await get().fetchState();
+      get().initSSE();
+    } else {
+      cachedIpcToken = null;
+      set({ pairingError: `Token rejected (HTTP ${res.status}). Check the startup daemon output.` });
+    }
+  },
+  isOnboardingWizardOpen: false,
+  setOnboardingWizardOpen: (open: boolean) => set({ isOnboardingWizardOpen: open }),
 
   // Agent Settings Modal State
   isAgentSettingsModalOpen: false,
@@ -1505,10 +1561,19 @@ export const useKinStore = create<KinState>((set, get) => ({
   // Non-Blocking Confirmation Dialog State
   confirmDialog: null,
   openConfirmDialog: (params: Omit<ConfirmDialogState, 'isOpen'>) =>
-    set({ confirmDialog: { ...params, isOpen: true } }),
-  closeConfirmDialog: () =>
     set((state) => {
-      if (state.confirmDialog?.onCancel) {
+      if (state.confirmDialog?.isOpen && state.confirmDialog.onCancel) {
+        try {
+          state.confirmDialog.onCancel();
+        } catch (cancelErr) {
+          console.debug('[kinStore] Exception cancelling superseded confirmDialog:', cancelErr);
+        }
+      }
+      return { confirmDialog: { ...params, isOpen: true } };
+    }),
+  closeConfirmDialog: (skipCancel?: boolean) =>
+    set((state) => {
+      if (!skipCancel && state.confirmDialog?.onCancel) {
         try {
           state.confirmDialog.onCancel();
         } catch (cancelErr) {
@@ -1741,17 +1806,20 @@ export const useKinStore = create<KinState>((set, get) => ({
   isLoadingModels: false,
 
   fetchState: async (projectId?: string) => {
-    if (fetchStatePromise) {
+    const targetProj = projectId || get().activeProjectId;
+    if (fetchStatePromise && fetchStateActiveProject === targetProj) {
       return fetchStatePromise;
     }
+    const mySeq = ++fetchStateSeq;
+    fetchStateActiveProject = targetProj;
     set({ isFetchingState: true });
     fetchStatePromise = (async () => {
       try {
-        const targetProj = projectId || get().activeProjectId;
         const url = targetProj ? `/api/state?projectId=${encodeURIComponent(targetProj)}` : '/api/state';
         const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
         const data = await res.json();
+        if (mySeq !== fetchStateSeq) return;
 
         const rememberedChannelId = (() => {
           try {
@@ -1884,8 +1952,10 @@ export const useKinStore = create<KinState>((set, get) => ({
           }, 3000);
         }
       } finally {
-        fetchStatePromise = null;
-        set({ isFetchingState: false });
+        if (mySeq === fetchStateSeq) {
+          fetchStatePromise = null;
+          set({ isFetchingState: false });
+        }
       }
     })();
     return fetchStatePromise;
@@ -2448,12 +2518,16 @@ export const useKinStore = create<KinState>((set, get) => ({
                 ? { ...state.thinkingDrafts, [channelId]: (state.thinkingDrafts[channelId] || '') + token }
                 : state.thinkingDrafts;
 
+              const shouldUpdateAgentStatus = agentId
+                ? state.agents.some((a) => a.id === agentId && a.status !== 'thinking')
+                : false;
+
               return {
                 agentThinkingDrafts: nextAgentThinking,
                 thinkingDrafts: nextChanThinking,
-                agents: agentId
-                  ? state.agents.map((a) => (a.id === agentId ? { ...a, status: 'thinking' } : a))
-                  : state.agents,
+                ...(shouldUpdateAgentStatus
+                  ? { agents: state.agents.map((a) => (a.id === agentId ? { ...a, status: 'thinking' } : a)) }
+                  : {}),
               };
             });
           }
@@ -3396,20 +3470,24 @@ export const useKinStore = create<KinState>((set, get) => ({
           }
           eventSourceInstance = null;
         }
-        if (sseReconnectTimer) {
-          clearTimeout(sseReconnectTimer);
-        }
-        const delay = sseReconnectAttempts < 3
-          ? 400 + Math.floor(Math.random() * 200)
-          : Math.min(15000, 1000 * Math.pow(1.5, sseReconnectAttempts)) + Math.floor(Math.random() * 500);
-        sseReconnectAttempts++;
-        sseReconnectTimer = setTimeout(() => {
-          sseReconnectTimer = null;
-          if (currentGen === sseConnectionGeneration) {
-            console.log(`[KIN UI] EventSource connection error or disconnect, auto-reconnecting (attempt ${sseReconnectAttempts}, delay ${delay}ms)...`);
-            get().initSSE();
-          }
-        }, delay);
+        // Check if SSE failed due to 401 auth before spinning in reconnect loop
+        fetch('/api/system/health')
+          .then((r) => {
+            if (r.status === 401 || currentGen !== sseConnectionGeneration || get().isPairingModalOpen) return;
+            if (sseReconnectTimer) clearTimeout(sseReconnectTimer);
+            const delay = sseReconnectAttempts < 3
+              ? 400 + Math.floor(Math.random() * 200)
+              : Math.min(15000, 1000 * Math.pow(1.5, sseReconnectAttempts)) + Math.floor(Math.random() * 500);
+            sseReconnectAttempts++;
+            sseReconnectTimer = setTimeout(() => {
+              sseReconnectTimer = null;
+              if (currentGen === sseConnectionGeneration) {
+                console.log(`[KIN UI] EventSource connection error or disconnect, auto-reconnecting (attempt ${sseReconnectAttempts}, delay ${delay}ms)...`);
+                get().initSSE();
+              }
+            }, delay);
+          })
+          .catch(() => {});
       };
     } catch (err) {
       console.error('[KIN UI] SSE connection error:', err);
@@ -3543,7 +3621,30 @@ export const useKinStore = create<KinState>((set, get) => ({
       selectedSwarmAgentId: '',
     });
     try {
-      await fetch(`/api/projects/${encodeURIComponent(projectId)}/activate`, { method: 'POST' });
+      const activateRes = await fetch(`/api/projects/${encodeURIComponent(projectId)}/activate`, { method: 'POST' });
+      if (activateRes.ok) {
+        const activateData = await activateRes.json();
+        const trustStatus = activateData?.trustStatus;
+        if (trustStatus?.hasConfigs && !trustStatus?.trusted) {
+          const filesList = Array.isArray(trustStatus.files) ? trustStatus.files.join(', ') : '.kin/*';
+          const shortHash = typeof trustStatus.configHash === 'string' ? trustStatus.configHash.slice(0, 12) : 'unknown';
+          get().openConfirmDialog({
+            title: 'Trust Repository Configs?',
+            message: `This workspace contains executable repository configs (${filesList}, SHA-256 ${shortHash}...). Trust and load them for this workspace?`,
+            confirmLabel: 'Trust Workspace',
+            variant: 'warning',
+            onConfirm: async () => {
+              await fetch(`/api/projects/${encodeURIComponent(projectId)}/trust`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ trusted: true, trustedBy: 'operator' }),
+              });
+              await get().fetchMcpConnectors(projectId);
+              await get().fetchState(projectId);
+            },
+          });
+        }
+      }
     } catch (err) {
       console.warn('[KIN UI] Project activation notice:', err);
     }
@@ -3689,13 +3790,13 @@ export const useKinStore = create<KinState>((set, get) => ({
     }
   },
 
-  queueMessage: async (channelId: string, content: string) => {
+  queueMessage: async (channelId: string, content: string, metadata?: Record<string, any>) => {
     if (!content.trim()) return;
     try {
       const res = await fetch(`/api/channels/${channelId}/queue`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: content.trim() }),
+        body: JSON.stringify({ content: content.trim(), metadata }),
       });
       if (res.ok) {
         const data = await res.json();

@@ -126,7 +126,7 @@ export class LoopBreaker {
     }
 
     // Single agent talking to themselves is handled by turn cadence
-    if (participants.size < 2 && stagnantCount < this.maxStagnantTurns && !isVelocityBreach) {
+    if (participants.size < 2 && stagnantCount < this.maxStagnantTurns && !isVelocityBreach && !isPingPong) {
       return {
         isStagnant: false,
         stagnantTurns: stagnantCount,
@@ -140,26 +140,7 @@ export class LoopBreaker {
     // Progressive throttling:
     // Turn 1: 0ms
     // Turn 2: 2500ms warning
-    // Turn 3: Halt and escalate
-    if (stagnantCount === 2 || isVelocityBreach) {
-      const warning = isVelocityBreach
-        ? `[KIN VELOCITY WARNING]: Over ${this.velocityTurnLimit} consecutive peer agent turns in 30s without human response. Applying 2500ms safety throttle.`
-        : isPingPong
-        ? '[KIN PING-PONG WARNING]: Alternating repetitive agent debate detected. Propose concrete changes or tests rather than circular discussions.'
-        : '[KIN STEERING WARNING]: 2 consecutive turns without productive state mutation or empirical verification. Propose a concrete benchmark, test, or prototype rather than repeating claims.';
-
-      return {
-        isStagnant: true,
-        stagnantTurns: stagnantCount,
-        action: 'warn',
-        suggestedThrottleMs: 2500,
-        isPingPong,
-        isVelocityBreach,
-        contentHashes,
-        warningMessage: warning,
-      };
-    }
-
+    // Turn 3+: Halt and escalate (evaluate >= maxStagnantTurns BEFORE === 2)
     if (stagnantCount >= this.maxStagnantTurns) {
       const lastExcerpts = agentMessages
         .slice(-3)
@@ -190,6 +171,25 @@ export class LoopBreaker {
       };
     }
 
+    if (stagnantCount === 2 || isVelocityBreach) {
+      const warning = isVelocityBreach
+        ? `[KIN VELOCITY WARNING]: Over ${this.velocityTurnLimit} consecutive peer agent turns in 30s without human response. Applying 2500ms safety throttle.`
+        : isPingPong
+        ? '[KIN PING-PONG WARNING]: Alternating repetitive agent debate detected. Propose concrete changes or tests rather than circular discussions.'
+        : '[KIN STEERING WARNING]: 2 consecutive turns without productive state mutation or empirical verification. Propose a concrete benchmark, test, or prototype rather than repeating claims.';
+
+      return {
+        isStagnant: true,
+        stagnantTurns: stagnantCount,
+        action: 'warn',
+        suggestedThrottleMs: 2500,
+        isPingPong,
+        isVelocityBreach,
+        contentHashes,
+        warningMessage: warning,
+      };
+    }
+
     return {
       isStagnant: false,
       stagnantTurns: stagnantCount,
@@ -201,8 +201,17 @@ export class LoopBreaker {
     };
   }
 
+  private canonicalStringify(val: unknown): string {
+    if (val === null || val === undefined) return 'null';
+    if (typeof val !== 'object') return JSON.stringify(val);
+    if (Array.isArray(val)) return '[' + val.map((v) => this.canonicalStringify(v)).join(',') + ']';
+    const keys = Object.keys(val as Record<string, unknown>).sort();
+    return '{' + keys.map((k) => `${JSON.stringify(k)}:${this.canonicalStringify((val as Record<string, unknown>)[k])}`).join(',') + '}';
+  }
+
   /**
-   * Evaluates action history for identical repetitive tool calls or repeated failing arguments.
+   * Evaluates action history for identical repetitive tool calls, repeated failing arguments,
+   * or alternating A-B-A-B cycles.
    */
   public evaluateActionRepetition(actions: Array<{ toolName: string; params?: any; error?: string }>): { isLoop: boolean; reason?: string } {
     if (actions.length < 3) return { isLoop: false };
@@ -216,13 +225,27 @@ export class LoopBreaker {
       };
     }
 
-    // 2. Check for 3 consecutive identical calls with identical parameters
-    const params0 = JSON.stringify(recent[0].params || {});
-    if (recent.every((a) => a.toolName === recent[0].toolName && JSON.stringify(a.params || {}) === params0)) {
+    // 2. Check for 3 consecutive identical calls with canonicalized parameters
+    const sig = (a: { toolName: string; params?: any }) => `${a.toolName}:${this.canonicalStringify(a.params || {})}`;
+    const sig0 = sig(recent[0]);
+    if (recent.every((a) => sig(a) === sig0)) {
       return {
         isLoop: true,
         reason: `Tool '${recent[0].toolName}' was invoked 3 consecutive times with identical parameters without progress.`,
       };
+    }
+
+    // 3. Check for alternating A-B-A-B 2-step cycle over the last 4 actions
+    if (actions.length >= 4) {
+      const last4 = actions.slice(-4);
+      const s0 = sig(last4[0]);
+      const s1 = sig(last4[1]);
+      if (s0 !== s1 && sig(last4[2]) === s0 && sig(last4[3]) === s1) {
+        return {
+          isLoop: true,
+          reason: `Alternating A-B-A-B action cycle detected between '${last4[0].toolName}' and '${last4[1].toolName}'.`,
+        };
+      }
     }
 
     return { isLoop: false };

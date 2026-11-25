@@ -49,7 +49,8 @@ export class OAuthHandler {
 
       let child;
       if (process.platform === 'win32') {
-        child = spawn('cmd.exe', ['/c', 'start', '', url], { windowsHide: true, stdio: 'ignore' });
+        const safeUrl = url.replace(/"/g, '');
+        child = spawn('cmd.exe', ['/c', 'start', '""', `"${safeUrl}"`], { windowsHide: true, stdio: 'ignore' });
       } else if (process.platform === 'darwin') {
         child = spawn('open', [url], { stdio: 'ignore' });
       } else {
@@ -208,6 +209,48 @@ export class OAuthHandler {
             console.warn('[OAuthHandler] Failed to resolve GitHub username for token:', fetchErr);
           }
         }
+      } else if (session.provider === 'google') {
+        const clientId = process.env.KIN_GOOGLE_CLIENT_ID;
+        const clientSecret = process.env.KIN_GOOGLE_CLIENT_SECRET || '';
+        if (clientId) {
+          const bodyParams = new URLSearchParams({
+            client_id: clientId,
+            code,
+            code_verifier: session.codeVerifier,
+            grant_type: 'authorization_code',
+            redirect_uri: redirectUri,
+          });
+          if (clientSecret) bodyParams.set('client_secret', clientSecret);
+          const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: bodyParams.toString(),
+          });
+          const tokenData = (await tokenRes.json()) as any;
+          accessToken = tokenData.access_token || code;
+        } else {
+          accessToken = code;
+        }
+      } else if (session.provider === 'slack') {
+        const clientId = process.env.KIN_SLACK_CLIENT_ID;
+        const clientSecret = process.env.KIN_SLACK_CLIENT_SECRET || '';
+        if (clientId && clientSecret) {
+          const bodyParams = new URLSearchParams({
+            client_id: clientId,
+            client_secret: clientSecret,
+            code,
+            redirect_uri: redirectUri,
+          });
+          const tokenRes = await fetch('https://slack.com/api/oauth.v2.access', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: bodyParams.toString(),
+          });
+          const tokenData = (await tokenRes.json()) as any;
+          accessToken = tokenData.access_token || tokenData.authed_user?.access_token || code;
+        } else {
+          accessToken = code;
+        }
       } else {
         accessToken = code;
       }
@@ -244,6 +287,132 @@ export class OAuthHandler {
     }
   }
 
+  /**
+   * RFC 9728 Protected Resource Metadata & RFC 8414 Authorization Server Metadata discovery
+   * for MCP OAuth 2.1 (with Client ID Metadata Document / CIMD support).
+   */
+  public static async discoverOAuthMetadata(resourceUrl: string): Promise<{
+    resourceMetadataUrl: string;
+    authorizationServer?: string;
+    authorizationEndpoint?: string;
+    tokenEndpoint?: string;
+    registrationEndpoint?: string;
+    clientIdMetadataDocumentSupported?: boolean;
+  }> {
+    const parsed = new URL(resourceUrl);
+    const prmUrl = `${parsed.origin}/.well-known/oauth-protected-resource`;
+    let authorizationServer: string | undefined;
+    try {
+      const prmRes = await fetch(prmUrl, { signal: AbortSignal.timeout(5000) });
+      if (prmRes.ok) {
+        const prm = (await prmRes.json()) as any;
+        if (Array.isArray(prm?.authorization_servers) && prm.authorization_servers.length > 0) {
+          authorizationServer = String(prm.authorization_servers[0]);
+        }
+      }
+    } catch {
+      // Fallback to origin as auth server
+    }
+
+    const authOrigin = authorizationServer ? new URL(authorizationServer).origin : parsed.origin;
+    const asUrl = `${authOrigin}/.well-known/oauth-authorization-server`;
+    try {
+      const asRes = await fetch(asUrl, { signal: AbortSignal.timeout(5000) });
+      if (asRes.ok) {
+        const asMeta = (await asRes.json()) as any;
+        return {
+          resourceMetadataUrl: prmUrl,
+          authorizationServer: authOrigin,
+          authorizationEndpoint: asMeta.authorization_endpoint,
+          tokenEndpoint: asMeta.token_endpoint,
+          registrationEndpoint: asMeta.registration_endpoint,
+          clientIdMetadataDocumentSupported: Boolean(asMeta.client_id_metadata_document_supported),
+        };
+      }
+    } catch {
+      // Metadata unavailable
+    }
+
+    return { resourceMetadataUrl: prmUrl, authorizationServer: authOrigin };
+  }
+
+  /**
+   * Builds an RFC 8707 + CIMD OAuth 2.1 authorization URL.
+   */
+  public static buildMcpOAuth21AuthUrl(params: {
+    authorizationEndpoint: string;
+    clientIdMetadataUrl: string;
+    redirectUri: string;
+    resource: string;
+    scope?: string;
+  }): { authUrl: string; state: string; codeVerifier: string } {
+    const { verifier, challenge } = this.generatePkce();
+    const state = crypto.randomBytes(24).toString('hex');
+    const url = new URL(params.authorizationEndpoint);
+    url.searchParams.set('response_type', 'code');
+    url.searchParams.set('client_id', params.clientIdMetadataUrl);
+    url.searchParams.set('redirect_uri', params.redirectUri);
+    url.searchParams.set('resource', params.resource);
+    url.searchParams.set('code_challenge', challenge);
+    url.searchParams.set('code_challenge_method', 'S256');
+    url.searchParams.set('state', state);
+    if (params.scope) url.searchParams.set('scope', params.scope);
+    return { authUrl: url.toString(), state, codeVerifier: verifier };
+  }
+
+  /**
+   * GitHub Device Flow (RFC 8628) for headless/desktop OAuth without pre-registered secrets.
+   */
+  public static async startGitHubDeviceFlow(clientId?: string, scope: string = 'repo read:user'): Promise<{
+    device_code: string;
+    user_code: string;
+    verification_uri: string;
+    expires_in: number;
+    interval: number;
+  }> {
+    const cid = clientId || process.env.KIN_GITHUB_CLIENT_ID;
+    if (!cid) {
+      throw new Error('GitHub Device Flow requires a client_id or KIN_GITHUB_CLIENT_ID.');
+    }
+    const res = await fetch('https://github.com/login/device/code', {
+      method: 'POST',
+      headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_id: cid, scope }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) {
+      throw new Error(`GitHub Device Flow initiation failed: HTTP ${res.status}`);
+    }
+    return (await res.json()) as any;
+  }
+
+  public static async pollGitHubDeviceToken(deviceCode: string, clientId?: string): Promise<any> {
+    const cid = clientId || process.env.KIN_GITHUB_CLIENT_ID;
+    if (!cid) {
+      throw new Error('GitHub Device Flow requires a client_id or KIN_GITHUB_CLIENT_ID.');
+    }
+    const res = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: cid,
+        device_code: deviceCode,
+        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    return await res.json();
+  }
+
+  private static escapeHtml(str: string): string {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   private static renderHtmlPage({
     success,
     title,
@@ -253,6 +422,8 @@ export class OAuthHandler {
     title: string;
     message: string;
   }): string {
+    const safeTitle = this.escapeHtml(title);
+    const safeMessage = this.escapeHtml(message);
     const bgColor = '#090d16';
     const cardBg = '#0f172a';
     const borderColor = success ? '#10b981' : '#ef4444';
@@ -326,8 +497,8 @@ export class OAuthHandler {
 <body>
   <div class="card">
     <div class="icon">${iconSvg}</div>
-    <h1>${title}</h1>
-    <p>${message}</p>
+    <h1>${safeTitle}</h1>
+    <p>${safeMessage}</p>
     <button class="btn" onclick="window.close()">Close Window</button>
   </div>
   <script>

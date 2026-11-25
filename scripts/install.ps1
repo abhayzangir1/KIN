@@ -68,10 +68,16 @@ try {
             }
             Write-Host "      SHA-256 Verified: $ActualHash" -ForegroundColor Green
         } else {
-            Write-Host "      Checksum entry not found in SHA256SUMS.txt. Skipping validation." -ForegroundColor DarkYellow
+            if (-not $env:KIN_ALLOW_UNVERIFIED) {
+                throw "Checksum entry for '$($InstallerAsset.name)' not found in SHA256SUMS.txt. Set KIN_ALLOW_UNVERIFIED=1 to override."
+            }
+            Write-Host "      Checksum entry not found in SHA256SUMS.txt. Proceeding via KIN_ALLOW_UNVERIFIED." -ForegroundColor DarkYellow
         }
     } else {
-        Write-Host "[3/4] Skipping checksum verification (SHA256SUMS.txt not present)." -ForegroundColor DarkYellow
+        if (-not $env:KIN_ALLOW_UNVERIFIED) {
+            throw "Release is missing SHA256SUMS.txt checksum manifest. Refusing unverified binary execution (set KIN_ALLOW_UNVERIFIED=1 to override)."
+        }
+        Write-Host "[3/4] Skipping checksum verification via KIN_ALLOW_UNVERIFIED." -ForegroundColor DarkYellow
     }
 
     Write-Host "[4/4] Launching KIN installer..." -ForegroundColor Yellow
@@ -93,5 +99,7 @@ catch {
     exit 1
 }
 finally {
-    # Keep temp directory until process launches, then clean up
+    if ($Silent -and (Test-Path $TempDir)) {
+        Remove-Item -Recurse -Force $TempDir -ErrorAction SilentlyContinue
+    }
 }

@@ -1,7 +1,8 @@
 -- ============================================================================
 -- KIN CORE — AUTHORITATIVE SQLITE DATABASE SCHEMA
--- Version: 1.0 (Production Baseline)
+-- Version: 2.0 (FTS5 Hybrid Memory, Step Journal, Fencing, Outbox & Exceptions)
 -- ============================================================================
+PRAGMA user_version = 2;
 
 -- Workspaces & Projects
 CREATE TABLE IF NOT EXISTS workspaces (
@@ -71,6 +72,9 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     interrupted_turn INTEGER DEFAULT 0,
     model_id TEXT,
     priority INTEGER DEFAULT 50,
+    session_turns INTEGER NOT NULL DEFAULT 0,
+    cumulative_turn INTEGER NOT NULL DEFAULT 0,
+    last_session_summary TEXT,
     created_at INTEGER NOT NULL,
     completed_at INTEGER
 );
@@ -148,6 +152,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     claimed_by_run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL,
     lease_expires_at INTEGER,
     retry_count INTEGER NOT NULL DEFAULT 0,
+    fence_token INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
@@ -193,6 +198,11 @@ CREATE TABLE IF NOT EXISTS memories (
     value_json TEXT NOT NULL,
     version INTEGER NOT NULL DEFAULT 1,
     evidence_ref TEXT,
+    valid_from INTEGER,
+    valid_to INTEGER,
+    invalidated_at INTEGER,
+    embedding BLOB,
+    importance REAL DEFAULT 0.5,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     UNIQUE(scope, scope_id, key)
@@ -306,6 +316,18 @@ CREATE TABLE IF NOT EXISTS event_journal (
     created_at INTEGER NOT NULL
 );
 
+CREATE TRIGGER IF NOT EXISTS trg_event_journal_prevent_update
+BEFORE UPDATE ON event_journal
+BEGIN
+    SELECT RAISE(ABORT, 'event_journal is append-only and cannot be updated');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_event_journal_prevent_delete
+BEFORE DELETE ON event_journal
+BEGIN
+    SELECT RAISE(ABORT, 'event_journal is append-only and cannot be deleted');
+END;
+
 CREATE TABLE IF NOT EXISTS checkpoints (
     id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
@@ -321,10 +343,13 @@ CREATE TABLE IF NOT EXISTS schedules (
     channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
     target_agent_id TEXT REFERENCES agent_identities(id) ON DELETE SET NULL,
     type TEXT NOT NULL CHECK (type IN ('one_shot', 'cron')),
+    name TEXT,
     prompt TEXT NOT NULL,
     duration_seconds INTEGER,
     cron_expression TEXT,
     timer_condition TEXT DEFAULT 'never',
+    exact_timing BOOLEAN NOT NULL DEFAULT 0,
+    jitter_seconds INTEGER DEFAULT 0,
     max_iterations INTEGER,
     current_iterations INTEGER DEFAULT 0,
     status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'cancelled', 'expired', 'failed', 'paused')),
@@ -345,6 +370,8 @@ CREATE TABLE IF NOT EXISTS action_records (
     output_snippet TEXT,
     status TEXT NOT NULL CHECK (status IN ('success', 'failure', 'requires_approval', 'aborted')),
     duration_ms INTEGER NOT NULL,
+    step_key TEXT,
+    idempotency_result_json TEXT,
     created_at INTEGER NOT NULL
 );
 
@@ -489,3 +516,99 @@ CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
 CREATE INDEX IF NOT EXISTS idx_goals_channel ON goals(origin_channel_id);
 CREATE INDEX IF NOT EXISTS idx_channels_project_name ON channels(project_id, name);
 CREATE INDEX IF NOT EXISTS idx_decisions_decided_by ON decisions(decided_by_id);
+CREATE INDEX IF NOT EXISTS idx_agent_identities_parent ON agent_identities(parent_agent_id);
+CREATE INDEX IF NOT EXISTS idx_skills_name ON skills(name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_skill_experiences_outcome ON skill_experiences(outcome, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_checkpoints_run_id_created ON checkpoints(run_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_approvals_run_id ON approvals(run_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_action_records_step_key ON action_records(run_id, step_key) WHERE step_key IS NOT NULL;
+
+-- Durable Wakeup Outbox (Wave 1 Schema v2)
+CREATE TABLE IF NOT EXISTS wakeup_outbox (
+    id TEXT PRIMARY KEY,
+    target_type TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'dispatched', 'failed')),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_retry_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wakeup_outbox_pending ON wakeup_outbox(status, next_retry_at) WHERE status = 'pending';
+
+-- Structured Exception Queue (Wave 1 Schema v2)
+CREATE TABLE IF NOT EXISTS exception_queue (
+    id TEXT PRIMARY KEY,
+    project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+    run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL,
+    task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+    category TEXT NOT NULL,
+    severity TEXT NOT NULL CHECK (severity IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL')),
+    title TEXT NOT NULL,
+    details_json TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL CHECK (status IN ('open', 'acknowledged', 'resolved', 'dismissed')),
+    created_at INTEGER NOT NULL,
+    resolved_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_exception_queue_status ON exception_queue(project_id, status, created_at DESC);
+
+-- Verified Artifacts Registry (Wave 1 Schema v2)
+CREATE TABLE IF NOT EXISTS artifacts (
+    id TEXT PRIMARY KEY,
+    project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+    run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL,
+    task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+    kind TEXT NOT NULL,
+    uri TEXT NOT NULL,
+    sha256 TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_artifacts_project ON artifacts(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_artifacts_task ON artifacts(task_id);
+
+-- FTS5 Full-Text Search Indexes for Hybrid Memory & Channel Search
+CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+    memory_id UNINDEXED,
+    scope UNINDEXED,
+    scope_id UNINDEXED,
+    key,
+    content
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_memories_fts_insert AFTER INSERT ON memories WHEN NEW.invalidated_at IS NULL BEGIN
+    INSERT INTO memories_fts (memory_id, scope, scope_id, key, content)
+    VALUES (NEW.id, NEW.scope, NEW.scope_id, NEW.key, NEW.value_json);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_memories_fts_update AFTER UPDATE OF scope, scope_id, key, value_json, invalidated_at ON memories BEGIN
+    DELETE FROM memories_fts WHERE memory_id = OLD.id;
+    INSERT INTO memories_fts (memory_id, scope, scope_id, key, content)
+    SELECT NEW.id, NEW.scope, NEW.scope_id, NEW.key, NEW.value_json WHERE NEW.invalidated_at IS NULL;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_memories_fts_delete AFTER DELETE ON memories BEGIN
+    DELETE FROM memories_fts WHERE memory_id = OLD.id;
+END;
+
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+    message_id UNINDEXED,
+    channel_id UNINDEXED,
+    sender_id UNINDEXED,
+    content
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_messages_fts_insert AFTER INSERT ON messages BEGIN
+    INSERT INTO messages_fts (message_id, channel_id, sender_id, content)
+    VALUES (NEW.id, NEW.channel_id, NEW.sender_id, NEW.content);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_messages_fts_update AFTER UPDATE OF channel_id, sender_id, content ON messages BEGIN
+    DELETE FROM messages_fts WHERE message_id = OLD.id;
+    INSERT INTO messages_fts (message_id, channel_id, sender_id, content)
+    VALUES (NEW.id, NEW.channel_id, NEW.sender_id, NEW.content);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_messages_fts_delete AFTER DELETE ON messages BEGIN
+    DELETE FROM messages_fts WHERE message_id = OLD.id;
+END;

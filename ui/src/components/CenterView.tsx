@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useKinStore, isAgentAvailable, FileAttachment } from '../store/kinStore.js';
 import {
   Send,
@@ -85,7 +86,60 @@ export const CenterView: React.FC = () => {
     replyingToMessage,
     setReplyingToMessage,
     addToast,
-  } = useKinStore();
+  } = useKinStore(
+    useShallow((s) => ({
+      channels: s.channels,
+      activeChannelId: s.activeChannelId,
+      channelMembers: s.channelMembers,
+      agents: s.agents,
+      autonomyMode: s.autonomyMode,
+      setAutonomyMode: s.setAutonomyMode,
+      ollamaStatus: s.ollamaStatus,
+      credentials: s.credentials,
+      availableModels: s.availableModels,
+      messages: s.messages,
+      schedules: s.schedules,
+      cancelSchedule: s.cancelSchedule,
+      sendMessage: s.sendMessage,
+      removeChannelMember: s.removeChannelMember,
+      setAddAgentModalOpen: s.setAddAgentModalOpen,
+      setSelectedAgentId: s.setSelectedAgentId,
+      activeProjectId: s.activeProjectId,
+      pendingApprovals: s.pendingApprovals,
+      resolveApproval: s.resolveApproval,
+      setActiveRightTab: s.setActiveRightTab,
+      steerNotification: s.steerNotification,
+      queuedMessages: s.queuedMessages,
+      streamingDrafts: s.streamingDrafts,
+      thinkingDrafts: s.thinkingDrafts,
+      activeAgentChannels: s.activeAgentChannels,
+      queueMessage: s.queueMessage,
+      dequeueMessage: s.dequeueMessage,
+      promoteQueuedToSteer: s.promoteQueuedToSteer,
+      browserStatus: s.browserStatus,
+      activeTakeover: s.activeTakeover,
+      activeTakeovers: s.activeTakeovers,
+      setDesktopControlModalOpen: s.setDesktopControlModalOpen,
+      setAutomationsModalOpen: s.setAutomationsModalOpen,
+      uploadFile: s.uploadFile,
+      isUploading: s.isUploading,
+      activeMainView: s.activeMainView,
+      setActiveMainView: s.setActiveMainView,
+      systemHealth: s.systemHealth,
+      grillMeSession: s.grillMeSession,
+      fetchRecoveryState: s.fetchRecoveryState,
+      submitGrillMeAnswers: s.submitGrillMeAnswers,
+      dismissGrillMe: s.dismissGrillMe,
+      skills: s.skills,
+      fetchSkills: s.fetchSkills,
+      setSettingsModalOpen: s.setSettingsModalOpen,
+      setConnectorsModalOpen: s.setConnectorsModalOpen,
+      setWorkforceModalOpen: s.setWorkforceModalOpen,
+      replyingToMessage: s.replyingToMessage,
+      setReplyingToMessage: s.setReplyingToMessage,
+      addToast: s.addToast,
+    }))
+  );
 
   const isMachineTool = (tool?: string) => {
     if (!tool) return false;
@@ -362,9 +416,25 @@ export const CenterView: React.FC = () => {
   const channelMessages = messages.filter((m) => m.channelId === activeChannelId || !m.channelId);
 
   const handleQueueNext = () => {
-    if (!inputText.trim()) return;
-    queueMessage(activeChannelId, inputText.trim());
+    const textToSend = inputText.trim() || (pendingAttachments.length > 0 ? pendingAttachments.map((a) => a.filename).join(', ') : '');
+    if (!textToSend) return;
+
+    const metadata: Record<string, any> = {};
+    if (replyingToMessage) {
+      metadata.replyTo = {
+        messageId: replyingToMessage.id,
+        senderName: replyingToMessage.senderName,
+        excerpt: replyingToMessage.content.slice(0, 100),
+      };
+    }
+    if (pendingAttachments.length > 0) {
+      metadata.attachments = pendingAttachments;
+    }
+
+    queueMessage(activeChannelId, textToSend, Object.keys(metadata).length > 0 ? metadata : undefined);
     setInputText('');
+    setPendingAttachments([]);
+    setReplyingToMessage(null);
     if (activeChannelId) {
       try {
         localStorage.removeItem(`kin_draft_${activeChannelId}`);
@@ -383,12 +453,8 @@ export const CenterView: React.FC = () => {
   }, [pendingApprovals, activeProjectId]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+    setReplyingToMessage(null);
   }, [activeChannelId]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [channelMessages.length, channelMessages[channelMessages.length - 1]?.content]);
 
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const plusMenuRef = useRef<HTMLDivElement>(null);
