@@ -100,6 +100,7 @@ export const HeaderBar: React.FC = () => {
           <select
             value={activeProjectId}
             onChange={(e) => setActiveProject(e.target.value)}
+            aria-label="Active project"
             className="bg-kin-card border border-kin-border rounded-md px-2 py-0.5 text-xs text-kin-text font-medium focus:outline-none focus:border-kin-primary cursor-pointer hover:bg-kin-cardHover transition"
           >
             {projects.map((p) => (
@@ -138,6 +139,7 @@ export const HeaderBar: React.FC = () => {
               }}
               className="p-1 rounded hover:bg-red-500/10 text-kin-muted hover:text-red-600 dark:hover:text-red-400 transition"
               title="Delete Active Project"
+              aria-label="Delete Active Project"
             >
               <X className="w-3 h-3" />
             </button>
@@ -152,6 +154,7 @@ export const HeaderBar: React.FC = () => {
             onClick={handleCopyPath}
             className="hover:text-kin-text transition ml-1 shrink-0 text-kin-muted hover:text-emerald-400 cursor-pointer"
             title="Copy Directory Path"
+            aria-label="Copy Directory Path"
           >
             {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
           </button>
@@ -206,6 +209,7 @@ export const HeaderBar: React.FC = () => {
               : 'bg-kin-card border-kin-border text-kin-muted hover:text-kin-text hover:bg-kin-cardHover'
           }`}
           title={isInspectorOpen ? 'Collapse Inspector (Gain Full Workspace Width)' : 'Expand Inspector & Diagnostics'}
+          aria-label={isInspectorOpen ? 'Collapse Inspector' : 'Expand Inspector'}
         >
           {isInspectorOpen ? (
             <PanelRightClose className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />

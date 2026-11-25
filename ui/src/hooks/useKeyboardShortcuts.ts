@@ -1,16 +1,26 @@
 import { useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useKinStore } from '../store/kinStore.js';
+
+export interface KeyboardShortcutOptions {
+  isCommandPaletteOpen?: boolean;
+  onToggleCommandPalette?: () => void;
+  onCloseCommandPalette?: () => void;
+}
 
 /**
  * Global Keyboard Shortcuts Hook (Feature 33)
  * Provides centralized hotkeys:
- * - Cmd/Ctrl+K: Toggle Model Selector / Quick Switcher
+ * - Cmd/Ctrl+K: Toggle Command Palette
  * - Cmd/Ctrl+B: Toggle Navigation Sidebar
  * - Cmd/Ctrl+I: Toggle Agent Inspector Pane
  * - Cmd/Ctrl+M: Toggle Swarm Map Topology
  * - Escape: Hierarchical dismiss (Modals -> Takeover Pause -> Deselect Agent)
  */
-export function useKeyboardShortcuts() {
+export function useKeyboardShortcuts(options?: KeyboardShortcutOptions) {
+  const isCommandPaletteOpen = Boolean(options?.isCommandPaletteOpen);
+  const onToggleCommandPalette = options?.onToggleCommandPalette;
+  const onCloseCommandPalette = options?.onCloseCommandPalette;
   const {
     isModelSelectorOpen,
     openModelSelector,
@@ -36,7 +46,34 @@ export function useKeyboardShortcuts() {
     setSelectedAgentId,
     activeTakeover,
     pauseAgent,
-  } = useKinStore();
+  } = useKinStore(
+    useShallow((s) => ({
+      isModelSelectorOpen: s.isModelSelectorOpen,
+      openModelSelector: s.openModelSelector,
+      closeModelSelector: s.closeModelSelector,
+      sidebarWidth: s.sidebarWidth,
+      setSidebarWidth: s.setSidebarWidth,
+      toggleInspector: s.toggleInspector,
+      isSwarmMapOpen: s.isSwarmMapOpen,
+      setSwarmMapOpen: s.setSwarmMapOpen,
+      isSettingsModalOpen: s.isSettingsModalOpen,
+      setSettingsModalOpen: s.setSettingsModalOpen,
+      isNewProjectModalOpen: s.isNewProjectModalOpen,
+      setNewProjectModalOpen: s.setNewProjectModalOpen,
+      isCreateChannelModalOpen: s.isCreateChannelModalOpen,
+      setCreateChannelModalOpen: s.setCreateChannelModalOpen,
+      isAddAgentModalOpen: s.isAddAgentModalOpen,
+      setAddAgentModalOpen: s.setAddAgentModalOpen,
+      isNewGoalModalOpen: s.isNewGoalModalOpen,
+      setNewGoalModalOpen: s.setNewGoalModalOpen,
+      isNewTaskModalOpen: s.isNewTaskModalOpen,
+      setNewTaskModalOpen: s.setNewTaskModalOpen,
+      selectedAgentId: s.selectedAgentId,
+      setSelectedAgentId: s.setSelectedAgentId,
+      activeTakeover: s.activeTakeover,
+      pauseAgent: s.pauseAgent,
+    }))
+  );
 
   useEffect(() => {
     let lastNonZeroSidebarWidth = sidebarWidth > 0 ? sidebarWidth : 260;
@@ -54,10 +91,12 @@ export function useKeyboardShortcuts() {
           target.isContentEditable ||
           target.getAttribute('role') === 'textbox');
 
-      // 1. Cmd/Ctrl + K: Model Selector / Quick Switcher
+      // 1. Cmd/Ctrl + K: Command Palette
       if (modifier && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        if (isModelSelectorOpen) {
+        if (onToggleCommandPalette) {
+          onToggleCommandPalette();
+        } else if (isModelSelectorOpen) {
           closeModelSelector();
         } else {
           openModelSelector(null);
@@ -93,6 +132,11 @@ export function useKeyboardShortcuts() {
 
       // 5. Escape: Hierarchical Dismissal
       if (e.key === 'Escape') {
+        if (isCommandPaletteOpen) {
+          e.preventDefault();
+          onCloseCommandPalette?.();
+          return;
+        }
         // Modal priority
         if (isSwarmMapOpen) {
           e.preventDefault();
@@ -180,5 +224,8 @@ export function useKeyboardShortcuts() {
     setSelectedAgentId,
     activeTakeover,
     pauseAgent,
+    isCommandPaletteOpen,
+    onToggleCommandPalette,
+    onCloseCommandPalette,
   ]);
 }

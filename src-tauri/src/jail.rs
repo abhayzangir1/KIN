@@ -100,10 +100,23 @@ impl FilesystemJail {
         let target_norm_str = target_raw.to_string_lossy().replace('\\', "/");
         let target = Path::new(&target_norm_str);
 
-        // Detect Windows drive letter paths on POSIX platforms (e.g. C:/Windows/...)
+        // Detect Windows drive letter paths (e.g. C:/Windows/... or drive-relative C:foo.txt)
         let is_win_drive = target_norm_str.len() >= 2
             && target_norm_str.chars().next().map(|c| c.is_ascii_alphabetic()).unwrap_or(false)
             && target_norm_str.chars().nth(1) == Some(':');
+
+        // Reject Windows drive-relative paths (e.g. C:foo.txt) on all platforms
+        let is_win_drive_relative = is_win_drive && target_norm_str.chars().nth(2) != Some('/');
+        if is_win_drive_relative {
+            return JailValidationResult {
+                is_valid: false,
+                canonical_path: None,
+                error: Some(format!(
+                    "SECURITY JAIL VIOLATION: Windows drive-relative path prohibited: '{:?}'",
+                    target_raw
+                )),
+            };
+        }
 
         if !cfg!(windows) && is_win_drive {
             return JailValidationResult {
@@ -247,6 +260,32 @@ mod tests {
                 res.error.unwrap().contains("SECURITY JAIL VIOLATION"),
                 "Expected SECURITY JAIL VIOLATION error for '{}'",
                 name
+            );
+        }
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_windows_drive_relative_paths_denied() {
+        let temp_dir = env::temp_dir().join("kin_jail_drive_rel_test");
+        let _ = fs::create_dir_all(&temp_dir);
+
+        for bad in ["C:foo.txt", "D:nested/bar.txt", "c:", "Z:..\\escape.txt"] {
+            let res = FilesystemJail::validate_path(&temp_dir, bad);
+            assert!(
+                !res.is_valid,
+                "Expected drive-relative path '{}' to be rejected",
+                bad
+            );
+            assert!(
+                res.error
+                    .as_deref()
+                    .unwrap_or("")
+                    .contains("drive-relative"),
+                "Expected drive-relative violation message for '{}', got {:?}",
+                bad,
+                res.error
             );
         }
 

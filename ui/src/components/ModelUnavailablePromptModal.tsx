@@ -1,10 +1,12 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useKinStore } from '../store/kinStore.js';
 import {
   AlertTriangle,
   X,
   Key,
   Cpu,
+  Download,
+  Loader2,
 } from 'lucide-react';
 
 export const ModelUnavailablePromptModal: React.FC = () => {
@@ -13,11 +15,29 @@ export const ModelUnavailablePromptModal: React.FC = () => {
     dismissModelUnavailableNotice,
     openModelSelector,
     openAddProviderModal,
+    fetchState,
   } = useKinStore();
 
+  const [pullModel, setPullModel] = useState('qwen2.5-coder:7b');
+  const [isPulling, setIsPulling] = useState(false);
+  const [pullError, setPullError] = useState<string | null>(null);
+  const [pullSuccess, setPullSuccess] = useState<string | null>(null);
+
   useEffect(() => {
+    if (!modelUnavailableNotice) return;
+    setPullError(null);
+    setPullSuccess(null);
+    if (modelUnavailableNotice.modelId?.startsWith('ollama/')) {
+      setPullModel(modelUnavailableNotice.modelId.slice('ollama/'.length) || 'qwen2.5-coder:7b');
+    } else {
+      setPullModel('qwen2.5-coder:7b');
+    }
+  }, [modelUnavailableNotice]);
+
+  useEffect(() => {
+    if (!modelUnavailableNotice) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && modelUnavailableNotice) {
+      if (e.key === 'Escape') {
         dismissModelUnavailableNotice();
       }
     };
@@ -53,6 +73,33 @@ export const ModelUnavailablePromptModal: React.FC = () => {
   const handleConfigureKey = () => {
     dismissModelUnavailableNotice();
     openAddProviderModal(providerHint || null);
+  };
+
+  const handlePullModel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = pullModel.trim();
+    if (!trimmed || isPulling) return;
+    setIsPulling(true);
+    setPullError(null);
+    setPullSuccess(null);
+    try {
+      const res = await fetch('/api/system/ollama/pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: trimmed }),
+      });
+      const data: any = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        setPullError(data?.error || `Failed to pull model (HTTP ${res.status})`);
+      } else {
+        setPullSuccess(`Pulled ${data.model || trimmed} (${data.status || 'success'})`);
+        await fetchState();
+      }
+    } catch (err: any) {
+      setPullError(err?.message || 'Network error while pulling Ollama model');
+    } finally {
+      setIsPulling(false);
+    }
   };
 
   return (
@@ -121,6 +168,35 @@ export const ModelUnavailablePromptModal: React.FC = () => {
           <div className="bg-kin-card/60 border border-kin-border rounded-lg p-3 text-kin-muted text-[11px] leading-relaxed">
             💡 <strong className="text-kin-text">Recommended Resolution:</strong> Switch to another available model or configure valid API credentials for provider <span className="font-mono text-amber-400">{providerHint || 'configured'}</span>.
           </div>
+
+          <form onSubmit={handlePullModel} className="bg-kin-card border border-kin-border rounded-lg p-3 space-y-2">
+            <div className="text-kin-text font-medium text-[11px]">Pull Local Ollama Model</div>
+            <div className="flex items-center space-x-2">
+              <input
+                type="text"
+                value={pullModel}
+                onChange={(e) => setPullModel(e.target.value)}
+                placeholder="qwen2.5-coder:7b"
+                disabled={isPulling}
+                aria-label="Ollama model name to pull"
+                className="flex-1 px-2.5 py-1.5 rounded-lg bg-kin-surface border border-kin-border text-xs font-mono text-kin-text focus:outline-none focus:border-emerald-500/60 disabled:opacity-60"
+              />
+              <button
+                type="submit"
+                disabled={isPulling || !pullModel.trim()}
+                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-medium flex items-center space-x-1.5 transition cursor-pointer shrink-0"
+              >
+                {isPulling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                <span>{isPulling ? 'Pulling...' : 'Pull Ollama Model'}</span>
+              </button>
+            </div>
+            {pullError && (
+              <div className="text-[11px] text-red-400 font-mono">{pullError}</div>
+            )}
+            {pullSuccess && (
+              <div className="text-[11px] text-emerald-400 font-mono">{pullSuccess}</div>
+            )}
+          </form>
         </div>
 
         {/* Footer Actions */}

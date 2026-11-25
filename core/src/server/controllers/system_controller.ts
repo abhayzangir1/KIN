@@ -538,6 +538,100 @@ export class SystemController extends BaseController {
         return this.sendJson(res, result.success ? 200 : 500, result);
       }
 
+      // 3a. POST /api/system/ollama/pull — Pull a local Ollama model via Ollama HTTP API
+      if (req.method === 'POST' && pathname === '/api/system/ollama/pull') {
+        const body = await this.parseJsonBody<{ model?: string }>(req);
+        const rawModel = typeof body?.model === 'string' ? body.model.trim() : '';
+        const modelRegex = /^[a-zA-Z0-9._:/-]{1,128}$/;
+        if (!rawModel || !modelRegex.test(rawModel)) {
+          return this.sendJson(res, 400, {
+            ok: false,
+            error: 'Invalid model name. Must be 1-128 chars matching /^[a-zA-Z0-9._:/-]{1,128}$/.',
+          });
+        }
+
+        const pullModel = rawModel.startsWith('ollama/') ? rawModel.slice('ollama/'.length) : rawModel;
+        if (!pullModel || !modelRegex.test(pullModel)) {
+          return this.sendJson(res, 400, {
+            ok: false,
+            error: 'Invalid model name after stripping ollama/ prefix.',
+          });
+        }
+
+        const configuredEnv = (process.env.OLLAMA_HOST || process.env.OLLAMA_BASE_URL || '').trim();
+        const rawBase = configuredEnv || 'http://127.0.0.1:11434';
+        const withScheme = /^https?:\/\//i.test(rawBase) ? rawBase : `http://${rawBase}`;
+
+        let parsedBase: URL;
+        try {
+          parsedBase = new URL(withScheme);
+        } catch {
+          return this.sendJson(res, 400, { ok: false, error: 'Invalid Ollama base URL configuration.' });
+        }
+
+        if (parsedBase.protocol !== 'http:' && parsedBase.protocol !== 'https:') {
+          return this.sendJson(res, 400, { ok: false, error: 'Invalid Ollama base URL protocol.' });
+        }
+
+        const hostLower = parsedBase.hostname.toLowerCase();
+        const isLoopback =
+          hostLower === '127.0.0.1' ||
+          hostLower === 'localhost' ||
+          hostLower === '::1' ||
+          hostLower === '[::1]' ||
+          hostLower.startsWith('127.');
+        if (ToolGateway.isMetadataService(hostLower) || (!isLoopback && !configuredEnv)) {
+          return this.sendJson(res, 400, { ok: false, error: 'SSRF_BLOCKED: Disallowed Ollama host.' });
+        }
+
+        const ollamaBase = parsedBase.origin;
+        try {
+          const upstreamRes = await fetch(`${ollamaBase}/api/pull`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: pullModel, stream: false }),
+            signal: AbortSignal.timeout(300_000),
+          });
+
+          if (!upstreamRes.ok) {
+            const errText = await upstreamRes.text().catch(() => '');
+            return this.sendJson(res, 502, {
+              ok: false,
+              model: pullModel,
+              error: errText || `Ollama pull failed with HTTP ${upstreamRes.status}`,
+            });
+          }
+
+          const data: any = await upstreamRes.json().catch(() => ({}));
+          if (data && typeof data.error === 'string' && data.error) {
+            return this.sendJson(res, 502, {
+              ok: false,
+              model: pullModel,
+              error: data.error,
+            });
+          }
+
+          const ollamaInfo = await this.getLocalOllamaModels();
+          this.broadcastEvent('ollama:status', { success: ollamaInfo.online, ...ollamaInfo });
+
+          return this.sendJson(res, 200, {
+            ok: true,
+            model: pullModel,
+            status: typeof data?.status === 'string' ? data.status : 'success',
+            models: ollamaInfo.models,
+          });
+        } catch (err: any) {
+          const isTimeout = err?.name === 'TimeoutError' || err?.name === 'AbortError';
+          return this.sendJson(res, isTimeout ? 504 : 502, {
+            ok: false,
+            model: pullModel,
+            error: isTimeout
+              ? 'Ollama pull request timed out'
+              : (err?.message || 'Failed to reach Ollama service'),
+          });
+        }
+      }
+
       // 3b. POST /api/system/optimize — Perform SQLite WAL maintenance & query planner optimization
       if (req.method === 'POST' && pathname === '/api/system/optimize') {
         try {

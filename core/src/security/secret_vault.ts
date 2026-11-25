@@ -54,14 +54,12 @@ export class SecretVault {
       this.keyFilePath = dataKeyPath;
     } else if (fs.existsSync(homeKeyPath)) {
       this.keyFilePath = homeKeyPath;
-    } else if (process.env.USERPROFILE || process.env.HOME) {
-      this.keyFilePath = homeKeyPath;
     } else if (fs.existsSync(dataKeyPath)) {
       this.keyFilePath = dataKeyPath;
     } else if (fs.existsSync(localKeyPath)) {
       this.keyFilePath = localKeyPath;
     } else {
-      this.keyFilePath = homeKeyPath;
+      this.keyFilePath = dataKeyPath;
     }
 
     if (options?.masterKey) {

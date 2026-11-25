@@ -31,9 +31,24 @@ const WorkforceManagerModal = React.lazy(() => import('./components/workforce/Wo
 const FilePreviewModal = React.lazy(() => import('./components/files/FilePreviewModal.js').then(m => ({ default: m.FilePreviewModal })));
 const TokenPairingModal = React.lazy(() => import('./components/TokenPairingModal.js').then(m => ({ default: m.TokenPairingModal })));
 const OnboardingWizardModal = React.lazy(() => import('./components/OnboardingWizardModal.js').then(m => ({ default: m.OnboardingWizardModal })));
+const CommandPalette = React.lazy(() => import('./components/CommandPalette.js').then(m => ({ default: m.CommandPalette })));
 
 export const App: React.FC = () => {
-  useKeyboardShortcuts();
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+
+  const toggleCommandPalette = useCallback(() => {
+    setIsCommandPaletteOpen((prev) => !prev);
+  }, []);
+
+  const closeCommandPalette = useCallback(() => {
+    setIsCommandPaletteOpen(false);
+  }, []);
+
+  useKeyboardShortcuts({
+    isCommandPaletteOpen,
+    onToggleCommandPalette: toggleCommandPalette,
+    onCloseCommandPalette: closeCommandPalette,
+  });
 
   const fetchState = useKinStore((s) => s.fetchState);
   const initSSE = useKinStore((s) => s.initSSE);
@@ -306,6 +321,7 @@ export const App: React.FC = () => {
           <Suspense fallback={null}>
             <TokenPairingModal />
             <OnboardingWizardModal />
+            <CommandPalette isOpen={isCommandPaletteOpen} onClose={closeCommandPalette} />
           </Suspense>
           <ToastContainer />
         </ErrorBoundary>

@@ -15,6 +15,7 @@ import {
   Tier3PrivateMemory,
   Tier4DirectMessageMemory,
 } from '../domain/types.js';
+import * as path from 'node:path';
 import { CompactionSnapshot } from './context_compactor.js';
 import { RulesLoader } from './rules_loader.js';
 
@@ -92,6 +93,7 @@ export interface ContextCompileInput {
   harnessImprovements?: Array<{ domain: string; componentType: string; verifiedAdaptation: string }>;
   hybridMemories?: Array<{ scope: string; key: string; type: string; value: unknown; score: number }>;
   workspaceRules?: string[];
+  referencedFiles?: string[];
 }
 
 export interface CompiledContextBlocks {
@@ -333,8 +335,38 @@ export class ContextCompiler {
     // Block 4: Dynamic Operational State, Rules, Hybrid Recall, Roster, Compaction Snapshot & Cross-Channel Memory
     const block4Parts: string[] = [];
     const loadedRules = input.workspaceRules && input.workspaceRules.length > 0
-      ? input.workspaceRules
+      ? [...input.workspaceRules]
       : (input.project?.repoPath && input.project.repoPath !== '.' ? RulesLoader.loadRootRules(input.project.repoPath) : []);
+
+    if (input.project?.repoPath && input.project.repoPath !== '.') {
+      const refPaths = new Set<string>();
+      for (const f of input.referencedFiles || []) {
+        if (f && typeof f === 'string') refPaths.add(f);
+      }
+      for (const mf of input.compactionSnapshot?.modifiedFiles || []) {
+        if (mf?.path) refPaths.add(mf.path);
+      }
+      const pathPattern = /(?:^|[\s'"`(\[])((?:[a-zA-Z]:[\\/])?(?:[a-zA-Z0-9_.-]+[\\/])*[a-zA-Z0-9_.-]+\.[a-zA-Z0-9]{1,10})(?=$|[\s'"`),:;\]])/g;
+      for (const msg of input.trajectoryMessages || []) {
+        if (!msg?.content || typeof msg.content !== 'string') continue;
+        let m: RegExpExecArray | null;
+        pathPattern.lastIndex = 0;
+        while ((m = pathPattern.exec(msg.content)) !== null) {
+          if (m[1]) refPaths.add(m[1]);
+        }
+      }
+      const seenRuleFiles = new Set<string>();
+      for (const refPath of refPaths) {
+        const matched = RulesLoader.loadMatchingPathRules(input.project.repoPath, refPath);
+        for (const rule of matched) {
+          if (!seenRuleFiles.has(rule.filePath)) {
+            seenRuleFiles.add(rule.filePath);
+            loadedRules.push(`[${path.basename(rule.filePath)}]\n${rule.content}`);
+          }
+        }
+      }
+    }
+
     if (loadedRules.length > 0) {
       block4Parts.push(`[WORKSPACE INSTRUCTIONS & PROJECT RULES]\n${loadedRules.join('\n\n')}`);
     }

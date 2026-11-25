@@ -11,6 +11,7 @@ import { totalmem, freemem } from 'node:os';
 import puppeteer, { Browser, BrowserContext, Page } from 'puppeteer-core';
 import { BrowserController, WebStepAction, WebStepResult } from '../browser/browser_controller.js';
 import { SecretVault } from '../security/secret_vault.js';
+import { getDataDirectory } from '../storage/data_directory.js';
 
 export type ComputerTier = 'TIER_0' | 'TIER_1' | 'TIER_2';
 
@@ -67,7 +68,7 @@ export class ComputerSupervisor {
   private freeMemProvider?: () => number;
 
   constructor(options?: { baseProfileDir?: string; idleThresholdMs?: number; freeMemProvider?: () => number }) {
-    this.baseProfileDir = options?.baseProfileDir || path.resolve(process.cwd(), '.kin', 'browser_profiles');
+    this.baseProfileDir = options?.baseProfileDir || path.resolve(getDataDirectory(), '.kin', 'browser_profiles');
     if (options?.idleThresholdMs) {
       this.idleThresholdMs = options.idleThresholdMs;
     }
@@ -167,13 +168,31 @@ export class ComputerSupervisor {
     });
   }
 
+  private drainBrowserQueue(): void {
+    while (this.browserQueue.length > 0) {
+      const status = this.getGovernorStatus();
+      const effectiveActive = this.agentSessions.size + this.pendingBrowserAllocations.size;
+      if (effectiveActive >= status.maxBrowserContexts) {
+        break;
+      }
+      const next = this.browserQueue.shift();
+      if (next) {
+        next.grant();
+      }
+    }
+  }
+
   /**
    * Acquires a browser context slot based on free host memory.
    */
   public async acquireBrowserSlot(agentId: string, timeoutMs: number = 60000): Promise<() => void> {
-    // If agent already has an active session, no new slot needed
-    if (this.agentSessions.has(agentId)) {
-      return () => {};
+    // If agent already has an active, open session, no new slot needed
+    const existingSession = this.agentSessions.get(agentId);
+    if (existingSession) {
+      if (!existingSession.page.isClosed()) {
+        return () => {};
+      }
+      await this.closeAgentSession(agentId);
     }
 
     const status = this.getGovernorStatus();
@@ -186,8 +205,7 @@ export class ComputerSupervisor {
         if (!released) {
           released = true;
           this.pendingBrowserAllocations.delete(agentId);
-          const next = this.browserQueue.shift();
-          if (next) next.grant();
+          this.drainBrowserQueue();
         }
       };
     }
@@ -208,8 +226,7 @@ export class ComputerSupervisor {
           if (!released) {
             released = true;
             this.pendingBrowserAllocations.delete(agentId);
-            const next = this.browserQueue.shift();
-            if (next) next.grant();
+            this.drainBrowserQueue();
           }
         });
       };
@@ -239,7 +256,7 @@ export class ComputerSupervisor {
           throw new Error('No compatible browser executable found (Google Chrome or Microsoft Edge required).');
         }
 
-        const masterUserDataDir = path.resolve(process.cwd(), '.kin', 'master_browser_engine');
+        const masterUserDataDir = path.resolve(getDataDirectory(), '.kin', 'master_browser_engine');
         if (!fs.existsSync(masterUserDataDir)) {
           fs.mkdirSync(masterUserDataDir, { recursive: true });
         }
@@ -412,9 +429,8 @@ export class ComputerSupervisor {
       this.agentTiers.set(agentId, 'TIER_0');
     }
 
-    // Notify any queued browser allocation
-    const next = this.browserQueue.shift();
-    if (next) next.grant();
+    // Notify any queued browser allocation if governor capacity permits
+    this.drainBrowserQueue();
   }
 
   // ---------------------------------------------------------------------------

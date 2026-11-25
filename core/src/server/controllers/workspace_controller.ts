@@ -9,6 +9,7 @@ import { DEFAULT_FALLBACK_MODEL_ID } from '../../domain/agent_repository.js';
 import { BaseController } from './base_controller.js';
 import { WorkspaceTrustManager } from '../../policy/workspace_trust.js';
 import { PluginManager } from '../../skills/plugin_manager.js';
+import { isSensitivePattern } from '../../security/path_jail.js';
 
 export class WorkspaceController extends BaseController {
   public async handle(
@@ -414,43 +415,6 @@ export class WorkspaceController extends BaseController {
           const canonicalTarget = fs.realpathSync(resolvedPath);
           canonicalRel = path.relative(project.repoPath, canonicalTarget).toLowerCase().replace(/\\/g, '/');
         } catch (err) { console.debug("[workspace_controller] Suppressed exception in catch block:", err); }
-
-        const blockedSensitivePatterns = [
-          'vault.key',
-          'ipc_auth.token',
-          '.env',
-          '.git/config',
-          '.git/credentials',
-          'id_rsa',
-          'id_ed25519',
-          'id_ecdsa',
-          'id_dsa',
-          '.npmrc',
-          '.pypirc',
-          'kin_storage.sqlite',
-          'kin_storage.sqlite-wal',
-          'kin_storage.sqlite-shm',
-        ];
-        const isSensitivePattern = (p: string) => {
-          return (
-            /(^|\/)\.env(\.|$)/.test(p) ||
-            p.endsWith('.pem') ||
-            p.endsWith('.key') ||
-            p.endsWith('.sqlite') ||
-            p.endsWith('.sqlite3') ||
-            p.endsWith('.sqlite-wal') ||
-            p.endsWith('.sqlite-shm') ||
-            p.includes('/.kin/') ||
-            p.startsWith('.kin/') ||
-            p.includes('/.ssh/') ||
-            p.startsWith('.ssh/') ||
-            p.includes('/.aws/') ||
-            p.startsWith('.aws/') ||
-            blockedSensitivePatterns.some((pattern) =>
-              p === pattern || p.endsWith('/' + pattern) || p.includes('.kin/' + pattern)
-            )
-          );
-        };
 
         if (isSensitivePattern(lowerRel) || isSensitivePattern(canonicalRel)) {
           return this.sendJson(res, 403, { error: 'Forbidden: Access to sensitive credential, database, or repository configuration files is prohibited.' });

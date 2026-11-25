@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Cpu, Cloud, Sparkles, X, CheckCircle2 } from 'lucide-react';
+import { Cpu, Cloud, Sparkles, X, CheckCircle2, Download, Loader2 } from 'lucide-react';
 import { useKinStore } from '../store/kinStore.js';
 
 interface HardwareSummary {
@@ -13,8 +13,40 @@ export const OnboardingWizardModal: React.FC = () => {
   const setOpen = useKinStore((s) => s.setOnboardingWizardOpen);
   const openSettingsModal = useKinStore((s) => s.openSettingsModal);
   const ollamaStatus = useKinStore((s) => s.ollamaStatus);
+  const fetchState = useKinStore((s) => s.fetchState);
   const [hw, setHw] = useState<HardwareSummary | null>(null);
   const [hwError, setHwError] = useState(false);
+  const [pullModel, setPullModel] = useState('qwen2.5-coder:7b');
+  const [isPulling, setIsPulling] = useState(false);
+  const [pullError, setPullError] = useState<string | null>(null);
+  const [pullSuccess, setPullSuccess] = useState<string | null>(null);
+
+  const handlePullModel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = pullModel.trim();
+    if (!trimmed || isPulling) return;
+    setIsPulling(true);
+    setPullError(null);
+    setPullSuccess(null);
+    try {
+      const res = await fetch('/api/system/ollama/pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: trimmed }),
+      });
+      const data: any = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        setPullError(data?.error || `Failed to pull model (HTTP ${res.status})`);
+      } else {
+        setPullSuccess(`Pulled ${data.model || trimmed} (${data.status || 'success'})`);
+        await fetchState();
+      }
+    } catch (err: any) {
+      setPullError(err?.message || 'Network error while pulling Ollama model');
+    } finally {
+      setIsPulling(false);
+    }
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -138,6 +170,35 @@ export const OnboardingWizardModal: React.FC = () => {
             </div>
           </button>
         </div>
+
+        <form onSubmit={handlePullModel} className="p-3 rounded-xl bg-kin-card border border-kin-border space-y-2">
+          <div className="text-xs font-semibold text-kin-text">Pull Ollama Model</div>
+          <div className="flex items-center space-x-2">
+            <input
+              type="text"
+              value={pullModel}
+              onChange={(e) => setPullModel(e.target.value)}
+              placeholder="qwen2.5-coder:7b"
+              disabled={isPulling}
+              aria-label="Ollama model name to pull"
+              className="flex-1 px-2.5 py-1.5 rounded-lg bg-kin-surface border border-kin-border text-xs font-mono text-kin-text focus:outline-none focus:border-emerald-500/60 disabled:opacity-60"
+            />
+            <button
+              type="submit"
+              disabled={isPulling || !pullModel.trim()}
+              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-medium flex items-center space-x-1.5 transition cursor-pointer shrink-0"
+            >
+              {isPulling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+              <span>{isPulling ? 'Pulling...' : 'Pull Ollama Model'}</span>
+            </button>
+          </div>
+          {pullError && (
+            <div className="text-[11px] text-red-400 font-mono">{pullError}</div>
+          )}
+          {pullSuccess && (
+            <div className="text-[11px] text-emerald-400 font-mono">{pullSuccess}</div>
+          )}
+        </form>
 
         <div className="flex justify-end">
           <button

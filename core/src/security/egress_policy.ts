@@ -16,6 +16,7 @@ export interface EgressConsentSettings {
   allowSharedMemory: boolean;
   allowPrivateNotes: boolean;
   allowDirectMessages: boolean;
+  allowWebSearchContext?: boolean;
 }
 
 /**
@@ -43,7 +44,7 @@ export function isAgentAuthorizedForCredential(
  * If masterEgressEnabled is false, all egress is unconditionally blocked.
  */
 export function canEgressData(
-  type: 'prompt' | 'privateNote' | 'dm' | 'sharedMemory',
+  type: 'prompt' | 'privateNote' | 'dm' | 'sharedMemory' | 'webSearchContext',
   consent: EgressConsentSettings
 ): boolean {
   if (!consent.masterEgressEnabled) {
@@ -53,5 +54,6 @@ export function canEgressData(
   if (type === 'privateNote') return Boolean(consent.allowPrivateNotes);
   if (type === 'dm') return Boolean(consent.allowDirectMessages);
   if (type === 'sharedMemory') return Boolean(consent.allowSharedMemory);
+  if (type === 'webSearchContext') return Boolean(consent.allowWebSearchContext);
   return false;
 }

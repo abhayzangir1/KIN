@@ -24,6 +24,7 @@ import { ActivationEngine } from '../communication/activation_engine.js';
 import { AgentKernel } from '../kernel/agent_kernel.js';
 import { EventLedger } from '../security/event_ledger.js';
 import { Sentinel } from '../security/sentinel.js';
+import { isPathWithinRoot } from '../security/path_jail.js';
 import { LoopBreaker } from '../kernel/loop_breaker.js';
 import { ModelGateway, separateThinkingAndContent } from '../execution/model_gateway.js';
 import { ContextCompiler } from '../context/context_compiler.js';
@@ -218,7 +219,7 @@ export class CoreServer {
         const primaryTokenPath = path.join(dataDir, 'ipc_auth.token');
         if (!fs.existsSync(primaryTokenPath)) {
           try {
-            fs.writeFileSync(primaryTokenPath, this.ipcAuthToken, 'utf-8');
+            fs.writeFileSync(primaryTokenPath, this.ipcAuthToken, { encoding: 'utf-8', mode: 0o600 });
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : String(err);
             console.error('[KIN CORE] Failed to write primary IPC auth token to', primaryTokenPath, message);
@@ -236,7 +237,7 @@ export class CoreServer {
         const subTokenPath = path.join(dotKinDir, 'ipc_auth.token');
         if (!fs.existsSync(subTokenPath)) {
           try {
-            fs.writeFileSync(subTokenPath, this.ipcAuthToken, 'utf-8');
+            fs.writeFileSync(subTokenPath, this.ipcAuthToken, { encoding: 'utf-8', mode: 0o600 });
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : String(err);
             console.error('[KIN CORE] Failed to write sub IPC auth token to', subTokenPath, message);
@@ -245,7 +246,7 @@ export class CoreServer {
         try {
           const cwdKin = path.resolve(process.cwd(), '.kin');
           if (!fs.existsSync(cwdKin)) fs.mkdirSync(cwdKin, { recursive: true });
-          fs.writeFileSync(path.join(cwdKin, 'ipc_auth.token'), this.ipcAuthToken, 'utf-8');
+          fs.writeFileSync(path.join(cwdKin, 'ipc_auth.token'), this.ipcAuthToken, { encoding: 'utf-8', mode: 0o600 });
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err);
           console.error('[KIN CORE] Failed to write cwd .kin IPC auth token:', message);
@@ -284,7 +285,6 @@ export class CoreServer {
       console.debug('[core_server] Suppressed egress consent load error:', e);
     }
 
-    const lastResolvedCredIdByProvider = new Map<string, string>();
     this.modelGateway = new ModelGateway({
       egressConsentResolver: () => this.egressConsent,
       apiKeyResolver: (provider: string, callerAgentId?: string) => {
@@ -307,16 +307,22 @@ export class CoreServer {
               ) {
                 continue;
               }
-              if (callerAgentId && row.scoped_grants_json) {
+              if (row.scoped_grants_json) {
                 try {
                   const grants: string[] = JSON.parse(row.scoped_grants_json);
-                  if (Array.isArray(grants) && grants.length > 0 && !grants.includes(callerAgentId) && !grants.includes('*')) {
+                  if (!Array.isArray(grants)) {
                     continue;
                   }
-                } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
+                  if (callerAgentId !== undefined && callerAgentId !== 'system' && callerAgentId !== 'operator') {
+                    const normalizedCaller = callerAgentId.trim();
+                    if (!grants.includes('*') && (!normalizedCaller || !grants.includes(normalizedCaller))) {
+                      continue;
+                    }
+                  }
+                } catch {
+                  continue;
+                }
               }
-              lastResolvedCredIdByProvider.set(provider, row.id);
-              if (row.key_alias) lastResolvedCredIdByProvider.set(row.key_alias, row.id);
               const vault = SecretVault.getInstance();
               const decrypted = vault.decrypt(row.secret_hash);
               return decrypted || row.secret_hash;
@@ -360,13 +366,21 @@ export class CoreServer {
             ) {
               continue;
             }
-            if (callerAgentId && r.scoped_grants_json) {
+            if (r.scoped_grants_json) {
               try {
                 const grants: string[] = JSON.parse(r.scoped_grants_json);
-                if (Array.isArray(grants) && grants.length > 0 && !grants.includes(callerAgentId) && !grants.includes('*')) {
+                if (!Array.isArray(grants)) {
                   continue;
                 }
-              } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
+                if (callerAgentId !== undefined && callerAgentId !== 'system' && callerAgentId !== 'operator') {
+                  const normalizedCaller = callerAgentId.trim();
+                  if (!grants.includes('*') && (!normalizedCaller || !grants.includes(normalizedCaller))) {
+                    continue;
+                  }
+                }
+              } catch {
+                continue;
+              }
             }
             const decrypted = vault.decrypt(r.secret_hash) || r.secret_hash;
             result.push({ id: r.id, key: decrypted, keyAlias: r.key_alias, baseUrl: r.base_url || undefined });
@@ -379,23 +393,13 @@ export class CoreServer {
       },
       onUsage: (provider: string, tokensUsed: { totalTokens: number }) => {
         try {
-          const credId = lastResolvedCredIdByProvider.get(provider);
-          if (credId) {
-            this.db.execute(
-              'UPDATE managed_credentials SET current_spend_tokens = current_spend_tokens + ?, updated_at = ? WHERE id = ?',
-              tokensUsed.totalTokens,
-              Date.now(),
-              credId
-            );
-          } else {
-            this.db.execute(
-              'UPDATE managed_credentials SET current_spend_tokens = current_spend_tokens + ?, updated_at = ? WHERE id = (SELECT id FROM managed_credentials WHERE (provider = ? OR key_alias = ?) AND is_active = 1 ORDER BY updated_at DESC LIMIT 1)',
-              tokensUsed.totalTokens,
-              Date.now(),
-              provider,
-              provider
-            );
-          }
+          this.db.execute(
+            'UPDATE managed_credentials SET current_spend_tokens = current_spend_tokens + ?, updated_at = ? WHERE id = (SELECT id FROM managed_credentials WHERE (provider = ? OR key_alias = ?) AND is_active = 1 ORDER BY updated_at DESC LIMIT 1)',
+            tokensUsed.totalTokens,
+            Date.now(),
+            provider,
+            provider
+          );
         } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
       },
     });
@@ -760,6 +764,21 @@ export class CoreServer {
     this.recoveryEngine = new RecoveryEngine(this.skillEngine);
     this.mcpClient = new McpClientManager(repoRoot);
     this.mcpClient.setSamplingHandler(async ({ messages, maxTokens }) => {
+      const sentinel = Sentinel.getInstance();
+      const decision = sentinel.evaluate({
+        agentId: 'mcp-sampling',
+        toolName: 'mcp_sampling',
+        params: { messageCount: messages?.length ?? 0, maxTokens },
+        riskLevel: 'MEDIUM',
+        autonomyMode: this.getEffectiveAutonomyMode(),
+        agentCapabilities: ['mcp_sampling', 'mcp:call'],
+      });
+      if (!decision.allowed) {
+        throw new Error(`MCP sampling blocked by Sentinel: ${decision.reason}`);
+      }
+      if (decision.requiresApproval) {
+        throw new Error(`MCP sampling requires operator approval: ${decision.reason}`);
+      }
       const sanitizedMsgs = messages.map((m: any) => ({
         role: (m?.role === 'assistant' ? 'assistant' : 'user') as 'user' | 'assistant',
         content: typeof m?.content === 'string' ? m.content : (m?.content?.text || JSON.stringify(m?.content || '')),
@@ -1553,38 +1572,11 @@ export class CoreServer {
 
   /**
    * Strictly validates that targetPath is contained entirely within jailRoot.
-   * Resolves symlinks via fs.realpathSync to prevent jail escape.
+   * Delegates to authoritative isPathWithinRoot from path_jail.
    */
   public isWithinJail(jailRoot: string, targetPath: string): boolean {
-    let resolvedJail = path.resolve(jailRoot);
-    try {
-      if (fs.existsSync(resolvedJail)) {
-        resolvedJail = fs.realpathSync(resolvedJail);
-      }
-    } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
-
-    let resolvedTarget = path.resolve(jailRoot, targetPath);
-    try {
-      if (fs.existsSync(resolvedTarget)) {
-        resolvedTarget = fs.realpathSync(resolvedTarget);
-      } else {
-        let parent = path.dirname(resolvedTarget);
-        while (parent && parent !== path.dirname(parent)) {
-          if (fs.existsSync(parent)) {
-            const realParent = fs.realpathSync(parent);
-            const relToParent = path.relative(parent, resolvedTarget);
-            resolvedTarget = path.resolve(realParent, relToParent);
-            break;
-          }
-          parent = path.dirname(parent);
-        }
-      }
-    } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
-
-    const relative = path.relative(resolvedJail, resolvedTarget);
-    const isWithin = relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-    if (!isWithin) return false;
-    return true;
+    const resolvedTarget = path.resolve(jailRoot, targetPath);
+    return isPathWithinRoot(resolvedTarget, jailRoot);
   }
 
   public assertPathWithinProject(jailRoot: string, targetPath: string): void {

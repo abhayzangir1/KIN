@@ -57,6 +57,14 @@ export class WorktreeManager {
     }
   }
 
+  private assertSafeGitRef(ref: string, label: string = 'git ref'): string {
+    const trimmed = String(ref || '').trim();
+    if (!trimmed || trimmed.startsWith('-')) {
+      throw new Error(`Invalid ${label}: '${ref}' must not be empty or start with '-'`);
+    }
+    return trimmed;
+  }
+
   /**
    * Provisions an isolated git worktree for a task.
    * If projectRoot is not a git repo, initializes an internal shadow git repo.
@@ -78,7 +86,7 @@ export class WorktreeManager {
       .replace(/[^a-zA-Z0-9_-]/g, '-')
       .replace(/^-+|-+$/g, '')
       .toLowerCase() || 'work';
-    const branchName = `feat/kin-${cleanTaskId}-${cleanSlug}`;
+    const branchName = this.assertSafeGitRef(`feat/kin-${cleanTaskId}-${cleanSlug}`, 'branchName');
     const worktreePath = path.resolve(this.worktreesDir, `${cleanTaskId}-${cleanSlug}`);
     if (!worktreePath.startsWith(path.resolve(this.worktreesDir) + path.sep)) {
       throw new Error(`Invalid worktree path outside worktreesDir: ${worktreePath}`);
@@ -89,15 +97,15 @@ export class WorktreeManager {
       await this.removeWorktree(worktreePath);
     }
 
-    // git worktree add -b <branchName> <worktreePath> HEAD
+    // git worktree add -b <branchName> -- <worktreePath> HEAD
     try {
-      await execFileAsync('git', ['worktree', 'add', '-b', branchName, worktreePath, 'HEAD'], {
+      await execFileAsync('git', ['worktree', 'add', '-b', branchName, '--', worktreePath, 'HEAD'], {
         cwd: workingRepoRoot,
       });
     } catch (e: any) {
       // If branch already exists, add worktree without -b
       if (e.message && e.message.includes('already exists')) {
-        await execFileAsync('git', ['worktree', 'add', worktreePath, branchName], {
+        await execFileAsync('git', ['worktree', 'add', '--', worktreePath, branchName], {
           cwd: workingRepoRoot,
         });
       } else {
@@ -116,20 +124,21 @@ export class WorktreeManager {
    * Generates a unified git diff of changes made within the worktree relative to base branch.
    */
   public async generateDiff(worktreePath: string, baseBranch: string = 'HEAD'): Promise<string> {
+    const safeBaseBranch = this.assertSafeGitRef(baseBranch, 'baseBranch');
     try {
       // Register untracked files with intent-to-add so new files are recognized in diff
       try {
         await execFileAsync('git', ['add', '-N', '.'], { cwd: worktreePath });
       } catch (err) { console.debug("[worktree_manager] Suppressed exception in catch block:", err); }
 
-      let resolvedBranch = baseBranch;
+      let resolvedBranch = safeBaseBranch;
       try {
-        await execFileAsync('git', ['rev-parse', resolvedBranch], { cwd: worktreePath });
+        await execFileAsync('git', ['rev-parse', '--verify', '--end-of-options', resolvedBranch], { cwd: worktreePath });
       } catch {
         resolvedBranch = 'HEAD';
       }
 
-      let { stdout } = await execFileAsync('git', ['diff', resolvedBranch], {
+      let { stdout } = await execFileAsync('git', ['diff', resolvedBranch, '--'], {
         cwd: worktreePath,
       });
 
@@ -141,13 +150,13 @@ export class WorktreeManager {
       if (statusOut.includes('??') || (!stdout.trim() && statusOut.trim())) {
         try {
           await execFileAsync('git', ['add', '-A'], { cwd: worktreePath });
-          const diffRes = await execFileAsync('git', ['diff', resolvedBranch], {
+          const diffRes = await execFileAsync('git', ['diff', resolvedBranch, '--'], {
             cwd: worktreePath,
           });
           if (diffRes.stdout.trim()) {
             stdout = diffRes.stdout;
           } else {
-            const cachedDiff = await execFileAsync('git', ['diff', '--cached', resolvedBranch], {
+            const cachedDiff = await execFileAsync('git', ['diff', '--cached', resolvedBranch, '--'], {
               cwd: worktreePath,
             });
             stdout = cachedDiff.stdout;
@@ -189,7 +198,11 @@ export class WorktreeManager {
     baseBranch: string = 'main',
     project?: { defaultBranch?: string; settings?: { defaultBranch?: string } }
   ): Promise<MergeResult> {
-    let targetBase = project?.defaultBranch || project?.settings?.defaultBranch || baseBranch || 'main';
+    const safeBranchName = this.assertSafeGitRef(branchName, 'branchName');
+    let targetBase = this.assertSafeGitRef(
+      project?.defaultBranch || project?.settings?.defaultBranch || baseBranch || 'main',
+      'baseBranch'
+    );
     return WorktreeManager.mergeMutex.runExclusive(async () => {
       try {
         const isGit = await this.checkIsGitRepo(this.projectRoot);
@@ -197,19 +210,19 @@ export class WorktreeManager {
 
         let headSha = '';
         try {
-          const { stdout: headShaOut } = await execFileAsync('git', ['rev-parse', targetBase], { cwd: repoRoot });
+          const { stdout: headShaOut } = await execFileAsync('git', ['rev-parse', '--verify', '--end-of-options', targetBase], { cwd: repoRoot });
           headSha = headShaOut.trim();
         } catch {
           try {
             const { stdout: curBranchOut } = await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoRoot });
             const curBranch = curBranchOut.trim();
             if (curBranch && curBranch !== 'HEAD') {
-              targetBase = curBranch;
-              const { stdout } = await execFileAsync('git', ['rev-parse', targetBase], { cwd: repoRoot });
+              targetBase = this.assertSafeGitRef(curBranch, 'baseBranch');
+              const { stdout } = await execFileAsync('git', ['rev-parse', '--verify', '--end-of-options', targetBase], { cwd: repoRoot });
               headSha = stdout.trim();
             } else {
               const alt = targetBase === 'main' ? 'master' : 'main';
-              const { stdout } = await execFileAsync('git', ['rev-parse', alt], { cwd: repoRoot });
+              const { stdout } = await execFileAsync('git', ['rev-parse', '--verify', '--end-of-options', alt], { cwd: repoRoot });
               headSha = stdout.trim();
               targetBase = alt;
             }
@@ -220,7 +233,7 @@ export class WorktreeManager {
           }
         }
 
-        const { stdout: branchShaOut } = await execFileAsync('git', ['rev-parse', branchName], { cwd: repoRoot });
+        const { stdout: branchShaOut } = await execFileAsync('git', ['rev-parse', '--verify', '--end-of-options', safeBranchName], { cwd: repoRoot });
         const branchSha = branchShaOut.trim();
 
         let mergedTreeSha = '';
@@ -228,7 +241,7 @@ export class WorktreeManager {
           // Modern Git 2.38+ programmatic merge without workspace modification
           const { stdout: treeOut } = await execFileAsync(
             'git',
-            ['merge-tree', '--write-tree', targetBase, branchName],
+            ['merge-tree', '--write-tree', '--end-of-options', targetBase, safeBranchName],
             { cwd: repoRoot }
           );
           mergedTreeSha = treeOut.trim().split(/\r?\n/)[0];
@@ -239,13 +252,13 @@ export class WorktreeManager {
             return {
               success: false,
               cleanMerge: false,
-              error: `Merge conflict detected between ${branchName} and ${targetBase}`,
+              error: `Merge conflict detected between ${safeBranchName} and ${targetBase}`,
             };
           }
 
           // Fallback to 3-arg syntax for older Git: git merge-tree <base> <branch1> <branch2>
           try {
-            const { stdout: baseShaOut } = await execFileAsync('git', ['merge-base', targetBase, branchName], { cwd: repoRoot });
+            const { stdout: baseShaOut } = await execFileAsync('git', ['merge-base', '--end-of-options', targetBase, safeBranchName], { cwd: repoRoot });
             const { stdout: mergeTreeOut } = await execFileAsync(
               'git',
               ['merge-tree', baseShaOut.trim(), headSha, branchSha],
@@ -255,7 +268,7 @@ export class WorktreeManager {
               return {
                 success: false,
                 cleanMerge: false,
-                error: `Merge conflict detected between ${branchName} and ${targetBase}`,
+                error: `Merge conflict detected between ${safeBranchName} and ${targetBase}`,
               };
             }
           } catch (fallbackErr: any) {
@@ -272,14 +285,14 @@ export class WorktreeManager {
         if (mergedTreeSha) {
           const { stdout: commitOut } = await execFileAsync(
             'git',
-            ['commit-tree', mergedTreeSha, '-p', headSha, '-p', branchSha, '-m', `Merge ${branchName} into ${targetBase}`],
+            ['commit-tree', mergedTreeSha, '-p', headSha, '-p', branchSha, '-m', `Merge ${safeBranchName} into ${targetBase}`],
             { cwd: repoRoot }
           );
           finalCommit = commitOut.trim();
           await execFileAsync('git', ['update-ref', `refs/heads/${targetBase}`, finalCommit], { cwd: repoRoot });
         } else {
           // Merge inside the worktree itself if programmatic commit tree was unavailable
-          await execFileAsync('git', ['merge', '--no-ff', '-m', `Merge ${targetBase} into ${branchName}`, targetBase], { cwd: worktreePath });
+          await execFileAsync('git', ['merge', '--no-ff', '-m', `Merge ${targetBase} into ${safeBranchName}`, targetBase], { cwd: worktreePath });
           const { stdout: wtCommit } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: worktreePath });
           finalCommit = wtCommit.trim();
           await execFileAsync('git', ['update-ref', `refs/heads/${targetBase}`, finalCommit], { cwd: repoRoot });
@@ -289,7 +302,7 @@ export class WorktreeManager {
         if (isGit) {
           // In a repository, checkout the merged tree so working files are updated
           try {
-            await execFileAsync('git', ['checkout', '-f', targetBase], { cwd: repoRoot });
+            await execFileAsync('git', ['checkout', '-f', targetBase, '--'], { cwd: repoRoot });
           } catch {
             try {
               await execFileAsync('git', ['read-tree', '-u', '-m', `refs/heads/${targetBase}`], { cwd: repoRoot });
@@ -298,14 +311,14 @@ export class WorktreeManager {
         } else {
           // In a shadow repository (!isGit), checkout the merged branch in repoRoot before calling copyProjectAssets
           try {
-            await execFileAsync('git', ['checkout', '-f', targetBase], { cwd: repoRoot });
+            await execFileAsync('git', ['checkout', '-f', targetBase, '--'], { cwd: repoRoot });
           } catch (err) { console.debug("[worktree_manager] Suppressed exception in catch block:", err); }
           this.copyProjectAssets(repoRoot, this.projectRoot);
         }
 
         // Post-merge prune: Remove the worktree immediately and delete feature branch
         await this.removeWorktree(worktreePath);
-        await this.deleteBranch(branchName);
+        await this.deleteBranch(safeBranchName);
 
         return {
           success: true,
@@ -354,10 +367,11 @@ export class WorktreeManager {
    * Safely deletes a git branch.
    */
   public async deleteBranch(branchName: string): Promise<void> {
+    const safeBranchName = this.assertSafeGitRef(branchName, 'branchName');
     const isGit = await this.checkIsGitRepo(this.projectRoot);
     const repoRoot = isGit ? this.projectRoot : path.join(this.projectRoot, '.kin', '.git_shadow');
     try {
-      await execFileAsync('git', ['branch', '-D', branchName], { cwd: repoRoot });
+      await execFileAsync('git', ['branch', '-D', '--', safeBranchName], { cwd: repoRoot });
     } catch (err) { console.debug("[worktree_manager] Suppressed exception in catch block:", err); }
   }
 
@@ -365,10 +379,11 @@ export class WorktreeManager {
    * Post-merge prune: safely removes the worktree and prunes git metadata.
    */
   public async removeWorktree(worktreePath: string): Promise<void> {
+    const safeWorktreePath = this.assertSafeGitRef(worktreePath, 'worktreePath');
     const isGit = await this.checkIsGitRepo(this.projectRoot);
     const repoRoot = isGit ? this.projectRoot : path.join(this.projectRoot, '.kin', '.git_shadow');
     try {
-      await execFileAsync('git', ['worktree', 'remove', '--force', worktreePath], {
+      await execFileAsync('git', ['worktree', 'remove', '--force', '--', safeWorktreePath], {
         cwd: repoRoot,
       });
       await execFileAsync('git', ['worktree', 'prune'], {
@@ -376,8 +391,8 @@ export class WorktreeManager {
       });
     } catch {
       // If git worktree command failed (e.g. metadata was already unlinked), clean filesystem directly
-      if (fs.existsSync(worktreePath)) {
-        fs.rmSync(worktreePath, { recursive: true, force: true });
+      if (fs.existsSync(safeWorktreePath)) {
+        fs.rmSync(safeWorktreePath, { recursive: true, force: true });
       }
       try {
         await execFileAsync('git', ['worktree', 'prune'], { cwd: repoRoot });
@@ -561,12 +576,13 @@ export class WorktreeManager {
       } catch {
         // Branch does not exist yet
       }
+      const safeBranch = this.assertSafeGitRef(branch, 'branch');
       const forkPath = path.join(this.worktreesDir, `fork-${cleanSlug}`);
       if (fs.existsSync(forkPath)) {
         await this.removeWorktree(forkPath);
       }
-      await execFileAsync('git', ['worktree', 'add', '-b', branch, forkPath, baseSha || 'HEAD'], { cwd });
-      return { success: true, branch, worktreePath: forkPath, baseSha };
+      await execFileAsync('git', ['worktree', 'add', '-b', safeBranch, '--', forkPath, baseSha || 'HEAD'], { cwd });
+      return { success: true, branch: safeBranch, worktreePath: forkPath, baseSha };
     } catch (err: any) {
       return { success: false, error: err?.message || 'Git fork failed' };
     }

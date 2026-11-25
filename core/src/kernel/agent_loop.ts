@@ -488,7 +488,6 @@ export class AgentLoopRunner {
         }
       }
       const abortSignal = turnAbortController.signal;
-      (abortSignal as any).abort = (reason?: any) => turnAbortController.abort(reason);
 
       try {
         watchdogTimer = setInterval(async () => {
@@ -508,11 +507,11 @@ export class AgentLoopRunner {
               const renewed = await options.onRenewLease(options.taskId);
               if (renewed === false) {
                 modelLeaseLost = true;
-                (abortSignal as any).abort?.('lease_lost');
+                turnAbortController.abort('lease_lost');
               }
             } catch {
               modelLeaseLost = true;
-              (abortSignal as any).abort?.('lease_lost');
+              turnAbortController.abort('lease_lost');
             }
           }
         }, watchdogIntervalMs);
@@ -746,11 +745,18 @@ export class AgentLoopRunner {
       }
       const content = cleanContent;
       const validTools = this.toolGateway ? new Set(this.toolGateway.getToolSchemas().map((s) => s.name)) : undefined;
-      let toolCall = (response.toolCalls && response.toolCalls.length > 0)
-        ? { name: response.toolCalls[0].name, params: response.toolCalls[0].parameters || {} }
-        : this.extractToolCall(content, validTools);
-      if (!toolCall && response.thinking) {
-        toolCall = this.extractToolCall(response.thinking, validTools);
+      let extractedTextToolCalls: Array<{ name: string; params: any }> = [];
+      let toolCall: { name: string; params: any } | null = null;
+      if (response.toolCalls && response.toolCalls.length > 0) {
+        toolCall = { name: response.toolCalls[0].name, params: response.toolCalls[0].parameters || {} };
+      } else {
+        extractedTextToolCalls = this.extractToolCalls(content, validTools);
+        if (extractedTextToolCalls.length === 0 && response.thinking) {
+          extractedTextToolCalls = this.extractToolCalls(response.thinking, validTools);
+        }
+        if (extractedTextToolCalls.length > 0) {
+          toolCall = extractedTextToolCalls[0];
+        }
       }
 
       if (!toolCall) {
@@ -920,7 +926,16 @@ export class AgentLoopRunner {
 
         let toolWatchdogTimer: NodeJS.Timeout | null = null;
         let toolLeaseLost = false;
+        const toolStartTime = Date.now();
         toolWatchdogTimer = setInterval(async () => {
+          if (Date.now() - toolStartTime > maxCeilingMs) {
+            if (toolWatchdogTimer) {
+              clearInterval(toolWatchdogTimer);
+              toolWatchdogTimer = null;
+            }
+            toolAbortController.abort('ceiling_timeout');
+            return;
+          }
           try {
             options.onHeartbeat?.();
             if (options.taskId && options.onRenewLease) {
@@ -1289,8 +1304,12 @@ export class AgentLoopRunner {
       }
 
       // If the LLM returned multiple parallel toolCalls in this turn, run each through full safety, approval, and spill guards
-      const remainingParallelCalls = (response.toolCalls && response.toolCalls.length > 1)
-        ? response.toolCalls.slice(1, 5)
+      const allTurnCalls: Array<{ name: string; parameters: any }> =
+        (response.toolCalls && response.toolCalls.length > 0)
+          ? response.toolCalls
+          : extractedTextToolCalls.map((tc) => ({ name: tc.name, parameters: tc.params }));
+      const remainingParallelCalls = allTurnCalls.length > 1
+        ? allTurnCalls.slice(1, 5)
         : [];
       if (remainingParallelCalls.length > 0) {
         for (const extraCall of remainingParallelCalls) {
@@ -1393,10 +1412,10 @@ export class AgentLoopRunner {
             content: `<observation nonce="${extraNonce}">\n${extraSafe}\n</observation>`,
           } as any);
         }
-        if (response.toolCalls && response.toolCalls.length > 5) {
+        if (allTurnCalls.length > 5) {
           conversationHistory.push({
             role: 'user',
-            content: `<observation>\nNOTICE: ${response.toolCalls.length - 5} additional parallel tool call(s) were omitted (max 5 per turn). Re-issue remaining calls if still needed.\n</observation>`,
+            content: `<observation>\nNOTICE: ${allTurnCalls.length - 5} additional parallel tool call(s) were omitted (max 5 per turn). Re-issue remaining calls if still needed.\n</observation>`,
           } as any);
         }
       }
@@ -1557,6 +1576,29 @@ To delegate or coordinate with another specialist:
 
 3. When you receive the <observation>, synthesize the findings and report them directly to the user in your response (e.g. if you listed directory files or read a file, report the actual content, answers, and findings the user asked for). Do NOT simply say "I have evaluated the observation" without answering.
 4. When communicating via sendDirectMessage, state your question or deliverable once. Do NOT invoke sendDirectMessage repeatedly with identical content. When the interaction concludes, conclude with [ACK] or [COMPLETE].`;
+  }
+
+  public extractToolCalls(content: string, validTools?: Set<string>): Array<{ name: string; params: any }> {
+    return AgentLoopRunner.extractToolCalls(content, validTools);
+  }
+
+  public static extractToolCalls(content: string, validTools?: Set<string>): Array<{ name: string; params: any }> {
+    if (!content) return [];
+    const strippedContent = content
+      .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
+      .replace(/<thought>[\s\S]*?<\/thought>/gi, '');
+    const nonQuotedContent = strippedContent.replace(/^[ \t]*>.*$/gm, '');
+    const tagMatches = Array.from(nonQuotedContent.matchAll(/<(tool_call|tool|function_call)>([\s\S]*?)(?:<\/\1>|$)/gi));
+    if (tagMatches.length > 1) {
+      const results: Array<{ name: string; params: any }> = [];
+      for (const m of tagMatches) {
+        const single = AgentLoopRunner.extractToolCall(`<${m[1]}>${m[2]}</${m[1]}>`, validTools);
+        if (single) results.push(single);
+      }
+      if (results.length > 0) return results;
+    }
+    const single = AgentLoopRunner.extractToolCall(content, validTools);
+    return single ? [single] : [];
   }
 
   public extractToolCall(content: string, validTools?: Set<string>): { name: string; params: any } | null {
@@ -1785,8 +1827,8 @@ To delegate or coordinate with another specialist:
     const nonQuotedContent = strippedContent.replace(/^[ \t]*>.*$/gm, '');
 
     // 1. Explicit tags: <tool_call> or <tool> or <function_call>
-    const tagMatch = nonQuotedContent.match(/<(tool_call|tool|function_call)>([\s\S]*?)(?:<\/\1>|$)/i);
-    if (tagMatch) {
+    const tagMatches = Array.from(nonQuotedContent.matchAll(/<(tool_call|tool|function_call)>([\s\S]*?)(?:<\/\1>|$)/gi));
+    for (const tagMatch of tagMatches) {
       const res = parseJsonPayload(tagMatch[2], false, validTools);
       if (res) return res;
     }

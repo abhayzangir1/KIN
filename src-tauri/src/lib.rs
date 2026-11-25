@@ -15,7 +15,9 @@ use supervisor::ProcessSupervisor;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::panic;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
+use std::time::Duration;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager};
@@ -95,24 +97,54 @@ pub fn window_state_path() -> std::path::PathBuf {
     kin_dir.join("window_state.json")
 }
 
+static WINDOW_SAVE_SEQ: AtomicU64 = AtomicU64::new(0);
+
 pub fn save_window_state(window: &tauri::Window) {
+    if window.is_minimized().unwrap_or(false) {
+        return;
+    }
+
     let is_max = window.is_maximized().unwrap_or(false);
-    let mut state = WindowState {
-        x: 100,
-        y: 100,
-        width: DEFAULT_WINDOW_WIDTH,
-        height: DEFAULT_WINDOW_HEIGHT,
-        is_maximized: is_max,
-    };
-    if let Ok(pos) = window.outer_position() {
-        state.x = pos.x;
-        state.y = pos.y;
-    }
-    if let Ok(size) = window.inner_size() {
-        state.width = size.width;
-        state.height = size.height;
-    }
     let path = window_state_path();
+
+    // Preserve prior normal bounds when maximized instead of recording (-8, -8) / full-screen dimensions
+    let mut state = if is_max {
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|c| serde_json::from_str::<WindowState>(&c).ok())
+            .unwrap_or(WindowState {
+                x: 100,
+                y: 100,
+                width: DEFAULT_WINDOW_WIDTH,
+                height: DEFAULT_WINDOW_HEIGHT,
+                is_maximized: true,
+            })
+    } else {
+        WindowState {
+            x: 100,
+            y: 100,
+            width: DEFAULT_WINDOW_WIDTH,
+            height: DEFAULT_WINDOW_HEIGHT,
+            is_maximized: false,
+        }
+    };
+    state.is_maximized = is_max;
+
+    if !is_max {
+        if let Ok(pos) = window.outer_position() {
+            // Skip Windows minimized (-32000, -32000) or maximized (-8, -8) sentinel coordinates
+            if pos.x <= -32000 || pos.y <= -32000 || (pos.x == -8 && pos.y == -8) {
+                return;
+            }
+            state.x = pos.x;
+            state.y = pos.y;
+        }
+        if let Ok(size) = window.inner_size() {
+            state.width = size.width;
+            state.height = size.height;
+        }
+    }
+
     if let Ok(json) = serde_json::to_string_pretty(&state) {
         let _ = std::fs::write(path, json);
     }
@@ -279,10 +311,18 @@ pub fn run() {
         .on_window_event(|window, event| {
             match event {
                 tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Moved(_) => {
-                    save_window_state(window);
+                    let seq = WINDOW_SAVE_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
+                    let win_clone = window.clone();
+                    thread::spawn(move || {
+                        thread::sleep(Duration::from_millis(300));
+                        if WINDOW_SAVE_SEQ.load(Ordering::SeqCst) == seq {
+                            save_window_state(&win_clone);
+                        }
+                    });
                 }
                 tauri::WindowEvent::CloseRequested { api, .. } => {
                     log_diagnostic(&format!("[KIN SHELL] Window close requested: {}", window.label()));
+                    WINDOW_SAVE_SEQ.fetch_add(1, Ordering::SeqCst);
                     save_window_state(window);
                     // PRD § 5.4: Close to tray
                     api.prevent_close();

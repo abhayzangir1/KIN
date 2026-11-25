@@ -122,6 +122,8 @@ export interface ModelInvocationResult {
     promptTokens: number;
     completionTokens: number;
     totalTokens: number;
+    cacheReadInputTokens?: number;
+    cacheCreationInputTokens?: number;
   };
   durationMs: number;
   isError?: boolean;
@@ -1496,6 +1498,8 @@ export class ModelGateway {
     let fullThinking = '';
     let promptTokens = 0;
     let completionTokens = 0;
+    let cacheReadInputTokens = 0;
+    let cacheCreationInputTokens = 0;
     let totalTokens = 0;
     const streamToolCalls = new Map<number, { id: string; name: string; arguments: string }>();
     const collectedToolCalls: Array<{ name: string; parameters: any }> = [];
@@ -1759,10 +1763,11 @@ export class ModelGateway {
       stream,
     };
     if (params.tools && params.tools.length > 0) {
-      reqBody.tools = params.tools.map((t) => ({
+      reqBody.tools = params.tools.map((t, idx) => ({
         name: t.function.name,
         description: t.function.description,
         input_schema: t.function.parameters || { type: 'object', properties: {} },
+        ...(idx === params.tools!.length - 1 ? { cache_control: { type: 'ephemeral' } } : {}),
       }));
     }
 
@@ -1827,6 +1832,8 @@ export class ModelGateway {
     let fullThinking = '';
     let promptTokens = 0;
     let completionTokens = 0;
+    let cacheReadInputTokens = 0;
+    let cacheCreationInputTokens = 0;
     const streamToolCalls = new Map<number, { id: string; name: string; arguments: string }>();
     const collectedToolCalls: Array<{ name: string; parameters: any }> = [];
 
@@ -1878,11 +1885,15 @@ export class ModelGateway {
                 }
               }
             }
-            if (parsed.type === 'message_start' && parsed.message?.usage?.input_tokens) {
-              promptTokens = parsed.message.usage.input_tokens;
+            if (parsed.type === 'message_start' && parsed.message?.usage) {
+              if (parsed.message.usage.input_tokens) promptTokens = parsed.message.usage.input_tokens;
+              if (parsed.message.usage.cache_read_input_tokens) cacheReadInputTokens = parsed.message.usage.cache_read_input_tokens;
+              if (parsed.message.usage.cache_creation_input_tokens) cacheCreationInputTokens = parsed.message.usage.cache_creation_input_tokens;
             }
-            if (parsed.type === 'message_delta' && parsed.usage?.output_tokens) {
-              completionTokens = parsed.usage.output_tokens;
+            if (parsed.type === 'message_delta' && parsed.usage) {
+              if (parsed.usage.output_tokens) completionTokens = parsed.usage.output_tokens;
+              if (parsed.usage.cache_read_input_tokens) cacheReadInputTokens = parsed.usage.cache_read_input_tokens;
+              if (parsed.usage.cache_creation_input_tokens) cacheCreationInputTokens = parsed.usage.cache_creation_input_tokens;
             }
           } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
         }
@@ -1910,11 +1921,15 @@ export class ModelGateway {
                 if (tc) tc.arguments += parsed.delta.partial_json;
               }
             }
-            if (parsed.type === 'message_start' && parsed.message?.usage?.input_tokens) {
-              promptTokens = parsed.message.usage.input_tokens;
+            if (parsed.type === 'message_start' && parsed.message?.usage) {
+              if (parsed.message.usage.input_tokens) promptTokens = parsed.message.usage.input_tokens;
+              if (parsed.message.usage.cache_read_input_tokens) cacheReadInputTokens = parsed.message.usage.cache_read_input_tokens;
+              if (parsed.message.usage.cache_creation_input_tokens) cacheCreationInputTokens = parsed.message.usage.cache_creation_input_tokens;
             }
-            if (parsed.type === 'message_delta' && parsed.usage?.output_tokens) {
-              completionTokens = parsed.usage.output_tokens;
+            if (parsed.type === 'message_delta' && parsed.usage) {
+              if (parsed.usage.output_tokens) completionTokens = parsed.usage.output_tokens;
+              if (parsed.usage.cache_read_input_tokens) cacheReadInputTokens = parsed.usage.cache_read_input_tokens;
+              if (parsed.usage.cache_creation_input_tokens) cacheCreationInputTokens = parsed.usage.cache_creation_input_tokens;
             }
           } catch (err) { console.debug("[model_gateway] Suppressed exception in trailing buffer flush:", err); }
         }
@@ -1951,6 +1966,8 @@ export class ModelGateway {
       }
       promptTokens = data?.usage?.input_tokens || 0;
       completionTokens = data?.usage?.output_tokens || 0;
+      cacheReadInputTokens = data?.usage?.cache_read_input_tokens || 0;
+      cacheCreationInputTokens = data?.usage?.cache_creation_input_tokens || 0;
       if (params.onToken && content) {
         params.onToken(content);
       }
@@ -1962,6 +1979,8 @@ export class ModelGateway {
       promptTokens,
       completionTokens,
       totalTokens: promptTokens + completionTokens,
+      ...(cacheReadInputTokens > 0 ? { cacheReadInputTokens } : {}),
+      ...(cacheCreationInputTokens > 0 ? { cacheCreationInputTokens } : {}),
     };
 
     if (this.onUsage) {

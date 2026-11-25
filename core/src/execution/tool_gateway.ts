@@ -4382,52 +4382,105 @@ export class ToolGateway {
     context?: ToolExecutionContext
   ): Promise<string> {
     const target = this.resolveJailedPath(filePath, worktreeRoot);
-    if (!fs.existsSync(target)) {
-      throw new Error(`File not found: ${filePath}`);
-    }
-    const stat = fs.statSync(target);
-    if (stat.isDirectory()) {
-      throw new Error(`Cannot read '${filePath}': Target is a directory. Use listDirectory instead.`);
+    let fd: number;
+    try {
+      fd = fs.openSync(target, 'r');
+    } catch (err: any) {
+      if (err?.code === 'ENOENT') {
+        throw new Error(`File not found: ${filePath}`);
+      }
+      if (err?.code === 'EISDIR' || err?.code === 'EPERM') {
+        if (fs.existsSync(target) && fs.statSync(target).isDirectory()) {
+          throw new Error(`Cannot read '${filePath}': Target is a directory. Use listDirectory instead.`);
+        }
+      }
+      throw err;
     }
 
-    // Durably record or update baseline file revision hash on read for OCC
-    if (this.db && context?.projectId) {
-      try {
-        const rawBytes = fs.readFileSync(target);
-        const readHash = crypto.createHash('sha256').update(rawBytes).digest('hex');
-        const now = Date.now();
-        this.db.execute(
-          `INSERT INTO file_revisions (id, project_id, file_path, content_hash, mtime, last_modified_by, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(project_id, file_path) DO UPDATE SET
-             content_hash = excluded.content_hash,
-             mtime = excluded.mtime,
-             last_modified_by = excluded.last_modified_by,
-             updated_at = excluded.updated_at`,
-          uuidv4(),
-          context.projectId,
-          filePath,
-          readHash,
-          stat.mtimeMs,
-          context.agentId || 'reader',
-          now
+    try {
+      const stat = fs.fstatSync(fd);
+      if (stat.isDirectory()) {
+        throw new Error(`Cannot read '${filePath}': Target is a directory. Use listDirectory instead.`);
+      }
+
+      if (stat.size > maxBytes) {
+        if (this.db && context?.projectId) {
+          try {
+            const rawBytes = fs.readFileSync(fd);
+            const readHash = crypto.createHash('sha256').update(rawBytes).digest('hex');
+            const now = Date.now();
+            this.db.execute(
+              `INSERT INTO file_revisions (id, project_id, file_path, content_hash, mtime, last_modified_by, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(project_id, file_path) DO UPDATE SET
+                 content_hash = excluded.content_hash,
+                 mtime = excluded.mtime,
+                 last_modified_by = excluded.last_modified_by,
+                 updated_at = excluded.updated_at`,
+              uuidv4(),
+              context.projectId,
+              filePath,
+              readHash,
+              stat.mtimeMs,
+              context.agentId || 'reader',
+              now
+            );
+          } catch (err) {
+            console.warn(`[TOOL GATEWAY] Failed to register baseline file_revisions for '${filePath}':`, err);
+          }
+        }
+
+        const buffer = Buffer.alloc(maxBytes);
+        const bytesRead = fs.readSync(fd, buffer, 0, maxBytes, 0);
+        return (
+          buffer.toString('utf-8', 0, bytesRead) +
+          `\n\n[NOTICE: File '${filePath}' exceeds 2MB (${Math.round(stat.size / 1024)} KB total). First 2MB preview returned.]`
         );
+      }
+
+      const buffer = Buffer.alloc(stat.size);
+      let totalRead = 0;
+      while (totalRead < stat.size) {
+        const bytesRead = fs.readSync(fd, buffer, totalRead, stat.size - totalRead, totalRead);
+        if (bytesRead === 0) break;
+        totalRead += bytesRead;
+      }
+      const contentBuffer = totalRead === stat.size ? buffer : buffer.subarray(0, totalRead);
+
+      // Durably record or update baseline file revision hash on read for OCC
+      if (this.db && context?.projectId) {
+        try {
+          const readHash = crypto.createHash('sha256').update(contentBuffer).digest('hex');
+          const now = Date.now();
+          this.db.execute(
+            `INSERT INTO file_revisions (id, project_id, file_path, content_hash, mtime, last_modified_by, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(project_id, file_path) DO UPDATE SET
+               content_hash = excluded.content_hash,
+               mtime = excluded.mtime,
+               last_modified_by = excluded.last_modified_by,
+               updated_at = excluded.updated_at`,
+            uuidv4(),
+            context.projectId,
+            filePath,
+            readHash,
+            stat.mtimeMs,
+            context.agentId || 'reader',
+            now
+          );
+        } catch (err) {
+          console.warn(`[TOOL GATEWAY] Failed to register baseline file_revisions for '${filePath}':`, err);
+        }
+      }
+
+      return contentBuffer.toString('utf-8');
+    } finally {
+      try {
+        fs.closeSync(fd);
       } catch (err) {
-        console.warn(`[TOOL GATEWAY] Failed to register baseline file_revisions for '${filePath}':`, err);
+        console.debug('[tool_gateway] Suppressed exception closing read fd:', err);
       }
     }
-
-    if (stat.size > maxBytes) {
-      const buffer = Buffer.alloc(maxBytes);
-      const fd = fs.openSync(target, 'r');
-      const bytesRead = fs.readSync(fd, buffer, 0, maxBytes, 0);
-      fs.closeSync(fd);
-      return (
-        buffer.toString('utf-8', 0, bytesRead) +
-        `\n\n[NOTICE: File '${filePath}' exceeds 2MB (${Math.round(stat.size / 1024)} KB total). First 2MB preview returned.]`
-      );
-    }
-    return fs.readFileSync(target, 'utf-8');
   }
 
   /**
@@ -4596,6 +4649,23 @@ export class ToolGateway {
 
       let hasAborted = false;
       let onAbort: (() => void) | undefined;
+      const killProcessTree = (pid?: number, childProc?: ReturnType<typeof exec>) => {
+        if (!pid) return;
+        if (isWin) {
+          exec(`taskkill /pid ${pid} /T /F`, () => {});
+        } else {
+          try {
+            process.kill(-pid, 'SIGKILL');
+          } catch {
+            try {
+              childProc?.kill('SIGKILL');
+            } catch (err) {
+              console.debug('[tool_gateway] Suppressed exception in catch block:', err);
+            }
+          }
+        }
+      };
+
       const child = exec(
         command,
         {
@@ -4605,25 +4675,15 @@ export class ToolGateway {
           maxBuffer: 15 * 1024 * 1024, // 15MB max buffer
           windowsHide: true,
           shell: isWin ? 'cmd.exe' : '/bin/bash',
-        },
+          ...(!isWin ? { detached: true } : {}),
+        } as any,
         (error, stdout, stderr) => {
           if (abortSignal && onAbort) {
             abortSignal.removeEventListener('abort', onAbort);
           }
           if (hasAborted) return;
           if (error && error.killed) {
-            if (child.pid) {
-              if (isWin) {
-                exec(`taskkill /pid ${child.pid} /T /F`, () => {});
-              } else {
-                try {
-                  exec(`pkill -P ${child.pid}`, () => {});
-                } catch (err) {
-                  console.debug('[tool_gateway] Suppressed exception in catch block:', err);
-                }
-                child.kill('SIGKILL');
-              }
-            }
+            killProcessTree(child.pid, child);
             return reject(new Error(`Shell execution timed out after ${timeoutMs}ms: ${command}`));
           }
 
@@ -4639,16 +4699,7 @@ export class ToolGateway {
         if (abortSignal.aborted) {
           hasAborted = true;
           try {
-            if (child.pid) {
-              if (isWin) {
-                exec(`taskkill /pid ${child.pid} /T /F`, () => {});
-              } else {
-                try {
-                  exec(`pkill -P ${child.pid}`, () => {});
-                } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
-                child.kill('SIGKILL');
-              }
-            }
+            killProcessTree(child.pid, child);
           } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
           return reject(new Error('Shell execution cancelled by operator via AbortSignal.'));
         }
@@ -4656,16 +4707,7 @@ export class ToolGateway {
         onAbort = () => {
           hasAborted = true;
           try {
-            if (child.pid) {
-              if (isWin) {
-                exec(`taskkill /pid ${child.pid} /T /F`, () => {});
-              } else {
-                try {
-                  exec(`pkill -P ${child.pid}`, () => {});
-                } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
-                child.kill('SIGKILL');
-              }
-            }
+            killProcessTree(child.pid, child);
           } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
           reject(new Error('Shell execution cancelled by operator via AbortSignal.'));
         };

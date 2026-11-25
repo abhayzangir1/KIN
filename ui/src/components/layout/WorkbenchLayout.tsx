@@ -108,6 +108,9 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({ isCompact = fa
 
       {/* Left Resizable Divider Handle */}
       <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize navigation sidebar"
         onMouseDown={(e) => {
           e.preventDefault();
           setIsDraggingLeft(true);
@@ -138,6 +141,9 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({ isCompact = fa
         <>
           {/* Right Resizable Divider Handle */}
           <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize inspector panel"
             onMouseDown={(e) => {
               e.preventDefault();
               setIsDraggingRight(true);

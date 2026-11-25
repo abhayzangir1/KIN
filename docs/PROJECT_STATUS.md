@@ -68,8 +68,8 @@ KIN is organized into three production workspaces backed by 36 authoritative SQL
 
 ### Automated Test Suite
 - **Core Test Suite (`npm test --workspace=core`)**:
-  - **90 Core Test Files**: All 90 passed deterministically without regressions.
-  - **1,261 Core Tests (+ UI Suite)**: 1,261 core tests + 3 UI tests passing (0 failed, 0 skipped, 0 regressions).
+  - **91 Core Test Files**: All 91 passed deterministically without regressions.
+  - **1,264 Core Tests (+ UI Suite)**: 1,264 core tests + 3 UI tests passing (0 failed, 0 skipped, 0 regressions).
   - Full regression coverage spans all production layers: cold boot, health telemetry, static asset serving, task lease contention, message ingestion fencing, atomic CAS approval gates, SHA-256 EventLedger cryptographic integrity, NVIDIA NIM streaming backoff, Workspace Trust quarantine, QuickJS-WASM sandboxing, and MCP 2026-07-28 runtime validation.
   - Zero mock data or synthetic score facades: dynamic rubric evaluation from database records, authentic credential-gated model discovery, and centralized fallback model configuration (`DEFAULT_FALLBACK_MODEL_ID`).
   - Cross-project DAG isolation: child task advancement strictly queries parent goal project identity and origin channel.
@@ -86,10 +86,10 @@ KIN is organized into three production workspaces backed by 36 authoritative SQL
   - Test suites utilize isolated temporary directories in the system temp directory to prevent any dirty git working tree artifacts.
 
 ### Native Desktop & Production Builds
-- `cargo test --manifest-path src-tauri/Cargo.toml`: Succeeded (14/14 tests passed).
+- `cargo test --manifest-path src-tauri/Cargo.toml`: Succeeded (15/15 tests passed).
 - `cargo check --manifest-path src-tauri/Cargo.toml`: Succeeded with 0 warnings/errors.
 - `npm run typecheck`: Succeeded with zero diagnostic errors across `@kin/core` and `@kin/ui`.
-- `npm run build`: Succeeded with zero errors (1,963 Vite modules transformed into production assets).
+- `npm run build`: Succeeded with zero errors (1,964 Vite modules transformed into production assets).
 - `npm run build:binary`: Succeeded, producing native sidecar binary `binaries/kin-core.exe`.
 
 ### Multi-Platform CI/CD & Packaging

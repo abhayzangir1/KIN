@@ -286,7 +286,16 @@ export class ExecutionNodeRouter {
       return this.desktopNode;
     }
 
-    if (preferSandbox && (lower.includes('write') || lower.includes('file') || lower.includes('edit') || lower.includes('patch'))) {
+    if (
+      preferSandbox &&
+      (lower.includes('write') ||
+        lower.includes('file') ||
+        lower.includes('edit') ||
+        lower.includes('patch') ||
+        lower === 'executeshell' ||
+        lower.startsWith('custom__') ||
+        lower.startsWith('skill__'))
+    ) {
       return this.sandboxNode;
     }
 
