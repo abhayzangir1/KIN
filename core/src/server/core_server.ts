@@ -1895,12 +1895,18 @@ export class CoreServer {
       ...Array.from(this.inFlightExecutions),
     ];
     if (inFlightPromises.length > 0) {
+      let drainTimer: NodeJS.Timeout | null = null;
       try {
         await Promise.race([
           Promise.allSettled(inFlightPromises),
-          new Promise((r) => setTimeout(r, 2500)),
+          new Promise((r) => {
+            drainTimer = setTimeout(r, 5000);
+            if (typeof (drainTimer as any).unref === 'function') (drainTimer as any).unref();
+          }),
         ]);
-      } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); }
+      } catch (err) { console.debug("[core_server] Suppressed exception in catch block:", err); } finally {
+        if (drainTimer) clearTimeout(drainTimer);
+      }
     }
 
     // 5. Close browser and computer controllers

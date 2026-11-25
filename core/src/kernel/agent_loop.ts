@@ -1317,10 +1317,23 @@ export class AgentLoopRunner {
           };
           const extraStart = Date.now();
           let extraRes: any;
+          const extraWatchdog = setInterval(async () => {
+            try {
+              options.onHeartbeat?.();
+              if (options.taskId && options.onRenewLease) {
+                await options.onRenewLease(options.taskId);
+              }
+            } catch {}
+          }, watchdogIntervalMs);
+          if (typeof (extraWatchdog as any).unref === 'function') {
+            (extraWatchdog as any).unref();
+          }
           try {
             extraRes = await this.toolGateway.executeTool(extraCall.name, extraParams, extraCtx);
           } catch (err: any) {
             extraRes = { success: false, error: err?.message || String(err), riskLevel: extraRisk };
+          } finally {
+            clearInterval(extraWatchdog);
           }
           const extraDur = Date.now() - extraStart;
 

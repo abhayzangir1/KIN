@@ -9,6 +9,48 @@ import { EventLedger } from '../../security/event_ledger.js';
 import { BaseController } from './base_controller.js';
 
 export class AgentController extends BaseController {
+  private validateAndApplyCapabilities(
+    req: http.IncomingMessage,
+    agentId: string,
+    definitionId: string,
+    capabilities: string[]
+  ): string | null {
+    const callerAgentId = (req.headers['x-caller-agent-id'] || req.headers['x-agent-id']) as string | undefined;
+    if (callerAgentId) {
+      const callerIdentity = this.agentRepo.getIdentity(callerAgentId);
+      const callerDef = callerIdentity ? this.agentRepo.getDefinition(callerIdentity.definitionId) : undefined;
+      const callerCaps = new Set(callerDef?.capabilities || []);
+      const hasWildcard = callerCaps.has('*') || callerCaps.has('tools:*');
+      if (!hasWildcard) {
+        const unauthorized = capabilities.filter((c) => !callerCaps.has(c));
+        if (unauthorized.length > 0) {
+          return `Forbidden: Caller agent cannot grant unheld capabilities: ${unauthorized.join(', ')}`;
+        }
+      }
+    }
+    const validCaps = new Set([
+      'fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate',
+      'mcp:call', 'browser:read', 'browser:interact', 'desktop:read',
+      'desktop:interact', 'memory:read', 'memory:write', 'net:fetch',
+      'web:browse', 'gui:desktop', 'schedule:cron',
+    ]);
+    const sanitizedCaps = capabilities.filter((c) => validCaps.has(c));
+    this.db.execute(
+      `UPDATE agent_definitions SET capabilities_json = ? WHERE id = ?`,
+      JSON.stringify(sanitizedCaps),
+      definitionId
+    );
+    try {
+      EventLedger.getInstance().record({
+        eventType: 'agent.capabilities_updated',
+        entityType: 'agent',
+        entityId: agentId,
+        payload: { capabilities: sanitizedCaps },
+      });
+    } catch (err) { console.debug("[agent_controller] Suppressed exception in catch block:", err); }
+    return null;
+  }
+
   public async handle(
     req: http.IncomingMessage,
     res: http.ServerResponse,
@@ -603,34 +645,10 @@ export class AgentController extends BaseController {
         }
 
         if (body.capabilities && Array.isArray(body.capabilities)) {
-          const callerAgentId = (req.headers['x-caller-agent-id'] || req.headers['x-agent-id']) as string | undefined;
-          if (callerAgentId) {
-            const callerIdentity = this.agentRepo.getIdentity(callerAgentId);
-            const callerDef = callerIdentity ? this.agentRepo.getDefinition(callerIdentity.definitionId) : undefined;
-            const callerCaps = new Set(callerDef?.capabilities || []);
-            const hasWildcard = callerCaps.has('*') || callerCaps.has('tools:*');
-            if (!hasWildcard) {
-              const unauthorized = body.capabilities.filter(c => !callerCaps.has(c));
-              if (unauthorized.length > 0) {
-                return this.sendJson(res, 403, { error: `Forbidden: Caller agent cannot grant unheld capabilities: ${unauthorized.join(', ')}` });
-              }
-            }
+          const capErr = this.validateAndApplyCapabilities(req, identity.id, identity.definitionId, body.capabilities);
+          if (capErr) {
+            return this.sendJson(res, 403, { error: capErr });
           }
-          const validCaps = new Set(['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate', 'mcp:call', 'browser:read', 'browser:interact', 'desktop:read', 'desktop:interact', 'memory:read', 'memory:write', 'net:fetch', 'web:browse', 'gui:desktop', 'schedule:cron']);
-          const sanitizedCaps = body.capabilities.filter(c => validCaps.has(c));
-          this.db.execute(
-            `UPDATE agent_definitions SET capabilities_json = ? WHERE id = ?`,
-            JSON.stringify(sanitizedCaps),
-            identity.definitionId
-          );
-          try {
-            EventLedger.getInstance().record({
-              eventType: 'agent.capabilities_updated',
-              entityType: 'agent',
-              entityId: identity.id,
-              payload: { capabilities: sanitizedCaps },
-            });
-          } catch (err) { console.debug("[agent_controller] Suppressed exception in catch block:", err); }
         }
 
         this.broadcastEvent('agent:updated', { agentId: identity.id, activeModelId: activeModelId || identity.activeModelId, projectId: identity.projectId, channelId: body.channelId, ...body });
@@ -673,34 +691,10 @@ export class AgentController extends BaseController {
         }
 
         if ((body as any).capabilities && Array.isArray((body as any).capabilities)) {
-          const callerAgentId = (req.headers['x-caller-agent-id'] || req.headers['x-agent-id']) as string | undefined;
-          if (callerAgentId) {
-            const callerIdentity = this.agentRepo.getIdentity(callerAgentId);
-            const callerDef = callerIdentity ? this.agentRepo.getDefinition(callerIdentity.definitionId) : undefined;
-            const callerCaps = new Set(callerDef?.capabilities || []);
-            const hasWildcard = callerCaps.has('*') || callerCaps.has('tools:*');
-            if (!hasWildcard) {
-              const unauthorized = (body as any).capabilities.filter((c: string) => !callerCaps.has(c));
-              if (unauthorized.length > 0) {
-                return this.sendJson(res, 403, { error: `Forbidden: Caller agent cannot grant unheld capabilities: ${unauthorized.join(', ')}` });
-              }
-            }
+          const capErr = this.validateAndApplyCapabilities(req, identity.id, identity.definitionId, (body as any).capabilities);
+          if (capErr) {
+            return this.sendJson(res, 403, { error: capErr });
           }
-          const validCaps = new Set(['fs:read', 'fs:write', 'shell:exec', 'agent:hire', 'agent:delegate', 'mcp:call', 'browser:read', 'browser:interact', 'desktop:read', 'desktop:interact', 'memory:read', 'memory:write', 'net:fetch', 'web:browse', 'gui:desktop', 'schedule:cron']);
-          const sanitizedCaps = (body as any).capabilities.filter((c: string) => validCaps.has(c));
-          this.db.execute(
-            `UPDATE agent_definitions SET capabilities_json = ? WHERE id = ?`,
-            JSON.stringify(sanitizedCaps),
-            identity.definitionId
-          );
-          try {
-            EventLedger.getInstance().record({
-              eventType: 'agent.capabilities_updated',
-              entityType: 'agent',
-              entityId: identity.id,
-              payload: { capabilities: sanitizedCaps },
-            });
-          } catch (err) { console.debug("[agent_controller] Suppressed exception in catch block:", err); }
         }
 
         this.broadcastEvent('agent:updated', { agentId, ...body });

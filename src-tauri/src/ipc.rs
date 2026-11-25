@@ -22,10 +22,13 @@ pub fn get_ipc_token() -> Result<String, String> {
     candidates.push(supervisor_dir.join("ipc_auth.token"));
     candidates.push(supervisor_dir.join(".kin").join("ipc_auth.token"));
 
-    let current_dir = env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    candidates.push(current_dir.join(".kin").join("ipc_auth.token"));
-    candidates.push(current_dir.join("..").join(".kin").join("ipc_auth.token"));
-    candidates.push(current_dir.join("ipc_auth.token"));
+    #[cfg(debug_assertions)]
+    {
+        let current_dir = env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        candidates.push(current_dir.join(".kin").join("ipc_auth.token"));
+        candidates.push(current_dir.join("..").join(".kin").join("ipc_auth.token"));
+        candidates.push(current_dir.join("ipc_auth.token"));
+    }
 
     for path in &candidates {
         if path.exists() {
