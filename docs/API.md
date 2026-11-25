@@ -161,9 +161,9 @@ Recruit a new specialist coworker into the workforce.
 - **Request Body**:
   ```json
   {
-    "name": "SecurityAuditor",
-    "role": "Application Security Specialist",
-    "model": "ollama/qwen2.5-coder:3b",
+    "displayName": "SecurityAuditor",
+    "roleTitle": "Application Security Specialist",
+    "modelId": "ollama/qwen2.5-coder:3b",
     "systemPrompt": "You are a specialized application security auditor...",
     "channelId": "chan-general"
   }
@@ -455,11 +455,29 @@ Navigate headless browser to a specified URL.
   { "url": "https://example.com" }
   ```
 
+### `POST /api/browser/act`
+Execute browser click, type, scroll, or step actions.
+
+### `POST /api/browser/inspect`
+Extract interactive DOM elements, Set-of-Mark bounding boxes, CDP Accessibility Tree (`axNodes`), and console/network ring buffers.
+
 ### `POST /api/browser/screenshot`
 Capture screenshot of current browser web page.
 
-### `POST /api/browser/evaluate`
-Execute JavaScript expression in the browser DOM.
+### `POST /api/channels/:id/worktree/undo` (and `/redo`, `/fork`)
+Revert, restore, or fork the active git worktree branch for a channel.
+
+### `GET /api/projects/:id/trust` & `POST /api/projects/:id/trust`
+Inspect or approve SHA-256 Workspace Trust for repository-local `.kin/*` and `.kin-plugin/*` configs.
+
+### `GET /api/exceptions` & `POST /api/exceptions/:id/resolve`
+List and resolve queued runtime exceptions.
+
+### `GET /api/artifacts`
+List persisted file-write, file-edit, and verification artifacts.
+
+### `GET /api/mcp/registry`, `/api/mcp/apps/read`, `/api/mcp/elicitations`
+Search the Official MCP Registry, fetch `ui://` MCP App HTML resources, and list/respond to pending MCP elicitation requests.
 
 ---
 

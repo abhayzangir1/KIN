@@ -2,7 +2,7 @@
 
 KIN provides an enterprise-grade slash command framework that enables direct operator steering, workflow orchestration, workforce management, and runtime diagnostics directly within any channel or direct message thread.
 
-All slash commands are parsed by the core engine (`core/src/server/core_server.ts`) and execute with strict validation, real-time Server-Sent Events (SSE) broadcasting, and SQLite durability.
+All slash commands are parsed by `ChannelController` (`core/src/server/controllers/channel_controller.ts`) and UI shortcuts in `CenterView.tsx` with strict validation, real-time Server-Sent Events (SSE) broadcasting, and SQLite durability.
 
 ---
 
@@ -224,15 +224,18 @@ Controls or queries the persistent headless/headed browser instance.
 **Syntax:**
 ```text
 /browser <url>
-/undo
-/redo
-/fork [branch-slug]
 ```
 
 **Examples:**
 - `/browser https://github.com/trending` — Navigates the persistent Puppeteer browser to the target URL.
+
+---
+
+### 11b. Worktree & UI Commands (`/undo`, `/redo`, `/fork`, `/mcp`, `/connectors`, `/clear`, `/skill:<slug>`)
 - `/undo` / `/redo` — Reverts or restores the project git worktree commit.
-- `/fork feature-x` — Creates an isolated forked git worktree branch.
+- `/fork [branch-slug]` — Creates an isolated forked git worktree branch.
+- `/mcp` / `/connectors` — Inspects live MCP tools/servers or opens the MCP Connectors modal.
+- `/skill:<slug>` — Invokes an installed skill by slug; `/clear` clears the active composer input.
 
 ---
 

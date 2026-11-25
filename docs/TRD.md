@@ -6,7 +6,7 @@
 **Status:** Synchronized Technical Requirements & Architecture Specification (Verified v12.0)
 **Platform:** Tauri 2 desktop — Windows, macOS, Linux
 **Runtime model:** Tauri shell + Rust native boundary + local TypeScript/Node core (Modular Local Monolith)
-**Target Runtimes:** Node.js v20+, TypeScript 5.8+, SQLite 3 (WAL Mode), React 18, Vite 6, Tauri 2, Ollama
+**Target Runtimes:** Node.js >=22.5.0, TypeScript 5.8+, SQLite 3 (WAL Mode via `node:sqlite`), React 18, Vite 6, Tauri 2, Ollama
 **Persistence:** SQLite 3 (WAL mode) + local filesystem
 **Source strategy:** Native KIN domain, selective reuse/adapters for external runtime patterns
 
@@ -203,49 +203,23 @@ No optional framework becomes the authority for these product concerns.
 # 3. Core module architecture
 
 ```text
-core/
-├── domain/
-│   ├── workspace/
-│   ├── project/
-│   ├── team/
-│   ├── agent/
-│   ├── conversation/
-│   ├── channel/
-│   ├── task/
-│   ├── goal/
-│   ├── artifact/
-│   ├── memory/
-│   ├── skill/
-│   ├── model/
-│   ├── tool/
-│   └── event/
-├── agent-kernel/
-├── communication/
-├── planning/
-├── context/
-├── memory/
-├── skills/
-├── execution/
-│   ├── model-gateway/
-│   ├── tool-gateway/
-│   ├── mcp/
-│   └── sandbox/
-├── policy/
-├── artifacts/
-├── scheduler/
-├── events/
-├── recovery/
-├── observability/
-├── storage/
-└── adapters/
-    ├── deepseek-harness/
-    ├── adk/
-    ├── openhands/
-    ├── langgraph/
-    └── external/
+core/src/
+├── api/            # OAuth 2.0/2.1 & Device Flow handlers
+├── automation/     # SchedulerService & DST-safe cron calendar
+├── browser/        # Puppeteer + CDP AXTree/SoM browser controller
+├── computer/       # Windows UIA/SendInput desktop controller & supervisor
+├── context/        # ContextCompiler, ContextCompactor, OutputSpiller, RulesLoader
+├── domain/         # Repositories (workspace, agent, task, memory)
+├── evaluation/     # HardwareProfiler & evaluation metrics
+├── execution/      # ModelGateway, ToolGateway, ToolEngine, QuickJS worker, LSP, MCP, Worktrees
+├── kernel/         # AgentKernel, AgentLoopRunner, LoopBreaker, WakeupQueue, RunnerAdapter
+├── policy/         # PolicyEngine, HookRegistry, WorkspaceTrustManager, FinancialSafety
+├── recovery/       # RecoveryEngine & checkpoint restoration
+├── security/       # Sentinel, SecretBroker, SecretVault, EventLedger, path_jail
+├── server/         # CoreServer + controllers (agent, channel, mcp, system, task, workspace)
+├── skills/         # SkillEngine & PluginManager
+└── storage/        # node:sqlite DatabaseSync, MigrationRunner, schema.sql
 ```
-
-Adapters may be disabled or replaced without changing product semantics.
 
 ---
 
@@ -327,7 +301,7 @@ A source or result used to support a claim.
 $KIN_HOME/
 ├── config/
 ├── database/
-│   └── KIN.sqlite
+│   └── kin_storage.sqlite
 ├── projects/
 │   └── <project-id>/
 │       ├── workspace/

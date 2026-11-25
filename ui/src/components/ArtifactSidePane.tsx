@@ -73,18 +73,23 @@ export const ArtifactSidePane: React.FC<ArtifactSidePaneProps> = ({ isOpen, onCl
     try {
       meta = selected.metadata_json ? JSON.parse(selected.metadata_json) : {};
     } catch {}
-    const relPath = meta?.filePath || selected.uri.replace(/^file:\/\//i, '');
+    const rawUriPath = selected.uri.replace(/^file:\/\/\/([a-zA-Z]:\/)/, '$1').replace(/^file:\/\//i, '');
+    const relPath = meta?.filePath || rawUriPath;
     if (!relPath) return;
 
-    fetch(`/api/projects/${encodeURIComponent(activeProjectId)}/artifacts?path=${encodeURIComponent(relPath)}`)
+    const ac = new AbortController();
+    fetch(`/api/projects/${encodeURIComponent(activeProjectId)}/artifacts?path=${encodeURIComponent(relPath)}`, { signal: ac.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => {
+        if (ac.signal.aborted) return;
         if (typeof d?.content === 'string') setContent(d.content);
         else setContent(JSON.stringify(meta, null, 2));
       })
       .catch(() => {
+        if (ac.signal.aborted) return;
         setContent(Object.keys(meta).length > 0 ? JSON.stringify(meta, null, 2) : '');
       });
+    return () => ac.abort();
   }, [selected, activeProjectId]);
 
   if (!isOpen) return null;
@@ -186,16 +191,18 @@ export const ArtifactSidePane: React.FC<ArtifactSidePaneProps> = ({ isOpen, onCl
         <div className="flex items-center space-x-2">
           <button
             type="button"
+            disabled={!selected || !activeChannelId}
             onClick={() => handleDecision('revise')}
-            className="flex-1 flex items-center justify-center space-x-1 px-2.5 py-1.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-amber-300 text-xs font-semibold cursor-pointer"
+            className="flex-1 flex items-center justify-center space-x-1 px-2.5 py-1.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-amber-300 text-xs font-semibold cursor-pointer disabled:opacity-40"
           >
             <MessageSquarePlus className="w-3.5 h-3.5" />
             <span>Request Revision</span>
           </button>
           <button
             type="button"
+            disabled={!selected || !activeChannelId}
             onClick={() => handleDecision('proceed')}
-            className="flex-1 flex items-center justify-center space-x-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer"
+            className="flex-1 flex items-center justify-center space-x-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer disabled:opacity-40"
           >
             <CheckCircle2 className="w-3.5 h-3.5" />
             <span>Proceed</span>

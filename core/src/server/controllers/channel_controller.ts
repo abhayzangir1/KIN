@@ -5,6 +5,7 @@ import * as crypto from 'node:crypto';
 import { AgentDefinition, AgentIdentity, Channel, Goal, Task, Decision } from '../../domain/types.js';
 import { ContextCompactor } from '../../context/context_compactor.js';
 import { WorktreeManager } from '../../execution/worktree_manager.js';
+import { isPathWithinRoot } from '../../security/path_jail.js';
 import { BaseController } from './base_controller.js';
 
 export class ChannelController extends BaseController {
@@ -43,7 +44,10 @@ export class ChannelController extends BaseController {
         const project = this.workspaceRepo.getProject(channel.projectId);
         const repoRoot = (project as any)?.repoRoot || project?.repoPath || process.cwd();
         const body = await this.parseJsonBody<{ worktreePath?: string; branchSlug?: string }>(req);
-        const targetDir = body?.worktreePath ? path.resolve(body.worktreePath) : repoRoot;
+        const targetDir = body?.worktreePath ? path.resolve(repoRoot, body.worktreePath) : repoRoot;
+        if (!isPathWithinRoot(targetDir, repoRoot)) {
+          return this.sendJson(res, 403, { error: 'Forbidden: worktreePath escapes project root' });
+        }
         const wm = new WorktreeManager(repoRoot);
         if (action === 'undo') {
           const result = await wm.undoLastTurn(targetDir);

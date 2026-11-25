@@ -9,7 +9,7 @@
 
 KIN is organized into three production workspaces backed by 36 authoritative SQLite tables (34 base tables + 2 FTS5 virtual tables):
 
-- `core/`: TypeScript daemon on Node.js 22, SQLite WAL engine (31 tables), multi-agent loop runner, multi-provider model gateway (Ollama, NVIDIA NIM, OpenRouter, OpenAI, Anthropic, Gemini, Groq), tool gateway, dedicated `ToolEngine` worker sandbox, `SkillEngine` procedural VM sandbox, scheduler, and integration clients.
+- `core/`: TypeScript daemon on Node.js 22, SQLite WAL engine (36 tables), multi-agent loop runner, multi-provider model gateway (Ollama, NVIDIA NIM, OpenRouter, OpenAI, Anthropic, Gemini, Groq), tool gateway, dedicated `ToolEngine` QuickJS-WASM sandbox, `SkillEngine` procedural + QuickJS-WASM sandbox, scheduler, and integration clients.
 - `ui/`: React 18, Tailwind CSS, and Zustand desktop interface with embedded static asset serving, offline resilience banners, WCAG AAA semantic tokens, and dynamic custom tool management.
 - `src-tauri/`: Tauri v2 and Rust desktop shell providing native windowing, system tray, loopback IPC supervision, and Node SEA sidecar binary execution.
 - `docs/`: Developer guides, tutorials, API specifications, and example bot packages.
@@ -43,7 +43,7 @@ KIN is organized into three production workspaces backed by 36 authoritative SQL
 - **Application Discovery**: Enumerates installed executables from registry and Start Menu shortcuts (`GET /api/system/apps`).
 - **GUI Window Inspection**: Enumerate top-level Windows handles, process IDs, and titles (`GET /api/system/windows`).
 - **Screen Capture**: Native GDI display capture (`POST /api/system/desktop/screenshot`).
-- **Browser Automation**: Full Puppeteer Chromium controller (`GET /api/browser/status`, `POST /api/browser/navigate`, `POST /api/browser/click`, `POST /api/browser/screenshot`, `POST /api/browser/evaluate`) with strict SSRF metadata blocking.
+- **Browser Automation**: Full Puppeteer Chromium controller (`GET /api/browser/status`, `POST /api/browser/navigate`, `POST /api/browser/act`, `POST /api/browser/inspect`, `POST /api/browser/screenshot`, `POST /api/browser/close`) with SSRF metadata blocking.
 
 ### 5. Production Packaging & Embedded Web Serving
 - **Node SEA Desktop Sidecar**: Single-executable binary packaging via Node Single Executable Applications (`package_binary.js`), embedding current SQLite schemas and migrations into `src-tauri/binaries/kin-core.exe`.
@@ -68,11 +68,10 @@ KIN is organized into three production workspaces backed by 36 authoritative SQL
 
 ### Automated Test Suite
 - **Core Test Suite (`npm test --workspace=core`)**:
-  - **84 Test Suites**: All 84 passed deterministically without regressions.
-  - **1,224 Tests**: 1,224 tests passing across 84 test files (0 failed, 0 skipped, 0 regressions).
-  - Full regression coverage spans all 18 production layers: cold boot, health telemetry, static asset serving, task lease contention, message ingestion fencing, atomic CAS approval gates, SHA-256 EventLedger cryptographic integrity, NVIDIA NIM streaming backoff, and dynamic tool engine security under multi-worker loads.
+  - **90 Core Test Files**: All 90 passed deterministically without regressions.
+  - **1,257 Core Tests (+ UI Suite)**: 1,257 core tests + 3 UI tests passing (0 failed, 0 skipped, 0 regressions).
+  - Full regression coverage spans all production layers: cold boot, health telemetry, static asset serving, task lease contention, message ingestion fencing, atomic CAS approval gates, SHA-256 EventLedger cryptographic integrity, NVIDIA NIM streaming backoff, Workspace Trust quarantine, QuickJS-WASM sandboxing, and MCP 2026-07-28 runtime validation.
   - Zero mock data or synthetic score facades: dynamic rubric evaluation from database records, authentic credential-gated model discovery, and centralized fallback model configuration (`DEFAULT_FALLBACK_MODEL_ID`).
-  - Zero empty catch blocks across TypeScript, TSX, embedded PowerShell, and HTML template strings.
   - Cross-project DAG isolation: child task advancement strictly queries parent goal project identity and origin channel.
   - `tool_engine_adversarial.test.ts` explicitly verifies:
     1. Infinite loop and CPU starvation timeouts (`executionContext.timeoutMs`).

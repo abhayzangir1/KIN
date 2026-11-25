@@ -1288,7 +1288,10 @@ export class AgentLoopRunner {
           const extraParams = extraCall.parameters || {};
           const extraRisk = this.toolGateway.classifyRisk(extraCall.name, extraParams);
           const extraFin = this.financialSafety.evaluateFinancialRisk(extraCall.name, extraParams);
-          if (extraFin.requiresHardStop && !(options as any).approvalToken) {
+          if (extraFin.requiresHardStop) {
+            if (options.onTurnCheckpoint) {
+              try { await options.onTurnCheckpoint(currentTurn, conversationHistory, actions); } catch {}
+            }
             return {
               finalContent: `Execution suspended awaiting human operator approval for financial action: ${extraCall.name}`,
               turnCount: currentTurn,
@@ -1334,6 +1337,9 @@ export class AgentLoopRunner {
           });
 
           if (extraRes.requiresApproval) {
+            if (options.onTurnCheckpoint) {
+              try { await options.onTurnCheckpoint(currentTurn, conversationHistory, actions); } catch {}
+            }
             return {
               finalContent: `Execution suspended awaiting human operator approval for ${extraCall.name}: ${extraRes.error || ''}`,
               turnCount: currentTurn,
@@ -1360,6 +1366,12 @@ export class AgentLoopRunner {
           conversationHistory.push({
             role: 'user',
             content: `<observation nonce="${extraNonce}">\n${extraSafe}\n</observation>`,
+          } as any);
+        }
+        if (response.toolCalls && response.toolCalls.length > 5) {
+          conversationHistory.push({
+            role: 'user',
+            content: `<observation>\nNOTICE: ${response.toolCalls.length - 5} additional parallel tool call(s) were omitted (max 5 per turn). Re-issue remaining calls if still needed.\n</observation>`,
           } as any);
         }
       }

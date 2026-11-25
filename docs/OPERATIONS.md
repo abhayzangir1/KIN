@@ -9,7 +9,7 @@ This manual provides authoritative operational guidelines for running, configuri
 | Component | Minimum Version | Recommended Specification |
 |---|---|---|
 | **Platform** | Windows 10/11 (x64), macOS 12+ (Apple Silicon/Intel), Linux (Ubuntu 22.04+) | 64-bit system |
-| **Node.js** | v20.0.0 LTS | v22 LTS |
+| **Node.js** | v22.5.0+ | v22 LTS |
 | **npm** | v10.0.0 | Latest |
 | **Rust / Cargo** | v1.75+ | Required only when compiling the Tauri desktop shell |
 | **SQLite** | Node.js `node:sqlite` (`DatabaseSync`) | Runs in WAL (Write-Ahead Logging) mode |
@@ -77,9 +77,8 @@ Configure KIN by creating a `.env` file in the repository root or exporting envi
 | Variable | Default Value | Description |
 |---|---|---|
 | `KIN_PORT` | `54321` | TCP port for the KIN Core Daemon HTTP REST and SSE server. |
-| `KIN_HOST` | `127.0.0.1` | Network binding interface. Keep as `127.0.0.1` for local-first security. |
 | `KIN_DB_PATH` | platform app-data dir (`kin_storage.sqlite`) | Path to the authoritative SQLite database (defaults to `getDataDirectory()`). |
-| `KIN_IPC_TOKEN` | *Auto-generated* | Secret bearer token required for authenticating all API and SSE connections. |
+| `ipc_auth.token` | *Auto-generated on disk* | Secret bearer token stored in `<dataDir>/ipc_auth.token` for authenticating API and SSE connections. |
 | `OLLAMA_HOST` | `http://127.0.0.1:11434` | Endpoint for connecting to the local Ollama inference service. |
 | `NODE_ENV` | `development` | Runtime environment (`development` or `production`). |
 

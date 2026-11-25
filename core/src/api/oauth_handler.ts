@@ -227,9 +227,12 @@ export class OAuthHandler {
             body: bodyParams.toString(),
           });
           const tokenData = (await tokenRes.json()) as any;
-          accessToken = tokenData.access_token || code;
+          if (!tokenData.access_token) {
+            throw new Error(tokenData.error_description || tokenData.error || 'Google OAuth token exchange did not return an access_token.');
+          }
+          accessToken = tokenData.access_token;
         } else {
-          accessToken = code;
+          throw new Error('OAuth provider "google" is not configured. Missing KIN_GOOGLE_CLIENT_ID.');
         }
       } else if (session.provider === 'slack') {
         const clientId = process.env.KIN_SLACK_CLIENT_ID;
@@ -247,12 +250,16 @@ export class OAuthHandler {
             body: bodyParams.toString(),
           });
           const tokenData = (await tokenRes.json()) as any;
-          accessToken = tokenData.access_token || tokenData.authed_user?.access_token || code;
+          const token = tokenData.access_token || tokenData.authed_user?.access_token;
+          if (!token) {
+            throw new Error(tokenData.error || 'Slack OAuth token exchange did not return an access_token.');
+          }
+          accessToken = token;
         } else {
-          accessToken = code;
+          throw new Error('OAuth provider "slack" requires KIN_SLACK_CLIENT_ID and KIN_SLACK_CLIENT_SECRET.');
         }
       } else {
-        accessToken = code;
+        throw new Error(`Unsupported OAuth provider '${session.provider}'.`);
       }
 
       // Store securely in SQLite managed_credentials

@@ -389,7 +389,21 @@ export class WorktreeManager {
     if (!fs.existsSync(sourceDir)) return;
     const entries = fs.readdirSync(sourceDir, { withFileTypes: true });
     for (const entry of entries) {
-      if (entry.name === '.kin' || entry.name === 'node_modules' || entry.name === '.git') {
+      const lower = entry.name.toLowerCase();
+      if (
+        entry.name === '.kin' ||
+        entry.name === 'node_modules' ||
+        entry.name === '.git' ||
+        lower === '.env' ||
+        lower.startsWith('.env.') ||
+        lower === 'vault.key' ||
+        lower === 'ipc_auth.token' ||
+        lower.endsWith('.pem') ||
+        lower.endsWith('.key') ||
+        lower.endsWith('.sqlite') ||
+        lower.endsWith('.sqlite-wal') ||
+        lower.endsWith('.sqlite-shm')
+      ) {
         continue;
       }
       const srcPath = path.join(sourceDir, entry.name);

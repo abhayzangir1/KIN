@@ -2374,6 +2374,14 @@ export class SystemController extends BaseController {
         }
         try {
           const data = await OAuthHandler.pollGitHubDeviceToken(body.deviceCode, body.clientId);
+          if (data?.access_token && this.db) {
+            const { CredentialScanner } = await import('../../security/credential_scanner.js');
+            CredentialScanner.importCredential(this.db, {
+              provider: 'github',
+              keyAlias: 'github-device-oauth',
+              token: data.access_token,
+            });
+          }
           return this.sendJson(res, 200, { success: true, ...data });
         } catch (err: any) {
           return this.sendJson(res, 400, { success: false, error: err?.message || String(err) });
@@ -2405,7 +2413,7 @@ export class SystemController extends BaseController {
 
       // 71d. POST /api/oauth/authorize/:provider — Initiate 1-click OAuth flow
       const oauthAuthMatch = pathname.match(/^\/api\/oauth\/authorize\/([^/]+)$/);
-      if ((req.method === 'POST' || req.method === 'GET') && oauthAuthMatch) {
+      if (req.method === 'POST' && oauthAuthMatch) {
         const provider = oauthAuthMatch[1].toLowerCase() as 'github' | 'google' | 'slack';
         if (provider !== 'github' && provider !== 'google' && provider !== 'slack') {
           return this.sendJson(res, 400, { error: `Unsupported OAuth provider: ${provider}` });

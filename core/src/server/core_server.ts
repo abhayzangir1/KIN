@@ -759,6 +759,25 @@ export class CoreServer {
     this.toolGateway.setSkillEngine(this.skillEngine);
     this.recoveryEngine = new RecoveryEngine(this.skillEngine);
     this.mcpClient = new McpClientManager(repoRoot);
+    this.mcpClient.setSamplingHandler(async ({ messages, maxTokens }) => {
+      const sanitizedMsgs = messages.map((m: any) => ({
+        role: (m?.role === 'assistant' ? 'assistant' : 'user') as 'user' | 'assistant',
+        content: typeof m?.content === 'string' ? m.content : (m?.content?.text || JSON.stringify(m?.content || '')),
+      }));
+      const defaultModel = this.agentRepo.listIdentitiesByProject(this.activeProjectId)?.[0]?.activeModelId || DEFAULT_FALLBACK_MODEL_ID;
+      const resp = await this.modelGateway.invoke({
+        modelId: defaultModel,
+        messages: sanitizedMsgs,
+        maxTokens: Math.min(maxTokens || 512, 1024),
+        temperature: 0.2,
+      });
+      return {
+        role: 'assistant',
+        content: { type: 'text', text: resp.content || '' },
+        model: defaultModel,
+        stopReason: 'endTurn',
+      };
+    });
     this.toolGateway.setMcpClient(this.mcpClient);
     this.financialSafety = new FinancialSafetyShield();
     this.agentLoopRunner = new AgentLoopRunner(

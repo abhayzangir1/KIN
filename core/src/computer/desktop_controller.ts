@@ -1087,8 +1087,13 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
         using System;
         using System.Runtime.InteropServices;
         public class KinInput {
-          [StructLayout(LayoutKind.Sequential)] public struct INPUT { public uint type; public KEYBDINPUT ki; }
+          [StructLayout(LayoutKind.Sequential)] public struct MOUSEINPUT { public int dx; public int dy; public uint mouseData; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
           [StructLayout(LayoutKind.Sequential)] public struct KEYBDINPUT { public ushort wVk; public ushort wScan; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
+          [StructLayout(LayoutKind.Explicit)] public struct INPUT {
+            [FieldOffset(0)] public uint type;
+            [FieldOffset(8)] public MOUSEINPUT mi;
+            [FieldOffset(8)] public KEYBDINPUT ki;
+          }
           [DllImport("user32.dll", SetLastError=true)] public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
           [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
           public static void SendUnicode(string s) {

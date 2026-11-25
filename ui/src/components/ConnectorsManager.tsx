@@ -303,12 +303,17 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
   const [deviceFlowPrompt, setDeviceFlowPrompt] = useState<{ user_code: string; verification_uri: string; device_code: string } | null>(null);
 
   useEffect(() => {
-    fetch('/api/mcp/elicitations')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (Array.isArray(d?.elicitations)) setPendingElicitations(d.elicitations);
-      })
-      .catch(() => {});
+    const fetchElicitations = () => {
+      fetch('/api/mcp/elicitations')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (Array.isArray(d?.elicitations)) setPendingElicitations(d.elicitations);
+        })
+        .catch(() => {});
+    };
+    fetchElicitations();
+    const timer = setInterval(fetchElicitations, 5000);
+    return () => clearInterval(timer);
   }, []);
 
   const handleRespondElicitation = async (id: string, action: 'accept' | 'decline' | 'cancel') => {
@@ -1933,14 +1938,18 @@ export const ConnectorsManager: React.FC<ConnectorsManagerProps> = ({
                   <div className="text-xs font-semibold text-kin-text truncate">{srv?.name || 'MCP Server'}</div>
                   <div className="text-[11px] text-kin-muted truncate">{srv?.description || ''}</div>
                 </div>
-                {srv?.url && (
+                {(srv?.url || srv?.packages?.[0]?.identifier) && (
                   <button
                     type="button"
                     onClick={async () => {
+                      const pkg = srv?.packages?.[0];
+                      const config = srv?.url
+                        ? { url: srv.url }
+                        : { command: 'npx', args: ['-y', String(pkg.identifier)] };
                       const res = await saveMcpConnector({
                         name: String(srv.name || `reg-${idx}`).replace(/[^a-zA-Z0-9_-]/g, '-'),
                         scope: 'project',
-                        config: { url: srv.url },
+                        config,
                       });
                       if (res?.success) {
                         addToast(`Installed MCP connector '${srv.name}'`, 'success');
