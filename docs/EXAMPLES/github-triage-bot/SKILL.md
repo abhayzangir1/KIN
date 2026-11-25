@@ -15,9 +15,7 @@ trigger_patterns:
   - diff
   - github
   - pull-request
-parameters:
-  strictMode: true
-  maxDiffLines: 1000
+parameters: {"strictMode": true, "maxDiffLines": 1000}
 ---
 
 # GitHub Triage Bot Skill

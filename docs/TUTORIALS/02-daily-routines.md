@@ -7,7 +7,7 @@ KIN includes a native background automation scheduler that runs independently of
 ## How KIN Scheduling Works
 
 Unlike cloud SaaS platforms that require webhooks or external cron daemons, KIN's scheduler runs as an internal service (`core/src/automation/scheduler.ts`) backed by SQLite:
-- **Durable Persistence**: All schedules are written to the `schedules` and `schedule_attempts` tables in WAL mode.
+- **Durable Persistence**: All schedules are written to the `schedules` table (and attempt logs to `event_journal`) in WAL mode.
 - **Precision Calendar**: Uses a robust five-field cron parser (`core/src/automation/cron_calendar.ts`) to compute exact future timestamps.
 - **Daemon Resilience**: If the daemon or computer restarts, KIN recovers missed or pending schedules upon startup and executes overdue triggers according to configurable catch-up policies.
 
@@ -56,8 +56,8 @@ Recurring routines automate repetitive engineering workflows such as daily stand
 
 ### Syntax
 ```text
-/routine <cron expression> <directive>
-/routine <interval> <directive>
+/routine <5-field cron expression> <directive>
+/schedule <duration> <directive>
 ```
 
 ### Standard Cron Formats (5 Fields: Minute Hour Day-of-Month Month Day-of-Week)
@@ -66,10 +66,10 @@ Recurring routines automate repetitive engineering workflows such as daily stand
 - `0 18 * * 1-5` — Weekdays at 6:00 PM (end-of-day summary).
 - `0 0 * * 0` — Every Sunday at midnight (weekly architecture audit).
 
-### Interval Formats
-- `4h` — Every 4 hours.
-- `12h` — Twice a day.
-- `1d` — Once daily.
+### One-Shot Duration Formats
+- `45s` — Run once in 45 seconds.
+- `15m` — Run once in 15 minutes.
+- `4h` / `12h` — Run once in 4 or 12 hours.
 
 ### Practical Example: Daily Morning Briefing Bot
 To set up a daily workspace status briefing:
@@ -89,19 +89,12 @@ To set up a daily workspace status briefing:
 
 ## Part 3: Inspecting & Managing Active Schedules
 
-### Via Slash Command
-To view and manage schedules in your active channel:
-```text
-/schedule list
-```
-Displays all scheduled items, next trigger times, interval rules, and active states.
-
-### Via REST API
-You can also inspect or cancel schedules programmatically:
+### Via REST API or Automations Modal
+Open the **Automations** modal in the header bar or inspect/cancel schedules programmatically:
 ```bash
 # List all schedules for the project
 curl -H "Authorization: Bearer $KIN_TOKEN" \
-  http://127.0.0.1:54321/api/projects/proj-default/schedules
+  http://127.0.0.1:54321/api/projects/proj-kin/schedules
 
 # Cancel a specific schedule
 curl -X DELETE -H "Authorization: Bearer $KIN_TOKEN" \

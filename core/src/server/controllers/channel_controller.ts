@@ -1677,15 +1677,15 @@ export class ChannelController extends BaseController {
         }
 
         // 5b. /routine <cron-or-seconds> <prompt> — Proactive Personal Assistant & Routines
-        if (contentLower === '/routine' || contentLower.startsWith('/routine ')) {
-          const rawParams = rawContent.replace(/^\/routine\s*/i, '').trim();
+        if (contentLower === '/routine' || /^\/routine[\s:\n]/.test(contentLower)) {
+          const rawParams = rawContent.replace(/^\/routine[\s:]*/i, '').trim();
           if (!rawParams) {
             if (boss) {
               const helpMsg = this.channelService.sendMessage({
                 channelId,
                 senderId: boss.id,
                 senderType: 'agent',
-                content: `ℹ️ **Usage**: \`/routine <interval-seconds | cron-expression> [directive]\`\n\nExamples:\n- \`/routine 30s Check active tasks\`\n- \`/routine */15 * * * * Periodic project audit\``,
+                content: `ℹ️ **Usage**: \`/routine <interval-seconds | cron-expression> [directive]\`\n\nExamples:\n- \`/routine 30s Check active tasks\`\n- \`/routine 0 9 * * * Daily morning briefing\`\n- \`/routine */15 * * * * Periodic project audit\``,
                 productivityScore: 100,
               });
               this.broadcastEvent('message:created', {
@@ -1701,18 +1701,44 @@ export class ChannelController extends BaseController {
             }
             return;
           }
+          const parts = rawParams.split(/\s+/);
+          const isFiveFieldCron =
+            parts.length >= 5 &&
+            parts.slice(0, 5).every((tok) => /^(\*|\d+|\*\/\d+|\d+[-,\d/]*)$/.test(tok));
           let sched;
-          if (rawParams.startsWith('*/') || rawParams.startsWith('0 ')) {
-            const parts = rawParams.split(/\s+/);
+          if (isFiveFieldCron) {
             const cronExpr = parts.slice(0, 5).join(' ');
             const prompt = parts.slice(5).join(' ') || 'Scheduled proactive assistant routine';
-            sched = this.scheduler.createCronSchedule({
-              projectId: targetProjectId,
-              channelId,
-              targetAgentId: boss?.id,
-              prompt,
-              cronExpression: cronExpr,
-            });
+            try {
+              sched = this.scheduler.createCronSchedule({
+                projectId: targetProjectId,
+                channelId,
+                targetAgentId: boss?.id,
+                prompt,
+                cronExpression: cronExpr,
+              });
+            } catch (cronErr: any) {
+              if (boss) {
+                const errMsg = this.channelService.sendMessage({
+                  channelId,
+                  senderId: boss.id,
+                  senderType: 'agent',
+                  content: `⚠️ **Invalid Routine Schedule**: ${cronErr?.message || 'Invalid cron expression.'}`,
+                  productivityScore: 100,
+                });
+                this.broadcastEvent('message:created', {
+                  id: errMsg.id,
+                  channelId: errMsg.channelId,
+                  senderId: errMsg.senderId,
+                  senderName: boss.displayName.replace(/^@/, ''),
+                  senderType: 'agent',
+                  content: errMsg.content,
+                  createdAt: errMsg.createdAt,
+                  productivityScore: errMsg.productivityScore,
+                });
+              }
+              return;
+            }
           } else {
             const parsed = this.parseScheduleDurationAndPrompt(rawParams);
             const dur = parsed ? parsed.durationSeconds : (parseInt(rawParams.split(/\s+/)[0], 10) || 60);

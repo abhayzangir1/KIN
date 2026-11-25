@@ -304,4 +304,38 @@ describe('Wave 2 Ecosystem, Sandbox & Security Verification', () => {
     expect(snapshot).toContain('Done 24');
     expect(snapshot).not.toContain('Done 0\n');
   });
+
+  it('QuickJS sandbox blocks AsyncFunction/GeneratorFunction codegen and settles clearTimeout cleanly', async () => {
+    const { runInQuickJS } = await import('../src/execution/worker_quickjs.js');
+    const codegenRes = await runInQuickJS({
+      handlerCode: `module.exports = async function() { const AF = (async function(){}).constructor; return AF('return 42')(); };`,
+      timeoutMs: 2000,
+    });
+    expect(codegenRes.success).toBe(false);
+    expect(codegenRes.error).toMatch(/disallowed/i);
+
+    const timerRes = await runInQuickJS({
+      handlerCode: `module.exports = async function() { const id = setTimeout(() => {}, 5000); clearTimeout(id); return { cleared: true }; };`,
+      timeoutMs: 2000,
+    });
+    expect(timerRes.success).toBe(true);
+    expect(timerRes.output).toEqual({ cleared: true });
+  });
+
+  it('ActivationEngine routes "@Developer hello!" directly to @Developer rather than @Boss greeting fallback', async () => {
+    const { ActivationEngine } = await import('../src/communication/activation_engine.js');
+    const engine = new ActivationEngine();
+    const boss = { id: 'agent-boss', displayName: '@Boss', role: 'Orchestrator', isOrchestrator: true, capabilities: [], domainAuthority: [], status: 'idle', projectId: 'p1', definitionId: 'd1', activeModelId: 'm1', createdAt: 1, updatedAt: 1 } as any;
+    const dev = { id: 'agent-dev', displayName: '@Developer', role: 'Developer', isOrchestrator: false, capabilities: [], domainAuthority: [], status: 'idle', projectId: 'p1', definitionId: 'd2', activeModelId: 'm1', createdAt: 1, updatedAt: 1 } as any;
+    const res = engine.evaluateChannelRouting({
+      channelId: 'chan-1',
+      message: { id: 'msg-1', channelId: 'chan-1', senderId: 'user-operator', senderType: 'human', content: '@Developer hello!', mentions: ['@Developer'], productivityScore: 100, createdAt: Date.now() },
+      projectId: 'p1',
+      allProjectAgents: [boss, dev],
+      channelMembers: [boss, dev],
+      definitionsMap: new Map(),
+    } as any);
+    expect(res.targetAgents.map((a) => a.id)).toEqual(['agent-dev']);
+    expect(res.matchReason).toBe('direct_mention');
+  });
 });

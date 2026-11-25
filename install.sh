@@ -17,11 +17,15 @@ echo "  |_|\_\___|_| \_|   "
 echo "====================================================================="
 echo ""
 
-# 1. Check Node.js
+# 1. Check Node.js (>= 22.5.0 required for node:sqlite)
 echo "[1/4] Checking Node.js environment..."
 if ! command -v node &> /dev/null; then
     echo "[ERROR] Node.js is not installed."
-    echo "Please install Node.js v20+ from https://nodejs.org/ or your package manager (brew, apt, dnf)."
+    echo "Please install Node.js v22.5+ from https://nodejs.org/ or your package manager (brew, apt, dnf)."
+    exit 1
+fi
+if ! node -e "const [maj, min] = process.versions.node.split('.').map(Number); if (maj < 22 || (maj === 22 && min < 5)) process.exit(1);" 2>/dev/null; then
+    echo "[ERROR] Node.js $(node -v) is too old. KIN requires Node.js >= v22.5.0 (for built-in node:sqlite)."
     exit 1
 fi
 echo "      Found Node.js $(node -v) - OK."

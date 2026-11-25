@@ -18,7 +18,7 @@ Local-first execution • Hybrid model routing (Local Ollama, NVIDIA NIM & BYOK 
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org/)
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri)](https://tauri.app/)
 [![SQLite](https://img.shields.io/badge/SQLite-WAL%20Mode-003B57?logo=sqlite)](https://sqlite.org/)
-[![Tests](https://img.shields.io/badge/Tests-1%2C261%20Passed-success)](docs/PROJECT_STATUS.md)
+[![Tests](https://img.shields.io/badge/Tests-1%2C263%20Passed-success)](docs/PROJECT_STATUS.md)
 
 [Overview](#-overview) •
 [Key Features](#-key-features) •
@@ -253,7 +253,7 @@ Clone and run KIN directly from source code:
    # Typecheck monorepo across all workspaces
    npm run typecheck
 
-   # Run core backend Vitest suite (90 files, 1,258 tests) and UI suite (1 file, 3 tests)
+   # Run core backend Vitest suite (90 files, 1,260 tests) and UI suite (1 file, 3 tests)
    npm test --workspace=core
 
    # Run Tauri process supervisor tests (14 tests)
@@ -272,7 +272,7 @@ KIN features built-in compound slash commands accessible from the chat input:
 | `/goal` | Spawns a tracked, long-running project goal with milestone DAG task decomposition. | `/goal Refactor auth module \| Session tokens & tests` |
 | `/boost` | Triggers deep multi-perspective analysis and rigorous verification for complex refactors. | `/boost Audit memory leaks in event ledger` |
 | `/teamwork-preview` | Activates multi-agent workforce collaboration and peer coordination protocols. | `/teamwork-preview Review API documentation` |
-| `/schedule` / `/routine` | Configures and registers a proactive background cron or interval automation. | `/schedule 0 9 * * 1-5 \| Daily triage bot` |
+| `/schedule` / `/routine` | Configures a one-shot timer (`/schedule`) or recurring cron routine (`/routine`). | `/routine 0 9 * * 1-5 Daily triage bot` |
 | `/decisions` | Proposes a new Architectural Decision Record (ADR) for team voting and consensus. | `/decisions Migrate to SQLite WAL mode` |
 | `/browser` | Dispatches browser automation commands to the active Puppeteer controller. | `/browser https://news.ycombinator.com` |
 
@@ -286,7 +286,7 @@ Comprehensive guides, technical references, and tutorials are available in the [
 - **[REST & IPC API Reference](docs/API.md)**: Full endpoint specification covering Channels, Messages, Agents, Models, Desktop, Browser, and Automations.
 - **[Product Requirements Document (PRD)](PRD.md)**: Product vision, user personas, UX architecture, and functional requirements.
 - **[Technical Requirements Document (TRD)](docs/TRD.md)**: Non-functional requirements, security model, and performance boundaries.
-- **[Project Status & Verification Audit](docs/PROJECT_STATUS.md)**: Live verification status of all 1,261 tests, audit remediations, and roadmap.
+- **[Project Status & Verification Audit](docs/PROJECT_STATUS.md)**: Live verification status of all 1,263 tests, audit remediations, and roadmap.
 - **[Tutorials & Guides](docs/TUTORIALS.md)**:
   - [01: Assembling a Research Swarm](docs/TUTORIALS/01-research-swarm.md)
   - [02: Automating Daily Proactive Routines](docs/TUTORIALS/02-daily-routines.md)

@@ -16,10 +16,14 @@ if [ "$1" == "--dev" ] || [ "$1" == "-d" ]; then
     DEV_MODE=1
 fi
 
-# 1. Verify Node.js
+# 1. Verify Node.js (>= 22.5.0 required for node:sqlite)
 if ! command -v node &> /dev/null; then
     echo "[ERROR] Node.js is not installed or not in PATH."
-    echo "Please install Node.js v20+ from https://nodejs.org/"
+    echo "Please install Node.js v22.5+ from https://nodejs.org/"
+    exit 1
+fi
+if ! node -e "const [maj, min] = process.versions.node.split('.').map(Number); if (maj < 22 || (maj === 22 && min < 5)) process.exit(1);" 2>/dev/null; then
+    echo "[ERROR] Node.js $(node -v) is too old. KIN requires Node.js >= v22.5.0 (for built-in node:sqlite)."
     exit 1
 fi
 
@@ -55,7 +59,7 @@ fi
 if [ "$DEV_MODE" == "1" ]; then
     echo "[3/3] Launching KIN in Development Mode (Vite HMR)..."
     echo "[*] Core IPC Server: http://127.0.0.1:54321"
-    echo "[*] Vite Dev Server: http://localhost:5173"
+    echo "[*] Vite Dev Server: http://127.0.0.1:5173"
     echo ""
 
     node core/dist/start_daemon.js &
@@ -80,9 +84,9 @@ if [ "$DEV_MODE" == "1" ]; then
         IPC_TOKEN=$(cat ".kin/ipc_auth.token" 2>/dev/null || true)
     fi
 
-    LAUNCH_URL="http://localhost:5173"
+    LAUNCH_URL="http://127.0.0.1:5173"
     if [ -n "$IPC_TOKEN" ]; then
-        LAUNCH_URL="http://localhost:5173/?token=${IPC_TOKEN}"
+        LAUNCH_URL="http://127.0.0.1:5173/?token=${IPC_TOKEN}"
     fi
 
     if command -v open &> /dev/null; then

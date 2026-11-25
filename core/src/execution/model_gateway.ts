@@ -839,7 +839,6 @@ export class ModelGateway {
         testUrl = apiKey
           ? `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
           : 'https://generativelanguage.googleapis.com/v1beta/openai/models';
-        if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
       } else {
         const rawBase = baseUrl || DEFAULT_PROVIDER_BASE_URLS[provider] || 'https://api.openai.com/v1';
         const cleanBase = rawBase.replace(/\/+$/, '');
@@ -1039,7 +1038,12 @@ export class ModelGateway {
               switchedModelId: params.fallbackModelId,
             };
           }
-        } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
+        } catch (fbErr: any) {
+          if (fbErr?.name === 'AbortError' || params.signal?.aborted) {
+            throw fbErr;
+          }
+          console.debug("[model_gateway] Suppressed fallback error:", fbErr);
+        }
       }
       const durationMs = Date.now() - startTime;
       const causeText = err?.cause?.message || (err?.cause ? String(err.cause) : '');
@@ -1321,6 +1325,7 @@ export class ModelGateway {
       provider: 'ollama',
       tokensUsed,
       durationMs: Date.now() - startTime,
+      ...(collectedToolCalls.length > 0 ? { toolCalls: collectedToolCalls } : {}),
     };
   }
 
@@ -1532,7 +1537,9 @@ export class ModelGateway {
             const toolCallsDelta = parsed?.choices?.[0]?.delta?.tool_calls;
             if (Array.isArray(toolCallsDelta)) {
               for (const tc of toolCallsDelta) {
-                const idx = tc.index ?? 0;
+                const idx = typeof tc.index === 'number'
+                  ? tc.index
+                  : (tc.id || tc.function?.name ? streamToolCalls.size : Math.max(0, streamToolCalls.size - 1));
                 if (!streamToolCalls.has(idx)) {
                   streamToolCalls.set(idx, { id: tc.id || '', name: tc.function?.name || '', arguments: '' });
                 }
@@ -1576,7 +1583,9 @@ export class ModelGateway {
               const toolCallsDelta = delta?.tool_calls;
               if (Array.isArray(toolCallsDelta)) {
                 for (const tc of toolCallsDelta) {
-                  const idx = tc.index ?? 0;
+                  const idx = typeof tc.index === 'number'
+                    ? tc.index
+                    : (tc.id || tc.function?.name ? streamToolCalls.size : Math.max(0, streamToolCalls.size - 1));
                   if (!streamToolCalls.has(idx)) {
                     streamToolCalls.set(idx, { id: tc.id || '', name: tc.function?.name || '', arguments: '' });
                   }
@@ -1626,7 +1635,12 @@ export class ModelGateway {
           if (!fnName) continue;
           let fnArgs = tc?.function?.arguments ?? tc?.arguments ?? tc?.parameters ?? {};
           if (typeof fnArgs === 'string') {
-            try { fnArgs = JSON.parse(fnArgs); } catch (err) { console.debug("[model_gateway] Suppressed exception in catch block:", err); }
+            const trimmedArgs = fnArgs.trim();
+            if (!trimmedArgs) {
+              fnArgs = {};
+            } else {
+              try { fnArgs = JSON.parse(trimmedArgs); } catch { fnArgs = { raw: fnArgs }; }
+            }
           }
           collectedToolCalls.push({ name: fnName, parameters: fnArgs });
         }
@@ -1673,6 +1687,7 @@ export class ModelGateway {
       provider,
       tokensUsed,
       durationMs: Date.now() - startTime,
+      ...(collectedToolCalls.length > 0 ? { toolCalls: collectedToolCalls } : {}),
     };
   }
 
@@ -1733,9 +1748,11 @@ export class ModelGateway {
     const effectiveSignal = resolveEffectiveSignal(params.signal);
     const reqBody: Record<string, any> = {
       model: modelName,
-      system: systemMsg.length >= 1024
-        ? [{ type: 'text', text: systemMsg, cache_control: { type: 'ephemeral' } }]
-        : systemMsg,
+      ...(systemMsg ? {
+        system: systemMsg.length >= 1024
+          ? [{ type: 'text', text: systemMsg, cache_control: { type: 'ephemeral' } }]
+          : systemMsg,
+      } : {}),
       messages: coalescedMsgs,
       max_tokens: params.maxTokens ?? 2048,
       temperature: params.temperature ?? 0.2,

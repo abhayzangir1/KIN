@@ -156,6 +156,8 @@ export class SchedulerService {
       type: 'cron',
       prompt,
       cronExpression: params.cronExpression,
+      exactTiming: Boolean(params.exactTiming),
+      jitterSeconds: params.jitterSeconds,
       maxIterations: params.maxIterations,
       currentIterations: 0,
       status: 'active',
@@ -176,7 +178,7 @@ export class SchedulerService {
       schedule.prompt,
       schedule.cronExpression ?? null,
       params.exactTiming ? 1 : 0,
-      params.jitterSeconds ?? 0,
+      params.jitterSeconds ?? null,
       schedule.maxIterations ?? null,
       schedule.nextRunAt,
       schedule.createdAt,
@@ -348,20 +350,23 @@ export class SchedulerService {
           const newStatus: ScheduleStatus = hasReachedLimit ? 'completed' : 'active';
           const nextRunDate = getNextCronOccurrence(schedule.cronExpression || '*/1 * * * *', now);
           let nextRun = hasReachedLimit ? now : nextRunDate.getTime();
-          if (!hasReachedLimit) {
-            const jitterMs = Math.floor(Math.random() * 4) * 1000;
+          if (!hasReachedLimit && !schedule.exactTiming) {
+            const maxJitter = typeof schedule.jitterSeconds === 'number' && schedule.jitterSeconds >= 0 ? schedule.jitterSeconds : 3;
+            const jitterMs = maxJitter > 0 ? Math.floor(Math.random() * (maxJitter + 1)) * 1000 : 0;
             nextRun += jitterMs;
           }
 
-          this.db.execute(
-            `UPDATE schedules SET status = ?, current_iterations = ?, last_run_at = ?, next_run_at = ?, last_error = NULL, updated_at = ? WHERE id = ?`,
-            newStatus,
-            newIterations,
-            now,
-            nextRun,
-            now,
-            schedule.id
-          );
+          if (!this.db.closed) {
+            this.db.execute(
+              `UPDATE schedules SET status = ?, current_iterations = ?, last_run_at = ?, next_run_at = ?, last_error = NULL, updated_at = ? WHERE id = ? AND status = 'active'`,
+              newStatus,
+              newIterations,
+              now,
+              nextRun,
+              now,
+              schedule.id
+            );
+          }
           schedule.status = newStatus;
           schedule.currentIterations = newIterations;
           schedule.lastRunAt = now;
@@ -624,6 +629,8 @@ export class SchedulerService {
       durationSeconds: row.duration_seconds ?? undefined,
       cronExpression: row.cron_expression ?? undefined,
       timerCondition: row.timer_condition ?? 'never',
+      exactTiming: Boolean(row.exact_timing),
+      jitterSeconds: row.jitter_seconds ?? undefined,
       maxIterations: row.max_iterations ?? undefined,
       currentIterations: row.current_iterations,
       status: row.status as ScheduleStatus,

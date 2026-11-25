@@ -303,6 +303,8 @@ export interface Schedule {
   durationSeconds?: number;
   cronExpression?: string;
   timerCondition?: string;
+  exactTiming?: boolean;
+  jitterSeconds?: number;
   maxIterations?: number;
   currentIterations?: number;
   status: ScheduleStatus;

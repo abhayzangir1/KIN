@@ -36,8 +36,17 @@ if [ -z "${TAG_NAME}" ]; then
 fi
 echo -e "      Target Release: \033[1;32m${TAG_NAME}\033[0m"
 
-# Find DMG asset
-DOWNLOAD_URL="$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": "[^"]*"' | cut -d'"' -f4 | grep -E '\.dmg$' | head -n 1 || true)"
+# Find DMG asset matching host architecture (two-step to prefer arch-specific DMG)
+HOST_ARCH="$(uname -m)"
+if [ "${HOST_ARCH}" = "arm64" ]; then
+    ARCH_PATTERN="(aarch64|arm64)\.dmg$"
+else
+    ARCH_PATTERN="(x64|x86_64)\.dmg$"
+fi
+DOWNLOAD_URL="$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": "[^"]*"' | cut -d'"' -f4 | grep -E "${ARCH_PATTERN}" | head -n 1 || true)"
+if [ -z "${DOWNLOAD_URL}" ]; then
+    DOWNLOAD_URL="$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": "[^"]*"' | cut -d'"' -f4 | grep -E '\.dmg$' | head -n 1 || true)"
+fi
 if [ -z "${DOWNLOAD_URL}" ]; then
     echo -e "\033[1;31mError: No macOS DMG asset found in release ${TAG_NAME}.\033[0m"
     exit 1
@@ -62,9 +71,19 @@ if [ -n "${CHECKSUM_URL}" ]; then
             exit 1
         fi
         echo -e "      SHA-256 Verified: \033[1;32m${ACTUAL_HASH}\033[0m"
+    else
+        if [ "${KIN_ALLOW_UNVERIFIED:-0}" != "1" ]; then
+            echo -e "\033[1;31mError: SHA256SUMS.txt does not contain an entry for ${FILE_NAME}. Refusing unverified install (set KIN_ALLOW_UNVERIFIED=1 to override).\033[0m"
+            exit 1
+        fi
+        echo -e "\033[1;33m[3/4] Skipping missing checksum entry via KIN_ALLOW_UNVERIFIED=1.\033[0m"
     fi
 else
-    echo -e "\033[1;33m[3/4] Skipping checksum verification (SHA256SUMS.txt not attached).\033[0m"
+    if [ "${KIN_ALLOW_UNVERIFIED:-0}" != "1" ]; then
+        echo -e "\033[1;31mError: Release is missing SHA256SUMS.txt checksum manifest. Refusing unverified install (set KIN_ALLOW_UNVERIFIED=1 to override).\033[0m"
+        exit 1
+    fi
+    echo -e "\033[1;33m[3/4] Skipping checksum verification via KIN_ALLOW_UNVERIFIED=1.\033[0m"
 fi
 
 echo -e "\033[1;33m[4/4] Mounting DMG and installing KIN.app to /Applications...\033[0m"

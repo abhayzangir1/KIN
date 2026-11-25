@@ -346,23 +346,7 @@ export class ActivationEngine {
       };
     }
 
-    // Greeting check per PRD § 6:
-    // "If the complete meaning is only a greeting, with no task, special recipient, or broader participation request, one brief reply comes from Boss and no specialists are woken."
-    if (this.isPureGreeting(message.content)) {
-      const boss =
-        channelMembers.find((a) => a.isOrchestrator) ||
-        channelMembers[0] ||
-        allProjectAgents.find((a) => a.isOrchestrator) ||
-        allProjectAgents[0];
-      return {
-        action: 'orchestrator_fallback',
-        targetAgents: boss ? [boss] : [],
-        reason: 'pure_greeting',
-        matchReason: 'greeting_filter',
-      };
-    }
-
-    // 2. Condition 2: Explicit @mentions
+    // 2. Condition 2: Explicit @mentions (evaluated before pure-greeting fallback so "@Agent hello!" reaches @Agent)
     if (message.mentions && message.mentions.length > 0) {
       const mentionedClean = message.mentions.map((m) => m.toLowerCase().replace(/^@/, ''));
       const isSenderAuthorizedForAll = message.senderType === 'human' || message.senderId === 'user-operator' || message.senderId === 'system';
@@ -412,6 +396,22 @@ export class ActivationEngine {
           explanation: `${names} is not a member of this channel. @Boss can staff this channel upon operator confirmation.`,
         };
       }
+    }
+
+    // Greeting check per PRD § 6:
+    // "If the complete meaning is only a greeting, with no task, special recipient, or broader participation request, one brief reply comes from Boss and no specialists are woken."
+    if (this.isPureGreeting(message.content)) {
+      const boss =
+        channelMembers.find((a) => a.isOrchestrator) ||
+        channelMembers[0] ||
+        allProjectAgents.find((a) => a.isOrchestrator) ||
+        allProjectAgents[0];
+      return {
+        action: 'orchestrator_fallback',
+        targetAgents: boss ? [boss] : [],
+        reason: 'pure_greeting',
+        matchReason: 'greeting_filter',
+      };
     }
 
     // 2b. Condition 2b: Sequential team introductions

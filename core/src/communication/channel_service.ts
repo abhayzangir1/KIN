@@ -83,7 +83,14 @@ export class ChannelService {
           params.senderId
         );
         if (!isMember) {
-          throw new Error(`Agent '${params.senderId}' is not an authorized member of private channel '${params.channelId}'`);
+          const anyMembers = this.db.queryOne<{ cnt: number }>(
+            'SELECT COUNT(*) as cnt FROM channel_members WHERE channel_id = ?',
+            params.channelId
+          );
+          const isAdHocSelfDm = (anyMembers?.cnt ?? 0) === 0 && params.channelId === `dm-${params.senderId}`;
+          if (!isAdHocSelfDm) {
+            throw new Error(`Agent '${params.senderId}' is not an authorized member of private channel '${params.channelId}'`);
+          }
         }
       }
     }

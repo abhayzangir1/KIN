@@ -16,9 +16,7 @@ trigger_patterns:
   - routine
   - digest
   - summary
-parameters:
-  interval: "0 9 * * *"
-  includeHealth: true
+parameters: {"interval": "0 9 * * *", "includeHealth": true}
 ---
 
 # Daily Briefing Bot Skill

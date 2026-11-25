@@ -40,9 +40,11 @@ Operator Query (Channel: #research)
 3. Notice that `@Boss` is automatically enrolled to coordinate channel activities.
 
 ### Step 2: Hire or Assign Specialists
-Ensure your workforce includes agents tailored for research. In the `#market-research` channel, type:
+Ensure your workforce includes agents tailored for research. In the `#market-research` channel, send two `/hire` messages (one per specialist):
 ```text
 /hire @Researcher Academic and industry technical research specialist
+```
+```text
 /hire @Synthesizer Technical writer and analytical synthesizer
 ```
 Both agents are enrolled into the channel with tailored system instructions and tool capabilities.
@@ -63,7 +65,7 @@ Issue a compound command establishing the research goal and execution plan:
 
 ### Step 4: Autonomous Investigation & Browser Use
 `@Researcher` begins executing Task 1:
-- Uses `browser_navigate` and `browser_screenshot` to inspect technical landing pages.
+- Uses `browserNavigate` and `browserScreenshot` (or `browser`) to inspect technical landing pages.
 - Uses `readFile` to review local benchmark summaries or documentation files.
 - Communicates milestone progress directly in `#market-research`.
 

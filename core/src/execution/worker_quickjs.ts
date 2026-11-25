@@ -30,10 +30,29 @@ function validateJailedPathInSandbox(targetPath: string, worktreeRoot: string): 
     throw new Error('Path jail access to sensitive file blocked: ' + targetPath);
   }
   const canonicalBase = fs.existsSync(base) ? fs.realpathSync(base) : base;
-  if (fs.existsSync(resolved)) {
-    const realTarget = fs.realpathSync(resolved);
+  let resolvedIsSymlink = false;
+  let resolvedExists = false;
+  try {
+    const lst = fs.lstatSync(resolved);
+    resolvedIsSymlink = lst.isSymbolicLink();
+    resolvedExists = true;
+  } catch {
+    resolvedExists = false;
+  }
+  if (resolvedExists || resolvedIsSymlink) {
+    let realTarget: string;
+    try {
+      realTarget = fs.realpathSync(resolved);
+    } catch {
+      throw new Error('Path jail dangling symlink blocked: ' + targetPath);
+    }
     if (!isPathWithinRoot(realTarget, canonicalBase)) {
       throw new Error('Path jail symlink traversal blocked: ' + targetPath);
+    }
+    const realRelPosix = path.relative(canonicalBase, realTarget).replace(/\\/g, '/');
+    const realBaseName = path.basename(realTarget);
+    if (isSensitivePattern(realRelPosix, realBaseName)) {
+      throw new Error('Path jail symlink access to sensitive file blocked: ' + targetPath);
     }
     return realTarget;
   }
@@ -93,7 +112,8 @@ export async function runInQuickJS(options: QuickJSRunOptions): Promise<QuickJSR
   const pendingPromises: Array<Promise<void>> = [];
   const activeTimers = new Map<number, NodeJS.Timeout>();
   const timerCallbacks = new Map<number, any>();
-  let timedOut = false;
+  const timerResolvers = new Map<number, () => void>();
+  const pendingDeferreds = new Set<() => void>();
 
   try {
     // Inject params and context cleanly via JSON serialization
@@ -113,7 +133,23 @@ export async function runInQuickJS(options: QuickJSRunOptions): Promise<QuickJSR
       const dupFn = fnHandle.dup();
       timerCallbacks.set(id, dupFn);
       const deferred = ctx.newPromise();
+      const cleanupDeferred = () => {
+        pendingDeferreds.delete(cleanupDeferred);
+        if (ctx.alive) {
+          try {
+            deferred.resolve(ctx.undefined);
+            runtime.executePendingJobs();
+          } catch {}
+        }
+      };
+      pendingDeferreds.add(cleanupDeferred);
       const p = new Promise<void>((resolve) => {
+        const settleTimer = () => {
+          timerResolvers.delete(id);
+          cleanupDeferred();
+          resolve();
+        };
+        timerResolvers.set(id, settleTimer);
         const t = setTimeout(() => {
           activeTimers.delete(id);
           const cb = timerCallbacks.get(id);
@@ -125,13 +161,9 @@ export async function runInQuickJS(options: QuickJSRunOptions): Promise<QuickJSR
               else callRes.value.dispose();
             } catch {}
             try { cb.dispose(); } catch {}
-            runtime.executePendingJobs();
+            try { runtime.executePendingJobs(); } catch {}
           }
-          if (ctx.alive) {
-            deferred.resolve(ctx.undefined);
-            runtime.executePendingJobs();
-          }
-          resolve();
+          settleTimer();
         }, delay);
         if (typeof t.unref === 'function') t.unref();
         activeTimers.set(id, t);
@@ -151,6 +183,10 @@ export async function runInQuickJS(options: QuickJSRunOptions): Promise<QuickJSR
       if (cb) {
         timerCallbacks.delete(id);
         try { cb.dispose(); } catch {}
+      }
+      const settle = timerResolvers.get(id);
+      if (settle) {
+        settle();
       }
     });
     ctx.setProp(ctx.global, '__kin_set_timeout', setTimeoutFn);
@@ -208,9 +244,20 @@ export async function runInQuickJS(options: QuickJSRunOptions): Promise<QuickJSR
         const toolName = String(ctx.dump(nameHandle) || '');
         const toolArgs = (ctx.dump(argsHandle) as Record<string, any>) || {};
         const deferred = ctx.newPromise();
+        const cleanupCallDeferred = () => {
+          pendingDeferreds.delete(cleanupCallDeferred);
+          if (ctx.alive) {
+            try {
+              deferred.resolve(ctx.undefined);
+              runtime.executePendingJobs();
+            } catch {}
+          }
+        };
+        pendingDeferreds.add(cleanupCallDeferred);
 
         const p = options.onToolCall!(toolName, toolArgs)
           .then((result) => {
+            pendingDeferreds.delete(cleanupCallDeferred);
             if (!ctx.alive) return;
             const resHandle = marshalToQuickJS(ctx, result);
             deferred.resolve(resHandle);
@@ -218,6 +265,7 @@ export async function runInQuickJS(options: QuickJSRunOptions): Promise<QuickJSR
             runtime.executePendingJobs();
           })
           .catch((err) => {
+            pendingDeferreds.delete(cleanupCallDeferred);
             if (!ctx.alive) return;
             const errHandle = ctx.newError(err?.message || String(err));
             deferred.reject(errHandle);
@@ -268,7 +316,10 @@ export async function runInQuickJS(options: QuickJSRunOptions): Promise<QuickJSR
       var __kin_disallowed_fn = function() { throw new Error('Code generation from strings disallowed'); };
       globalThis.eval = __kin_disallowed_fn;
       globalThis.Function = __kin_disallowed_fn;
-      Function.prototype.constructor = __kin_disallowed_fn;
+      Object.defineProperty(Function.prototype, 'constructor', { value: __kin_disallowed_fn, writable: false, configurable: false });
+      try { Object.defineProperty(Object.getPrototypeOf(async function(){}), 'constructor', { value: __kin_disallowed_fn, writable: false, configurable: false }); } catch (e) {}
+      try { Object.defineProperty(Object.getPrototypeOf(function*(){}), 'constructor', { value: __kin_disallowed_fn, writable: false, configurable: false }); } catch (e) {}
+      try { Object.defineProperty(Object.getPrototypeOf(async function*(){}), 'constructor', { value: __kin_disallowed_fn, writable: false, configurable: false }); } catch (e) {}
       Object.defineProperty(Object, 'constructor', { value: __kin_disallowed_fn, writable: false, configurable: false });
       var callTool = typeof __kin_call_tool === 'function'
         ? function(name, args) { return __kin_call_tool(name, args || {}); }
@@ -350,7 +401,6 @@ export async function runInQuickJS(options: QuickJSRunOptions): Promise<QuickJSR
       if (isDone) break;
 
       if (Date.now() > deadline) {
-        timedOut = true;
         return { success: false, logs, error: `Execution timed out after ${timeoutMs}ms in QuickJS sandbox` };
       }
 
@@ -399,10 +449,13 @@ export async function runInQuickJS(options: QuickJSRunOptions): Promise<QuickJSR
       try { cb.dispose(); } catch {}
     }
     timerCallbacks.clear();
-    if (!timedOut) {
-      try { ctx.dispose(); } catch {}
-      try { runtime.dispose(); } catch {}
+    timerResolvers.clear();
+    for (const settle of Array.from(pendingDeferreds)) {
+      try { settle(); } catch {}
     }
+    pendingDeferreds.clear();
+    try { ctx.dispose(); } catch {}
+    try { runtime.dispose(); } catch {}
   }
 }
 

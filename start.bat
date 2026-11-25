@@ -85,7 +85,7 @@ if defined KIN_DATA_DIR (
 if "%DEV_MODE%"=="1" (
     echo [3/3] Launching KIN in Development Mode (Vite HMR)...
     echo [*] Core IPC Server: http://127.0.0.1:54321
-    echo [*] Vite Dev Server: http://localhost:5173
+    echo [*] Vite Dev Server: http://127.0.0.1:5173
     echo.
 
     start "KIN Core Daemon" /B node core\dist\start_daemon.js
@@ -98,9 +98,9 @@ if "%DEV_MODE%"=="1" (
     if not defined IPC_TOKEN if defined APPDATA if exist "%APPDATA%\kin\.kin\ipc_auth.token" set /p IPC_TOKEN=<"%APPDATA%\kin\.kin\ipc_auth.token"
     if not defined IPC_TOKEN if exist ".kin\ipc_auth.token" set /p IPC_TOKEN=<".kin\ipc_auth.token"
     if defined IPC_TOKEN (
-        start http://localhost:5173/?token=%IPC_TOKEN%
+        start http://127.0.0.1:5173/?token=%IPC_TOKEN%
     ) else (
-        start http://localhost:5173
+        start http://127.0.0.1:5173
     )
 ) else (
     echo [3/3] Launching KIN in Production Mode...

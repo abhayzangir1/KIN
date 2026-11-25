@@ -8,7 +8,7 @@ Route handlers are organized into domain controllers under [`core/src/server/con
 
 ## 🔐 Authentication & Security
 
-When loopback IPC authentication is active (`requireIpcAuth = true`), all HTTP requests (except `/api/health`) must provide the bearer authorization token generated in `.kin/ipc_auth.token`.
+When loopback IPC authentication is active (`requireIpcAuth = true`), all HTTP requests (except `/api/health`) must provide the bearer authorization token generated in `<dataDir>/ipc_auth.token`.
 
 ```http
 Authorization: Bearer <token>
@@ -43,8 +43,8 @@ Returns the complete operational state of the active workspace, projects, channe
   ```json
   {
     "workspace": { "id": "ws-default", "name": "Default Workspace", "autonomyMode": "AUTO" },
-    "activeProject": { "id": "proj-kin", "name": "KIN", "rootPath": "/workspace/projects/kin" },
-    "projects": [{ "id": "proj-kin", "name": "KIN", "rootPath": "/workspace/projects/kin" }],
+    "activeProject": { "id": "proj-kin", "name": "KIN", "repoPath": "/workspace/projects/kin" },
+    "projects": [{ "id": "proj-kin", "name": "KIN", "repoPath": "/workspace/projects/kin" }],
     "channels": [...],
     "agents": [...],
     "goals": [...],
@@ -83,7 +83,7 @@ List all registered organizational projects.
 Create a new project container.
 - **Request Body**:
   ```json
-  { "name": "Backend API", "rootPath": "/workspace/projects/backend_api" }
+  { "name": "Backend API", "repoPath": "/workspace/projects/backend_api" }
   ```
 
 ### `POST /api/projects/:id/activate`
@@ -113,7 +113,7 @@ List all accessible channels and active 1-on-1 direct messages.
 Create a new departmental collaboration channel.
 - **Request Body**:
   ```json
-  { "name": "verification-suite", "description": "Automated test verification channel" }
+  { "name": "verification-suite", "topic": "Automated test verification channel" }
   ```
 
 ### `GET /api/channels/:id/messages`
@@ -162,7 +162,7 @@ Recruit a new specialist coworker into the workforce.
   {
     "displayName": "SecurityAuditor",
     "roleTitle": "Application Security Specialist",
-    "modelId": "ollama/qwen2.5-coder:3b",
+    "activeModelId": "ollama/qwen2.5-coder:3b",
     "systemPrompt": "You are a specialized application security auditor...",
     "channelId": "chan-general"
   }
@@ -214,10 +214,13 @@ Retrieve the dynamic model catalog combining local Ollama models and discovered 
 Inspect provider configuration and validation states:
 ```json
 {
-  "ollama": { "configured": true, "validated": true, "modelCount": 3 },
-  "openrouter": { "configured": true, "validated": true, "modelCount": 472 },
-  "openai": { "configured": false, "validated": false },
-  "anthropic": { "configured": false, "validated": false }
+  "success": true,
+  "providerReadiness": {
+    "ollama": { "configured": true, "validated": true, "modelCount": 3 },
+    "openrouter": { "configured": true, "validated": true, "modelCount": 472 },
+    "openai": { "configured": false, "validated": false },
+    "anthropic": { "configured": false, "validated": false }
+  }
 }
 ```
 
@@ -445,7 +448,7 @@ Enumerate active top-level GUI windows.
 Capture full desktop screen display.
 
 ### `POST /api/system/desktop/interact`
-Send simulated mouse, keyboard (`SendKeys` / `SendInput` Unicode), UIA tree inspection, scroll, drag, or window focus/close actions.
+Send simulated mouse or keyboard actions (`click`, `move`, `type`, `key`).
 
 ### `GET /api/browser/status`
 Retrieve status of active Puppeteer browser session.
@@ -535,7 +538,7 @@ Upload a file attachment to the project.
 List registered dynamic machine-executable tools for a project.
 - **Query Parameters**:
   - `projectId` (string, required): Active project identifier.
-  - `status` (string, optional): Filter by tool status (`'active'`, `'pending_approval'`, `'disabled'`).
+  - `status` (string, optional): Filter by tool status (`'candidate'`, `'active'`, `'denied'`, `'archived'`, `'all'`).
 - **Response `200`**:
   ```json
   {
@@ -551,7 +554,7 @@ List registered dynamic machine-executable tools for a project.
           "required": ["path"]
         },
         "status": "active",
-        "creatorAgentId": "agent-boss-proj-kin",
+        "createdByAgentId": "agent-boss-proj-kin",
         "createdAt": 1792900000000,
         "updatedAt": 1792900000000
       }
@@ -572,49 +575,52 @@ Register or synthesize a new dynamic machine-executable tool. Runs tokenized Jac
       "properties": { "path": { "type": "string" } },
       "required": ["path"]
     },
-    "code": "module.exports = async function(args) { return { ok: true }; };",
-    "creatorAgentId": "agent-boss-proj-kin",
+    "handlerCode": "module.exports = async function(args) { return { ok: true }; };",
+    "agentId": "agent-boss-proj-kin",
     "forceCreation": false
   }
   ```
-- **Response `200` (Direct Active in FULL_ACCESS)**:
+- **Response `201` (Direct Active in `FULL_ACCESS`)**:
   ```json
   {
+    "success": true,
     "tool": { "id": "tool-uuid-1", "name": "parse_csv_columns", "status": "active" },
-    "status": "active"
+    "status": "created_active"
   }
   ```
-- **Response `200` (Duplicate Advisory if $\ge 75\%$ similarity)**:
+- **Response `409` (Duplicate Advisory if $\ge 75\%$ similarity)**:
   ```json
   {
+    "success": false,
     "status": "duplicate_advisory",
-    "existingTool": "read_csv_header",
-    "similarity": 0.82,
+    "existingSimilarTool": "read_csv_header",
+    "similarityScore": 0.82,
     "message": "Similar tool already registered. Invoke existing tool or pass forceCreation: true."
   }
   ```
-- **Response `200` (Pending Approval in AUTO / Supervised)**:
+- **Response `201` (Pending Approval in `AUTO` / Supervised)**:
   ```json
   {
-    "tool": { "id": "tool-uuid-1", "name": "parse_csv_columns", "status": "pending_approval" },
-    "status": "pending_approval",
+    "success": true,
+    "tool": { "id": "tool-uuid-1", "name": "parse_csv_columns", "status": "candidate" },
+    "status": "created_pending_approval",
     "approvalId": "appr-uuid-1"
   }
   ```
 
 ### `POST /api/custom-tools/:id/test`
-Dry-run execute a dynamic tool in an isolated worker thread (128MB RAM limit, timeoutMs).
+Dry-run execute a dynamic tool inside QuickJS-WASM sandbox.
 - **Request Body**:
   ```json
   {
-    "parameters": { "path": "data/sample.csv" }
+    "params": { "path": "data/sample.csv" }
   }
   ```
 - **Response `200`**:
   ```json
   {
     "success": true,
-    "result": { "headers": ["id", "name", "email"], "rowCount": 42 },
+    "output": { "headers": ["id", "name", "email"], "rowCount": 42 },
     "executionTimeMs": 18
   }
   ```
@@ -645,10 +651,10 @@ List cross-task recursive adaptations and proven failure mitigations.
         "id": "imp-uuid-1",
         "projectId": "proj-kin",
         "domain": "sqlite_concurrency",
+        "componentType": "tool",
         "problemSignature": "database_is_locked",
-        "improvementType": "retry_backoff",
-        "patchDescription": "Apply exponential jitter retry on SQLITE_BUSY before re-querying.",
-        "verified": true,
+        "verifiedAdaptation": "Apply exponential jitter retry on SQLITE_BUSY before re-querying.",
+        "successRuns": 1,
         "createdAt": 1792900000000
       }
     ]
@@ -662,19 +668,15 @@ Record a verified cross-task adaptation or domain lesson into the Harness² impr
   {
     "projectId": "proj-kin",
     "domain": "sqlite_concurrency",
-    "componentType": "storage",
+    "componentType": "tool",
     "problemSignature": "database_is_locked",
     "verifiedAdaptation": "Apply exponential jitter retry on SQLITE_BUSY before re-querying."
   }
   ```
-- **Response `200`**:
+- **Response `201`**:
   ```json
   {
     "success": true,
-    "improvement": {
-      "id": "imp-uuid-1",
-      "problemSignature": "database_is_locked",
-      "verified": true
-    }
+    "id": { "id": "imp-uuid-1", "domain": "sqlite_concurrency", "componentType": "tool" }
   }
   ```

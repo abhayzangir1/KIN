@@ -8,20 +8,20 @@ One of KIN's most powerful capabilities is parallelizing software engineering ta
 
 When multiple agents write code concurrently in a shared repository, standard file edits cause race conditions, dirty working tree conflicts, and broken builds.
 
-KIN solves this via **Ephemeral Git Worktrees** (`.kin/worktrees/<task-id>/`):
-- Each coding task receives its own isolated directory linked to the parent repository.
-- Agents operate on dedicated temporary branches (e.g. `kin/task-8910-feat`).
-- Worktrees are serialized with an `AsyncMutex` lock during critical creation and deletion phases.
+KIN solves this via **Ephemeral Git Worktrees** (`.kin/worktrees/<run-id>-<slug>/`):
+- Each coding task run receives its own isolated directory linked to the parent repository.
+- Agents operate on dedicated temporary branches (e.g. `feat/kin-<run-id>-<slug>`).
+- Worktrees are serialized with an internal lock during creation and deletion phases.
 - The operator's main working tree remains untouched while tests compile and pass in isolation.
 
 ```
 Main Git Working Tree (/workspace/project [branch: main])
               │
-              ├──► Worktree 1 (.kin/worktrees/task-1-auth [branch: kin/task-1])
+              ├──► Worktree 1 (.kin/worktrees/run-1-auth [branch: feat/kin-run-1-auth])
               │         │
               │         └──► [@Coder-A] writes auth middleware & runs tests
               │
-              └──► Worktree 2 (.kin/worktrees/task-2-ui [branch: kin/task-2])
+              └──► Worktree 2 (.kin/worktrees/run-2-ui [branch: feat/kin-run-2-ui])
                         │
                         └──► [@Coder-B] updates React components & runs tests
 ```
@@ -31,25 +31,25 @@ Main Git Working Tree (/workspace/project [branch: main])
 ## Step-by-Step Walkthrough
 
 ### Step 1: Assigning a Task to `@Coder`
-In your project channel or via direct message, assign a concrete implementation task:
+First ensure `@Coder` is hired in the channel (`/hire @Coder Backend specialist`), then assign a task:
 ```text
-/assign @Coder Implement exponential backoff retry strategy in core/src/utils/http.ts | Must include unit test suite and handle 429 and 503 status codes
+/assign @Coder Implement exponential backoff retry logic and unit tests for 429 and 503 status codes
 ```
 
 ### Step 2: Automatic Worktree Provisioning
-When the task begins execution, KIN's `ToolGateway` detects the coding capability requirement and:
-1. Acquires the repository mutex.
-2. Runs `git worktree add .kin/worktrees/task-<id> -b kin/task-<id>`.
+When `CoreServer.executeAgentResponse` begins a coding run, KIN's `WorktreeManager`:
+1. Acquires the repository lock.
+2. Runs `git worktree add -b feat/kin-<run-id>-<slug> .kin/worktrees/<run-id>-<slug> HEAD`.
 3. Sets the agent's filesystem root (`Cwd`) strictly inside the isolated worktree directory.
-4. Broadcasts a `task:updated` SSE event displaying the active worktree path.
+4. Broadcasts worktree and execution telemetry via SSE.
 
 ### Step 3: Agent Code Generation & Inspection
 Inside the worktree, `@Coder`:
 - Reads existing utilities using `readFile`.
-- Authors the replacement or new file using `replace_file_content` or `write_to_file`.
+- Authors edits using `editFile` or `writeFile`.
 - Verifies syntax and executes local tests using `executeShell`:
   ```bash
-  npm test -- core/test/http_retry.test.ts
+  npm test --workspace=core -- test/foundation.test.ts
   ```
 
 ### Step 4: Verification and Diff Review
@@ -65,13 +65,10 @@ Once tests pass, `@Coder`:
 
 ### Step 5: Merge Approval & Worktree Pruning
 1. The operator reviews the diff in the channel card or using KIN's built-in Diff Viewer.
-2. To merge into `main`:
-   ```text
-   Merge branch kin/task-<id> into main and remove worktree
-   ```
-3. KIN merges the branch, runs a pre-merge sanity check, and cleans up the temporary worktree directory:
+2. Use `/undo`, `/redo`, or `/fork` (or the Review tab worktree buttons) to revert, re-apply, or branch turn commits cleanly.
+3. Merge or clean up the temporary worktree directory:
    ```bash
-   git worktree remove --force .kin/worktrees/task-<id>
+   git worktree remove --force .kin/worktrees/<run-id>-<slug>
    ```
 
 ---

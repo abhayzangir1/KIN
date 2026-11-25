@@ -30,15 +30,15 @@ KIN's compound command engine enables you to assemble an entire multi-agent soft
 In long-running projects, architectural context is easily lost as chat histories grow. KIN provides a native ADR subsystem that captures decisions into durable SQLite storage and automatically injects them into the Context Compiler's Project Architecture block across all agents.
 
 ### Creating an ADR
+Use `/decisions propose` (or `/adr propose`) with `<Title> | <Rationale> | <Alternatives>`:
 ```text
-/adr Adopt SQLite WAL Mode for High Concurrency | Multiple agents reading channels simultaneously cause SQLITE_BUSY locks under default rollback journal | Enable WAL (Write-Ahead Logging) and set 5000ms busy timeout | Reads never block writes; concurrent agents can stream thoughts while background schedulers write logs
+/adr propose Adopt SQLite WAL Mode for High Concurrency | Multiple agents reading channels simultaneously need concurrent non-blocking reads and writes via WAL + busy timeout | Rollback journal or external database server
 ```
 
 ### Anatomy of an ADR:
 - **Title**: Short summary of the decision.
-- **Context**: The problem statement, bottlenecks, or constraints encountered.
-- **Decision**: The chosen technical approach, library, or architectural pattern.
-- **Consequences**: Expected benefits, potential trade-offs, and downstream impacts.
+- **Rationale**: The problem statement, bottlenecks, and chosen technical approach.
+- **Alternatives**: Rejected options and trade-offs.
 
 ### Querying ADRs
 To list all active architectural decisions in the current project:
@@ -54,21 +54,19 @@ Agents will automatically reference these decisions during subsequent code revie
 When working with cloud inference providers (OpenAI, Anthropic, OpenRouter), you may encounter HTTP 429 (Rate Limit Exceeded) or credit exhaustion.
 
 ### How KIN Quota Guard Protects Your Work:
-1. **Autonomous Pause**: When a 429 or quota error occurs, KIN does NOT crash the active run. It transitions the run state to `paused_quota` and checkpoints the exact step and partial thoughts.
-2. **Real-time Alert Banner**: A high-visibility Quota Guard banner appears in the UI with the affected provider name, rate-limit reset estimation, and two action buttons:
-   - **Retry When Ready**: Resumes from the checkpoint once quota resets.
-   - **Switch to Local Ollama**: 1-click fallback to your local Ollama daemon (e.g. `qwen2.5:7b` or `llama3.2`).
-3. **Lossless Recovery**: Once switched or resumed, the agent loop picks up from the exact token position without losing task context or re-executing completed tools.
+1. **Autonomous Pause**: When a 429 or quota error occurs, KIN does NOT crash the active run. It transitions the run state to `quota_paused` and checkpoints the exact step and partial thoughts.
+2. **Real-time Alert Banner**: A high-visibility Quota Guard banner appears in the UI with the affected provider name, rate-limit reset estimation, and action buttons:
+   - **⚡ Switch & Resume**: Opens model selection to pick an alternate model and resume.
+   - **🦙 Switch to Ollama**: 1-click fallback to your local Ollama daemon.
+   - **Resume Now**: Retries from the checkpoint once quota resets.
+3. **Checkpoint Recovery**: Once switched or resumed, the agent loop picks up from the saved checkpoint without losing channel context.
 
 ---
 
 ## 4. Crash Recovery & State Rehydration
 
 If your machine restarts or the KIN daemon process is terminated mid-flight:
-1. **Automatic Detection**: On the next daemon boot, `AgentKernel` inspects the SQLite database for runs left in `running` or `executing` status with expired heartbeat leases.
-2. **Crash Banner**: The UI displays a recovery notification: `⚠️ Interrupted Run Detected`.
-3. **Checkpointed Resume**: KIN reads the latest durable checkpoint from `run_checkpoints` and restores:
-   - Tool execution outputs and intermediate variables.
-   - Channel conversation history.
-   - Goal and task progress.
-4. The operator can click **Resume Execution** to continue seamlessly.
+1. **Automatic Detection**: On the next daemon boot, `AgentKernel` inspects the SQLite database for runs left in active states (`running`, `resuming`, `waiting_for_tool`, `waiting_for_agent`, `waiting_for_model`, `waiting_for_approval`, `paused_approval`) with expired heartbeat leases.
+2. **Crash Banner**: The UI displays the recovery dock: `Interrupted Run Recovery`.
+3. **Checkpointed Resume**: KIN reads the latest durable checkpoint from `checkpoints` and restores conversation state and pending actions.
+4. The operator can click **Resume**, **Resume All**, **Switch & Resume**, or **Discard All**.

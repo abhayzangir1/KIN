@@ -112,7 +112,7 @@ Because SQLite is running in WAL mode, **do not copy the database while high-thr
 3. Restart the Core Daemon.
 
 **Recommended Online Backup (Without Stopping):**
-Use SQLite's native backup command:
+Use KIN's built-in hot SQLite `VACUUM INTO` endpoint (`GET /api/system/backup`) or SQLite's CLI `.backup` command:
 ```bash
 sqlite3 kin_storage.sqlite ".backup kin_backup_$(date +%Y%m%d).sqlite"
 ```
@@ -122,7 +122,7 @@ sqlite3 kin_storage.sqlite ".backup kin_backup_$(date +%Y%m%d).sqlite"
 ## 5. Security & Trust Hardening
 
 1. **Loopback Confinement**: KIN binds exclusively to `127.0.0.1`. Never expose KIN to public networks without a secure reverse proxy enforcing TLS and strict IP allowlisting.
-2. **IPC Token Authentication**: When `KIN_IPC_TOKEN` is active, all HTTP endpoints and SSE streams require the header `Authorization: Bearer <token>`.
+2. **IPC Token Authentication**: On non-ephemeral HTTP ports (`port !== 0`), `CoreServer` requires `Authorization: Bearer <token>` or `X-Kin-Auth: <token>` using the token written to `<dataDir>/ipc_auth.token`.
 3. **Encrypted Secret Vault**: API keys and cloud credentials entered in the UI are encrypted via AES-256-GCM before writing to the `managed_credentials` table. Plaintext keys are never logged or exposed in client responses.
 4. **Git Worktree Isolation**: All coding tasks execute inside temporary directories (`.kin/worktrees/`). Path traversal outside the active project boundary is rejected by `ToolGateway`.
 
@@ -143,7 +143,7 @@ sqlite3 kin_storage.sqlite ".backup kin_backup_$(date +%Y%m%d).sqlite"
 
 ### Automated Test Execution
 
-KIN maintains a comprehensive automated testing suite (90 core test files / 1,258 tests + UI test suite, verified via `npm test`).
+KIN maintains a comprehensive automated testing suite (90 core test files / 1,260 tests + UI test suite, verified via `npm test`).
 
 **Monorepo Test Command:**
 ```bash

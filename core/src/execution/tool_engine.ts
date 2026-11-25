@@ -271,17 +271,19 @@ export class ToolEngine {
 
     let approvalId: string | undefined;
 
-    if (requireApproval) {
-      approvalId = `appr-${uuidv4()}`;
-      try {
-        const agentId = input.agentId || 'agent-orchestrator';
-        const runId = input.runId || `run-tool-${uuidv4()}`;
-        const agentExists = this.db.queryOne('SELECT id FROM agent_identities WHERE id = ?', agentId);
-        const resolvedAgentId = agentExists ? agentId : (this.db.queryOne<{ id: string }>('SELECT id FROM agent_identities LIMIT 1')?.id || agentId);
+    const initialStatus = requireApproval ? 'candidate' : 'active';
 
-        const existingRun = this.db.queryOne('SELECT id FROM agent_runs WHERE id = ?', runId);
-        if (!existingRun) {
-          try {
+    try {
+      this.db.transactionSync(() => {
+        if (requireApproval) {
+          approvalId = `appr-${uuidv4()}`;
+          const agentId = input.agentId || 'agent-orchestrator';
+          const runId = input.runId || `run-tool-${uuidv4()}`;
+          const agentExists = this.db.queryOne('SELECT id FROM agent_identities WHERE id = ?', agentId);
+          const resolvedAgentId = agentExists ? agentId : (this.db.queryOne<{ id: string }>('SELECT id FROM agent_identities LIMIT 1')?.id || agentId);
+
+          const existingRun = this.db.queryOne('SELECT id FROM agent_runs WHERE id = ?', runId);
+          if (!existingRun) {
             this.db.execute(
               `INSERT OR IGNORE INTO agent_runs (id, agent_id, project_id, state, heartbeat_at, created_at) VALUES (?, ?, ?, 'waiting_for_approval', ?, ?);`,
               runId,
@@ -290,56 +292,50 @@ export class ToolEngine {
               now,
               now
             );
-          } catch (err) { console.debug("[tool_engine] Suppressed exception in catch block:", err); }
+          }
+
+          const actionPayload = {
+            toolId,
+            name: cleanName,
+            description: input.description,
+            parametersSchema: parsedSchema,
+            handlerCode: input.handlerCode,
+            rationale: input.rationale || 'Specialized task automation',
+          };
+
+          this.db.execute(
+            `INSERT INTO approvals (
+              id, run_id, agent_id, tool_name, action_payload_json, risk_level, status, expires_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, 'MEDIUM', 'pending', ?, ?);`,
+            approvalId,
+            runId,
+            resolvedAgentId,
+            'create_tool',
+            JSON.stringify(actionPayload),
+            now + 86400000,
+            now
+          );
         }
 
-        const actionPayload = {
-          toolId,
-          name: cleanName,
-          description: input.description,
-          parametersSchema: parsedSchema,
-          handlerCode: input.handlerCode,
-          rationale: input.rationale || 'Specialized task automation',
-        };
-
         this.db.execute(
-          `INSERT INTO approvals (
-            id, run_id, agent_id, tool_name, action_payload_json, risk_level, status, expires_at, created_at
-          ) VALUES (?, ?, ?, ?, ?, 'MEDIUM', 'pending', ?, ?);`,
-          approvalId,
-          runId,
-          resolvedAgentId,
-          'create_tool',
-          JSON.stringify(actionPayload),
-          now + 86400000,
+          `INSERT INTO custom_tools (
+            id, project_id, name, description, parameters_schema, handler_code, status,
+            approval_id, created_by_agent_id, usage_count, success_count, failure_count,
+            created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?);`,
+          toolId,
+          input.projectId || null,
+          cleanName,
+          input.description || 'Dynamic custom tool',
+          JSON.stringify(parsedSchema),
+          input.handlerCode,
+          initialStatus,
+          approvalId || null,
+          input.agentId || null,
+          now,
           now
         );
-      } catch (err: any) {
-        return { success: false, status: 'error', error: `Failed to create tool approval: ${err?.message || err}` };
-      }
-    }
-
-    const initialStatus = requireApproval ? 'candidate' : 'active';
-
-    try {
-      this.db.execute(
-        `INSERT INTO custom_tools (
-          id, project_id, name, description, parameters_schema, handler_code, status,
-          approval_id, created_by_agent_id, usage_count, success_count, failure_count,
-          created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?);`,
-        toolId,
-        input.projectId || null,
-        cleanName,
-        input.description || 'Dynamic custom tool',
-        JSON.stringify(parsedSchema),
-        input.handlerCode,
-        initialStatus,
-        approvalId || null,
-        input.agentId || null,
-        now,
-        now
-      );
+      });
 
       const tool = this.getToolById(toolId);
       if (!tool) {
@@ -397,8 +393,6 @@ export class ToolEngine {
     }
 
     const startTime = Date.now();
-    let activeWorker: Worker | null = null;
-    let timer: NodeJS.Timeout | null = null;
 
     const sanitizePayload = (obj: any): any => {
       if (!obj) return {};
@@ -468,8 +462,7 @@ export class ToolEngine {
         clean,
         projectId
       );
-    }
-    if (!row) {
+    } else {
       row = this.db.queryOne(
         `SELECT * FROM custom_tools WHERE id = ? OR name = ? COLLATE NOCASE LIMIT 1;`,
         clean,

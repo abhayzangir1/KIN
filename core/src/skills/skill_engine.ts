@@ -950,7 +950,8 @@ export class SkillEngine {
       sql += ' AND outcome = ?';
       params.push(filter.outcome);
     }
-    sql += ` ORDER BY created_at DESC LIMIT ${filter?.limit ?? 100}`;
+    sql += ' ORDER BY created_at DESC LIMIT ?';
+    params.push(Math.max(1, Math.min(1000, Number(filter?.limit ?? 100) || 100)));
 
     const rows = this.db.query<any>(sql, ...params);
     return rows.map((r) => {
@@ -1116,9 +1117,14 @@ export class SkillEngine {
         existing.id
       );
 
+      const promoted = this.getSkill(candidateId);
+      if (promoted && !promoted.isBuiltIn) {
+        this.saveSkillToDisk(promoted);
+      }
+
       return {
         success: true,
-        skill: this.getSkill(candidateId),
+        skill: promoted,
         message: `Candidate '${existing.name}' successfully validated and promoted to active v${newVersion}.`,
       };
     } else {
@@ -1211,7 +1217,11 @@ export class SkillEngine {
       skillId
     );
 
-    return this.getSkill(skillId)!;
+    const updated = this.getSkill(skillId)!;
+    if (!updated.isBuiltIn) {
+      this.saveSkillToDisk(updated);
+    }
+    return updated;
   }
 
   /**
@@ -1318,7 +1328,7 @@ export class SkillEngine {
   /**
    * Imports a portable skill package into SQLite.
    */
-  public importSkill(rawJson: string | object): Skill {
+  public importSkill(rawJson: string | object, importOpts?: { skipDiskSave?: boolean }): Skill {
     let parsed: any;
     if (typeof rawJson === 'string') {
       try {
@@ -1365,7 +1375,21 @@ export class SkillEngine {
       : '{}';
 
     if (existing) {
-      this.archiveSkillVersion(existing, 'bundle-import', 'Imported updated skill definition');
+      if (existing.isBuiltIn && !enabled) {
+        return existing;
+      }
+      const unchanged =
+        existing.instructions === instructions &&
+        (existing.description || '') === (data.description || '') &&
+        (existing.handlerCode || null) === (data.handlerCode || null) &&
+        JSON.stringify(existing.requiredTools || []) === JSON.stringify(requiredTools) &&
+        JSON.stringify(existing.triggerPatterns || []) === JSON.stringify(patterns) &&
+        existing.skillType === skillType &&
+        existing.status === status &&
+        existing.enabled === enabled;
+      if (!unchanged) {
+        this.archiveSkillVersion(existing, 'bundle-import', 'Imported updated skill definition');
+      }
       this.db.execute(
         `UPDATE skills SET version = ?, description = ?, instructions = ?, required_tools_json = ?, trigger_patterns_json = ?, status = ?, parameters_json = ?, handler_code = ?, skill_type = ?, enabled = ?, updated_at = ?
          WHERE id = ?`,
@@ -1404,7 +1428,9 @@ export class SkillEngine {
     }
 
     const imported = this.getSkill(id)!;
-    this.saveSkillToDisk(imported);
+    if (!importOpts?.skipDiskSave) {
+      this.saveSkillToDisk(imported);
+    }
     return imported;
   }
 
@@ -1477,6 +1503,7 @@ export class SkillEngine {
         `version: ${skill.version || '1.0.0'}`,
         `description: >\n  ${(skill.description || '').replace(/\n/g, '\n  ')}`,
         `skill_type: ${skill.skillType || 'prompt_instruction'}`,
+        `status: ${skill.status || 'active'}`,
         `enabled: ${skill.enabled !== false}`,
         `required_tools: ${JSON.stringify(skill.requiredTools || [])}`,
         `trigger_patterns: ${JSON.stringify(skill.triggerPatterns || [])}`,
@@ -1573,11 +1600,12 @@ export class SkillEngine {
             instructions: body || frontmatter.instructions || frontmatter.description || '',
             handlerCode: repoSkillsTrusted ? handlerCode : undefined,
             parameters: frontmatter.parameters,
+            status: frontmatter.status,
             skillType: frontmatter.skill_type || frontmatter.skillType || (handlerCode && repoSkillsTrusted ? 'tool_extension' : 'prompt_instruction'),
             enabled: repoSkillsTrusted ? frontmatter.enabled !== false : false,
             requiredTools,
             triggerPatterns,
-          });
+          }, { skipDiskSave: true });
           return { loadedCount: 1, skills: [skill] };
         }
         return { loadedCount: 0, skills: [] };
@@ -1618,11 +1646,12 @@ export class SkillEngine {
             instructions: body || frontmatter.instructions || frontmatter.description || '',
             handlerCode: repoSkillsTrusted ? handlerCode : undefined,
             parameters: frontmatter.parameters,
+            status: frontmatter.status,
             skillType: frontmatter.skill_type || frontmatter.skillType || (handlerCode && repoSkillsTrusted ? 'tool_extension' : 'prompt_instruction'),
             enabled: repoSkillsTrusted ? frontmatter.enabled !== false : false,
             requiredTools,
             triggerPatterns,
-          });
+          }, { skipDiskSave: true });
           return { loadedCount: 1, skills: [skill] };
         } catch (err: any) {
           console.warn(`[SkillEngine] Failed to parse ${directSkillMd}:`, err.message);
@@ -1676,11 +1705,12 @@ export class SkillEngine {
                 instructions: body || frontmatter.instructions || frontmatter.description || '',
                 handlerCode: repoSkillsTrusted ? handlerCode : undefined,
                 parameters: frontmatter.parameters,
+                status: frontmatter.status,
                 skillType: frontmatter.skill_type || frontmatter.skillType || (handlerCode && repoSkillsTrusted ? 'tool_extension' : 'prompt_instruction'),
                 enabled: repoSkillsTrusted ? frontmatter.enabled !== false : false,
                 requiredTools,
                 triggerPatterns,
-              });
+              }, { skipDiskSave: true });
               loaded.push(skill);
             } catch (err: any) {
               console.warn(`[SkillEngine] Failed to parse ${skillMd}:`, err.message);
@@ -1731,11 +1761,12 @@ export class SkillEngine {
                 instructions: body || frontmatter.instructions || frontmatter.description || '',
                 handlerCode: repoSkillsTrusted ? handlerCode : undefined,
                 parameters: frontmatter.parameters,
+                status: frontmatter.status,
                 skillType: frontmatter.skill_type || frontmatter.skillType || (handlerCode && repoSkillsTrusted ? 'tool_extension' : 'prompt_instruction'),
                 enabled: repoSkillsTrusted ? frontmatter.enabled !== false : false,
                 requiredTools,
                 triggerPatterns,
-              });
+              }, { skipDiskSave: true });
               loaded.push(skill);
             } catch (err: any) {
               console.warn(`[SkillEngine] Failed to import standalone markdown skill ${fullPath}:`, err.message);

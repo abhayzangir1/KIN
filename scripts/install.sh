@@ -80,6 +80,12 @@ if [ -n "${CHECKSUM_URL}" ]; then
             exit 1
         fi
         echo -e "      SHA-256 Verified: \033[1;32m${ACTUAL_HASH}\033[0m"
+    else
+        if [ "${KIN_ALLOW_UNVERIFIED:-0}" != "1" ]; then
+            echo -e "\033[1;31mError: SHA256SUMS.txt does not contain an entry for ${FILE_NAME}. Refusing unverified install (set KIN_ALLOW_UNVERIFIED=1 to override).\033[0m"
+            exit 1
+        fi
+        echo -e "\033[1;33m[3/4] Skipping missing checksum entry via KIN_ALLOW_UNVERIFIED=1.\033[0m"
     fi
 else
     if [ "${KIN_ALLOW_UNVERIFIED:-0}" != "1" ]; then
