@@ -1,10 +1,9 @@
 # KIN Product Requirements
 
-**Status:** Canonical pre-build product specification  
+**Status:** Implemented reference specification (aligned with `@kin/core`, `@kin/ui`, and `src-tauri`)  
 **Product:** KIN  
-**Release direction:** Full product vision, delivered in gated phases  
-**Primary platform:** Windows desktop, using Tauri 2  
-**Implementation status:** No KIN application source exists in this repository yet. This document specifies intended behavior; it is not evidence of implementation.
+**Release direction:** Open-source local-first autonomous AI workforce desktop & headless platform  
+**Primary platform:** Windows, macOS, and Linux desktop (Tauri 2 + Node SEA sidecar)
 
 ## 1. Product vision
 
@@ -145,7 +144,7 @@ Memory is versioned, attributable, inspectable, editable, deletable, and scoped.
 
 ## 10. Harness capabilities
 
-The complete harness lifecycle is normative in `docs/HARNESS_BLUEPRINT.md`, with the V1 operation catalog and lifecycle contract in `docs/RUNTIME_CAPABILITY_CONTRACTS.md`. Product capabilities include:
+The harness lifecycle and APIs are documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/API.md](docs/API.md). Product capabilities include:
 
 - Message intake, intent classification, mention/role/broadcast routing, queueing, deduplication, clarification and hiring prompts.
 - Editable agent contracts and hierarchy; plan proposals and steering; discoverable slash commands; scoped context manifests; model/provider capability negotiation and streaming.
@@ -160,17 +159,17 @@ The complete harness lifecycle is normative in `docs/HARNESS_BLUEPRINT.md`, with
 - For Git projects, code-changing runs use an isolated Git worktree. For non-Git folders, use an isolated shadow workspace with an explicit patch/apply journal.
 - Never let concurrent runs write into the same working tree. If isolation cannot be created or verified, stop before mutation and explain recovery options; never fall back to shared-root writes.
 - Diffs are attributed to run, agent, and file and support inspect, stage/unstage, revert, conflict reporting, three-way apply, commit, and automated review proposal. Application back to the project root is explicit and journaled. Git worktrees are concurrency isolation, not by themselves a security sandbox.
-- The human has a dedicated terminal and Monaco-based editor. Human terminal actions are distinct from agent tool authority and are never attributed to an agent.
+- The human has a dedicated terminal and built-in code & unified diff viewer. Human terminal actions are distinct from agent tool authority and are never attributed to an agent.
 
 ## 12. Autonomy, privacy, and safety
 
-Projects default to **SAFE** autonomy and local-only egress.
+Projects default to **AUTO** autonomy and local-only egress (`AUTO`, `ALWAYS_ASK`, `FULL_ACCESS`).
 
-- **SAFE:** Exploration is read-only. File writes, shell execution, browser/desktop actions, and external effects require an exact human approval.
+- **ALWAYS_ASK:** Read-only exploration runs locally, while file writes, shell execution, browser/desktop actions, and external effects require explicit human approval.
 - **AUTO:** Low/medium-risk reversible actions may run automatically inside the granted project boundary. High-risk, destructive, credential, financial, or external side effects pause for approval.
 - **FULL_ACCESS:** Trusted workflows run autonomously only within explicit capability grants; financial actions and critical/destructive operations retain safeguards and cannot be unlocked by a vague global bypass.
 
-Approval binds to exact action, target, normalized arguments, run/step, project, grant, and expiry. Any material argument, identity, policy, or target change invalidates the approval. The UI offers per-run pause/resume/cancel and project freeze/unfreeze plus stop-all, with the safe-point semantics defined in `docs/HARNESS_BLUEPRINT.md`; these controls never imply rollback. The local append-only event ledger is hash-chained and tamper-evident, not immutable against the device owner. Local app data is not KIN-level encrypted; credentials use OS-backed secure storage. See `docs/SECURITY_AND_PRIVACY.md` for threat boundaries and controls.
+Approval binds to exact action, target, normalized arguments, run/step, project, grant, and expiry. Any material argument, identity, policy, or target change invalidates the approval. The UI offers per-run pause/resume/cancel and project freeze/unfreeze plus stop-all, with safe-point semantics defined in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); these controls never imply rollback. The local append-only event ledger is hash-chained and tamper-evident, not immutable against the device owner. Local app data is not KIN-level encrypted; credentials use OS-backed secure storage. See [docs/TRD.md](docs/TRD.md) for threat boundaries and controls.
 
 User messages, memory, artifacts, and project data persist locally until the user deletes them or changes a retention setting. Deletion must target active payloads, indexes, summaries, spill/artifact/workspace copies, selected browser profiles and cached previews; incomplete cleanup is reported by category. A content-free tombstone may remain for ledger integrity. Backups may retain deleted content until deleted/expired, and restoring an older snapshot must warn that it may reintroduce deleted data. Provider-side retention is outside KIN's control.
 
@@ -192,7 +191,7 @@ User messages, memory, artifacts, and project data persist locally until the use
 
 ## 15. Product acceptance scenarios
 
-The manual end-to-end scenarios and required evidence are in `docs/MANUAL_VALIDATION_AND_RELEASE_GATES.md`. Release cannot be called production-ready until a human operator has verified: project setup; local offline model use; each configured provider path; multi-agent relevance routing and ordered responses; DM/private-memory isolation; approvals and cancellation; tool and MCP boundaries; worktree/shadow isolation and diff apply; durable state after restart; compaction/spill recovery; schedules; Swarm Map history; backup/restore; and accessibility/error handling.
+The verification and release status is tracked in [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md). Release cannot be called production-ready until a human operator has verified: project setup; local offline model use; each configured provider path; multi-agent relevance routing and ordered responses; DM/private-memory isolation; approvals and cancellation; tool and MCP boundaries; worktree/shadow isolation and diff apply; durable state after restart; compaction/spill recovery; schedules; Swarm Map history; backup/restore; and accessibility/error handling.
 
 ## 16. Out of scope for the local-first core
 
@@ -201,8 +200,8 @@ No hosted control plane, mandatory account, cloud-synced project store, mandator
 ## 17. Source precedence
 
 1. The user's stated KIN vision and explicit decisions in this conversation.
-2. This canonical PRD and the linked current technical/security/harness documents as a consistent set.
-3. The root PRD snapshot and `KIN-docs-v23.01.zip` as research inputs, with individual decisions recorded in `docs/BUILD_AND_REUSE_DECISIONS.md`.
+2. This canonical PRD and the linked current technical/security/architecture documents as a consistent set.
+3. Prior architectural design notes and release verification gates in [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md).
 4. External frameworks and repositories as patterns or reviewed components only.
 
 The input archive's internal precedence statement does not override the user's requirements. All source inputs remain preserved; their status and reuse decisions are documented rather than silently discarded.

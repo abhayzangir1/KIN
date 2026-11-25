@@ -375,6 +375,31 @@ export class BrowserController {
           if (this.networkErrorBuffer.length > 30) this.networkErrorBuffer.shift();
         }
       });
+      if (typeof (page as any).setRequestInterception === 'function') {
+        page.on('request', (req: any) => {
+          try {
+            const reqUrl = String(req?.url?.() || '');
+            const parsed = new URL(reqUrl);
+            const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+            if (
+              host === '169.254.169.254' ||
+              host === '100.100.100.200' ||
+              host === 'fd00:ec2::254' ||
+              host === 'metadata.google.internal' ||
+              host === 'instance-data' ||
+              host.endsWith('.metadata.google.internal') ||
+              host.startsWith('169.254.')
+            ) {
+              void req.abort('accessdenied');
+              return;
+            }
+          } catch {
+            // Non-URL schemes (data:, about:, blob:)
+          }
+          void req.continue();
+        });
+        void (page as any).setRequestInterception(true).catch(() => {});
+      }
     } catch {
       // Ignore if mock page in unit test
     }
@@ -392,7 +417,7 @@ export class BrowserController {
       throw new Error(`ACCESS_DENIED: Scheme navigation to '${lower.split(':')[0]}:' is prohibited without explicit allowLocalFileNavigation capability.`);
     }
 
-    const isLocalHost = lower.startsWith('localhost') || lower.startsWith('127.0.0.1') || lower.startsWith('::1') || lower.startsWith('[::1]');
+    const isLocalHost = /^(https?:\/\/)?(localhost|127\.0\.0\.1|::1|\[::1\])(:\d+)?(\/|$)/.test(lower);
     const formattedUrl = (
       lower.startsWith('http://') ||
       lower.startsWith('https://') ||

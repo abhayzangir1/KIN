@@ -710,6 +710,54 @@ export class TaskController extends BaseController {
         return this.sendJson(res, 201, { task, dependsOnTaskIds: body.dependsOnTaskIds || [] });
       }
 
+      // 17b. PATCH /api/tasks/:taskId — Update task metadata / DAG prerequisites
+      const taskUpdateMatch = pathname.match(/^\/api\/tasks\/([^/]+)$/);
+      if (req.method === 'PATCH' && taskUpdateMatch) {
+        const taskId = taskUpdateMatch[1];
+        const currentTask = this.taskRepo.getTask(taskId);
+        if (!currentTask) {
+          return this.sendJson(res, 404, { error: `Task '${taskId}' not found` });
+        }
+        const body = await this.parseJsonBody<{
+          dependsOnTaskIds?: string[];
+          title?: string;
+          description?: string;
+        }>(req);
+
+        try {
+          this.db.transactionSync(() => {
+            if (body.title !== undefined || body.description !== undefined) {
+              this.db.execute(
+                `UPDATE tasks SET title = COALESCE(?, title), description = COALESCE(?, description), updated_at = ? WHERE id = ?`,
+                body.title !== undefined ? body.title.trim() : null,
+                body.description !== undefined ? body.description.trim() : null,
+                Date.now(),
+                taskId
+              );
+            }
+            if (Array.isArray(body.dependsOnTaskIds)) {
+              const existingDeps = this.taskRepo.getTaskDependencies(taskId);
+              for (const dep of existingDeps) {
+                if (!body.dependsOnTaskIds.includes(dep)) {
+                  this.taskRepo.removeDependency(taskId, dep);
+                }
+              }
+              for (const dep of body.dependsOnTaskIds) {
+                if (!existingDeps.includes(dep)) {
+                  this.taskRepo.addDependency(taskId, dep);
+                }
+              }
+            }
+          });
+        } catch (err: any) {
+          return this.sendJson(res, 400, { error: err?.message || 'Invalid task update' });
+        }
+        const updatedTask = this.taskRepo.getTask(taskId) || currentTask;
+        const dependsOnTaskIds = this.taskRepo.getTaskDependencies(taskId);
+        this.broadcastEvent('task:updated', { ...updatedTask, dependsOnTaskIds });
+        return this.sendJson(res, 200, { task: updatedTask, dependsOnTaskIds });
+      }
+
       // 18. PATCH /api/tasks/:taskId/status — Update task status
       const taskStatusMatch = pathname.match(/^\/api\/tasks\/([^/]+)\/status$/);
       if (req.method === 'PATCH' && taskStatusMatch) {

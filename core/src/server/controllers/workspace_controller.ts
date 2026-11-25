@@ -420,8 +420,11 @@ export class WorkspaceController extends BaseController {
           'ipc_auth.token',
           '.env',
           '.git/config',
+          '.git/credentials',
           'id_rsa',
           'id_ed25519',
+          'id_ecdsa',
+          'id_dsa',
           '.npmrc',
           '.pypirc',
           'kin_storage.sqlite',
@@ -430,6 +433,9 @@ export class WorkspaceController extends BaseController {
         ];
         const isSensitivePattern = (p: string) => {
           return (
+            /(^|\/)\.env(\.|$)/.test(p) ||
+            p.endsWith('.pem') ||
+            p.endsWith('.key') ||
             p.endsWith('.sqlite') ||
             p.endsWith('.sqlite3') ||
             p.endsWith('.sqlite-wal') ||
@@ -1247,6 +1253,13 @@ export class WorkspaceController extends BaseController {
           modelId: boss?.activeModelId || this.agentRepo.getIdentity('agent-boss')?.activeModelId || DEFAULT_FALLBACK_MODEL_ID,
           messages: [{ role: 'user', content: reviewPrompt }],
         });
+
+        if (modelRes.isError) {
+          return this.sendJson(res, 502, {
+            success: false,
+            error: modelRes.content || 'AI Code Review model invocation failed.',
+          });
+        }
 
         const reviewMessage = this.channelService.sendMessage({
           channelId,

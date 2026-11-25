@@ -764,6 +764,13 @@ export class AgentController extends BaseController {
       const runPauseMatch = pathname.match(/^\/api\/runs\/([^/]+)\/pause$/);
       if (req.method === 'POST' && runPauseMatch) {
         const runId = runPauseMatch[1];
+        try {
+          if (this.kernel.getRun(runId)) {
+            this.kernel.transitionState(runId, 'paused');
+          }
+        } catch (err: any) {
+          return this.sendJson(res, 409, { success: false, error: err?.message || 'Cannot pause run in current state' });
+        }
         let state = this.takeoverStates.get(runId);
         if (!state) {
           state = { runId, isPaused: true, isAborted: false };
@@ -771,11 +778,6 @@ export class AgentController extends BaseController {
         } else {
           state.isPaused = true;
         }
-        try {
-          if (this.kernel.getRun(runId)) {
-            this.kernel.transitionState(runId, 'paused');
-          }
-        } catch (err) { console.debug("[agent_controller] Suppressed exception in catch block:", err); }
         this.broadcastEvent('takeover:paused', { runId });
         return this.sendJson(res, 200, { success: true, runId, isPaused: true });
       }
@@ -784,16 +786,18 @@ export class AgentController extends BaseController {
       const runResumeMatch = pathname.match(/^\/api\/runs\/([^/]+)\/resume$/);
       if (req.method === 'POST' && runResumeMatch) {
         const runId = runResumeMatch[1];
+        try {
+          if (this.kernel.getRun(runId)) {
+            this.kernel.transitionState(runId, 'running');
+          }
+        } catch (err: any) {
+          return this.sendJson(res, 409, { success: false, error: err?.message || 'Cannot resume run in current state' });
+        }
         const state = this.takeoverStates.get(runId);
         if (state) {
           state.isPaused = false;
           state.authRequired = false;
         }
-        try {
-          if (this.kernel.getRun(runId)) {
-            this.kernel.transitionState(runId, 'running');
-          }
-        } catch (err) { console.debug("[agent_controller] Suppressed exception in catch block:", err); }
         this.broadcastEvent('takeover:resumed', { runId });
         return this.sendJson(res, 200, { success: true, runId, isPaused: false });
       }
@@ -802,6 +806,13 @@ export class AgentController extends BaseController {
       const runAbortMatch = pathname.match(/^\/api\/runs\/([^/]+)\/abort$/);
       if (req.method === 'POST' && runAbortMatch) {
         const runId = runAbortMatch[1];
+        try {
+          if (this.kernel.getRun(runId)) {
+            this.kernel.transitionState(runId, 'cancelled');
+          }
+        } catch (err: any) {
+          return this.sendJson(res, 409, { success: false, error: err?.message || 'Cannot abort run in current state' });
+        }
         let state = this.takeoverStates.get(runId);
         if (!state) {
           state = { runId, isPaused: false, isAborted: true };
@@ -809,11 +820,6 @@ export class AgentController extends BaseController {
         } else {
           state.isAborted = true;
         }
-        try {
-          if (this.kernel.getRun(runId)) {
-            this.kernel.transitionState(runId, 'cancelled');
-          }
-        } catch (err) { console.debug("[agent_controller] Suppressed exception in catch block:", err); }
         this.broadcastEvent('takeover:aborted', { runId });
         return this.sendJson(res, 200, { success: true, runId, isAborted: true });
       }

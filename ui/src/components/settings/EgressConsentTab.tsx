@@ -59,23 +59,29 @@ export const EgressConsentTab: React.FC = () => {
       .catch((err) => console.debug('[KIN UI] Egress fetch notice:', err));
   }, []);
 
-  const saveConsent = (updated: Partial<EgressConsentState>) => {
+  const saveConsent = async (updated: Partial<EgressConsentState>) => {
     const newState = {
       ...consent,
       ...updated,
       updatedAt: Date.now(),
     };
-    setConsent(newState);
     try {
-      localStorage.setItem(storageKey, JSON.stringify(newState));
-      fetch('/api/settings/egress', {
+      const res = await fetch('/api/settings/egress', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newState),
-      }).catch((err) => console.debug('[KIN UI] Egress sync notice:', err));
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        addToast(d?.error || 'Failed to persist Cloud Egress Policy', 'error');
+        return;
+      }
+      setConsent(newState);
+      localStorage.setItem(storageKey, JSON.stringify(newState));
       addToast('Cloud Egress Policy updated', 'success');
     } catch (err) {
       console.error('[KIN UI] Failed to persist egress consent:', err);
+      addToast('Failed to persist Cloud Egress Policy', 'error');
     }
   };
 

@@ -43,13 +43,12 @@ Returns the complete operational state of the active workspace, projects, channe
   ```json
   {
     "workspace": { "id": "ws-default", "name": "Default Workspace", "autonomyMode": "AUTO" },
-    "activeProjectId": "proj-kin",
+    "activeProject": { "id": "proj-kin", "name": "KIN", "rootPath": "/workspace/projects/kin" },
     "projects": [{ "id": "proj-kin", "name": "KIN", "rootPath": "/workspace/projects/kin" }],
     "channels": [...],
     "agents": [...],
     "goals": [...],
     "decisions": [...],
-    "schedules": [...],
     "pendingRecoveries": []
   }
   ```
@@ -93,14 +92,14 @@ Activates the target project. Automatically hot-reloads MCP servers, re-seeds th
 ### `GET /api/projects/:id/git/status`
 Returns modified, staged, untracked, added, and deleted files relative to `HEAD`.
 
-### `GET /api/projects/:id/git/diff?file=<path>`
+### `GET /api/projects/:id/git/diff?path=<path>`
 Computes a unified Git diff for a specified file.
 
 ### `POST /api/projects/:id/git/revert`
 Reverts working tree modifications for a specified file path.
 - **Request Body**:
   ```json
-  { "filePath": "src/utils.ts" }
+  { "path": "src/utils.ts" }
   ```
 
 ---
@@ -304,7 +303,7 @@ Create a high-level goal.
   {
     "title": "Migrate Database Schema",
     "description": "Refactor foreign key constraints",
-    "successCriteria": ["All tests pass", "No data loss"]
+    "acceptanceCriteria": ["All tests pass", "No data loss"]
   }
   ```
 
@@ -349,6 +348,9 @@ Create a task node in the goal's Directed Acyclic Graph (DAG) with prerequisite 
   }
   ```
 
+### `PATCH /api/tasks/:id`
+Update task DAG prerequisites (`{ "dependsOnTaskIds": ["task-1"] }`).
+
 ### `PATCH /api/tasks/:id/status`
 Update task progress (`backlog`, `ready`, `running`, `completed`, `failed`, `blocked`) and handle operator verification sign-off.
 
@@ -359,7 +361,7 @@ List Architectural Decision Records (ADRs).
 Submit a new architectural proposal.
 
 ### `PATCH /api/decisions/:id/status`
-Update decision status (`proposed`, `accepted`, `rejected`, `superseded`).
+Update decision status (`proposed`, `authoritative`, `superseded`, `rejected`).
 
 ---
 
@@ -622,8 +624,7 @@ Deactivate and delete a custom tool. Emits SSE event `custom_tool:deleted`.
 - **Response `200`**:
   ```json
   {
-    "success": true,
-    "deletedToolId": "tool-uuid-1"
+    "success": true
   }
   ```
 
@@ -661,10 +662,9 @@ Record a verified cross-task adaptation or domain lesson into the Harness² impr
   {
     "projectId": "proj-kin",
     "domain": "sqlite_concurrency",
+    "componentType": "storage",
     "problemSignature": "database_is_locked",
-    "improvementType": "retry_backoff",
-    "patchDescription": "Apply exponential jitter retry on SQLITE_BUSY before re-querying.",
-    "sourceTaskId": "task-uuid-42"
+    "verifiedAdaptation": "Apply exponential jitter retry on SQLITE_BUSY before re-querying."
   }
   ```
 - **Response `200`**:

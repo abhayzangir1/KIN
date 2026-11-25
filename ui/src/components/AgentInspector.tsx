@@ -47,6 +47,22 @@ import { UnifiedDiffViewer } from './code/UnifiedDiffViewer.js';
 
 export const AgentInspector: React.FC = () => {
   const [worktreeBusy, setWorktreeBusy] = useState(false);
+  const [openExceptions, setOpenExceptions] = useState<Array<{ id: string; title?: string; error?: string; kind?: string; severity?: string; createdAt?: number }>>([]);
+  const [resolvingExceptionId, setResolvingExceptionId] = useState<string | null>(null);
+
+  const fetchOpenExceptions = async () => {
+    try {
+      const res = await fetch('/api/exceptions?status=open');
+      if (!res.ok) return;
+      const d = await res.json().catch(() => ({}));
+      if (Array.isArray(d?.exceptions)) {
+        setOpenExceptions(d.exceptions);
+      }
+    } catch {
+      // Ignore transient poll errors
+    }
+  };
+
   const {
     agents,
     selectedAgentId,
@@ -146,6 +162,10 @@ export const AgentInspector: React.FC = () => {
       addToast: s.addToast,
     }))
   );
+
+  useEffect(() => {
+    void fetchOpenExceptions();
+  }, [activeRightTab]);
 
   const currentAgent = agents.find((a) => a.id === selectedAgentId) || agents[0];
 
@@ -808,6 +828,84 @@ export const AgentInspector: React.FC = () => {
       {/* ========================================================================= */}
       {activeRightTab === 'Review' && (
         <div className="flex-1 flex flex-col min-h-0 bg-kin-bg">
+          {(activeChannelId || openExceptions.length > 0) && (
+            <div className="px-2.5 py-1.5 border-b border-kin-border bg-kin-surface flex items-center justify-between gap-2 flex-wrap">
+              {activeChannelId && (
+                <div className="flex items-center space-x-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-kin-muted mr-1">Worktree:</span>
+                  {(['undo', 'redo', 'fork'] as const).map((op) => (
+                    <button
+                      key={op}
+                      type="button"
+                      disabled={worktreeBusy}
+                      onClick={async () => {
+                        if (worktreeBusy) return;
+                        setWorktreeBusy(true);
+                        try {
+                          const res = await fetch(`/api/channels/${encodeURIComponent(activeChannelId)}/worktree/${op}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({}),
+                          });
+                          const d = await res.json().catch(() => ({}));
+                          if (res.ok && d?.success) {
+                            addToast(`Worktree ${op} succeeded`, 'success');
+                            if (activeProject?.id) {
+                              await fetchGitStatus(activeProject.id);
+                            }
+                          } else {
+                            addToast(d?.error || `Worktree ${op} failed`, 'error');
+                          }
+                        } catch {
+                          addToast(`Worktree ${op} request failed`, 'error');
+                        } finally {
+                          setWorktreeBusy(false);
+                        }
+                      }}
+                      className="px-1.5 py-0.5 rounded bg-kin-card hover:bg-kin-cardHover disabled:opacity-50 text-[10px] text-kin-muted hover:text-kin-text border border-kin-border capitalize transition cursor-pointer disabled:cursor-not-allowed"
+                      title={`Git worktree ${op}`}
+                    >
+                      {op}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {openExceptions.length > 0 && (
+                <div className="flex items-center space-x-1.5 text-[10px] text-amber-300">
+                  <span>{openExceptions.length} Open Exception{openExceptions.length > 1 ? 's' : ''}</span>
+                  <button
+                    type="button"
+                    disabled={resolvingExceptionId === openExceptions[0].id}
+                    onClick={async () => {
+                      const target = openExceptions[0];
+                      setResolvingExceptionId(target.id);
+                      try {
+                        const res = await fetch(`/api/exceptions/${encodeURIComponent(target.id)}/resolve`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ resolution: 'Resolved from inspector' }),
+                        });
+                        if (res.ok) {
+                          addToast('Exception resolved', 'success');
+                          await fetchOpenExceptions();
+                        } else {
+                          addToast('Failed to resolve exception', 'error');
+                        }
+                      } catch {
+                        addToast('Failed to resolve exception', 'error');
+                      } finally {
+                        setResolvingExceptionId(null);
+                      }
+                    }}
+                    className="px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 transition cursor-pointer"
+                    title={openExceptions[0].error || openExceptions[0].title || 'Resolve top open exception'}
+                  >
+                    Resolve Next
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           {gitStatus.files.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-kin-muted space-y-3">
               <CheckCircle2 className="w-10 h-10 text-emerald-400" />
@@ -958,47 +1056,6 @@ export const AgentInspector: React.FC = () => {
                         </>
                       )}
                     </button>
-
-                    {/* Worktree Undo / Redo / Fork Controls */}
-                    {activeChannelId && (
-                      <div className="flex items-center space-x-1 ml-1">
-                        {(['undo', 'redo', 'fork'] as const).map((op) => (
-                          <button
-                            key={op}
-                            type="button"
-                            disabled={worktreeBusy}
-                            onClick={async () => {
-                              if (worktreeBusy) return;
-                              setWorktreeBusy(true);
-                              try {
-                                const res = await fetch(`/api/channels/${encodeURIComponent(activeChannelId)}/worktree/${op}`, {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({}),
-                                });
-                                const d = await res.json().catch(() => ({}));
-                                if (res.ok && d?.success) {
-                                  addToast(`Worktree ${op} succeeded`, 'success');
-                                  if (activeProject?.id) {
-                                    await fetchGitStatus(activeProject.id);
-                                  }
-                                } else {
-                                  addToast(d?.error || `Worktree ${op} failed`, 'error');
-                                }
-                              } catch {
-                                addToast(`Worktree ${op} request failed`, 'error');
-                              } finally {
-                                setWorktreeBusy(false);
-                              }
-                            }}
-                            className="px-1.5 py-0.5 rounded bg-kin-card hover:bg-kin-cardHover disabled:opacity-50 text-[10px] text-kin-muted hover:text-kin-text border border-kin-border capitalize transition cursor-pointer disabled:cursor-not-allowed"
-                            title={`Git worktree ${op}`}
-                          >
-                            {op}
-                          </button>
-                        ))}
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>

@@ -349,17 +349,28 @@ impl ProcessSupervisor {
         let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf()));
 
-        // 1. Check for standalone sidecar binary
-        let sidecar_names = [
-            "kin-core.exe",
-            "kin-core",
-            "kin-core-x86_64-pc-windows-msvc.exe",
-            "kin-core-x86_64-pc-windows-gnu.exe",
-            "kin-core-x86_64-unknown-linux-gnu",
-            "kin-core-aarch64-unknown-linux-gnu",
-            "kin-core-x86_64-apple-darwin",
-            "kin-core-aarch64-apple-darwin",
-        ];
+        // 1. Check for standalone sidecar binary matching current target OS/arch
+        #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+        let sidecar_names = ["kin-core-x86_64-pc-windows-msvc.exe", "kin-core-x86_64-pc-windows-gnu.exe", "kin-core.exe"];
+        #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+        let sidecar_names = ["kin-core-aarch64-pc-windows-msvc.exe", "kin-core.exe"];
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        let sidecar_names = ["kin-core-x86_64-unknown-linux-gnu", "kin-core"];
+        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+        let sidecar_names = ["kin-core-aarch64-unknown-linux-gnu", "kin-core"];
+        #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+        let sidecar_names = ["kin-core-x86_64-apple-darwin", "kin-core"];
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        let sidecar_names = ["kin-core-aarch64-apple-darwin", "kin-core"];
+        #[cfg(not(any(
+            all(target_os = "windows", target_arch = "x86_64"),
+            all(target_os = "windows", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "x86_64"),
+            all(target_os = "linux", target_arch = "aarch64"),
+            all(target_os = "macos", target_arch = "x86_64"),
+            all(target_os = "macos", target_arch = "aarch64")
+        )))]
+        let sidecar_names = ["kin-core"];
 
         let mut sidecar_search_dirs = Vec::new();
         if let Some(ref ed) = exe_dir {

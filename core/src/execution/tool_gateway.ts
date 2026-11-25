@@ -4595,6 +4595,7 @@ export class ToolGateway {
       }
 
       let hasAborted = false;
+      let onAbort: (() => void) | undefined;
       const child = exec(
         command,
         {
@@ -4606,6 +4607,9 @@ export class ToolGateway {
           shell: isWin ? 'cmd.exe' : '/bin/bash',
         },
         (error, stdout, stderr) => {
+          if (abortSignal && onAbort) {
+            abortSignal.removeEventListener('abort', onAbort);
+          }
           if (hasAborted) return;
           if (error && error.killed) {
             if (child.pid) {
@@ -4649,7 +4653,7 @@ export class ToolGateway {
           return reject(new Error('Shell execution cancelled by operator via AbortSignal.'));
         }
 
-        abortSignal.addEventListener('abort', () => {
+        onAbort = () => {
           hasAborted = true;
           try {
             if (child.pid) {
@@ -4664,7 +4668,8 @@ export class ToolGateway {
             }
           } catch (err) { console.debug("[tool_gateway] Suppressed exception in catch block:", err); }
           reject(new Error('Shell execution cancelled by operator via AbortSignal.'));
-        }, { once: true });
+        };
+        abortSignal.addEventListener('abort', onAbort, { once: true });
       }
     });
   }

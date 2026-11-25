@@ -186,11 +186,16 @@ export class OAuthHandler {
               redirect_uri: redirectUri,
             }),
           });
+          if (!tokenRes.ok) {
+            throw new Error(`GitHub token exchange failed with status ${tokenRes.status}`);
+          }
           const tokenData = await tokenRes.json();
           accessToken = tokenData.access_token || '';
         } else {
-          // In PKCE / direct mode, record code as token identifier
-          accessToken = code;
+          throw new Error('KIN_GITHUB_CLIENT_SECRET is not configured for GitHub OAuth token exchange.');
+        }
+        if (!accessToken) {
+          throw new Error('GitHub OAuth did not return an access_token.');
         }
 
         // Try to fetch GitHub username if accessToken is valid
@@ -488,6 +493,9 @@ export class OAuthHandler {
       }),
       signal: AbortSignal.timeout(10000),
     });
+    if (!res.ok) {
+      throw new Error(`GitHub device token poll failed (${res.status})`);
+    }
     return await res.json();
   }
 

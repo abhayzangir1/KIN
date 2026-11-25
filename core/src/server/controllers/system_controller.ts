@@ -415,6 +415,16 @@ export class SystemController extends BaseController {
         if (!body.modelId || !body.modelId.trim()) {
           return this.sendJson(res, 400, { error: 'modelId is required' });
         }
+        if (body.baseUrl) {
+          try {
+            const parsedUrl = new URL(String(body.baseUrl).trim());
+            if ((parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') || ToolGateway.isMetadataService(parsedUrl.hostname)) {
+              return this.sendJson(res, 403, { error: 'Blocked or unsupported baseUrl for custom model.' });
+            }
+          } catch {
+            return this.sendJson(res, 400, { error: 'Invalid baseUrl format.' });
+          }
+        }
         const trimmed = body.modelId.trim();
         const slashIdx = trimmed.indexOf('/');
         const detectedProvider = slashIdx !== -1 ? trimmed.substring(0, slashIdx).toLowerCase() : (body.provider || 'custom');
@@ -1891,6 +1901,16 @@ export class SystemController extends BaseController {
         const keyName = body.keyName || body.keyAlias || body.key;
         let apiKey = body.apiKey || body.secret || body.value;
         const baseUrl = (body.baseUrl || body.endpointUrl || body.base_url || '').trim() || null;
+        if (baseUrl) {
+          try {
+            const parsedUrl = new URL(baseUrl);
+            if ((parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') || ToolGateway.isMetadataService(parsedUrl.hostname)) {
+              return this.sendJson(res, 403, { error: 'Blocked or unsupported baseUrl for credential.' });
+            }
+          } catch {
+            return this.sendJson(res, 400, { error: 'Invalid baseUrl format.' });
+          }
+        }
         const monthlyQuotaTokens = body.monthlyQuotaTokens || body.maxSpendTokens || 5000000;
         const scopedAgentIds = body.scopedAgentIds || body.scopedGrants || [];
 
@@ -2076,6 +2096,16 @@ export class SystemController extends BaseController {
         const provider = body.provider || existing.provider;
         const keyName = body.keyName || body.keyAlias || body.key || existing.key_alias;
         const baseUrl = body.baseUrl !== undefined ? (String(body.baseUrl).trim() || null) : (body.endpointUrl !== undefined ? (String(body.endpointUrl).trim() || null) : (existing.base_url || null));
+        if (baseUrl) {
+          try {
+            const parsedUrl = new URL(baseUrl);
+            if ((parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') || ToolGateway.isMetadataService(parsedUrl.hostname)) {
+              return this.sendJson(res, 403, { error: 'Blocked or unsupported baseUrl for credential.' });
+            }
+          } catch {
+            return this.sendJson(res, 400, { error: 'Invalid baseUrl format.' });
+          }
+        }
         const monthlyQuotaTokens = body.monthlyQuotaTokens !== undefined ? Number(body.monthlyQuotaTokens) : existing.max_spend_tokens;
         const scopedAgentIds = body.scopedAgentIds || body.scopedGrants || (existing.scoped_grants_json ? JSON.parse(existing.scoped_grants_json) : []);
 
@@ -2376,13 +2406,16 @@ export class SystemController extends BaseController {
           const data = await OAuthHandler.pollGitHubDeviceToken(body.deviceCode, body.clientId);
           if (data?.access_token && this.db) {
             const { CredentialScanner } = await import('../../security/credential_scanner.js');
-            CredentialScanner.importCredential(this.db, {
+            const imported = CredentialScanner.importCredential(this.db, {
               provider: 'github',
               keyAlias: 'github-device-oauth',
               token: data.access_token,
             });
+            if (!imported?.success) {
+              return this.sendJson(res, 500, { success: false, error: imported?.error || 'Failed to store GitHub credential' });
+            }
           }
-          return this.sendJson(res, 200, { success: true, ...data });
+          return this.sendJson(res, 200, { success: !data?.error, ...data });
         } catch (err: any) {
           return this.sendJson(res, 400, { success: false, error: err?.message || String(err) });
         }

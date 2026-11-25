@@ -183,7 +183,7 @@ No optional framework becomes the authority for these product concerns.
 - filesystem
 - shell/processes
 - git
-- Playwright/browser
+- Puppeteer browser
 - HTTP/search/fetch adapters
 - document operations
 - scheduling

@@ -207,6 +207,7 @@ try {
       console.log(`[KIN PACKAGE] Successfully populated sidecar binary: ${dest} (${(stat.size / (1024 * 1024)).toFixed(1)} MB)`);
     } catch (err) {
       console.error(`[KIN PACKAGE] Error copying sidecar binary to ${dest}:`, err.message);
+      throw err;
     }
   }
 } finally {
